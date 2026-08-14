@@ -90,6 +90,17 @@ Verified in one spawned process (`spikes/02-multiturn-image.sh`):
 So M4's persistent conversation and screenshot paste both work over plain
 stream-json stdin. No `--resume` needed within a live session.
 
+### Resume (spike 3, for the dispatcher)
+
+- `claude -p "<instruction>" --resume <sessionId>` CONTINUES the same session:
+  same `session_id` in the result, same jsonl file appended (verified 8 -> 14
+  lines, no new file). No fork unless `--fork-session` is passed.
+- Cost on a small resumed session: ~$0.001 (prompt cache read).
+- Resuming a session that is OPEN in an interactive terminal is untested and
+  risky (two writers, confusing UX). Design decision: the dispatcher refuses
+  to target sessions listed by `claude agents --json` and asks the user to
+  close them or pick another session.
+
 ### Session listing
 
 `claude agents --json` lists live sessions (pid, cwd, sessionId, name, status)

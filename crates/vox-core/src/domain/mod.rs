@@ -2,6 +2,7 @@
 
 pub mod claude_event;
 pub mod context;
+pub mod dispatch;
 pub mod intent;
 pub mod memory;
 pub mod prompt;

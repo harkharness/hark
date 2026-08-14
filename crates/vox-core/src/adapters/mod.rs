@@ -7,3 +7,4 @@ pub mod live_sessions;
 pub mod memory_files;
 pub mod sqlite_store;
 pub mod state_file;
+pub mod worker;

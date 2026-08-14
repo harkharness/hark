@@ -19,6 +19,10 @@ pub fn parse_agents_json(json: &str) -> Vec<LiveSession> {
                     .get("status")
                     .and_then(Value::as_str)
                     .map(String::from),
+                session_id: item
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .map(String::from),
             })
         })
         .collect()

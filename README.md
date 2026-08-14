@@ -26,9 +26,23 @@ cargo build --release -p vox-cli
 
 # Debug: print the exact prompt that would be sent, without calling Claude
 ./target/release/vox prompt "what did I leave pending today?"
+
+# Contexts (kubectl-style focus per workspace; see Configuration)
+./target/release/vox contexts
+./target/release/vox use myproject
+
+# Dispatch real work INTO an existing session (resumes it, full settings,
+# every privileged tool call asks you y/N in the terminal)
+./target/release/vox dispatch "continue the webhook migration, open the DNS PR"
+./target/release/vox dispatch --session <id> "…"   # explicit target
+./target/release/vox ps                             # machine-wide worker registry
 ```
 
 Optional: `cargo install --path crates/vox-cli` puts `vox` on your PATH.
+
+Vox keeps a `.vox/` directory in each workspace it touches (Q&A journal,
+dispatch state and briefs). Add `.vox/` to your global gitignore, or commit it
+if you want the trail visible to your team.
 
 ## What it will do
 

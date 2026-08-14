@@ -9,6 +9,7 @@ pub struct LiveSession {
     pub name: String,
     pub cwd: String,
     pub status: Option<String>,
+    pub session_id: Option<String>,
 }
 
 /// Working-tree status of one configured repository.
@@ -246,6 +247,7 @@ mod tests {
                 name: "beta-42".into(),
                 cwd: "/home/dev/beta".into(),
                 status: Some("idle".into()),
+                session_id: Some("live1".into()),
             }],
             repos: vec![RepoStatus {
                 path: "/home/dev/beta".into(),

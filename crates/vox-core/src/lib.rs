@@ -11,3 +11,6 @@ pub mod app;
 pub mod config;
 pub mod domain;
 pub mod ports;
+
+/// Re-export for drivers that need timestamps without their own dependency.
+pub use chrono;

@@ -63,6 +63,23 @@ pub fn snapshot_for_question(deps: &mut AskDeps, question: &str) -> anyhow::Resu
     build_snapshot_with(deps, hours, context.as_ref())
 }
 
+/// Snapshot for dispatch target hunting: context from the instruction,
+/// explicit (wide) window.
+pub fn snapshot_for_target(
+    deps: &mut AskDeps,
+    instruction: &str,
+    hours: i64,
+) -> anyhow::Result<Snapshot> {
+    let context = resolve_context(deps, Some(instruction));
+    build_snapshot_with(deps, hours, context.as_ref())
+}
+
+/// Snapshot with NO context filter (used when the user names a session
+/// explicitly; an explicit id must never be hidden by the active context).
+pub fn snapshot_unfiltered(deps: &mut AskDeps, hours: i64) -> anyhow::Result<Snapshot> {
+    build_snapshot_with(deps, hours, None)
+}
+
 /// hint in the question > active (vox use) > config default > None ("all").
 fn resolve_context(deps: &AskDeps, question: Option<&str>) -> Option<ContextDef> {
     let names = deps.config.context_names();
