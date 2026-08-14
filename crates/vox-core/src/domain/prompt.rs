@@ -56,8 +56,9 @@ Responda em portugues brasileiro. Seja direto e pratico. \
 O campo 'fala' sera lido em voz alta: frases curtas, sem jargao visual. \
 O campo 'detalhes' aparece na tela e pode ter precisao tecnica completa.";
 
-/// Sessions rendered into the prompt, newest first.
-pub const MAX_SESSIONS: usize = 15;
+/// Sessions rendered into the prompt, newest first. Sized so a full week of
+/// heavy usage still fits at a few cents per question.
+pub const MAX_SESSIONS: usize = 30;
 /// Character budget per rendered user prompt from the history.
 const MAX_PROMPT_CHARS: usize = 220;
 

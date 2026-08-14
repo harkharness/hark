@@ -16,21 +16,28 @@ pub struct AskDeps<'a> {
 }
 
 /// Refresh the index, assemble the snapshot, ask Claude.
+/// The lookback window adapts to the question ("hoje", "semana", "mês").
 pub fn ask(
     question: &str,
     deps: &mut AskDeps,
     on_event: &mut dyn FnMut(&ClaudeEvent),
 ) -> anyhow::Result<TurnResult> {
-    let snapshot = build_snapshot(deps)?;
+    let hours = crate::domain::intent::window_hours(question, deps.config.hours_back);
+    let snapshot = build_snapshot_hours(deps, hours)?;
     let prompt = prompt::build(question, &snapshot);
     deps.runner.ask(&prompt, on_event)
 }
 
-/// Index refresh + context gathering, shared with future `sessions` command.
+/// Index refresh + context gathering, shared with the `sessions` command.
 pub fn build_snapshot(deps: &mut AskDeps) -> anyhow::Result<Snapshot> {
+    let hours = deps.config.hours_back;
+    build_snapshot_hours(deps, hours)
+}
+
+fn build_snapshot_hours(deps: &mut AskDeps, hours: i64) -> anyhow::Result<Snapshot> {
     refresh_index(&deps.config.projects_dir, deps.store)?;
-    let since = (Utc::now() - Duration::hours(deps.config.hours_back))
-        .to_rfc3339_opts(SecondsFormat::Millis, true);
+    let since =
+        (Utc::now() - Duration::hours(hours)).to_rfc3339_opts(SecondsFormat::Millis, true);
     Ok(Snapshot {
         generated_at: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
         sessions: deps.store.sessions_since(&since)?,
