@@ -29,9 +29,12 @@ fn main() {
             cmd_dispatch(&words, session.as_deref())
         }
         Some((cmd, _)) if cmd == "ps" => cmd_ps(),
+        Some((cmd, _)) if cmd == "setup" => cmd_setup(),
+        Some((cmd, _)) if cmd == "hear" => cmd_hear(),
+        Some((cmd, _)) if cmd == "listen" => cmd_listen(),
         _ => {
             eprintln!(
-                "usage: vox ask \"<q>\" | vox dispatch [--session <id>] \"<instruction>\" | vox ps | vox index | vox sessions | vox use <context> | vox contexts"
+                "usage: vox listen | vox hear | vox setup | vox ask \"<q>\" | vox dispatch [--session <id>] \"<instruction>\" | vox ps | vox index | vox sessions | vox use <context> | vox contexts"
             );
             2
         }
@@ -399,6 +402,189 @@ fn cmd_ps() -> i32 {
         );
     }
     0
+}
+
+/// Download the default whisper model into the data dir.
+fn cmd_setup() -> i32 {
+    let config = Config::load();
+    let path = config.whisper_model_path();
+    if path.exists() {
+        println!("whisper model ok: {}", path.display());
+        return 0;
+    }
+    let dir = path.parent().expect("model dir");
+    if std::fs::create_dir_all(dir).is_err() {
+        eprintln!("vox: cannot create {}", dir.display());
+        return 1;
+    }
+    let url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin";
+    println!("downloading {url} (~466MB)…");
+    let status = std::process::Command::new("curl")
+        .args(["-fSL", "--progress-bar", "-o"])
+        .arg(&path)
+        .arg(url)
+        .status();
+    match status {
+        Ok(s) if s.success() => {
+            println!("done: {}", path.display());
+            0
+        }
+        _ => {
+            eprintln!("vox: download failed");
+            1
+        }
+    }
+}
+
+fn load_voice(config: &Config) -> anyhow::Result<(vox_core::adapters::whisper_stt::WhisperStt, vox_core::adapters::say_tts::SayTts, vox_core::adapters::cpal_audio::CpalMic)> {
+    use vox_core::adapters::{cpal_audio::CpalMic, say_tts::SayTts, whisper_stt::WhisperStt};
+    eprint!("loading whisper… ");
+    let stt = WhisperStt::load(&config.whisper_model_path(), &config.language, &config.vocab)?;
+    stt.warmup();
+    eprintln!("ready");
+    Ok((stt, SayTts { voice: config.voice.clone() }, CpalMic::default()))
+}
+
+/// Mic test: record one utterance, print the transcript. No Claude, no cost.
+fn cmd_hear() -> i32 {
+    use vox_core::ports::{AudioIn, Cue, Stt, Tts};
+    let config = Config::load();
+    let (stt, tts, mic) = match load_voice(&config) {
+        Ok(v) => v,
+        Err(err) => {
+            eprintln!("vox: {err:#}");
+            return 1;
+        }
+    };
+    tts.beep(Cue::Listening);
+    eprintln!("🎤 fala (corta sozinho no silêncio)…");
+    match mic.record_utterance().and_then(|audio| {
+        tts.beep(Cue::Captured);
+        stt.transcribe(&audio)
+    }) {
+        Ok(text) => {
+            println!("{text}");
+            0
+        }
+        Err(err) => {
+            tts.beep(Cue::Error);
+            eprintln!("vox: {err:#}");
+            1
+        }
+    }
+}
+
+/// The JARVIS loop: hear -> route (ask|dispatch) -> speak.
+fn cmd_listen() -> i32 {
+    use vox_core::domain::intent::{is_affirmative, route, Route};
+    use vox_core::ports::{AudioIn, Cue, Stt, Tts};
+
+    let config = Config::load();
+    let (stt, tts, mic) = match load_voice(&config) {
+        Ok(v) => v,
+        Err(err) => {
+            eprintln!("vox: {err:#}");
+            return 1;
+        }
+    };
+    let hear = |prompt: &str| -> Option<String> {
+        eprintln!("{prompt}");
+        tts.beep(Cue::Listening);
+        let audio = mic.record_utterance().ok()?;
+        tts.beep(Cue::Captured);
+        let text = stt.transcribe(&audio).ok()?;
+        (!text.is_empty()).then_some(text)
+    };
+
+    eprintln!("vox ouvindo. Diga \"sair\" para encerrar. Ctrl+C também funciona.");
+    loop {
+        let Some(text) = hear("🎤 pode falar…") else {
+            continue;
+        };
+        eprintln!("» {text}");
+        let lower = text.to_lowercase();
+        if ["sair", "encerra", "tchau", "desliga"].iter().any(|w| lower.contains(w)) {
+            let _ = tts.speak("Até mais.");
+            return 0;
+        }
+        match route(&text) {
+            Route::Ask => {
+                let code = cmd_ask_spoken(&text, &tts);
+                if code != 0 {
+                    tts.beep(Cue::Error);
+                }
+            }
+            Route::Dispatch => {
+                let _ = tts.speak(&format!("Entendi: {text}. Confirma?"));
+                match hear("🎤 confirma? (sim/não)…") {
+                    Some(answer) if is_affirmative(&answer) => {
+                        let _ = tts.speak("Despachando. Aprovações continuam pelo teclado.");
+                        let code = cmd_dispatch(&text, None);
+                        let _ = match code {
+                            0 => tts.speak("Tarefa concluída."),
+                            3 => tts.speak("Ficou ambíguo. Olha o terminal e escolhe a sessão."),
+                            4 => tts.speak("A sessão alvo está aberta num terminal. Fecha ela primeiro."),
+                            5 => tts.speak("Não achei sessão pra isso. Usa o terminal com --session."),
+                            _ => tts.speak("Falhou. Detalhes no terminal."),
+                        };
+                    }
+                    _ => {
+                        let _ = tts.speak("Cancelado.");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `ask` variant that also speaks the `fala` field.
+fn cmd_ask_spoken(question: &str, tts: &impl vox_core::ports::Tts) -> i32 {
+    let config = Config::load();
+    let result = (|| -> anyhow::Result<_> {
+        let mut store = open_store(&config)?;
+        let state = state_file::load(&config.data_dir());
+        let mut deps = AskDeps {
+            active_context: state.active_context,
+            workers: state.workers,
+            journal: &vox_core::adapters::memory_files::VoxDir,
+            store: &mut store,
+            live: &ClaudeAgentsCli {
+                claude_bin: config.claude_bin.clone(),
+            },
+            repos: &GitCli,
+            runner: &ClaudeCli {
+                claude_bin: config.claude_bin.clone(),
+                model: config.model.clone(),
+                work_dir: config.data_dir(),
+            },
+            config: &config,
+        };
+        ask(question, &mut deps, &mut |_| {})
+    })();
+
+    match result {
+        Ok(turn) if !turn.is_error => {
+            if let Some(reply) = turn.reply {
+                println!("🔊 {}\n\n{}", reply.fala, reply.detalhes);
+                for item in &reply.itens {
+                    println!("  • {item}");
+                }
+                let _ = tts.speak(&reply.fala);
+            } else {
+                println!("{}", turn.raw);
+                let _ = tts.speak(&turn.raw.chars().take(300).collect::<String>());
+            }
+            0
+        }
+        Ok(turn) => {
+            eprintln!("claude error: {}", turn.raw);
+            1
+        }
+        Err(err) => {
+            eprintln!("vox: {err:#}");
+            1
+        }
+    }
 }
 
 fn now_iso() -> String {

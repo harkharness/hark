@@ -45,3 +45,29 @@ pub trait Journal {
     fn tail(&self, root: &std::path::Path, n: usize) -> Vec<String>;
     fn append(&self, root: &std::path::Path, entry: &str) -> anyhow::Result<()>;
 }
+
+/// Records one utterance: 16kHz mono f32 until end-of-speech (VAD) or stop.
+pub trait AudioIn {
+    fn record_utterance(&self) -> anyhow::Result<Vec<f32>>;
+}
+
+/// Speech to text.
+pub trait Stt {
+    fn transcribe(&self, samples: &[f32]) -> anyhow::Result<String>;
+}
+
+/// Text to speech plus short cue sounds.
+pub trait Tts {
+    fn speak(&self, text: &str) -> anyhow::Result<()>;
+    fn beep(&self, kind: Cue);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cue {
+    /// Recording started, go ahead and talk.
+    Listening,
+    /// Utterance captured.
+    Captured,
+    /// Something failed.
+    Error,
+}

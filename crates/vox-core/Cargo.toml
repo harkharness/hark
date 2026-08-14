@@ -12,6 +12,8 @@ thiserror.workspace = true
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 toml = "0.8"
+cpal = "0.15"
+whisper-rs = { version = "0.14", features = ["metal"] }
 
 [dev-dependencies]
 tempfile = "3"

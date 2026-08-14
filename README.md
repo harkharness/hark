@@ -38,6 +38,22 @@ cargo build --release -p vox-cli
 ./target/release/vox ps                             # machine-wide worker registry
 ```
 
+## Voice (the JARVIS loop)
+
+```bash
+./target/release/vox setup    # one-time: downloads the whisper model (~466MB)
+./target/release/vox hear     # mic test: records one utterance, prints transcript (free)
+./target/release/vox listen   # full loop: speak -> answer out loud; say "sair" to quit
+```
+
+- Questions ("quais as pendências de hoje?") are answered out loud (cheap fast mode).
+- Instructions ("continua a migração do X") are echoed back for spoken
+  confirmation, then dispatched to the matching session; permission approvals
+  stay on the keyboard (y/N).
+- STT runs fully local (whisper.cpp + Metal); TTS is the system `say` voice.
+- macOS will ask for microphone permission for your terminal on first use
+  (System Settings -> Privacy & Security -> Microphone).
+
 Optional: `cargo install --path crates/vox-cli` puts `vox` on your PATH.
 
 Vox keeps a `.vox/` directory in each workspace it touches (Q&A journal,

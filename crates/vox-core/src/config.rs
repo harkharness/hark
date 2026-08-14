@@ -32,6 +32,14 @@ pub struct Config {
     pub default_context: String,
     /// Named focus areas, kubectl-context style.
     pub contexts: BTreeMap<String, ContextTable>,
+    /// STT language (whisper).
+    pub language: String,
+    /// macOS `say` voice for answers.
+    pub voice: String,
+    /// Whisper ggml model path; empty means `<data_dir>/models/ggml-small.bin`.
+    pub whisper_model: String,
+    /// Vocabulary bias fed to whisper (helps tech terms inside pt-BR speech).
+    pub vocab: Vec<String>,
 }
 
 impl Default for Config {
@@ -44,6 +52,16 @@ impl Default for Config {
             hours_back: 36,
             default_context: "all".into(),
             contexts: BTreeMap::new(),
+            language: "pt".into(),
+            voice: "Luciana".into(),
+            whisper_model: String::new(),
+            vocab: [
+                "webhook", "pull request", "PR", "deploy", "Claude Code", "branch", "commit",
+                "migração", "cluster", "vox",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
         }
     }
 }
@@ -71,6 +89,15 @@ impl Config {
             match_cwd: t.match_cwd.iter().map(|p| expand_home(p)).collect(),
             repos: t.repos.iter().map(|p| expand_home(p)).collect(),
         })
+    }
+
+    /// Resolved whisper model path (config override or data-dir default).
+    pub fn whisper_model_path(&self) -> PathBuf {
+        if self.whisper_model.is_empty() {
+            self.data_dir().join("models").join("ggml-small.bin")
+        } else {
+            PathBuf::from(expand_home(&self.whisper_model))
+        }
     }
 
     /// Local state directory (index database, whisper models later).

@@ -19,9 +19,80 @@ pub fn window_hours(question: &str, default_hours: i64) -> i64 {
         .unwrap_or(default_hours)
 }
 
+/// Where a spoken utterance should go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// Read-only question about state/history (cheap fast mode).
+    Ask,
+    /// Instruction that changes things: needs confirmation + a worker.
+    Dispatch,
+}
+
+const ACTION_VERBS: &[&str] = &[
+    "abre", "abra", "ajusta", "aplica", "atualiza", "commita", "continua", "corrige", "cria",
+    "crie", "deleta", "deploya", "executa", "faz", "faça", "gera", "implementa", "instala",
+    "merge", "mergeia", "migra", "prepara", "remove", "renomeia", "roda", "rode", "sobe",
+];
+
+/// Classify an utterance. Questions win over verbs: "o que falta pra abrir o
+/// PR?" is an Ask even though it mentions an action.
+pub fn route(utterance: &str) -> Route {
+    let lower = utterance.to_lowercase();
+    let question = lower.ends_with('?')
+        || ["quais", "qual", "quanto", "quando", "onde", "quem", "o que", "como", "tem "]
+            .iter()
+            .any(|q| lower.starts_with(q));
+    if question {
+        return Route::Ask;
+    }
+    let first_words: Vec<&str> = lower.split_whitespace().take(4).collect();
+    let acts = first_words
+        .iter()
+        .any(|w| ACTION_VERBS.contains(&w.trim_matches(|c: char| !c.is_alphabetic())));
+    if acts {
+        Route::Dispatch
+    } else {
+        Route::Ask
+    }
+}
+
+/// Interpret a spoken yes/no confirmation.
+pub fn is_affirmative(utterance: &str) -> bool {
+    let lower = utterance.to_lowercase();
+    ["sim", "pode", "confirmo", "confirma", "vai", "manda", "bora", "yes", "aprova"]
+        .iter()
+        .any(|w| lower.contains(w))
+        && !lower.contains("não")
+        && !lower.contains("nao")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn routes_questions_to_ask() {
+        assert_eq!(route("quais são as pendências de hoje?"), Route::Ask);
+        assert_eq!(route("como está a migração do webhook"), Route::Ask);
+        assert_eq!(route("o que falta pra abrir o PR?"), Route::Ask);
+        assert_eq!(route("me dá um resumo da semana"), Route::Ask);
+    }
+
+    #[test]
+    fn routes_actions_to_dispatch() {
+        assert_eq!(route("continua a migração de assinaturas"), Route::Dispatch);
+        assert_eq!(route("abre o PR do DNS antigo"), Route::Dispatch);
+        assert_eq!(route("agora roda os testes do webhook"), Route::Dispatch);
+    }
+
+    #[test]
+    fn confirmations_parse_pt_br() {
+        assert!(is_affirmative("sim, pode mandar"));
+        assert!(is_affirmative("confirmo"));
+        assert!(!is_affirmative("não"));
+        assert!(!is_affirmative("não pode"));
+        assert!(!is_affirmative("espera"));
+    }
 
     #[test]
     fn detects_time_window_from_question() {
