@@ -1,0 +1,13 @@
+[package]
+name = "vox-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "vox"
+path = "src/main.rs"
+
+[dependencies]
+vox-core = { path = "../vox-core" }
+anyhow.workspace = true

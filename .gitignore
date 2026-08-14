@@ -1,0 +1,23 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Node / frontend (Tauri UI, added in M2)
+node_modules/
+dist/
+
+# Local data: NEVER commit. The index and recordings may contain
+# fragments of your private Claude Code history.
+*.db
+*.sqlite
+*.wav
+*.aiff
+recordings/
+models/
+*.bin
+
+# OS
+.DS_Store
+
+# Spike scratch output
+spikes/out/
