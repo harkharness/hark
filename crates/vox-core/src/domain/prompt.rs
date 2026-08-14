@@ -39,7 +39,7 @@ pub const RESPONSE_SCHEMA: &str = r#"{
     },
     "detalhes": {
       "type": "string",
-      "description": "Detalhes completos para leitura na tela. Pode conter caminhos e referencias."
+      "description": "Resumo objetivo para leitura na tela, no maximo 10 linhas. Pode conter caminhos e referencias. Sem repetir o conteudo de 'fala'."
     },
     "itens": {
       "type": "array",
@@ -55,6 +55,23 @@ pub const VOICE_SYSTEM_PROMPT: &str = "Voce e o Vox, assistente de voz de um eng
 Responda em portugues brasileiro. Seja direto e pratico. \
 O campo 'fala' sera lido em voz alta: frases curtas, sem jargao visual. \
 O campo 'detalhes' aparece na tela e pode ter precisao tecnica completa.";
+
+/// Sessions rendered into the prompt, newest first.
+pub const MAX_SESSIONS: usize = 15;
+/// Character budget per rendered user prompt from the history.
+const MAX_PROMPT_CHARS: usize = 220;
+
+/// Collapse whitespace and clamp to `max` chars (ellipsis when truncated).
+/// Keeps giant pasted logs in the history from exploding the context.
+fn compact(text: &str, max: usize) -> String {
+    let joined = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if joined.chars().count() <= max {
+        return joined;
+    }
+    let mut clamped: String = joined.chars().take(max).collect();
+    clamped.push('…');
+    clamped
+}
 
 /// Render the full user prompt: context snapshot + the spoken question.
 pub fn build(question: &str, snapshot: &Snapshot) -> String {
@@ -77,6 +94,7 @@ pub fn build(question: &str, snapshot: &Snapshot) -> String {
 fn sorted_sessions(snapshot: &Snapshot) -> Vec<&SessionSummary> {
     let mut sessions: Vec<_> = snapshot.sessions.iter().collect();
     sessions.sort_by(|a, b| b.last_ts.cmp(&a.last_ts));
+    sessions.truncate(MAX_SESSIONS);
     sessions
 }
 
@@ -132,7 +150,7 @@ fn session_block(s: &SessionSummary) -> String {
     let prompts: Vec<String> = s
         .recent_prompts
         .iter()
-        .map(|p| format!("    [{}] {}", p.ts, p.text))
+        .map(|p| format!("    [{}] {}", p.ts, compact(&p.text, MAX_PROMPT_CHARS)))
         .collect();
     format!(
         "- sessao {} | titulo: {} | cwd: {} | branch: {} | ultima atividade: {}\n  ultimos pedidos do usuario:\n{}",
@@ -207,6 +225,35 @@ mod tests {
         let newest = text.find("Webhook migration").unwrap();
         let oldest = text.find("Alpha refactor").unwrap();
         assert!(newest < oldest);
+    }
+
+    #[test]
+    fn compacts_long_texts_for_context() {
+        let long = format!("start {} end", "x".repeat(500));
+        let c = compact(&long, 40);
+        assert!(c.chars().count() <= 41); // 40 + ellipsis
+        assert!(c.starts_with("start"));
+        assert!(c.ends_with('…'));
+        // Newlines and runs of spaces collapse to single spaces.
+        assert_eq!(compact("a\n\n  b\tc", 100), "a b c");
+        // Short texts pass through untouched.
+        assert_eq!(compact("oi", 100), "oi");
+    }
+
+    #[test]
+    fn caps_number_of_sessions_rendered() {
+        let mut snap = snapshot();
+        snap.sessions = (0..40)
+            .map(|i| SessionSummary {
+                session_id: format!("s{i}"),
+                last_ts: Some(format!("2026-08-14T{:02}:00:00.000Z", i % 24)),
+                last_prompt: Some(format!("prompt {i}")),
+                ..SessionSummary::new(format!("s{i}"))
+            })
+            .collect();
+        let text = build("q?", &snap);
+        let rendered = text.matches("- sessao ").count();
+        assert_eq!(rendered, MAX_SESSIONS);
     }
 
     #[test]

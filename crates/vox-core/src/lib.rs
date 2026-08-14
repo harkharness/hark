@@ -6,7 +6,8 @@
 //! - `adapters`: thin imperative implementations of the ports.
 //! - `app`: use cases wiring domain + ports together.
 
-pub mod app;
 pub mod adapters;
+pub mod app;
+pub mod config;
 pub mod domain;
 pub mod ports;

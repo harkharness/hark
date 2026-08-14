@@ -7,7 +7,28 @@ dispatch real work to Claude Code sessions.
 Vox never calls the Anthropic API directly. It drives the `claude` CLI you already
 have installed and authenticated, so usage draws from your existing subscription.
 
-> Status: early development. Nothing usable yet. See the roadmap below.
+> Status: early development. The headless CLI (M1) works; voice and the
+> desktop window are next. See the roadmap below.
+
+## Quickstart (headless CLI)
+
+```bash
+cargo build --release -p vox-cli
+
+# Index your local Claude Code history (incremental, fast after first run)
+./target/release/vox index
+
+# List recent sessions
+./target/release/vox sessions
+
+# Ask about your work (spawns `claude`, costs ~$0.04 of your plan usage)
+./target/release/vox ask "what did I leave pending today?"
+
+# Debug: print the exact prompt that would be sent, without calling Claude
+./target/release/vox prompt "what did I leave pending today?"
+```
+
+Optional: `cargo install --path crates/vox-cli` puts `vox` on your PATH.
 
 ## What it will do
 
