@@ -62,6 +62,24 @@ pub fn parse(line: &str) -> ClaudeEvent {
     }
 }
 
+/// Build a stream-json user message line, optionally carrying one image
+/// block (media type + base64 data) before the text.
+pub fn user_message(text: &str, image: Option<(&str, &str)>) -> String {
+    let mut content = Vec::new();
+    if let Some((media_type, data)) = image {
+        content.push(serde_json::json!({
+            "type": "image",
+            "source": { "type": "base64", "media_type": media_type, "data": data }
+        }));
+    }
+    content.push(serde_json::json!({ "type": "text", "text": text }));
+    serde_json::json!({
+        "type": "user",
+        "message": { "role": "user", "content": content }
+    })
+    .to_string()
+}
+
 /// Serialize the user's decision into the control protocol response line.
 pub fn permission_response(request_id: &str, decision: PermissionDecision) -> String {
     let inner = match decision {
@@ -173,6 +191,25 @@ mod tests {
                 input: r#"{"command":"rm -rf /tmp/x"}"#.into(),
             }
         );
+    }
+
+    #[test]
+    fn builds_user_message_with_optional_image() {
+        let plain: serde_json::Value =
+            serde_json::from_str(&user_message("oi", None)).unwrap();
+        assert_eq!(plain["type"], "user");
+        assert_eq!(plain["message"]["content"][0]["type"], "text");
+        assert_eq!(plain["message"]["content"][0]["text"], "oi");
+
+        let img: serde_json::Value = serde_json::from_str(&user_message(
+            "qual a cor?",
+            Some(("image/png", "aGVsbG8=")),
+        ))
+        .unwrap();
+        assert_eq!(img["message"]["content"][0]["type"], "image");
+        assert_eq!(img["message"]["content"][0]["source"]["media_type"], "image/png");
+        assert_eq!(img["message"]["content"][0]["source"]["data"], "aGVsbG8=");
+        assert_eq!(img["message"]["content"][1]["type"], "text");
     }
 
     #[test]

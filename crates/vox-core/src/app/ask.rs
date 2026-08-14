@@ -32,10 +32,20 @@ pub fn ask(
     deps: &mut AskDeps,
     on_event: &mut dyn FnMut(&ClaudeEvent),
 ) -> anyhow::Result<TurnResult> {
+    ask_with_image(question, None, deps, on_event)
+}
+
+/// `ask` with an optional pasted image (media type + base64).
+pub fn ask_with_image(
+    question: &str,
+    image: Option<(&str, &str)>,
+    deps: &mut AskDeps,
+    on_event: &mut dyn FnMut(&ClaudeEvent),
+) -> anyhow::Result<TurnResult> {
     let context = resolve_context(deps, Some(question));
     let snapshot = snapshot_for_question(deps, question)?;
     let prompt = prompt::build(question, &snapshot);
-    let result = deps.runner.ask(&prompt, on_event)?;
+    let result = deps.runner.ask(&prompt, image, on_event)?;
 
     if let Some(reply) = &result.reply {
         let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);

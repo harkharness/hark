@@ -603,6 +603,7 @@ impl vox_core::ports::AgentRunner for NoopRunner {
     fn ask(
         &self,
         _prompt: &str,
+        _image: Option<(&str, &str)>,
         _on_event: &mut dyn FnMut(&ClaudeEvent),
     ) -> anyhow::Result<vox_core::domain::claude_event::TurnResult> {
         anyhow::bail!("not used")

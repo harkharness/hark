@@ -6,10 +6,12 @@ use crate::domain::prompt::{LiveSession, RepoStatus};
 use crate::domain::snapshot::SessionSummary;
 
 /// Runs one question through Claude, streaming events as they arrive.
+/// `image` is an optional (media_type, base64) attachment.
 pub trait AgentRunner {
     fn ask(
         &self,
         prompt: &str,
+        image: Option<(&str, &str)>,
         on_event: &mut dyn FnMut(&ClaudeEvent),
     ) -> anyhow::Result<TurnResult>;
 }
