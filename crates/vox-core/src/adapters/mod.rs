@@ -5,3 +5,4 @@ pub mod git_collect;
 pub mod jsonl_scan;
 pub mod live_sessions;
 pub mod sqlite_store;
+pub mod state_file;

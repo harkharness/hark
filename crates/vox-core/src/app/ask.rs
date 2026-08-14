@@ -3,12 +3,15 @@
 use crate::adapters::jsonl_scan::refresh_index;
 use crate::config::Config;
 use crate::domain::claude_event::{ClaudeEvent, TurnResult};
+use crate::domain::context::{self, ContextDef};
 use crate::domain::prompt::{self, Snapshot};
 use crate::ports::{AgentRunner, LiveSessions, RepoCollector, SessionStore};
 use chrono::{Duration, SecondsFormat, Utc};
 
 pub struct AskDeps<'a> {
     pub config: &'a Config,
+    /// Context chosen via `vox use` (from global state), if any.
+    pub active_context: Option<String>,
     pub store: &'a mut dyn SessionStore,
     pub live: &'a dyn LiveSessions,
     pub repos: &'a dyn RepoCollector,
@@ -16,32 +19,62 @@ pub struct AskDeps<'a> {
 }
 
 /// Refresh the index, assemble the snapshot, ask Claude.
-/// The lookback window adapts to the question ("hoje", "semana", "mês").
+/// The lookback window adapts to the question ("hoje", "semana", "mês");
+/// the context comes from a question hint, else `vox use`, else the default.
 pub fn ask(
     question: &str,
     deps: &mut AskDeps,
     on_event: &mut dyn FnMut(&ClaudeEvent),
 ) -> anyhow::Result<TurnResult> {
-    let hours = crate::domain::intent::window_hours(question, deps.config.hours_back);
-    let snapshot = build_snapshot_hours(deps, hours)?;
+    let snapshot = snapshot_for_question(deps, question)?;
     let prompt = prompt::build(question, &snapshot);
     deps.runner.ask(&prompt, on_event)
+}
+
+/// Snapshot exactly as `ask` would assemble it (window + context from the
+/// question). Also used by the `prompt` debug command.
+pub fn snapshot_for_question(deps: &mut AskDeps, question: &str) -> anyhow::Result<Snapshot> {
+    let hours = crate::domain::intent::window_hours(question, deps.config.hours_back);
+    let context = resolve_context(deps, Some(question));
+    build_snapshot_with(deps, hours, context.as_ref())
+}
+
+/// hint in the question > active (vox use) > config default > None ("all").
+fn resolve_context(deps: &AskDeps, question: Option<&str>) -> Option<ContextDef> {
+    let names = deps.config.context_names();
+    let hinted = question.and_then(|q| context::hint(q, &names));
+    let name = hinted
+        .or_else(|| deps.active_context.clone())
+        .unwrap_or_else(|| deps.config.default_context.clone());
+    deps.config.context(&name)
 }
 
 /// Index refresh + context gathering, shared with the `sessions` command.
 pub fn build_snapshot(deps: &mut AskDeps) -> anyhow::Result<Snapshot> {
     let hours = deps.config.hours_back;
-    build_snapshot_hours(deps, hours)
+    let context = resolve_context(deps, None);
+    build_snapshot_with(deps, hours, context.as_ref())
 }
 
-fn build_snapshot_hours(deps: &mut AskDeps, hours: i64) -> anyhow::Result<Snapshot> {
+fn build_snapshot_with(
+    deps: &mut AskDeps,
+    hours: i64,
+    context: Option<&ContextDef>,
+) -> anyhow::Result<Snapshot> {
     refresh_index(&deps.config.projects_dir, deps.store)?;
     let since =
         (Utc::now() - Duration::hours(hours)).to_rfc3339_opts(SecondsFormat::Millis, true);
+    let sessions = deps
+        .store
+        .sessions_since(&since)?
+        .into_iter()
+        .filter(|s| context.is_none_or(|c| c.matches(s.cwd.as_deref())))
+        .collect();
+    let repo_paths = context.map_or_else(|| deps.config.repos.clone(), |c| c.repos.clone());
     Ok(Snapshot {
         generated_at: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
-        sessions: deps.store.sessions_since(&since)?,
+        sessions,
         live: deps.live.list().unwrap_or_default(),
-        repos: deps.repos.collect(&deps.config.repos),
+        repos: deps.repos.collect(&repo_paths),
     })
 }
