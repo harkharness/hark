@@ -24,6 +24,8 @@ claude -p \
   "$@" \
   <"$FIFO" >"$RUN" 2>"$OUT/run.err" &
 CLAUDE_PID=$!
+# Kill the whole process group on exit so no `tail -f` or claude lingers.
+trap 'kill "$CLAUDE_PID" 2>/dev/null; pkill -P $$ 2>/dev/null' EXIT
 
 exec 3>"$FIFO" # hold the write end open
 

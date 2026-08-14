@@ -28,6 +28,8 @@ claude -p \
   --tools "" \
   <"$FIFO" >"$RUN" 2>"$OUT/mt.err" &
 CLAUDE_PID=$!
+# Kill the whole process group on exit so no `tail -f` or claude lingers.
+trap 'kill "$CLAUDE_PID" 2>/dev/null; pkill -P $$ 2>/dev/null' EXIT
 exec 3>"$FIFO"
 
 send() { printf '%s\n' "$1" >&3; }
