@@ -3,6 +3,7 @@
 pub mod claude_event;
 pub mod context;
 pub mod intent;
+pub mod memory;
 pub mod prompt;
 pub mod session_log;
 pub mod snapshot;

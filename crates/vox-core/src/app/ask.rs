@@ -8,17 +8,23 @@ use crate::domain::prompt::{self, Snapshot};
 use crate::ports::{AgentRunner, LiveSessions, RepoCollector, SessionStore};
 use chrono::{Duration, SecondsFormat, Utc};
 
+/// How many journal entries feed back into the snapshot.
+const JOURNAL_TAIL: usize = 8;
+
 pub struct AskDeps<'a> {
     pub config: &'a Config,
     /// Context chosen via `vox use` (from global state), if any.
     pub active_context: Option<String>,
+    /// Machine-wide dispatched workers (loaded from global state).
+    pub workers: Vec<crate::domain::memory::WorkerRecord>,
     pub store: &'a mut dyn SessionStore,
     pub live: &'a dyn LiveSessions,
     pub repos: &'a dyn RepoCollector,
+    pub journal: &'a dyn crate::ports::Journal,
     pub runner: &'a dyn AgentRunner,
 }
 
-/// Refresh the index, assemble the snapshot, ask Claude.
+/// Refresh the index, assemble the snapshot, ask Claude, journal the answer.
 /// The lookback window adapts to the question ("hoje", "semana", "mês");
 /// the context comes from a question hint, else `vox use`, else the default.
 pub fn ask(
@@ -26,9 +32,27 @@ pub fn ask(
     deps: &mut AskDeps,
     on_event: &mut dyn FnMut(&ClaudeEvent),
 ) -> anyhow::Result<TurnResult> {
+    let context = resolve_context(deps, Some(question));
     let snapshot = snapshot_for_question(deps, question)?;
     let prompt = prompt::build(question, &snapshot);
-    deps.runner.ask(&prompt, on_event)
+    let result = deps.runner.ask(&prompt, on_event)?;
+
+    if let Some(reply) = &result.reply {
+        let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        let entry = crate::domain::memory::journal_entry(&now, question, &reply.fala);
+        // Journaling must never break the answer flow.
+        let _ = deps.journal.append(&journal_root(deps, context.as_ref()), &entry);
+    }
+    Ok(result)
+}
+
+/// Where the resolved context keeps its `.vox/`: first repo of the context,
+/// or the global data dir when unfocused ("all").
+fn journal_root(deps: &AskDeps, context: Option<&ContextDef>) -> std::path::PathBuf {
+    context
+        .and_then(|c| c.repos.first().cloned())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| deps.config.data_dir())
 }
 
 /// Snapshot exactly as `ask` would assemble it (window + context from the
@@ -76,5 +100,7 @@ fn build_snapshot_with(
         sessions,
         live: deps.live.list().unwrap_or_default(),
         repos: deps.repos.collect(&repo_paths),
+        journal: deps.journal.tail(&journal_root(deps, context), JOURNAL_TAIL),
+        workers: deps.workers.clone(),
     })
 }

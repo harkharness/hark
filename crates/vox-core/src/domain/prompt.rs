@@ -1,5 +1,6 @@
 //! Pure prompt assembly: snapshot + question -> the exact text sent to Claude.
 
+use crate::domain::memory::WorkerRecord;
 use crate::domain::snapshot::SessionSummary;
 
 /// A Claude Code session currently running (from `claude agents --json`).
@@ -26,6 +27,10 @@ pub struct Snapshot {
     pub sessions: Vec<SessionSummary>,
     pub live: Vec<LiveSession>,
     pub repos: Vec<RepoStatus>,
+    /// Recent Vox Q&A (journal tail of the resolved context), oldest first.
+    pub journal: Vec<String>,
+    /// Dispatched workers across ALL workspaces (the machine-wide view).
+    pub workers: Vec<WorkerRecord>,
 }
 
 /// JSON schema enforced on Claude's answer (`--json-schema`).
@@ -80,8 +85,10 @@ pub fn build(question: &str, snapshot: &Snapshot) -> String {
     let sections = [
         format!("Contexto gerado em: {}", snapshot.generated_at),
         live_section(&snapshot.live),
+        workers_section(&snapshot.workers),
         repos_section(&snapshot.repos),
         sessions_section(&sessions),
+        journal_section(&snapshot.journal),
         format!("Pergunta do usuario (por voz):\n{question}"),
     ];
     sections
@@ -115,6 +122,42 @@ fn live_section(live: &[LiveSession]) -> String {
         })
         .collect();
     format!("Sessoes do Claude Code ABERTAS agora:\n{}", lines.join("\n"))
+}
+
+fn workers_section(workers: &[WorkerRecord]) -> String {
+    if workers.is_empty() {
+        return String::new();
+    }
+    let lines: Vec<String> = workers
+        .iter()
+        .map(|w| {
+            let status = serde_json::to_string(&w.status).unwrap_or_default();
+            format!(
+                "- {} [{}] contexto {} em {} (sessao {}, desde {}): {}",
+                w.task_id,
+                status.trim_matches('"'),
+                w.context,
+                w.workspace,
+                w.session_id,
+                w.started_at,
+                w.summary
+            )
+        })
+        .collect();
+    format!(
+        "Tarefas despachadas pelo Vox (todos os workspaces):\n{}",
+        lines.join("\n")
+    )
+}
+
+fn journal_section(journal: &[String]) -> String {
+    if journal.is_empty() {
+        return String::new();
+    }
+    format!(
+        "Consultas recentes feitas ao Vox (mais antiga primeiro):\n{}",
+        journal.join("\n---\n")
+    )
 }
 
 fn repos_section(repos: &[RepoStatus]) -> String {
@@ -167,6 +210,7 @@ fn session_block(s: &SessionSummary) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::memory::{WorkerRecord, WorkerStatus};
     use crate::domain::snapshot::{RecentPrompt, SessionSummary};
 
     fn snapshot() -> Snapshot {
@@ -209,7 +253,26 @@ mod tests {
                 dirty_files: 3,
                 recent_commits: vec!["feat: add handler".into()],
             }],
+            journal: vec!["2026-08-14T09:00:00Z\nQ: como está o beta?\nA: dois PRs abertos".into()],
+            workers: vec![WorkerRecord {
+                task_id: "t-beta-1".into(),
+                context: "beta".into(),
+                workspace: "/home/dev/beta".into(),
+                session_id: "new1".into(),
+                status: WorkerStatus::Running,
+                started_at: "2026-08-14T11:30:00Z".into(),
+                summary: "abrir PR do DNS antigo".into(),
+            }],
         }
+    }
+
+    #[test]
+    fn renders_journal_and_workers_sections() {
+        let text = build("e agora?", &snapshot());
+        assert!(text.contains("como está o beta?"));
+        assert!(text.contains("t-beta-1"));
+        assert!(text.contains("abrir PR do DNS antigo"));
+        assert!(text.contains("running"));
     }
 
     #[test]

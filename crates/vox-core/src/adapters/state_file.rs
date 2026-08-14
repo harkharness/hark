@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 pub struct GlobalState {
     /// Context chosen via `vox use`; None means the config default applies.
     pub active_context: Option<String>,
+    /// Dispatched workers across all workspaces (the machine-wide registry).
+    pub workers: Vec<crate::domain::memory::WorkerRecord>,
 }
 
 fn state_path(data_dir: &Path) -> PathBuf {
@@ -39,6 +41,7 @@ mod tests {
 
         let state = GlobalState {
             active_context: Some("fabrica".into()),
+            ..GlobalState::default()
         };
         save(dir.path(), &state).unwrap();
         assert_eq!(load(dir.path()), state);

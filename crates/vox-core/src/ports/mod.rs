@@ -39,3 +39,9 @@ pub trait LiveSessions {
 pub trait RepoCollector {
     fn collect(&self, repos: &[String]) -> Vec<RepoStatus>;
 }
+
+/// Vox's Q&A journal, one per root directory (`<root>/.vox/journal.md`).
+pub trait Journal {
+    fn tail(&self, root: &std::path::Path, n: usize) -> Vec<String>;
+    fn append(&self, root: &std::path::Path, entry: &str) -> anyhow::Result<()>;
+}

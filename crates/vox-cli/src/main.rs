@@ -39,8 +39,10 @@ fn cmd_use(name: &str) -> i32 {
         );
         return 1;
     }
+    // Preserve the worker registry; `use` only changes the focus.
     let state = state_file::GlobalState {
         active_context: (name != "all").then(|| name.to_string()),
+        ..state_file::load(&config.data_dir())
     };
     match state_file::save(&config.data_dir(), &state) {
         Ok(()) => {
@@ -74,8 +76,11 @@ fn cmd_ask(question: &str) -> i32 {
     let config = Config::load();
     let result = (|| -> anyhow::Result<_> {
         let mut store = open_store(&config)?;
+        let state = state_file::load(&config.data_dir());
         let mut deps = AskDeps {
-            active_context: state_file::load(&config.data_dir()).active_context,
+            active_context: state.active_context,
+            workers: state.workers,
+            journal: &vox_core::adapters::memory_files::VoxDir,
             store: &mut store,
             live: &ClaudeAgentsCli {
                 claude_bin: config.claude_bin.clone(),
@@ -131,8 +136,11 @@ fn cmd_prompt(question: &str) -> i32 {
     let config = Config::load();
     let result = (|| -> anyhow::Result<_> {
         let mut store = open_store(&config)?;
+        let state = state_file::load(&config.data_dir());
         let mut deps = AskDeps {
-            active_context: state_file::load(&config.data_dir()).active_context,
+            active_context: state.active_context,
+            workers: state.workers,
+            journal: &vox_core::adapters::memory_files::VoxDir,
             store: &mut store,
             live: &ClaudeAgentsCli {
                 claude_bin: config.claude_bin.clone(),
@@ -176,8 +184,11 @@ fn cmd_sessions() -> i32 {
     let config = Config::load();
     let result = (|| -> anyhow::Result<_> {
         let mut store = open_store(&config)?;
+        let state = state_file::load(&config.data_dir());
         let mut deps = AskDeps {
-            active_context: state_file::load(&config.data_dir()).active_context,
+            active_context: state.active_context,
+            workers: state.workers,
+            journal: &vox_core::adapters::memory_files::VoxDir,
             store: &mut store,
             live: &ClaudeAgentsCli {
                 claude_bin: config.claude_bin.clone(),
