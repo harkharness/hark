@@ -1,5 +1,5 @@
 # Rust
-/target
+target/
 **/*.rs.bk
 
 # Node / frontend (Tauri UI, added in M2)

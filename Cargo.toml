@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/vox-core", "crates/vox-cli"]
+exclude = ["spikes/whisper-spike"]
 
 [workspace.package]
 version = "0.1.0"
