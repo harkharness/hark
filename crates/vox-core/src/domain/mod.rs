@@ -1,2 +1,6 @@
 //! Pure domain logic. Nothing in this module performs I/O.
-//! Modules land here milestone by milestone (see README roadmap).
+
+pub mod claude_event;
+pub mod prompt;
+pub mod session_log;
+pub mod snapshot;

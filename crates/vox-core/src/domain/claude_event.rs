@@ -1,0 +1,198 @@
+//! Pure parser for the Claude CLI stream-json output (one JSON per line).
+//! Shapes verified empirically against CLI v2.1.220 (see spikes/FINDINGS.md).
+
+use serde::Deserialize;
+use serde_json::Value;
+
+/// Claude's structured answer, constrained by `prompt::RESPONSE_SCHEMA`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct VoiceReply {
+    pub fala: String,
+    pub detalhes: String,
+    #[serde(default)]
+    pub itens: Vec<String>,
+}
+
+/// Final outcome of one turn.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TurnResult {
+    pub is_error: bool,
+    /// Parsed structured reply, when the run used the response schema.
+    pub reply: Option<VoiceReply>,
+    /// Raw result string as emitted by the CLI (error text or raw JSON).
+    pub raw: String,
+    pub cost_usd: Option<f64>,
+    pub duration_ms: Option<u64>,
+}
+
+/// One line of CLI output, reduced to what Vox reacts to.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClaudeEvent {
+    /// Assistant called a tool; narrated in the UI/TTS while waiting.
+    ToolUse { name: String, input: String },
+    /// Turn finished.
+    Result(TurnResult),
+    /// CLI asks whether a tool may run (`--permission-prompt-tool stdio`).
+    PermissionRequest {
+        request_id: String,
+        tool_name: String,
+        input: String,
+    },
+    /// Anything else (init, rate limits, partial deltas we don't use yet).
+    Ignored,
+}
+
+/// User's verdict on a permission request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionDecision {
+    Allow,
+    Deny,
+}
+
+/// Parse one stdout line from the CLI.
+pub fn parse(line: &str) -> ClaudeEvent {
+    let Ok(v) = serde_json::from_str::<Value>(line) else {
+        return ClaudeEvent::Ignored;
+    };
+    match v.get("type").and_then(Value::as_str) {
+        Some("assistant") => parse_tool_use(&v).unwrap_or(ClaudeEvent::Ignored),
+        Some("result") => parse_result(&v).map(ClaudeEvent::Result).unwrap_or(ClaudeEvent::Ignored),
+        Some("control_request") => parse_permission(&v).unwrap_or(ClaudeEvent::Ignored),
+        _ => ClaudeEvent::Ignored,
+    }
+}
+
+/// Serialize the user's decision into the control protocol response line.
+pub fn permission_response(request_id: &str, decision: PermissionDecision) -> String {
+    let inner = match decision {
+        PermissionDecision::Allow => serde_json::json!({ "behavior": "allow" }),
+        PermissionDecision::Deny => serde_json::json!({
+            "behavior": "deny",
+            "message": "User rejected this action from Vox."
+        }),
+    };
+    serde_json::json!({
+        "type": "control_response",
+        "response": {
+            "subtype": "success",
+            "request_id": request_id,
+            "response": inner,
+        }
+    })
+    .to_string()
+}
+
+fn parse_tool_use(v: &Value) -> Option<ClaudeEvent> {
+    let block = v
+        .get("message")?
+        .get("content")?
+        .as_array()?
+        .iter()
+        .find(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))?;
+    Some(ClaudeEvent::ToolUse {
+        name: block.get("name")?.as_str()?.to_string(),
+        input: block.get("input")?.to_string(),
+    })
+}
+
+fn parse_result(v: &Value) -> Option<TurnResult> {
+    let raw = v.get("result").and_then(Value::as_str).unwrap_or_default().to_string();
+    let is_error = v.get("is_error").and_then(Value::as_bool).unwrap_or(false)
+        || v.get("subtype").and_then(Value::as_str) != Some("success");
+    Some(TurnResult {
+        is_error,
+        reply: (!is_error)
+            .then(|| serde_json::from_str::<VoiceReply>(&raw).ok())
+            .flatten(),
+        raw,
+        cost_usd: v.get("total_cost_usd").and_then(Value::as_f64),
+        duration_ms: v.get("duration_ms").and_then(Value::as_u64),
+    })
+}
+
+fn parse_permission(v: &Value) -> Option<ClaudeEvent> {
+    let request = v.get("request")?;
+    if request.get("subtype").and_then(Value::as_str) != Some("can_use_tool") {
+        return None;
+    }
+    Some(ClaudeEvent::PermissionRequest {
+        request_id: v.get("request_id")?.as_str()?.to_string(),
+        tool_name: request.get("tool_name")?.as_str()?.to_string(),
+        input: request.get("input")?.to_string(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_tool_use_for_narration() {
+        let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"git status"}}]}}"#;
+        assert_eq!(
+            parse(line),
+            ClaudeEvent::ToolUse {
+                name: "Bash".into(),
+                input: r#"{"command":"git status"}"#.into(),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_successful_result_into_voice_reply() {
+        let line = r#"{"type":"result","subtype":"success","is_error":false,"result":"{\"fala\":\"Duas pendências hoje.\",\"detalhes\":\"PR aberto e teste falhando\",\"itens\":[\"revisar PR\"]}","total_cost_usd":0.009,"duration_ms":4700}"#;
+        let ClaudeEvent::Result(result) = parse(line) else {
+            panic!("expected result event");
+        };
+        assert_eq!(result.cost_usd, Some(0.009));
+        let reply = result.reply.expect("structured reply");
+        assert_eq!(reply.fala, "Duas pendências hoje.");
+        assert_eq!(reply.detalhes, "PR aberto e teste falhando");
+        assert_eq!(reply.itens, vec!["revisar PR"]);
+    }
+
+    #[test]
+    fn parses_error_result_without_reply() {
+        let line = r#"{"type":"result","subtype":"error_during_execution","is_error":true,"result":"something broke","total_cost_usd":0.001}"#;
+        let ClaudeEvent::Result(result) = parse(line) else {
+            panic!("expected result event");
+        };
+        assert!(result.is_error);
+        assert_eq!(result.reply, None);
+        assert_eq!(result.raw, "something broke");
+    }
+
+    #[test]
+    fn parses_permission_request() {
+        let line = r#"{"type":"control_request","request_id":"abc-123","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"rm -rf /tmp/x"}}}"#;
+        assert_eq!(
+            parse(line),
+            ClaudeEvent::PermissionRequest {
+                request_id: "abc-123".into(),
+                tool_name: "Bash".into(),
+                input: r#"{"command":"rm -rf /tmp/x"}"#.into(),
+            }
+        );
+    }
+
+    #[test]
+    fn other_lines_are_ignored_but_tagged() {
+        assert_eq!(parse(r#"{"type":"system","subtype":"init"}"#), ClaudeEvent::Ignored);
+        assert_eq!(parse("garbage"), ClaudeEvent::Ignored);
+    }
+
+    #[test]
+    fn permission_responses_serialize_to_protocol_shape() {
+        let parsed = |s: String| serde_json::from_str::<serde_json::Value>(&s).unwrap();
+
+        let allow = parsed(permission_response("abc-123", PermissionDecision::Allow));
+        assert_eq!(allow["type"], "control_response");
+        assert_eq!(allow["response"]["subtype"], "success");
+        assert_eq!(allow["response"]["request_id"], "abc-123");
+        assert_eq!(allow["response"]["response"]["behavior"], "allow");
+
+        let deny = parsed(permission_response("abc-123", PermissionDecision::Deny));
+        assert_eq!(deny["response"]["response"]["behavior"], "deny");
+        assert!(deny["response"]["response"]["message"].is_string());
+    }
+}
