@@ -28,7 +28,7 @@ fn main() {
             };
             cmd_dispatch(&words, session.as_deref())
         }
-        Some((cmd, _)) if cmd == "ps" => cmd_ps(),
+        Some((cmd, rest)) if cmd == "ps" => cmd_ps(rest.first().is_some_and(|f| f == "--clear")),
         Some((cmd, _)) if cmd == "setup" => cmd_setup(),
         Some((cmd, _)) if cmd == "hear" => cmd_hear(),
         Some((cmd, _)) if cmd == "listen" => cmd_listen(),
@@ -388,9 +388,17 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
     }
 }
 
-fn cmd_ps() -> i32 {
+fn cmd_ps(clear: bool) -> i32 {
+    use vox_core::domain::memory::WorkerStatus;
     let config = Config::load();
-    let state = state_file::load(&config.data_dir());
+    let mut state = state_file::load(&config.data_dir());
+    if clear {
+        // Keep only running workers; finished history lives in .vox/state.md.
+        let before = state.workers.len();
+        state.workers.retain(|w| w.status == WorkerStatus::Running);
+        let _ = state_file::save(&config.data_dir(), &state);
+        println!("removed {} finished worker(s)", before - state.workers.len());
+    }
     if state.workers.is_empty() {
         println!("nenhum worker registrado");
         return 0;

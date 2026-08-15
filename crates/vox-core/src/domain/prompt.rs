@@ -41,7 +41,7 @@ pub const RESPONSE_SCHEMA: &str = r#"{
   "properties": {
     "fala": {
       "type": "string",
-      "description": "Resposta curta e natural para ser lida em voz alta. Sem markdown, sem caminhos de arquivo, sem blocos de codigo. Maximo 3 frases."
+      "description": "UMA frase curta de manchete para ser lida em voz alta (maximo ~15 palavras). NUNCA enumere itens aqui: se a resposta for uma lista, resuma a contagem e ofereca ler ou detalhar (ex: 'Quatro pendencias na tela; a mais quente e o PR de Pagamentos. Quer que eu leia?'). Sem markdown, sem caminhos, sem codigo."
     },
     "detalhes": {
       "type": "string",
@@ -59,8 +59,10 @@ pub const RESPONSE_SCHEMA: &str = r#"{
 /// System prompt for the voice assistant persona.
 pub const VOICE_SYSTEM_PROMPT: &str = "Voce e o Vox, assistente de voz de um engenheiro. \
 Responda em portugues brasileiro. Seja direto e pratico. \
-O campo 'fala' sera lido em voz alta: frases curtas, sem jargao visual. \
-O campo 'detalhes' aparece na tela e pode ter precisao tecnica completa.";
+Divisao rigida: 'fala' e so a manchete falada (1 frase, sem listas); \
+a informacao completa vai em 'detalhes' e 'itens', que aparecem na tela. \
+Ouvir e caro, ler e barato: nunca faca a voz recitar o que a tela ja mostra. \
+Se as mensagens mais recentes indicarem que um problema ja foi resolvido, nao o liste como pendencia.";
 
 /// Sessions rendered into the prompt, newest first. Sized so a full week of
 /// heavy usage still fits at a few cents per question.
