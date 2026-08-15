@@ -37,6 +37,9 @@ pub trait SessionStore {
     /// Sessions with activity at or after the given ISO-8601 instant,
     /// newest first.
     fn sessions_since(&self, iso_ts: &str) -> anyhow::Result<Vec<SessionSummary>>;
+    /// Sessions matching ANY of the topic terms (title, last prompt or any
+    /// stored prompt), best match first, regardless of age.
+    fn search_sessions(&self, terms: &[String], limit: usize) -> anyhow::Result<Vec<SessionSummary>>;
 }
 
 /// Discovers live Claude Code sessions.

@@ -2,7 +2,8 @@
 
 use crate::domain::session_log::SessionEvent;
 
-/// How many of the newest user prompts each session keeps for context.
+/// Display cap: how many of the newest prompts the PROMPT RENDER shows.
+/// The index itself stores every prompt (topic search needs full history).
 pub const MAX_RECENT_PROMPTS: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,13 +51,12 @@ impl SessionSummary {
                         text: text.clone(),
                     }))
                     .collect();
-                let skip = recent_prompts.len().saturating_sub(MAX_RECENT_PROMPTS);
                 Self {
                     last_ts: self.last_ts.max(Some(ts)),
                     last_prompt: Some(text),
                     cwd: cwd.or(self.cwd),
                     git_branch: git_branch.or(self.git_branch),
-                    recent_prompts: recent_prompts.into_iter().skip(skip).collect(),
+                    recent_prompts,
                     ..self
                 }
             }
@@ -110,7 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn caps_recent_prompts_keeping_newest() {
+    fn keeps_every_prompt_for_topic_search() {
         let events: Vec<_> = (0..10)
             .map(|i| prompt(&format!("2026-08-14T10:0{i}:00.000Z"), &format!("p{i}")))
             .collect();
@@ -118,9 +118,9 @@ mod tests {
             .into_iter()
             .fold(SessionSummary::new("abc"), SessionSummary::apply);
 
-        assert_eq!(s.recent_prompts.len(), MAX_RECENT_PROMPTS);
+        // The fold no longer caps; MAX_RECENT_PROMPTS is a render-time cap.
+        assert_eq!(s.recent_prompts.len(), 10);
         assert_eq!(s.recent_prompts.last().map(|p| p.text.as_str()), Some("p9"));
-        assert_eq!(s.recent_prompts.first().map(|p| p.text.as_str()), Some("p5"));
     }
 
     #[test]

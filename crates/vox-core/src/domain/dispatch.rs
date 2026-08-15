@@ -44,7 +44,7 @@ pub fn resolve_target(instruction: &str, sessions: &[SessionSummary]) -> Target 
 }
 
 /// Words that actually identify a topic (length >= 3, minus filler).
-fn significant_terms(text: &str) -> Vec<String> {
+pub fn significant_terms(text: &str) -> Vec<String> {
     const STOPWORDS: &[&str] = &[
         "abre", "abrir", "com", "como", "continua", "das", "dos", "ele", "ela", "essa", "esse",
         "está", "esta", "para", "pra", "por", "que", "sobre", "the", "uma", "vamos", "vox",

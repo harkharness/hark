@@ -15,7 +15,9 @@ fn main() {
     let code = match args.split_first() {
         Some((cmd, rest)) if cmd == "ask" && !rest.is_empty() => cmd_ask(&rest.join(" ")),
         Some((cmd, rest)) if cmd == "prompt" && !rest.is_empty() => cmd_prompt(&rest.join(" ")),
-        Some((cmd, _)) if cmd == "index" => cmd_index(),
+        Some((cmd, rest)) if cmd == "index" => {
+            cmd_index(rest.first().is_some_and(|f| f == "--full"))
+        }
         Some((cmd, _)) if cmd == "sessions" => cmd_sessions(),
         Some((cmd, rest)) if cmd == "use" && rest.len() == 1 => cmd_use(&rest[0]),
         Some((cmd, _)) if cmd == "contexts" => cmd_contexts(),
@@ -178,8 +180,12 @@ fn cmd_prompt(question: &str) -> i32 {
     }
 }
 
-fn cmd_index() -> i32 {
+fn cmd_index(full: bool) -> i32 {
     let config = Config::load();
+    if full {
+        // Schema/behavior changes need a from-scratch pass.
+        let _ = std::fs::remove_file(config.data_dir().join("index.db"));
+    }
     match open_store(&config)
         .and_then(|mut store| refresh_index(&config.projects_dir, &mut store))
     {

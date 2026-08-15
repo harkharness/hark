@@ -72,12 +72,28 @@ fn journal_root(deps: &AskDeps, context: Option<&ContextDef>) -> std::path::Path
         .unwrap_or_else(|| deps.config.data_dir())
 }
 
-/// Snapshot exactly as `ask` would assemble it (window + context from the
-/// question). Also used by the `prompt` debug command.
+/// Topic-matched sessions merged into the snapshot regardless of age.
+const TOPIC_HITS: usize = 5;
+
+/// Snapshot exactly as `ask` would assemble it: recent window + context
+/// filter + topic search over the FULL index (a question about "webhook"
+/// must surface the webhook sessions even if untouched for weeks).
+/// Also used by the `prompt` debug command.
 pub fn snapshot_for_question(deps: &mut AskDeps, question: &str) -> anyhow::Result<Snapshot> {
     let hours = crate::domain::intent::window_hours(question, deps.config.hours_back);
     let context = resolve_context(deps, Some(question));
-    build_snapshot_with(deps, hours, context.as_ref())
+    let mut snapshot = build_snapshot_with(deps, hours, context.as_ref())?;
+
+    let terms = crate::domain::dispatch::significant_terms(question);
+    let topical = deps.store.search_sessions(&terms, TOPIC_HITS)?;
+    for session in topical {
+        let in_context = context.as_ref().is_none_or(|c| c.matches(session.cwd.as_deref()));
+        let already_in = snapshot.sessions.iter().any(|s| s.session_id == session.session_id);
+        if in_context && !already_in {
+            snapshot.sessions.push(session);
+        }
+    }
+    Ok(snapshot)
 }
 
 /// Snapshot for dispatch target hunting: context from the instruction,

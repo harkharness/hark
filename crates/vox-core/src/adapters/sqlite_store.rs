@@ -138,6 +138,56 @@ impl SessionStore for SqliteStore {
         Ok(())
     }
 
+    fn search_sessions(&self, terms: &[String], limit: usize) -> anyhow::Result<Vec<SessionSummary>> {
+        if terms.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Small index (a few thousand prompts): LIKE scan is instant and
+        // avoids an FTS5 dependency. Score = prompt-hit frequency plus a
+        // strong title bonus; a session titled after the topic with dozens
+        // of mentions must beat a session that mentions it in passing.
+        let mut scored: std::collections::HashMap<String, (i64, Option<String>)> =
+            std::collections::HashMap::new();
+        for term in terms {
+            let pattern = format!("%{}%", term.to_lowercase());
+            let mut stmt = self.conn.prepare(
+                "SELECT f.path, f.last_ts,
+                        (CASE WHEN lower(coalesce(f.title,'')) LIKE ?1 THEN 10 ELSE 0 END)
+                        + (SELECT COUNT(*) FROM prompts p
+                           WHERE p.path = f.path AND lower(p.text) LIKE ?1) AS score
+                 FROM files f",
+            )?;
+            let rows = stmt
+                .query_map(params![pattern], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, i64>(2)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            for (path, last_ts, score) in rows.into_iter().filter(|(_, _, s)| *s > 0) {
+                let entry = scored.entry(path).or_insert((0, last_ts));
+                entry.0 += score;
+            }
+        }
+        let mut ranked: Vec<(String, i64, Option<String>)> = scored
+            .into_iter()
+            .map(|(path, (hits, ts))| (path, hits, ts))
+            .collect();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)));
+        ranked
+            .into_iter()
+            .take(limit)
+            .map(|(path, _, _)| {
+                let (summary, _, _) = self
+                    .file_state(&path)?
+                    .ok_or_else(|| anyhow::anyhow!("row vanished: {path}"))?;
+                Ok(summary)
+            })
+            .collect()
+    }
+
     fn sessions_since(&self, iso_ts: &str) -> anyhow::Result<Vec<SessionSummary>> {
         let mut stmt = self.conn.prepare(
             "SELECT path, session_id, cwd, git_branch, title, last_prompt, last_ts
@@ -205,6 +255,62 @@ mod tests {
         let (loaded, offset, _) = store.file_state("/logs/abc.jsonl").unwrap().unwrap();
         assert_eq!(loaded.last_ts.as_deref(), Some("2026-08-14T11:00:00.000Z"));
         assert_eq!(offset, 20);
+    }
+
+    #[test]
+    fn search_finds_old_sessions_by_topic_terms() {
+        let mut store = SqliteStore::in_memory().unwrap();
+        let mut webhook = summary("webhook-old", "2026-07-20T10:00:00.000Z");
+        webhook.title = Some("Migração webhook UAT".into());
+        webhook.recent_prompts = vec![RecentPrompt {
+            ts: "2026-07-20T10:00:00.000Z".into(),
+            text: "valida o webhook em uat e prepara o decom".into(),
+        }];
+        store.save_file_state("/logs/webhook.jsonl", &webhook, 1, 1).unwrap();
+        store
+            .save_file_state("/logs/other.jsonl", &summary("other", "2026-08-14T10:00:00.000Z"), 1, 1)
+            .unwrap();
+
+        let hits = store
+            .search_sessions(&["migração".into(), "webhook".into()], 5)
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].session_id, "webhook-old");
+
+        assert!(store.search_sessions(&["kafka".into()], 5).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_ranks_frequency_and_title_over_passing_mentions() {
+        let mut store = SqliteStore::in_memory().unwrap();
+
+        // The real topic session: titled after it, many mentions, OLD.
+        let mut real = summary("webhook-real", "2026-07-20T10:00:00.000Z");
+        real.title = Some("Carteira webhook migration".into());
+        real.recent_prompts = (0..8)
+            .map(|i| RecentPrompt {
+                ts: format!("2026-07-20T10:0{i}:00.000Z"),
+                text: format!("passo {i} da migração do webhook em uat"),
+            })
+            .collect();
+        store.save_file_state("/logs/real.jsonl", &real, 1, 1).unwrap();
+
+        // A NEWER session that mentions the topic once, in passing.
+        let mut passing = summary("passing", "2026-08-15T10:00:00.000Z");
+        passing.title = Some("Outro assunto".into());
+        passing.recent_prompts = vec![RecentPrompt {
+            ts: "2026-08-15T10:00:00.000Z".into(),
+            text: "aproveita e olha o webhook depois, e roda a migração do banco atualmente parada".into(),
+        }];
+        store.save_file_state("/logs/passing.jsonl", &passing, 1, 1).unwrap();
+
+        let hits = store
+            .search_sessions(
+                &["migração".into(), "webhook".into(), "atualmente".into()],
+                5,
+            )
+            .unwrap();
+        assert_eq!(hits[0].session_id, "webhook-real", "frequency+title must win");
     }
 
     #[test]

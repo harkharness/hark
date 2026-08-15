@@ -194,9 +194,15 @@ fn sessions_section(sessions: &[&SessionSummary]) -> String {
 }
 
 fn session_block(s: &SessionSummary) -> String {
+    // The index stores every prompt; only the newest few reach the context.
+    let skip = s
+        .recent_prompts
+        .len()
+        .saturating_sub(crate::domain::snapshot::MAX_RECENT_PROMPTS);
     let prompts: Vec<String> = s
         .recent_prompts
         .iter()
+        .skip(skip)
         .map(|p| format!("    [{}] {}", p.ts, compact(&p.text, MAX_PROMPT_CHARS)))
         .collect();
     format!(
