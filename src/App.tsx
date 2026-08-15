@@ -19,6 +19,7 @@ type Pending =
       candidates: { session_id: string; title: string; last_ts: string }[];
     }
   | { kind: "resume-task"; title: string; sessionId?: string; instruction: string }
+  | { kind: "task-summary"; taskId: string }
   | null;
 
 export default function App() {
@@ -31,9 +32,15 @@ export default function App() {
   const [recording, setRecording] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
   const [tab, setTab] = useState<"chat" | "board">("chat");
-  const [activeTask, setActiveTask] = useState<string | null>(null);
-  const activeTaskRef = useRef(activeTask);
-  activeTaskRef.current = activeTask;
+  // All live conversational workers, keyed by task_id.
+  const [liveWorkers, setLiveWorkers] = useState<
+    Record<string, { label: string; status: "running" | "turn_done" }>
+  >({});
+  const [focused, setFocused] = useState<string | null>(null);
+  const workersRef = useRef(liveWorkers);
+  workersRef.current = liveWorkers;
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
   const [speak, setSpeak] = useState(true);
   const speakRef = useRef(speak);
   speakRef.current = speak;
@@ -72,16 +79,27 @@ export default function App() {
           model: ev.model,
           task: ev.task_id,
         });
+        setLiveWorkers((old) =>
+          old[ev.task_id]
+            ? { ...old, [ev.task_id]: { ...old[ev.task_id], status: "turn_done" } }
+            : old,
+        );
+        const label = workersRef.current[ev.task_id]?.label ?? ev.task_id.slice(0, 12);
         if (speakRef.current)
           invoke("speak", {
             text: ev.is_error
-              ? "A tarefa falhou, olha a tela."
-              : "Turno concluído. Pode responder ou finalizar.",
+              ? `A task ${label} falhou, olha a tela.`
+              : `Task ${label} terminou o turno.`,
           }).catch(() => {});
         refresh();
       } else if (ev.kind === "worker_exit") {
         push({ who: "sys", text: `worker ${ev.task_id} encerrado` });
-        if (activeTaskRef.current === ev.task_id) setActiveTask(null);
+        setLiveWorkers((old) => {
+          const next = { ...old };
+          delete next[ev.task_id];
+          return next;
+        });
+        if (focusedRef.current === ev.task_id) setFocused(null);
         refresh();
       }
     });
@@ -136,10 +154,15 @@ export default function App() {
         sessionId: sessionId ?? null,
       });
       if (out.status === "started") {
-        setActiveTask(out.task_id);
+        const label = instruction.split(/\s+/).slice(0, 5).join(" ");
+        setLiveWorkers((old) => ({
+          ...old,
+          [out.task_id]: { label, status: "running" },
+        }));
+        setFocused(out.task_id);
         push({
           who: "sys",
-          text: `worker ${out.task_id} ativo; acompanhe abaixo e responda pelo input`,
+          text: `worker ${out.task_id} ativo (${label}); input responde a ele enquanto focado`,
         });
       } else if (out.status === "done") {
         push({ who: "vox", text: out.summary, cost: out.cost_usd });
@@ -167,13 +190,27 @@ export default function App() {
     }
   }
 
+  const QUESTION_START =
+    /^(quais|qual|como|o que|onde|quando|por que|porque|quem|quanto|lista|resumo|status)\b/i;
+
   async function submit(text: string, img: string | null) {
     if (!text.trim() || busy) return;
-    // With an active conversational worker, the input talks to IT.
-    if (activeTask) {
-      push({ who: "user", text, task: activeTask });
+    const route = await invoke<string>("route_text", { text });
+    // Action verbs ALWAYS open a new parallel worker ("enquanto isso faz X"),
+    // even while another one is focused.
+    if (route === "dispatch") {
+      push({ who: "user", text });
       setInput("");
-      await invoke("worker_send", { taskId: activeTask, text }).catch((err) =>
+      setPending({ kind: "confirm-dispatch", instruction: text });
+      return;
+    }
+    // Explicit questions go to ask; anything else while focused is a reply
+    // to the focused worker.
+    const isQuestion = /\?\s*$/.test(text) || QUESTION_START.test(text.trim());
+    if (focused && !isQuestion) {
+      push({ who: "user", text, task: focused });
+      setInput("");
+      await invoke("worker_send", { taskId: focused, text }).catch((err) =>
         push({ who: "sys", text: `worker: ${err}` }),
       );
       return;
@@ -181,18 +218,17 @@ export default function App() {
     push({ who: "user", text, image: img ?? undefined });
     setInput("");
     setImage(null);
-    const route = await invoke<string>("route_text", { text });
-    if (route === "dispatch") {
-      setPending({ kind: "confirm-dispatch", instruction: text });
-    } else {
-      runAsk(text, img);
-    }
+    runAsk(text, img);
   }
 
-  async function endActiveTask() {
-    if (!activeTask) return;
-    await invoke("worker_stop", { taskId: activeTask }).catch(() => {});
-    setActiveTask(null);
+  async function stopWorker(taskId: string) {
+    await invoke("worker_stop", { taskId }).catch(() => {});
+    setLiveWorkers((old) => {
+      const next = { ...old };
+      delete next[taskId];
+      return next;
+    });
+    if (focused === taskId) setFocused(null);
     refresh();
   }
 
@@ -447,14 +483,37 @@ export default function App() {
       </div>
 
       <div className="inputbar">
-        {activeTask && (
-          <span className="active-task">
-            🔗 {activeTask.slice(0, 16)}
-            <button onClick={endActiveTask} title="finalizar conversa com o worker">
-              finalizar
+        {Object.entries(liveWorkers).map(([taskId, w]) => (
+          <span
+            key={taskId}
+            className={`worker-chip ${w.status} ${focused === taskId ? "focused" : ""}`}
+            onClick={() => setFocused(focused === taskId ? null : taskId)}
+            title={focused === taskId ? "focado (clique para soltar)" : "clique para focar"}
+          >
+            <span className="dot" />
+            {w.label}
+            <button
+              className="info"
+              title="resumo da task"
+              onClick={(e) => {
+                e.stopPropagation();
+                setPending({ kind: "task-summary", taskId });
+              }}
+            >
+              ℹ
+            </button>
+            <button
+              className="close"
+              title="finalizar worker"
+              onClick={(e) => {
+                e.stopPropagation();
+                stopWorker(taskId);
+              }}
+            >
+              ×
             </button>
           </span>
-        )}
+        ))}
         {image && (
           <span className="thumb">
             <img src={image} alt="attachment" />
@@ -464,8 +523,8 @@ export default function App() {
         <input
           type="text"
           placeholder={
-            activeTask
-              ? `respondendo ao worker ${activeTask.slice(0, 16)}…`
+            focused
+              ? `→ ${liveWorkers[focused]?.label ?? focused} (perguntas e novos comandos ainda funcionam)`
               : 'pergunte ("pendências de hoje?") ou mande ("continua a migração do X")… cole um print com Cmd+V'
           }
           value={input}
@@ -562,6 +621,45 @@ export default function App() {
                 }}
               >
                 despachar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pending?.kind === "task-summary" && (
+        <div className="modal-backdrop" onClick={() => setPending(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>
+              ℹ {liveWorkers[pending.taskId]?.label ?? pending.taskId}
+              {liveWorkers[pending.taskId] &&
+                ` · ${liveWorkers[pending.taskId].status === "running" ? "rodando" : "aguardando você"}`}
+            </h2>
+            <pre>
+              {messages
+                .filter((m) => "task" in m && m.task === pending.taskId)
+                .slice(-14)
+                .map((m) =>
+                  m.who === "user"
+                    ? `você: ${m.text}`
+                    : m.who === "tool"
+                      ? `  ${m.text}`
+                      : `vox: ${m.text}`,
+                )
+                .join("\n") || "(sem eventos ainda)"}
+            </pre>
+            <div className="row">
+              <button
+                className="plain"
+                onClick={() => {
+                  setFocused(pending.taskId);
+                  setPending(null);
+                }}
+              >
+                focar nela
+              </button>
+              <button className="plain" onClick={() => setPending(null)}>
+                fechar
               </button>
             </div>
           </div>

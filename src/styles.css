@@ -74,14 +74,24 @@ body {
 .tasktag {
   color: var(--accent); font-size: 10px; margin-right: 6px; opacity: .8;
 }
-.active-task {
+.worker-chip {
   display: flex; align-items: center; gap: 6px;
-  color: var(--accent); font-size: 12px; white-space: nowrap;
+  color: var(--dim); font-size: 12px; white-space: nowrap; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 14px; padding: 4px 10px;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis;
 }
-.active-task button {
-  background: var(--bg); color: var(--warn); border: 1px solid var(--border);
-  border-radius: 4px; padding: 2px 8px; font: inherit; font-size: 11px; cursor: pointer;
+.worker-chip .dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--warn);
+  animation: pulse 1.6s infinite; flex-shrink: 0;
 }
+.worker-chip.turn_done .dot { background: var(--ok); animation: none; }
+.worker-chip.focused { color: var(--accent); border-color: var(--accent); }
+.worker-chip button {
+  background: transparent; color: var(--dim); border: none; font: inherit;
+  font-size: 11px; cursor: pointer; padding: 0 2px;
+}
+.worker-chip button:hover { color: var(--text); }
+@keyframes pulse { 50% { opacity: .3; } }
 .msg .fala { color: var(--ok); }
 .msg .detalhes { margin-top: 6px; color: var(--text); }
 .msg .itens { margin-top: 6px; padding-left: 16px; color: var(--warn); }

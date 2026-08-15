@@ -146,6 +146,9 @@ mod tests {
         assert_eq!(route("agora roda os testes do webhook"), Route::Dispatch);
         assert_eq!(route("vamos trabalhar agora no vox"), Route::Dispatch);
         assert_eq!(route("implementa o worker conversacional"), Route::Dispatch);
+        // Parallel dispatch while another worker runs.
+        assert_eq!(route("enquanto isso faz a task dos alertas"), Route::Dispatch);
+        assert_eq!(route("em paralelo roda a migração de pagamentos"), Route::Dispatch);
     }
 
     #[test]
