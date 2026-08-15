@@ -96,11 +96,11 @@ fn cmd_ask(question: &str) -> i32 {
             journal: &vox_core::adapters::memory_files::VoxDir,
             store: &mut store,
             live: &ClaudeAgentsCli {
-                claude_bin: config.claude_bin.clone(),
+                claude_bin: config.claude_bin_resolved(),
             },
             repos: &GitCli,
             runner: &ClaudeCli {
-                claude_bin: config.claude_bin.clone(),
+                claude_bin: config.claude_bin_resolved(),
                 model: config.model.clone(),
                 work_dir: config.data_dir(),
             },
@@ -156,7 +156,7 @@ fn cmd_prompt(question: &str) -> i32 {
             journal: &vox_core::adapters::memory_files::VoxDir,
             store: &mut store,
             live: &ClaudeAgentsCli {
-                claude_bin: config.claude_bin.clone(),
+                claude_bin: config.claude_bin_resolved(),
             },
             repos: &GitCli,
             runner: &NoopRunner,
@@ -204,7 +204,7 @@ fn cmd_sessions() -> i32 {
             journal: &vox_core::adapters::memory_files::VoxDir,
             store: &mut store,
             live: &ClaudeAgentsCli {
-                claude_bin: config.claude_bin.clone(),
+                claude_bin: config.claude_bin_resolved(),
             },
             repos: &GitCli,
             runner: &NoopRunner,
@@ -257,7 +257,7 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
             journal: &vox_core::adapters::memory_files::VoxDir,
             store: &mut store,
             live: &ClaudeAgentsCli {
-                claude_bin: config.claude_bin.clone(),
+                claude_bin: config.claude_bin_resolved(),
             },
             repos: &GitCli,
             runner: &NoopRunner,
@@ -329,7 +329,7 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
     let _ = state_file::save(&config.data_dir(), &state);
 
     let spawn = worker::WorkerSpawn {
-        claude_bin: config.claude_bin.clone(),
+        claude_bin: config.claude_bin_resolved(),
         cwd: planned.workspace_root.clone(),
         session_id: planned.session.session_id.clone(),
         instruction: instruction.to_string(),
@@ -549,11 +549,11 @@ fn cmd_ask_spoken(question: &str, tts: &impl vox_core::ports::Tts) -> i32 {
             journal: &vox_core::adapters::memory_files::VoxDir,
             store: &mut store,
             live: &ClaudeAgentsCli {
-                claude_bin: config.claude_bin.clone(),
+                claude_bin: config.claude_bin_resolved(),
             },
             repos: &GitCli,
             runner: &ClaudeCli {
-                claude_bin: config.claude_bin.clone(),
+                claude_bin: config.claude_bin_resolved(),
                 model: config.model.clone(),
                 work_dir: config.data_dir(),
             },

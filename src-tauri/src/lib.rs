@@ -163,10 +163,10 @@ fn ask_text(
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
     let live = ClaudeAgentsCli {
-        claude_bin: config.claude_bin.clone(),
+        claude_bin: config.claude_bin_resolved(),
     };
     let runner = ClaudeCli {
-        claude_bin: config.claude_bin.clone(),
+        claude_bin: config.claude_bin_resolved(),
         model: config.model.clone(),
         work_dir: config.data_dir(),
     };
@@ -244,7 +244,7 @@ fn dispatch_text(
         let mut store =
             SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
         let live = ClaudeAgentsCli {
-            claude_bin: config.claude_bin.clone(),
+            claude_bin: config.claude_bin_resolved(),
         };
         let mut deps = build_deps(&config, &mut store, &live, &NoopRunner);
         plan(&mut deps, &instruction, session_id.as_deref()).map_err(|e| e.to_string())?
@@ -305,7 +305,7 @@ fn dispatch_text(
     let _ = state_file::save(&config.data_dir(), &gstate);
 
     let spawn = vox_core::adapters::worker::WorkerSpawn {
-        claude_bin: config.claude_bin.clone(),
+        claude_bin: config.claude_bin_resolved(),
         cwd: planned.workspace_root.clone(),
         session_id: planned.session.session_id.clone(),
         instruction: instruction.clone(),

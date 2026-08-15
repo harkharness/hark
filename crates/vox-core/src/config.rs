@@ -91,6 +91,25 @@ impl Config {
         })
     }
 
+    /// Resolve the Claude binary. A bare "claude" is dangerous under GUI
+    /// PATHs (an old npm-installed claude may shadow the real one), so it
+    /// resolves through well-known install locations first.
+    pub fn claude_bin_resolved(&self) -> String {
+        if self.claude_bin != "claude" {
+            return expand_home(&self.claude_bin);
+        }
+        let known = [
+            home().join(".local").join("bin").join("claude"),
+            PathBuf::from("/opt/homebrew/bin/claude"),
+            PathBuf::from("/usr/local/bin/claude"),
+        ];
+        known
+            .iter()
+            .find(|p| p.exists())
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "claude".to_string())
+    }
+
     /// Resolved whisper model path (config override or data-dir default).
     pub fn whisper_model_path(&self) -> PathBuf {
         if self.whisper_model.is_empty() {
