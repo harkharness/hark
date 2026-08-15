@@ -29,6 +29,7 @@ export default function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
+  const [tab, setTab] = useState<"chat" | "board">("chat");
   const [speak, setSpeak] = useState(true);
   const speakRef = useRef(speak);
   speakRef.current = speak;
@@ -172,6 +173,23 @@ export default function App() {
     <div className="app">
       <div className="topbar">
         <span className="title">VOX</span>
+        <nav className="tabs">
+          <button
+            className={tab === "chat" ? "active" : ""}
+            onClick={() => setTab("chat")}
+          >
+            chat
+          </button>
+          <button
+            className={tab === "board" ? "active" : ""}
+            onClick={() => {
+              setTab("board");
+              refresh();
+            }}
+          >
+            board
+          </button>
+        </nav>
         <select
           value={overview?.active ?? "all"}
           onChange={(e) => {
@@ -195,7 +213,35 @@ export default function App() {
         </span>
       </div>
 
-      <div className="transcript">
+      {tab === "board" && (
+        <div className="kanban">
+          {(["backlog", "doing", "waiting", "done"] as const).map((status) => {
+            const items = (overview?.board ?? []).filter(
+              (t) => t.status === status,
+            );
+            return (
+              <div key={status} className={`column ${status}`}>
+                <h3>
+                  {status} <span className="count">{items.length}</span>
+                </h3>
+                {items.map((t) => (
+                  <div key={t.title} className="card">
+                    <div className="card-title">{t.title}</div>
+                    {t.note && <div className="card-note">{t.note}</div>}
+                    <div className="card-meta">
+                      {t.updated_at.slice(0, 16).replace("T", " ")}
+                      {t.session_ids.length > 0 &&
+                        ` · ${t.session_ids.length} sessão(ões)`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="transcript" style={tab === "board" ? { display: "none" } : undefined}>
         {messages.map((m, i) => (
           <div key={i} className={`msg ${m.who}`}>
             {m.who === "sys" ? (
@@ -233,7 +279,7 @@ export default function App() {
         <div ref={endRef} />
       </div>
 
-      <div className="events">
+      <div className="events" style={tab === "board" ? { display: "none" } : undefined}>
         {overview && overview.board.length > 0 && (
           <div className="board">
             <h3>board</h3>
