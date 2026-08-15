@@ -56,6 +56,66 @@ pub fn route(utterance: &str) -> Route {
     }
 }
 
+/// Model tiers, all overridable via config.
+#[derive(Debug, Clone)]
+pub struct Models {
+    /// Cheap lookups: lists, status, short summaries.
+    pub light: String,
+    /// Default tier.
+    pub standard: String,
+    /// Deep analysis and decisions.
+    pub heavy: String,
+    /// Only on explicit request ("melhor modelo").
+    pub max: String,
+}
+
+impl Default for Models {
+    fn default() -> Self {
+        Self {
+            light: "haiku".into(),
+            standard: "sonnet".into(),
+            heavy: "opus".into(),
+            max: "fable".into(),
+        }
+    }
+}
+
+/// Pick the model for an utterance. An explicit request always wins;
+/// otherwise a zero-cost heuristic routes by task weight.
+pub fn model_for(utterance: &str, models: &Models) -> String {
+    let lower = utterance.to_lowercase();
+
+    // Layer 1: explicit override.
+    if lower.contains("melhor modelo") || lower.contains("best model") {
+        return models.max.clone();
+    }
+    for name in ["fable", "opus", "sonnet", "haiku"] {
+        for verb in ["usa o ", "usa ", "use o ", "use ", "com o ", "with "] {
+            if lower.contains(&format!("{verb}{name}")) {
+                return name.to_string();
+            }
+        }
+    }
+
+    // Layer 2: heavy reasoning markers.
+    const HEAVY: &[&str] = &[
+        "investiga", "analisa", "a fundo", "profundo", "compara", "decide", "decisão",
+        "trade-off", "arquitetura", "root cause", "causa raiz",
+    ];
+    if HEAVY.iter().any(|w| lower.contains(w)) {
+        return models.heavy.clone();
+    }
+
+    // Layer 3: cheap lookups (simple starts + short utterances).
+    const LIGHT_STARTS: &[&str] = &["quais", "qual", "lista", "resumo", "status", "quantos", "quantas"];
+    let word_count = lower.split_whitespace().count();
+    if word_count <= 12 && LIGHT_STARTS.iter().any(|w| lower.starts_with(w)) {
+        return models.light.clone();
+    }
+
+    models.standard.clone()
+}
+
 /// Interpret a spoken yes/no confirmation.
 pub fn is_affirmative(utterance: &str) -> bool {
     let lower = utterance.to_lowercase();
@@ -92,6 +152,40 @@ mod tests {
         assert!(!is_affirmative("não"));
         assert!(!is_affirmative("não pode"));
         assert!(!is_affirmative("espera"));
+    }
+
+    #[test]
+    fn explicit_model_request_always_wins() {
+        let m = |t: &str| model_for(t, &Models::default());
+        assert_eq!(m("usa o opus: quais as pendências?"), "opus");
+        assert_eq!(m("com o haiku, resume a semana"), "haiku");
+        assert_eq!(m("usa o melhor modelo e analisa a arquitetura"), "fable");
+        assert_eq!(m("use the best model to review this"), "fable");
+        assert_eq!(m("usa o sonnet aqui"), "sonnet");
+    }
+
+    #[test]
+    fn cheap_lookups_go_to_light_model() {
+        let m = |t: &str| model_for(t, &Models::default());
+        assert_eq!(m("quais são as pendências de hoje?"), "haiku");
+        assert_eq!(m("lista as sessões abertas"), "haiku");
+        assert_eq!(m("qual o status do PR?"), "haiku");
+        assert_eq!(m("resumo rápido da semana"), "haiku");
+    }
+
+    #[test]
+    fn deep_reasoning_goes_to_heavy_model() {
+        let m = |t: &str| model_for(t, &Models::default());
+        assert_eq!(m("investiga por que o webhook caiu ontem"), "opus");
+        assert_eq!(m("analisa a fundo os trade-offs dessa migração"), "opus");
+        assert_eq!(m("compara as duas abordagens e decide a melhor"), "opus");
+    }
+
+    #[test]
+    fn everything_else_uses_standard_model() {
+        let m = |t: &str| model_for(t, &Models::default());
+        assert_eq!(m("como está a migração de pagamentos?"), "sonnet");
+        assert_eq!(m("me explica esse erro do terraform"), "sonnet");
     }
 
     #[test]

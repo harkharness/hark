@@ -6,12 +6,11 @@
 
 use crate::domain::claude_event::{parse, user_message, ClaudeEvent, TurnResult};
 use crate::domain::prompt::{RESPONSE_SCHEMA, VOICE_SYSTEM_PROMPT};
-use crate::ports::AgentRunner;
+use crate::ports::{AgentRunner, TurnRequest};
 use std::io::{BufRead, BufReader, Write};
 
 pub struct ClaudeCli {
     pub claude_bin: String,
-    pub model: String,
     /// Neutral working directory for the spawned process.
     pub work_dir: std::path::PathBuf,
 }
@@ -19,8 +18,7 @@ pub struct ClaudeCli {
 impl AgentRunner for ClaudeCli {
     fn ask(
         &self,
-        prompt: &str,
-        image: Option<(&str, &str)>,
+        request: &TurnRequest,
         on_event: &mut dyn FnMut(&ClaudeEvent),
     ) -> anyhow::Result<TurnResult> {
         // stream-json input so the prompt can carry image blocks (pasted
@@ -32,7 +30,7 @@ impl AgentRunner for ClaudeCli {
                 "--input-format",
                 "stream-json",
                 "--model",
-                &self.model,
+                request.model,
                 // Fast mode: minimal reasoning keeps latency and cost flat.
                 "--effort",
                 "low",
@@ -54,7 +52,7 @@ impl AgentRunner for ClaudeCli {
             .spawn()?;
 
         let mut stdin = child.stdin.take().expect("piped stdin");
-        stdin.write_all(user_message(prompt, image).as_bytes())?;
+        stdin.write_all(user_message(request.prompt, request.image).as_bytes())?;
         stdin.write_all(b"\n")?;
         stdin.flush()?;
         drop(stdin); // one-shot turn: EOF ends the conversation after the result

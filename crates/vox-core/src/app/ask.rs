@@ -36,6 +36,7 @@ pub fn ask(
 }
 
 /// `ask` with an optional pasted image (media type + base64).
+/// The model is routed per question (explicit request > heuristic > default).
 pub fn ask_with_image(
     question: &str,
     image: Option<(&str, &str)>,
@@ -45,7 +46,13 @@ pub fn ask_with_image(
     let context = resolve_context(deps, Some(question));
     let snapshot = snapshot_for_question(deps, question)?;
     let prompt = prompt::build(question, &snapshot);
-    let result = deps.runner.ask(&prompt, image, on_event)?;
+    let model = crate::domain::intent::model_for(question, &deps.config.models());
+    let request = crate::ports::TurnRequest {
+        prompt: &prompt,
+        image,
+        model: &model,
+    };
+    let result = deps.runner.ask(&request, on_event)?;
 
     if let Some(reply) = &result.reply {
         let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);

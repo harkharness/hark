@@ -40,6 +40,17 @@ pub struct Config {
     pub whisper_model: String,
     /// Vocabulary bias fed to whisper (helps tech terms inside pt-BR speech).
     pub vocab: Vec<String>,
+    /// Model tiers for the router (light/standard/heavy/max).
+    pub models: ModelsTable,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+pub struct ModelsTable {
+    pub light: Option<String>,
+    pub standard: Option<String>,
+    pub heavy: Option<String>,
+    pub max: Option<String>,
 }
 
 impl Default for Config {
@@ -62,6 +73,7 @@ impl Default for Config {
             .iter()
             .map(|s| s.to_string())
             .collect(),
+            models: ModelsTable::default(),
         }
     }
 }
@@ -89,6 +101,22 @@ impl Config {
             match_cwd: t.match_cwd.iter().map(|p| expand_home(p)).collect(),
             repos: t.repos.iter().map(|p| expand_home(p)).collect(),
         })
+    }
+
+    /// Router tiers with config overrides. `model` (legacy field) overrides
+    /// the standard tier so existing configs keep working.
+    pub fn models(&self) -> crate::domain::intent::Models {
+        let defaults = crate::domain::intent::Models::default();
+        crate::domain::intent::Models {
+            light: self.models.light.clone().unwrap_or(defaults.light),
+            standard: self
+                .models
+                .standard
+                .clone()
+                .unwrap_or_else(|| self.model.clone()),
+            heavy: self.models.heavy.clone().unwrap_or(defaults.heavy),
+            max: self.models.max.clone().unwrap_or(defaults.max),
+        }
     }
 
     /// Resolve the Claude binary. A bare "claude" is dangerous under GUI

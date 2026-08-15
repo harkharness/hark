@@ -23,6 +23,8 @@ pub struct TurnResult {
     pub raw: String,
     pub cost_usd: Option<f64>,
     pub duration_ms: Option<u64>,
+    /// Main model that produced the turn (highest-cost entry in modelUsage).
+    pub model: Option<String>,
 }
 
 /// One line of CLI output, reduced to what Vox reacts to.
@@ -125,7 +127,21 @@ fn parse_result(v: &Value) -> Option<TurnResult> {
         raw,
         cost_usd: v.get("total_cost_usd").and_then(Value::as_f64),
         duration_ms: v.get("duration_ms").and_then(Value::as_u64),
+        model: main_model(v),
     })
+}
+
+/// The model that did the real work: highest-cost entry in modelUsage
+/// (sidecar models like the haiku classifier stay out of the label).
+fn main_model(v: &Value) -> Option<String> {
+    let usage = v.get("modelUsage")?.as_object()?;
+    usage
+        .iter()
+        .max_by(|a, b| {
+            let cost = |m: &Value| m.get("costUSD").and_then(Value::as_f64).unwrap_or(0.0);
+            cost(a.1).total_cmp(&cost(b.1))
+        })
+        .map(|(name, _)| name.clone())
 }
 
 fn parse_permission(v: &Value) -> Option<ClaudeEvent> {
@@ -158,11 +174,13 @@ mod tests {
 
     #[test]
     fn parses_successful_result_into_voice_reply() {
-        let line = r#"{"type":"result","subtype":"success","is_error":false,"result":"{\"fala\":\"Duas pendências hoje.\",\"detalhes\":\"PR aberto e teste falhando\",\"itens\":[\"revisar PR\"]}","total_cost_usd":0.009,"duration_ms":4700}"#;
+        let line = r#"{"type":"result","subtype":"success","is_error":false,"result":"{\"fala\":\"Duas pendências hoje.\",\"detalhes\":\"PR aberto e teste falhando\",\"itens\":[\"revisar PR\"]}","total_cost_usd":0.009,"duration_ms":4700,"modelUsage":{"claude-haiku-4-5":{"costUSD":0.004},"claude-sonnet-5":{"costUSD":0.035}}}"#;
         let ClaudeEvent::Result(result) = parse(line) else {
             panic!("expected result event");
         };
         assert_eq!(result.cost_usd, Some(0.009));
+        // Highest-cost model wins the label, sidecars ignored.
+        assert_eq!(result.model.as_deref(), Some("claude-sonnet-5"));
         let reply = result.reply.expect("structured reply");
         assert_eq!(reply.fala, "Duas pendências hoje.");
         assert_eq!(reply.detalhes, "PR aberto e teste falhando");

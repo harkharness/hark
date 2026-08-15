@@ -66,8 +66,7 @@ struct NoopRunner;
 impl AgentRunner for NoopRunner {
     fn ask(
         &self,
-        _p: &str,
-        _i: Option<(&str, &str)>,
+        _request: &vox_core::ports::TurnRequest,
         _e: &mut dyn FnMut(&ClaudeEvent),
     ) -> anyhow::Result<vox_core::domain::claude_event::TurnResult> {
         anyhow::bail!("not used")
@@ -150,6 +149,7 @@ struct ReplyOut {
     detalhes: String,
     itens: Vec<String>,
     cost_usd: Option<f64>,
+    model: Option<String>,
 }
 
 #[tauri::command(async)]
@@ -167,7 +167,7 @@ fn ask_text(
     };
     let runner = ClaudeCli {
         claude_bin: config.claude_bin_resolved(),
-        model: config.model.clone(),
+
         work_dir: config.data_dir(),
     };
     let mut deps = build_deps(&config, &mut store, &live, &runner);
@@ -193,12 +193,14 @@ fn ask_text(
             detalhes,
             itens,
             cost_usd: result.cost_usd,
+            model: result.model,
         }),
         None if !result.is_error => Ok(ReplyOut {
             fala: result.raw.clone(),
             detalhes: result.raw,
             itens: vec![],
             cost_usd: result.cost_usd,
+            model: result.model,
         }),
         None => Err(result.raw),
     }

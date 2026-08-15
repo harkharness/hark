@@ -101,7 +101,6 @@ fn cmd_ask(question: &str) -> i32 {
             repos: &GitCli,
             runner: &ClaudeCli {
                 claude_bin: config.claude_bin_resolved(),
-                model: config.model.clone(),
                 work_dir: config.data_dir(),
             },
             config: &config,
@@ -128,9 +127,11 @@ fn cmd_ask(question: &str) -> i32 {
                 }
                 None => println!("{}", turn.raw),
             }
-            if let Some(cost) = turn.cost_usd {
-                eprintln!("\n[cost ${cost:.4}]");
-            }
+            eprintln!(
+                "\n[{} · ${:.4}]",
+                turn.model.as_deref().unwrap_or("?"),
+                turn.cost_usd.unwrap_or(0.0)
+            );
             0
         }
         Ok(turn) => {
@@ -562,7 +563,6 @@ fn cmd_ask_spoken(question: &str, tts: &impl vox_core::ports::Tts) -> i32 {
             repos: &GitCli,
             runner: &ClaudeCli {
                 claude_bin: config.claude_bin_resolved(),
-                model: config.model.clone(),
                 work_dir: config.data_dir(),
             },
             config: &config,
@@ -610,8 +610,7 @@ struct NoopRunner;
 impl vox_core::ports::AgentRunner for NoopRunner {
     fn ask(
         &self,
-        _prompt: &str,
-        _image: Option<(&str, &str)>,
+        _request: &vox_core::ports::TurnRequest,
         _on_event: &mut dyn FnMut(&ClaudeEvent),
     ) -> anyhow::Result<vox_core::domain::claude_event::TurnResult> {
         anyhow::bail!("not used")

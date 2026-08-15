@@ -3,6 +3,7 @@ export type Reply = {
   detalhes: string;
   itens: string[];
   cost_usd?: number;
+  model?: string;
 };
 
 export type VoxEvent =
@@ -20,7 +21,7 @@ export type PermissionAsk = {
 
 export type Msg =
   | { who: "user"; text: string; image?: string }
-  | { who: "vox"; text: string; detalhes?: string; itens?: string[]; cost?: number }
+  | { who: "vox"; text: string; detalhes?: string; itens?: string[]; cost?: number; model?: string }
   | { who: "sys"; text: string };
 
 export type DispatchOutcome =

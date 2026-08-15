@@ -75,6 +75,7 @@ export default function App() {
         detalhes: reply.detalhes,
         itens: reply.itens,
         cost: reply.cost_usd,
+        model: reply.model,
       });
       say(reply.fala);
     } catch (err) {
@@ -213,8 +214,10 @@ export default function App() {
                         ))}
                       </ul>
                     )}
-                    {m.cost != null && (
-                      <span className="cost">${m.cost.toFixed(4)}</span>
+                    {(m.cost != null || m.model) && (
+                      <span className="cost">
+                        {shortModel(m.model)} · ${(m.cost ?? 0).toFixed(4)}
+                      </span>
                     )}
                   </>
                 ) : (
@@ -360,6 +363,12 @@ export default function App() {
       )}
     </div>
   );
+}
+
+function shortModel(model?: string): string {
+  if (!model) return "?";
+  // "claude-sonnet-5" -> "sonnet-5"
+  return model.replace(/^claude-/, "");
 }
 
 function prettyJson(raw: string): string {
