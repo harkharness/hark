@@ -18,6 +18,7 @@ type Pending =
       instruction: string;
       candidates: { session_id: string; title: string; last_ts: string }[];
     }
+  | { kind: "resume-task"; title: string; sessionId?: string; instruction: string }
   | null;
 
 export default function App() {
@@ -220,18 +221,63 @@ export default function App() {
               (t) => t.status === status,
             );
             return (
-              <div key={status} className={`column ${status}`}>
+              <div
+                key={status}
+                className={`column ${status}`}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={async (e) => {
+                  const title = e.dataTransfer.getData("text/vox-task");
+                  if (!title) return;
+                  await invoke("board_move", { title, status }).catch(() => {});
+                  refresh();
+                }}
+              >
                 <h3>
                   {status} <span className="count">{items.length}</span>
                 </h3>
                 {items.map((t) => (
-                  <div key={t.title} className="card">
+                  <div
+                    key={t.title}
+                    className="card"
+                    draggable
+                    onDragStart={(e) =>
+                      e.dataTransfer.setData("text/vox-task", t.title)
+                    }
+                  >
                     <div className="card-title">{t.title}</div>
                     {t.note && <div className="card-note">{t.note}</div>}
                     <div className="card-meta">
                       {t.updated_at.slice(0, 16).replace("T", " ")}
                       {t.session_ids.length > 0 &&
                         ` · ${t.session_ids.length} sessão(ões)`}
+                    </div>
+                    <div className="card-actions">
+                      <button
+                        title="retomar (despacha na sessão vinculada)"
+                        onClick={() =>
+                          setPending({
+                            kind: "resume-task",
+                            title: t.title,
+                            sessionId: t.session_ids.at(-1),
+                            instruction: `Continua a tarefa: ${t.title}.${
+                              t.note ? ` Contexto: ${t.note}.` : ""
+                            }`,
+                          })
+                        }
+                      >
+                        ▶ retomar
+                      </button>
+                      <button
+                        title="arquivar (remove do board)"
+                        onClick={async () => {
+                          await invoke("board_archive", { title: t.title }).catch(
+                            () => {},
+                          );
+                          refresh();
+                        }}
+                      >
+                        arquivar
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -397,6 +443,38 @@ export default function App() {
             <div className="row">
               <button className="plain" onClick={() => setPending(null)}>
                 cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pending?.kind === "resume-task" && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <h2>▶ Retomar: {pending.title}</h2>
+            <textarea
+              className="resume-input"
+              value={pending.instruction}
+              onChange={(e) =>
+                setPending({ ...pending, instruction: e.target.value })
+              }
+              rows={4}
+            />
+            <div className="row">
+              <button className="plain" onClick={() => setPending(null)}>
+                cancelar
+              </button>
+              <button
+                className="allow"
+                onClick={() => {
+                  const { instruction, sessionId } = pending;
+                  setPending(null);
+                  setTab("chat");
+                  runDispatch(instruction, sessionId);
+                }}
+              >
+                despachar
               </button>
             </div>
           </div>

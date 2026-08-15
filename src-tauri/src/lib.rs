@@ -390,6 +390,28 @@ fn dispatch_text(
 }
 
 #[tauri::command]
+fn board_move(title: String, status: vox_core::domain::board::TaskStatus) -> Result<(), String> {
+    use vox_core::ports::SessionStore;
+    let config = Config::load();
+    let mut store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let tasks = store.board().map_err(|e| e.to_string())?;
+    let tasks = vox_core::domain::board::set_status(tasks, &title, status, &now_iso());
+    store.save_board(&tasks).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn board_archive(title: String) -> Result<(), String> {
+    use vox_core::ports::SessionStore;
+    let config = Config::load();
+    let mut store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let tasks = store.board().map_err(|e| e.to_string())?;
+    let tasks = vox_core::domain::board::archive(tasks, &title);
+    store.save_board(&tasks).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn approve(pending: State<'_, Pending>, request_id: String, allow: bool) {
     if let Some(tx) = pending.0.lock().unwrap().remove(&request_id) {
         let _ = tx.send(if allow {
@@ -421,6 +443,8 @@ pub fn run() {
             hear_once,
             ask_text,
             dispatch_text,
+            board_move,
+            board_archive,
             approve
         ])
         .run(tauri::generate_context!())

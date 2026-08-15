@@ -94,6 +94,20 @@ pub fn apply_updates(
     tasks
 }
 
+/// Manual move (drag on the board): exact title match, new status, no LLM.
+pub fn set_status(mut tasks: Vec<Task>, title: &str, status: TaskStatus, now: &str) -> Vec<Task> {
+    if let Some(task) = tasks.iter_mut().find(|t| t.title == title) {
+        task.status = status;
+        task.updated_at = now.to_string();
+    }
+    tasks
+}
+
+/// Manual archive: removes the task from the board entirely.
+pub fn archive(tasks: Vec<Task>, title: &str) -> Vec<Task> {
+    tasks.into_iter().filter(|t| t.title != title).collect()
+}
+
 /// Render the board for the prompt/screen: open tasks grouped by status,
 /// plus only the most recently finished ones.
 pub fn render(tasks: &[Task]) -> String {
@@ -210,6 +224,29 @@ mod tests {
             None,
         );
         assert_eq!(tasks.len(), 2);
+    }
+
+    #[test]
+    fn manual_move_and_archive_by_exact_title() {
+        let tasks = apply_updates(
+            Vec::new(),
+            &[
+                update("Migração webhook", TaskStatus::Doing),
+                update("Alertas playbooks", TaskStatus::Backlog),
+            ],
+            "2026-08-15T10:00:00Z",
+            None,
+            None,
+        );
+
+        let moved = set_status(tasks, "Migração webhook", TaskStatus::Done, "2026-08-15T11:00:00Z");
+        let webhook = moved.iter().find(|t| t.title == "Migração webhook").unwrap();
+        assert_eq!(webhook.status, TaskStatus::Done);
+        assert_eq!(webhook.updated_at, "2026-08-15T11:00:00Z");
+
+        let archived = archive(moved, "Alertas playbooks");
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].title, "Migração webhook");
     }
 
     #[test]
