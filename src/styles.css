@@ -75,6 +75,14 @@ body {
 .event { border-left: 2px solid var(--border); padding: 4px 8px; margin-bottom: 6px; color: var(--dim); }
 .event .name { color: var(--accent); }
 .event pre { white-space: pre-wrap; word-break: break-all; color: var(--text); margin-top: 2px; max-height: 120px; overflow-y: auto; }
+.board { margin-bottom: 14px; }
+.task { border-left: 2px solid var(--border); padding: 4px 8px; margin-bottom: 6px; }
+.task.doing { border-color: var(--warn); }
+.task.waiting { border-color: var(--accent); }
+.task.backlog { border-color: var(--dim); }
+.task .status { color: var(--dim); font-size: 10px; text-transform: uppercase; margin-right: 4px; }
+.task .note { color: var(--dim); font-size: 11px; }
+
 .workers { margin-top: 14px; }
 .worker { padding: 4px 8px; border-left: 2px solid var(--warn); margin-bottom: 6px; }
 .worker.Done { border-color: var(--ok); }

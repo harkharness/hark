@@ -57,10 +57,32 @@ pub fn ask_with_image(
     if let Some(reply) = &result.reply {
         let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
         let entry = crate::domain::memory::journal_entry(&now, question, &reply.fala);
-        // Journaling must never break the answer flow.
+        // Journaling and board updates must never break the answer flow.
         let _ = deps.journal.append(&journal_root(deps, context.as_ref()), &entry);
+        if !reply.board.is_empty() {
+            let workspace = context.as_ref().and_then(|c| c.repos.first().cloned());
+            let _ = update_board(deps, &reply.board, &now, workspace.as_deref(), None);
+        }
     }
     Ok(result)
+}
+
+/// Merge board updates and persist (used by ask and by the dispatcher).
+pub fn update_board(
+    deps: &mut AskDeps,
+    updates: &[crate::domain::board::BoardUpdate],
+    now: &str,
+    workspace: Option<&str>,
+    session_id: Option<&str>,
+) -> anyhow::Result<()> {
+    let merged = crate::domain::board::apply_updates(
+        deps.store.board()?,
+        updates,
+        now,
+        workspace,
+        session_id,
+    );
+    deps.store.save_board(&merged)
 }
 
 /// Where the resolved context keeps its `.vox/`: first repo of the context,
@@ -152,5 +174,6 @@ fn build_snapshot_with(
         repos: deps.repos.collect(&repo_paths),
         journal: deps.journal.tail(&journal_root(deps, context), JOURNAL_TAIL),
         workers: deps.workers.clone(),
+        board: crate::domain::board::render(&deps.store.board().unwrap_or_default()),
     })
 }

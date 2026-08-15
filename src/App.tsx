@@ -234,6 +234,20 @@ export default function App() {
       </div>
 
       <div className="events">
+        {overview && overview.board.length > 0 && (
+          <div className="board">
+            <h3>board</h3>
+            {overview.board
+              .filter((t) => t.status !== "done")
+              .slice(0, 10)
+              .map((t) => (
+                <div key={t.title} className={`task ${t.status}`}>
+                  <span className="status">{t.status}</span> {t.title}
+                  {t.note && <div className="note">{t.note}</div>}
+                </div>
+              ))}
+          </div>
+        )}
         <h3>eventos</h3>
         {events.slice(-40).map((e, i) => (
           <div key={i} className="event">

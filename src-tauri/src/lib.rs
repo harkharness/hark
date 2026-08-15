@@ -78,21 +78,28 @@ struct Overview {
     contexts: Vec<String>,
     active: String,
     workers: Vec<WorkerRecord>,
+    board: Vec<vox_core::domain::board::Task>,
 }
 
 #[tauri::command]
 fn overview() -> Overview {
+    use vox_core::ports::SessionStore;
     let config = Config::load();
     let state = state_file::load(&config.data_dir());
     let mut workers = state.workers;
     workers.reverse(); // newest first
     workers.truncate(12);
+    let mut board = SqliteStore::open(&config.data_dir().join("index.db"))
+        .and_then(|s| s.board())
+        .unwrap_or_default();
+    board.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     Overview {
         contexts: config.context_names(),
         active: state
             .active_context
             .unwrap_or_else(|| config.default_context.clone()),
         workers,
+        board,
     }
 }
 
@@ -188,7 +195,7 @@ fn ask_text(
     .map_err(|e| format!("{e:#}"))?;
 
     match result.reply {
-        Some(VoiceReply { fala, detalhes, itens }) => Ok(ReplyOut {
+        Some(VoiceReply { fala, detalhes, itens, .. }) => Ok(ReplyOut {
             fala,
             detalhes,
             itens,

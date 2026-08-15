@@ -31,8 +31,17 @@ export type DispatchOutcome =
   | { status: "busy"; session_id: string }
   | { status: "no_match" };
 
+export type BoardTask = {
+  title: string;
+  status: "backlog" | "doing" | "waiting" | "done";
+  note?: string;
+  updated_at: string;
+  session_ids: string[];
+};
+
 export type Overview = {
   contexts: string[];
   active: string;
   workers: { task_id: string; status: string; workspace: string; summary: string }[];
+  board: BoardTask[];
 };

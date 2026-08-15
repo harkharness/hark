@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS prompts (
     PRIMARY KEY (path, ts, text)
 );
 CREATE INDEX IF NOT EXISTS idx_files_last_ts ON files(last_ts);
+CREATE TABLE IF NOT EXISTS board (
+    title       TEXT PRIMARY KEY,
+    task        TEXT NOT NULL  -- full Task as JSON
+);
 ";
 
 impl SqliteStore {
@@ -56,6 +60,32 @@ impl SqliteStore {
         })
     }
 
+    /// Load the whole board (small by nature).
+    fn board_impl(&self) -> anyhow::Result<Vec<crate::domain::board::Task>> {
+        let mut stmt = self.conn.prepare("SELECT task FROM board")?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows
+            .iter()
+            .filter_map(|json| serde_json::from_str(json).ok())
+            .collect())
+    }
+
+    /// Replace the whole board (updates arrive already merged).
+    fn save_board_impl(&mut self, tasks: &[crate::domain::board::Task]) -> anyhow::Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM board", [])?;
+        for task in tasks {
+            tx.execute(
+                "INSERT INTO board (title, task) VALUES (?1, ?2)",
+                params![task.title, serde_json::to_string(task)?],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     fn prompts_for(&self, path: &str) -> anyhow::Result<Vec<RecentPrompt>> {
         let mut stmt = self
             .conn
@@ -73,6 +103,14 @@ impl SqliteStore {
 }
 
 impl SessionStore for SqliteStore {
+    fn board(&self) -> anyhow::Result<Vec<crate::domain::board::Task>> {
+        self.board_impl()
+    }
+
+    fn save_board(&mut self, tasks: &[crate::domain::board::Task]) -> anyhow::Result<()> {
+        self.save_board_impl(tasks)
+    }
+
     fn file_state(&self, path: &str) -> anyhow::Result<Option<(SessionSummary, u64, i64)>> {
         let row = self
             .conn

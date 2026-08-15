@@ -31,6 +31,7 @@ fn main() {
             cmd_dispatch(&words, session.as_deref())
         }
         Some((cmd, rest)) if cmd == "ps" => cmd_ps(rest.first().is_some_and(|f| f == "--clear")),
+        Some((cmd, _)) if cmd == "board" => cmd_board(),
         Some((cmd, _)) if cmd == "setup" => cmd_setup(),
         Some((cmd, _)) if cmd == "hear" => cmd_hear(),
         Some((cmd, _)) if cmd == "listen" => cmd_listen(),
@@ -304,6 +305,33 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
         }
     };
 
+    // Feed the invisible kanban: this instruction is now a Doing task
+    // linked to the target session.
+    let board_note = |status: vox_core::domain::board::TaskStatus, nota: String| {
+        if let Ok(mut store) = open_store(&config) {
+            use vox_core::ports::SessionStore;
+            let updates = [vox_core::domain::board::BoardUpdate {
+                titulo: instruction.chars().take(60).collect(),
+                status,
+                nota: Some(nota),
+            }];
+            if let Ok(current) = store.board() {
+                let merged = vox_core::domain::board::apply_updates(
+                    current,
+                    &updates,
+                    &now_iso(),
+                    Some(&planned.workspace_root.display().to_string()),
+                    Some(&planned.session.session_id),
+                );
+                let _ = store.save_board(&merged);
+            }
+        }
+    };
+    board_note(
+        vox_core::domain::board::TaskStatus::Doing,
+        "despachado pelo vox".into(),
+    );
+
     let task_id = format!(
         "t-{}-{}",
         &planned.session.session_id[..6.min(planned.session.session_id.len())],
@@ -375,6 +403,10 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
         record.summary = summary.chars().take(200).collect();
     }
     let _ = state_file::save(&config.data_dir(), &state);
+    board_note(
+        vox_core::domain::board::TaskStatus::Waiting,
+        summary.chars().take(120).collect(),
+    );
     let _ = memory_files::append_state(
         &planned.workspace_root,
         &format!("- {} {task_id} [{:?}] {instruction}", now_iso(), status),
@@ -417,6 +449,25 @@ fn cmd_ps(clear: bool) -> i32 {
         );
     }
     0
+}
+
+fn cmd_board() -> i32 {
+    use vox_core::ports::SessionStore;
+    let config = Config::load();
+    match open_store(&config).and_then(|store| store.board()) {
+        Ok(tasks) if tasks.is_empty() => {
+            println!("quadro vazio");
+            0
+        }
+        Ok(tasks) => {
+            println!("{}", vox_core::domain::board::render(&tasks));
+            0
+        }
+        Err(err) => {
+            eprintln!("vox: {err:#}");
+            1
+        }
+    }
 }
 
 /// Download the default whisper model into the data dir.

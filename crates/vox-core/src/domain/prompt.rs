@@ -32,6 +32,8 @@ pub struct Snapshot {
     pub journal: Vec<String>,
     /// Dispatched workers across ALL workspaces (the machine-wide view).
     pub workers: Vec<WorkerRecord>,
+    /// The invisible kanban, rendered by `board::render` (empty = no section).
+    pub board: String,
 }
 
 /// JSON schema enforced on Claude's answer (`--json-schema`).
@@ -51,6 +53,19 @@ pub const RESPONSE_SCHEMA: &str = r#"{
       "type": "array",
       "items": { "type": "string" },
       "description": "Lista opcional de itens acionaveis, um por linha."
+    },
+    "board": {
+      "type": "array",
+      "description": "Atualizacoes do quadro de tarefas do usuario. Inclua APENAS quando a conversa revelar tarefa nova, mudanca de status ou conclusao; na duvida, omita. Reuse o titulo de uma tarefa existente do quadro ao atualiza-la.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "titulo": { "type": "string", "description": "Titulo curto e estavel da tarefa" },
+          "status": { "type": "string", "enum": ["backlog", "doing", "waiting", "done"] },
+          "nota": { "type": "string", "description": "Uma linha de contexto (ex: aguardando GMUD)" }
+        },
+        "required": ["titulo", "status"]
+      }
     }
   },
   "required": ["fala", "detalhes"]
@@ -87,6 +102,7 @@ pub fn build(question: &str, snapshot: &Snapshot) -> String {
     let sessions = sorted_sessions(snapshot);
     let sections = [
         format!("Contexto gerado em: {}", snapshot.generated_at),
+        board_section(&snapshot.board),
         live_section(&snapshot.live),
         workers_section(&snapshot.workers),
         repos_section(&snapshot.repos),
@@ -125,6 +141,15 @@ fn live_section(live: &[LiveSession]) -> String {
         })
         .collect();
     format!("Sessoes do Claude Code ABERTAS agora:\n{}", lines.join("\n"))
+}
+
+fn board_section(board: &str) -> String {
+    if board.is_empty() {
+        return String::new();
+    }
+    format!(
+        "Quadro de tarefas do usuario (mantido pelo Vox; atualize via campo 'board' da resposta):\n{board}"
+    )
 }
 
 fn workers_section(workers: &[WorkerRecord]) -> String {
@@ -273,7 +298,15 @@ mod tests {
                 started_at: "2026-08-14T11:30:00Z".into(),
                 summary: "abrir PR do DNS antigo".into(),
             }],
+            board: "[doing]\n- Migração do DNS antigo (atualizado 2026-08-14)".into(),
         }
+    }
+
+    #[test]
+    fn renders_board_section() {
+        let text = build("e o board?", &snapshot());
+        assert!(text.contains("Quadro de tarefas"));
+        assert!(text.contains("Migração do DNS antigo"));
     }
 
     #[test]

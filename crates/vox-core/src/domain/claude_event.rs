@@ -11,6 +11,9 @@ pub struct VoiceReply {
     pub detalhes: String,
     #[serde(default)]
     pub itens: Vec<String>,
+    /// Board updates proposed by the model (the invisible kanban feed).
+    #[serde(default)]
+    pub board: Vec<crate::domain::board::BoardUpdate>,
 }
 
 /// Final outcome of one turn.

@@ -40,6 +40,9 @@ pub trait SessionStore {
     /// Sessions matching ANY of the topic terms (title, last prompt or any
     /// stored prompt), best match first, regardless of age.
     fn search_sessions(&self, terms: &[String], limit: usize) -> anyhow::Result<Vec<SessionSummary>>;
+    /// The invisible kanban.
+    fn board(&self) -> anyhow::Result<Vec<crate::domain::board::Task>>;
+    fn save_board(&mut self, tasks: &[crate::domain::board::Task]) -> anyhow::Result<()>;
 }
 
 /// Discovers live Claude Code sessions.
