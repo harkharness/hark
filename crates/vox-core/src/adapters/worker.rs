@@ -92,9 +92,22 @@ pub fn run(
     }
 
     drop(stdin);
+    let stderr_tail = child
+        .stderr
+        .take()
+        .map(|s| {
+            use std::io::Read;
+            let mut buf = String::new();
+            let _ = std::io::BufReader::new(s).read_to_string(&mut buf);
+            buf.chars().rev().take(500).collect::<Vec<_>>().into_iter().rev().collect::<String>()
+        })
+        .unwrap_or_default();
     let status = child.wait()?;
     match result {
         Some(r) => Ok(r),
-        None => anyhow::bail!("worker exited ({status}) without a result event"),
+        None => anyhow::bail!(
+            "worker exited ({status}) without a result event; stderr: {}",
+            stderr_tail.trim()
+        ),
     }
 }
