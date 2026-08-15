@@ -29,9 +29,10 @@ pub enum Route {
 }
 
 const ACTION_VERBS: &[&str] = &[
-    "abre", "abra", "ajusta", "aplica", "atualiza", "commita", "continua", "corrige", "cria",
-    "crie", "deleta", "deploya", "executa", "faz", "faça", "gera", "implementa", "instala",
-    "merge", "mergeia", "migra", "prepara", "remove", "renomeia", "roda", "rode", "sobe",
+    "abre", "abra", "ajusta", "aplica", "atualiza", "commita", "conserta", "continua",
+    "corrige", "cria", "crie", "deleta", "deploya", "edita", "executa", "faz", "faça",
+    "gera", "implementa", "implemente", "instala", "merge", "mergeia", "migra", "prepara",
+    "refatora", "remove", "renomeia", "resolve", "roda", "rode", "sobe", "trabalha", "vamos",
 ];
 
 /// Classify an utterance. Questions win over verbs: "o que falta pra abrir o
@@ -143,6 +144,8 @@ mod tests {
         assert_eq!(route("continua a migração de assinaturas"), Route::Dispatch);
         assert_eq!(route("abre o PR do DNS antigo"), Route::Dispatch);
         assert_eq!(route("agora roda os testes do webhook"), Route::Dispatch);
+        assert_eq!(route("vamos trabalhar agora no vox"), Route::Dispatch);
+        assert_eq!(route("implementa o worker conversacional"), Route::Dispatch);
     }
 
     #[test]

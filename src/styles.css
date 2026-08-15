@@ -65,6 +65,23 @@ body {
 .msg.user .bubble { background: #1a2634; border: 1px solid #24344a; border-radius: 8px 8px 2px 8px; padding: 8px 10px; }
 .msg.vox .bubble { background: #141a22; border: 1px solid var(--border); border-radius: 8px 8px 8px 2px; padding: 8px 10px; }
 .msg.sys { align-self: center; color: var(--dim); font-size: 12px; }
+.msg.tool { align-self: stretch; }
+.toolline {
+  display: block; color: var(--dim); font-size: 12px;
+  padding: 1px 8px; border-left: 2px solid var(--border);
+}
+.toolline.error { color: var(--err); border-color: var(--err); }
+.tasktag {
+  color: var(--accent); font-size: 10px; margin-right: 6px; opacity: .8;
+}
+.active-task {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--accent); font-size: 12px; white-space: nowrap;
+}
+.active-task button {
+  background: var(--bg); color: var(--warn); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 8px; font: inherit; font-size: 11px; cursor: pointer;
+}
 .msg .fala { color: var(--ok); }
 .msg .detalhes { margin-top: 6px; color: var(--text); }
 .msg .itens { margin-top: 6px; padding-left: 16px; color: var(--warn); }

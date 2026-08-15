@@ -35,6 +35,10 @@ pub struct TurnResult {
 pub enum ClaudeEvent {
     /// Assistant called a tool; narrated in the UI/TTS while waiting.
     ToolUse { name: String, input: String },
+    /// Assistant prose (live transcript between tool calls).
+    AssistantText(String),
+    /// A tool finished; shown in the live transcript.
+    ToolResult { content: String, is_error: bool },
     /// Turn finished.
     Result(TurnResult),
     /// CLI asks whether a tool may run (`--permission-prompt-tool stdio`).
@@ -60,11 +64,45 @@ pub fn parse(line: &str) -> ClaudeEvent {
         return ClaudeEvent::Ignored;
     };
     match v.get("type").and_then(Value::as_str) {
-        Some("assistant") => parse_tool_use(&v).unwrap_or(ClaudeEvent::Ignored),
+        Some("assistant") => parse_tool_use(&v)
+            .or_else(|| parse_assistant_text(&v))
+            .unwrap_or(ClaudeEvent::Ignored),
+        Some("user") => parse_tool_result(&v).unwrap_or(ClaudeEvent::Ignored),
         Some("result") => parse_result(&v).map(ClaudeEvent::Result).unwrap_or(ClaudeEvent::Ignored),
         Some("control_request") => parse_permission(&v).unwrap_or(ClaudeEvent::Ignored),
         _ => ClaudeEvent::Ignored,
     }
+}
+
+fn parse_assistant_text(v: &Value) -> Option<ClaudeEvent> {
+    let text: Vec<&str> = v
+        .get("message")?
+        .get("content")?
+        .as_array()?
+        .iter()
+        .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+        .filter_map(|b| b.get("text").and_then(Value::as_str))
+        .collect();
+    let joined = text.join("\n");
+    (!joined.trim().is_empty()).then_some(ClaudeEvent::AssistantText(joined))
+}
+
+fn parse_tool_result(v: &Value) -> Option<ClaudeEvent> {
+    let block = v
+        .get("message")?
+        .get("content")?
+        .as_array()?
+        .iter()
+        .find(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"))?;
+    let content = match block.get("content") {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => other.to_string(),
+        None => String::new(),
+    };
+    Some(ClaudeEvent::ToolResult {
+        content,
+        is_error: block.get("is_error").and_then(Value::as_bool).unwrap_or(false),
+    })
 }
 
 /// Build a stream-json user message line, optionally carrying one image
@@ -199,6 +237,27 @@ mod tests {
         assert!(result.is_error);
         assert_eq!(result.reply, None);
         assert_eq!(result.raw, "something broke");
+    }
+
+    #[test]
+    fn parses_assistant_text_for_live_transcript() {
+        let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Vou começar pelo parser."}]}}"#;
+        assert_eq!(
+            parse(line),
+            ClaudeEvent::AssistantText("Vou começar pelo parser.".into())
+        );
+    }
+
+    #[test]
+    fn parses_tool_results_for_live_transcript() {
+        let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"3 files changed","is_error":false,"tool_use_id":"t1"}]}}"#;
+        assert_eq!(
+            parse(line),
+            ClaudeEvent::ToolResult {
+                content: "3 files changed".into(),
+                is_error: false,
+            }
+        );
     }
 
     #[test]

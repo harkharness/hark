@@ -31,6 +31,9 @@ export default function App() {
   const [recording, setRecording] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
   const [tab, setTab] = useState<"chat" | "board">("chat");
+  const [activeTask, setActiveTask] = useState<string | null>(null);
+  const activeTaskRef = useRef(activeTask);
+  activeTaskRef.current = activeTask;
   const [speak, setSpeak] = useState(true);
   const speakRef = useRef(speak);
   speakRef.current = speak;
@@ -44,7 +47,43 @@ export default function App() {
   useEffect(() => {
     refresh();
     const un1 = listen<VoxEvent>("vox", (e) => {
-      setEvents((old) => [...old.slice(-199), e.payload]);
+      const ev = e.payload;
+      setEvents((old) => [...old.slice(-199), ev]);
+      // Rich live transcript for conversational workers.
+      if (ev.kind === "assistant_text") {
+        push({ who: "vox", text: ev.text, task: ev.task_id });
+      } else if (ev.kind === "worker") {
+        const short = ev.input.length > 110 ? ev.input.slice(0, 110) + "…" : ev.input;
+        push({ who: "tool", text: `⚙ ${ev.name} ${short}`, task: ev.task_id });
+      } else if (ev.kind === "tool_result") {
+        const short =
+          ev.content.length > 110 ? ev.content.slice(0, 110) + "…" : ev.content;
+        push({
+          who: "tool",
+          text: `${ev.is_error ? "✗" : "✓"} ${short}`,
+          error: ev.is_error,
+          task: ev.task_id,
+        });
+      } else if (ev.kind === "worker_turn") {
+        push({
+          who: "vox",
+          text: ev.text,
+          cost: ev.cost_usd,
+          model: ev.model,
+          task: ev.task_id,
+        });
+        if (speakRef.current)
+          invoke("speak", {
+            text: ev.is_error
+              ? "A tarefa falhou, olha a tela."
+              : "Turno concluído. Pode responder ou finalizar.",
+          }).catch(() => {});
+        refresh();
+      } else if (ev.kind === "worker_exit") {
+        push({ who: "sys", text: `worker ${ev.task_id} encerrado` });
+        if (activeTaskRef.current === ev.task_id) setActiveTask(null);
+        refresh();
+      }
     });
     const un2 = listen<PermissionAsk>("vox-permission", (e) => {
       setPending({ kind: "permission", ask: e.payload });
@@ -92,11 +131,17 @@ export default function App() {
     setBusy("despachando…");
     push({ who: "sys", text: `dispatch: ${instruction}` });
     try {
-      const out = await invoke<DispatchOutcome>("dispatch_text", {
+      const out = await invoke<DispatchOutcome>("worker_start", {
         instruction,
         sessionId: sessionId ?? null,
       });
-      if (out.status === "done") {
+      if (out.status === "started") {
+        setActiveTask(out.task_id);
+        push({
+          who: "sys",
+          text: `worker ${out.task_id} ativo; acompanhe abaixo e responda pelo input`,
+        });
+      } else if (out.status === "done") {
         push({ who: "vox", text: out.summary, cost: out.cost_usd });
         say("Tarefa concluída.");
       } else if (out.status === "failed") {
@@ -124,6 +169,15 @@ export default function App() {
 
   async function submit(text: string, img: string | null) {
     if (!text.trim() || busy) return;
+    // With an active conversational worker, the input talks to IT.
+    if (activeTask) {
+      push({ who: "user", text, task: activeTask });
+      setInput("");
+      await invoke("worker_send", { taskId: activeTask, text }).catch((err) =>
+        push({ who: "sys", text: `worker: ${err}` }),
+      );
+      return;
+    }
     push({ who: "user", text, image: img ?? undefined });
     setInput("");
     setImage(null);
@@ -133,6 +187,13 @@ export default function App() {
     } else {
       runAsk(text, img);
     }
+  }
+
+  async function endActiveTask() {
+    if (!activeTask) return;
+    await invoke("worker_stop", { taskId: activeTask }).catch(() => {});
+    setActiveTask(null);
+    refresh();
   }
 
   async function onMic() {
@@ -292,9 +353,17 @@ export default function App() {
           <div key={i} className={`msg ${m.who}`}>
             {m.who === "sys" ? (
               <span>{m.text}</span>
+            ) : m.who === "tool" ? (
+              <span className={`toolline ${m.error ? "error" : ""}`}>
+                {m.task && <span className="tasktag">{m.task.slice(0, 12)}</span>}
+                {m.text}
+              </span>
             ) : (
               <div className="bubble">
-                <span className="tag">{m.who === "user" ? "você" : "vox"}</span>
+                <span className="tag">
+                  {m.who === "user" ? "você" : "vox"}
+                  {m.task ? ` → ${m.task.slice(0, 12)}` : ""}
+                </span>
                 {m.who === "vox" ? (
                   <>
                     <div className="fala">{m.text}</div>
@@ -351,6 +420,12 @@ export default function App() {
                 </span>
                 <pre>{e.input}</pre>
               </>
+            ) : e.kind === "tool_result" ? (
+              <span>{e.is_error ? "✗" : "✓"} {e.content.slice(0, 120)}</span>
+            ) : e.kind === "assistant_text" || e.kind === "worker_turn" ? (
+              <span>{e.text.slice(0, 160)}</span>
+            ) : e.kind === "worker_exit" ? (
+              <span>worker {e.task_id} saiu</span>
             ) : (
               <span>{e.text}</span>
             )}
@@ -372,6 +447,14 @@ export default function App() {
       </div>
 
       <div className="inputbar">
+        {activeTask && (
+          <span className="active-task">
+            🔗 {activeTask.slice(0, 16)}
+            <button onClick={endActiveTask} title="finalizar conversa com o worker">
+              finalizar
+            </button>
+          </span>
+        )}
         {image && (
           <span className="thumb">
             <img src={image} alt="attachment" />
@@ -380,7 +463,11 @@ export default function App() {
         )}
         <input
           type="text"
-          placeholder='pergunte ("pendências de hoje?") ou mande ("continua a migração do X")… cole um print com Cmd+V'
+          placeholder={
+            activeTask
+              ? `respondendo ao worker ${activeTask.slice(0, 16)}…`
+              : 'pergunte ("pendências de hoje?") ou mande ("continua a migração do X")… cole um print com Cmd+V'
+          }
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onPaste={onPaste}

@@ -22,6 +22,14 @@ use vox_core::ports::{AgentRunner, AudioIn, Stt, Tts};
 /// Permission requests waiting for a click, keyed by request_id.
 struct Pending(Mutex<HashMap<String, mpsc::Sender<PermissionDecision>>>);
 
+/// Conversational workers still alive, keyed by task_id.
+struct LiveWorkers(
+    Mutex<HashMap<String, std::sync::Arc<vox_core::adapters::worker::PersistentWorker>>>,
+);
+
+/// Permission requests raised by live workers: request_id -> task_id.
+struct WorkerPermissions(Mutex<HashMap<String, String>>);
+
 /// Whisper loads once per process (heavy); everything else is per-call.
 static STT: OnceLock<anyhow::Result<WhisperStt>> = OnceLock::new();
 
@@ -216,6 +224,10 @@ fn ask_text(
 #[derive(Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum DispatchOut {
+    /// Conversational worker is up; results arrive as events.
+    Started {
+        task_id: String,
+    },
     Done {
         task_id: String,
         summary: String,
@@ -239,6 +251,216 @@ struct Candidate {
     session_id: String,
     title: String,
     last_ts: String,
+}
+
+/// Start a CONVERSATIONAL worker: plans the target like dispatch, spawns a
+/// persistent claude process, streams rich events, and stays alive for
+/// follow-up messages via worker_send. Returns as soon as it starts.
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+fn worker_start(
+    app: AppHandle,
+    live: State<'_, LiveWorkers>,
+    perms: State<'_, WorkerPermissions>,
+    instruction: String,
+    session_id: Option<String>,
+) -> Result<DispatchOut, String> {
+    let config = Config::load();
+    let planned = {
+        let mut store =
+            SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+        let agents = ClaudeAgentsCli {
+            claude_bin: config.claude_bin_resolved(),
+        };
+        let mut deps = build_deps(&config, &mut store, &agents, &NoopRunner);
+        plan(&mut deps, &instruction, session_id.as_deref()).map_err(|e| e.to_string())?
+    };
+    let planned = match planned {
+        Plan::Ready(p) => p,
+        Plan::NeedsChoice(candidates) => {
+            return Ok(DispatchOut::Choice {
+                candidates: candidates
+                    .into_iter()
+                    .map(|c| Candidate {
+                        title: c
+                            .title
+                            .or(c.last_prompt)
+                            .unwrap_or_else(|| c.session_id.clone()),
+                        session_id: c.session_id,
+                        last_ts: c.last_ts.unwrap_or_default(),
+                    })
+                    .collect(),
+            })
+        }
+        Plan::TargetBusy(s) => {
+            return Ok(DispatchOut::Busy {
+                session_id: s.session_id,
+            })
+        }
+        Plan::NoMatch => return Ok(DispatchOut::NoMatch),
+    };
+
+    let task_id = format!(
+        "t-{}-{}",
+        &planned.session.session_id[..6.min(planned.session.session_id.len())],
+        Utc::now().format("%m%d%H%M%S")
+    );
+    let brief = format!(
+        "# Vox dispatch {task_id}\n\n- session: {}\n- workspace: {}\n\n## Instruction\n\n{instruction}\n",
+        planned.session.session_id,
+        planned.workspace_root.display()
+    );
+    let _ = memory_files::write_brief(&planned.workspace_root, &task_id, &brief);
+    update_registry_and_board(&config, &task_id, &planned, &instruction, WorkerStatus::Running);
+
+    let spawn = vox_core::adapters::worker::WorkerSpawn {
+        claude_bin: config.claude_bin_resolved(),
+        cwd: planned.workspace_root.clone(),
+        session_id: planned.session.session_id.clone(),
+        instruction: instruction.clone(),
+    };
+    let (worker, stdout) =
+        vox_core::adapters::worker::PersistentWorker::spawn(&spawn).map_err(|e| e.to_string())?;
+    let worker = std::sync::Arc::new(worker);
+    live.0.lock().unwrap().insert(task_id.clone(), worker);
+
+    let _ = &perms; // permissions are looked up via app.state in the reader
+    // Reader loop: parse every stdout line, stream rich events to the UI,
+    // route permission requests, keep going across turns until EOF.
+    let app2 = app.clone();
+    let task2 = task_id.clone();
+    let workspace = planned.workspace_root.clone();
+    std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader};
+        let config = Config::load();
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            match vox_core::domain::claude_event::parse(&line) {
+                ClaudeEvent::AssistantText(text) => emit_event(
+                    &app2,
+                    serde_json::json!({ "kind": "assistant_text", "task_id": task2, "text": text }),
+                ),
+                ClaudeEvent::ToolUse { name, input } => emit_event(
+                    &app2,
+                    serde_json::json!({ "kind": "worker", "task_id": task2, "name": name, "input": input }),
+                ),
+                ClaudeEvent::ToolResult { content, is_error } => emit_event(
+                    &app2,
+                    serde_json::json!({ "kind": "tool_result", "task_id": task2,
+                        "content": content.chars().take(400).collect::<String>(), "is_error": is_error }),
+                ),
+                ClaudeEvent::PermissionRequest {
+                    request_id,
+                    tool_name,
+                    input,
+                } => {
+                    app2.state::<WorkerPermissions>()
+                        .0
+                        .lock()
+                        .unwrap()
+                        .insert(request_id.clone(), task2.clone());
+                    let _ = app2.emit(
+                        "vox-permission",
+                        serde_json::json!({
+                            "request_id": request_id,
+                            "task_id": task2,
+                            "tool_name": tool_name,
+                            "input": input,
+                        }),
+                    );
+                }
+                ClaudeEvent::Result(turn) => {
+                    // Turn done, worker stays alive for the next message.
+                    update_worker_summary(&config, &task2, &turn.raw);
+                    let _ = memory_files::append_state(
+                        &workspace,
+                        &format!("- {} {task2} [turn] {}", now_iso(), turn.raw.chars().take(160).collect::<String>()),
+                    );
+                    emit_event(
+                        &app2,
+                        serde_json::json!({ "kind": "worker_turn", "task_id": task2,
+                            "text": turn.raw, "cost_usd": turn.cost_usd, "model": turn.model, "is_error": turn.is_error }),
+                    );
+                }
+                ClaudeEvent::Ignored => {}
+            }
+        }
+        emit_event(
+            &app2,
+            serde_json::json!({ "kind": "worker_exit", "task_id": task2 }),
+        );
+        app2.state::<LiveWorkers>().0.lock().unwrap().remove(&task2);
+    });
+
+    Ok(DispatchOut::Started { task_id })
+}
+
+fn update_registry_and_board(
+    config: &Config,
+    task_id: &str,
+    planned: &vox_core::app::dispatch::Planned,
+    instruction: &str,
+    status: WorkerStatus,
+) {
+    let mut gstate = state_file::load(&config.data_dir());
+    gstate.workers.push(WorkerRecord {
+        task_id: task_id.to_string(),
+        context: String::new(),
+        workspace: planned.workspace_root.display().to_string(),
+        session_id: planned.session.session_id.clone(),
+        status,
+        started_at: now_iso(),
+        summary: instruction.chars().take(120).collect(),
+    });
+    let _ = state_file::save(&config.data_dir(), &gstate);
+
+    use vox_core::ports::SessionStore;
+    if let Ok(mut store) = SqliteStore::open(&config.data_dir().join("index.db")) {
+        if let Ok(current) = store.board() {
+            let updates = [vox_core::domain::board::BoardUpdate {
+                titulo: instruction.chars().take(60).collect(),
+                status: vox_core::domain::board::TaskStatus::Doing,
+                nota: Some("worker conversacional ativo".into()),
+            }];
+            let merged = vox_core::domain::board::apply_updates(
+                current,
+                &updates,
+                &now_iso(),
+                Some(&planned.workspace_root.display().to_string()),
+                Some(&planned.session.session_id),
+            );
+            let _ = store.save_board(&merged);
+        }
+    }
+}
+
+fn update_worker_summary(config: &Config, task_id: &str, summary: &str) {
+    let mut gstate = state_file::load(&config.data_dir());
+    if let Some(record) = gstate.workers.iter_mut().find(|w| w.task_id == task_id) {
+        record.summary = summary.chars().take(200).collect();
+    }
+    let _ = state_file::save(&config.data_dir(), &gstate);
+}
+
+/// Follow-up message into a live worker.
+#[tauri::command]
+fn worker_send(live: State<'_, LiveWorkers>, task_id: String, text: String) -> Result<(), String> {
+    let workers = live.0.lock().unwrap();
+    let worker = workers.get(&task_id).ok_or("worker não está mais ativo")?;
+    worker.send_text(&text, None).map_err(|e| e.to_string())
+}
+
+/// End the conversation: EOF + kill, board moves to waiting.
+#[tauri::command]
+fn worker_stop(live: State<'_, LiveWorkers>, task_id: String) -> Result<(), String> {
+    let worker = live.0.lock().unwrap().remove(&task_id).ok_or("worker não encontrado")?;
+    worker.shutdown();
+    let config = Config::load();
+    let mut gstate = state_file::load(&config.data_dir());
+    if let Some(record) = gstate.workers.iter_mut().find(|w| w.task_id == task_id) {
+        record.status = WorkerStatus::Done;
+    }
+    let _ = state_file::save(&config.data_dir(), &gstate);
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -411,14 +633,29 @@ fn board_archive(title: String) -> Result<(), String> {
     store.save_board(&tasks).map_err(|e| e.to_string())
 }
 
+/// Answer a pending permission request (live worker first, one-shot channel
+/// as fallback).
 #[tauri::command]
-fn approve(pending: State<'_, Pending>, request_id: String, allow: bool) {
+fn approve(
+    pending: State<'_, Pending>,
+    perms: State<'_, WorkerPermissions>,
+    live: State<'_, LiveWorkers>,
+    request_id: String,
+    allow: bool,
+) {
+    let decision = if allow {
+        PermissionDecision::Allow
+    } else {
+        PermissionDecision::Deny
+    };
+    if let Some(task_id) = perms.0.lock().unwrap().remove(&request_id) {
+        if let Some(worker) = live.0.lock().unwrap().get(&task_id) {
+            let _ = worker.respond_permission(&request_id, decision);
+        }
+        return;
+    }
     if let Some(tx) = pending.0.lock().unwrap().remove(&request_id) {
-        let _ = tx.send(if allow {
-            PermissionDecision::Allow
-        } else {
-            PermissionDecision::Deny
-        });
+        let _ = tx.send(decision);
     }
 }
 
@@ -426,6 +663,8 @@ fn approve(pending: State<'_, Pending>, request_id: String, allow: bool) {
 pub fn run() {
     tauri::Builder::default()
         .manage(Pending(Mutex::new(HashMap::new())))
+        .manage(LiveWorkers(Mutex::new(HashMap::new())))
+        .manage(WorkerPermissions(Mutex::new(HashMap::new())))
         .setup(|app| {
             // Warm whisper in the background so the first mic use is instant.
             let _handle = app.handle().clone();
@@ -443,6 +682,9 @@ pub fn run() {
             hear_once,
             ask_text,
             dispatch_text,
+            worker_start,
+            worker_send,
+            worker_stop,
             board_move,
             board_archive,
             approve

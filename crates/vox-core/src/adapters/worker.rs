@@ -4,7 +4,7 @@
 //! voice tomorrow). This is the arm of the orchestrator.
 
 use crate::domain::claude_event::{
-    parse, permission_response, ClaudeEvent, PermissionDecision, TurnResult,
+    parse, permission_response, user_message, ClaudeEvent, PermissionDecision, TurnResult,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -18,6 +18,87 @@ pub struct WorkerSpawn {
 
 pub struct RunningWorker {
     pub pid: u32,
+}
+
+/// A long-lived conversational worker: the claude process stays alive
+/// between turns, accepting follow-up messages over stream-json stdin.
+pub struct PersistentWorker {
+    pub pid: u32,
+    stdin: std::sync::Mutex<Option<std::process::ChildStdin>>,
+    child: std::sync::Mutex<std::process::Child>,
+}
+
+impl PersistentWorker {
+    /// Spawn the worker and send the opening instruction. Returns the handle
+    /// plus the stdout to be consumed by a reader loop on the caller's thread.
+    pub fn spawn(spawn: &WorkerSpawn) -> anyhow::Result<(Self, std::process::ChildStdout)> {
+        let mut child = std::process::Command::new(&spawn.claude_bin)
+            .current_dir(&spawn.cwd)
+            .args([
+                "-p",
+                "--input-format",
+                "stream-json",
+                "--resume",
+                &spawn.session_id,
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--include-partial-messages",
+                "--permission-prompt-tool",
+                "stdio",
+            ])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()?;
+
+        let mut stdin = child.stdin.take().expect("piped stdin");
+        stdin.write_all(user_message(&spawn.instruction, None).as_bytes())?;
+        stdin.write_all(b"\n")?;
+        stdin.flush()?;
+        let stdout = child.stdout.take().expect("piped stdout");
+        Ok((
+            Self {
+                pid: child.id(),
+                stdin: std::sync::Mutex::new(Some(stdin)),
+                child: std::sync::Mutex::new(child),
+            },
+            stdout,
+        ))
+    }
+
+    fn write_line(&self, line: &str) -> anyhow::Result<()> {
+        let mut guard = self.stdin.lock().unwrap();
+        let stdin = guard.as_mut().ok_or_else(|| anyhow::anyhow!("worker already closed"))?;
+        stdin.write_all(line.as_bytes())?;
+        stdin.write_all(b"\n")?;
+        stdin.flush()?;
+        Ok(())
+    }
+
+    /// Follow-up user message (with optional pasted image).
+    pub fn send_text(&self, text: &str, image: Option<(&str, &str)>) -> anyhow::Result<()> {
+        self.write_line(&user_message(text, image))
+    }
+
+    /// Answer a pending permission request.
+    pub fn respond_permission(
+        &self,
+        request_id: &str,
+        decision: PermissionDecision,
+    ) -> anyhow::Result<()> {
+        self.write_line(&permission_response(request_id, decision))
+    }
+
+    /// Graceful shutdown: EOF on stdin ends the conversation; the reader
+    /// loop sees the stream close. Kills after that as a safety net.
+    pub fn shutdown(&self) {
+        self.stdin.lock().unwrap().take();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let mut child = self.child.lock().unwrap();
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 }
 
 /// Spawn and stream one worker turn. `decide` is called for every permission
