@@ -909,7 +909,9 @@ fn evaluate(
 
     let turn = result.ok_or("avaliador não respondeu")?;
     let decision: vox_core::domain::gate::GateDecision =
-        serde_json::from_str(&turn.raw).map_err(|e| format!("gate parse: {e}"))?;
+        serde_json::from_str::<vox_core::domain::gate::GateDecision>(&turn.raw)
+            .map_err(|e| format!("gate parse: {e}"))?
+            .sanitized();
     Ok(GateOut {
         needs_confirmation: decision.needs_confirmation(),
         acao: decision.acao,

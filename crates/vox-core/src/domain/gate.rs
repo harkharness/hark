@@ -37,6 +37,37 @@ impl GateDecision {
     pub fn needs_confirmation(&self) -> bool {
         self.confianca < 0.8 || self.aviso.as_deref().is_some_and(|a| !a.is_empty())
     }
+
+    /// Small models leak tool markup into string fields; scrub and clamp
+    /// before anything reaches the screen.
+    pub fn sanitized(mut self) -> Self {
+        self.motivo = scrub(&self.motivo, 160);
+        self.aviso = self
+            .aviso
+            .map(|a| scrub(&a, 200))
+            .filter(|a| !a.is_empty());
+        self
+    }
+}
+
+/// Remove XML-ish tags and clamp length.
+fn scrub(text: &str, max: usize) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_tag = false;
+    for c in text.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    let clean = out.split_whitespace().collect::<Vec<_>>().join(" ");
+    if clean.chars().count() <= max {
+        clean
+    } else {
+        clean.chars().take(max).collect::<String>() + "…"
+    }
 }
 
 /// Everything the evaluator sees besides the message itself.
@@ -61,7 +92,7 @@ pub const GATE_SCHEMA: &str = r#"{
     },
     "confianca": { "type": "number", "description": "0 a 1" },
     "motivo": { "type": "string", "description": "Uma frase curta explicando a decisao" },
-    "aviso": { "type": "string", "description": "OBRIGATORIO quando ha risco: titulo da sessao nao bate com a task, sessao usa modelo caro (opus/1m) ou historico muito grande. Vazio quando nao ha risco." },
+    "aviso": { "type": "string", "description": "UMA frase curta, SOMENTE quando ha risco real: titulo da sessao nao bate com a task, ou historico grande/modelo caro. Nao cite ferramentas, MCPs nem detalhes internos. Vazio quando nao ha risco." },
     "task_alvo": { "type": "string", "description": "Titulo da task correta quando acao=trocar_task" }
   },
   "required": ["acao", "confianca", "motivo"]
@@ -127,6 +158,17 @@ mod tests {
         let actions = schema["properties"]["acao"]["enum"].as_array().unwrap();
         assert!(actions.iter().any(|v| v == "meta_vox"));
         assert!(actions.iter().any(|v| v == "continuar_task"));
+    }
+
+    #[test]
+    fn scrubs_leaked_markup_from_small_models() {
+        let decision: GateDecision = serde_json::from_str(
+            r#"{"acao":"meta_vox","confianca":0.95,"motivo":"reclamação de organização</aniso>","aviso":"histórico grande (49MB)</invoke> risco de custo"}"#,
+        )
+        .unwrap();
+        let clean = decision.sanitized();
+        assert_eq!(clean.motivo, "reclamação de organização");
+        assert_eq!(clean.aviso.as_deref(), Some("histórico grande (49MB) risco de custo"));
     }
 
     #[test]
