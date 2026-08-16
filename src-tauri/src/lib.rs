@@ -22,10 +22,14 @@ use vox_core::ports::{AgentRunner, AudioIn, Stt, Tts};
 /// Permission requests waiting for a click, keyed by request_id.
 struct Pending(Mutex<HashMap<String, mpsc::Sender<PermissionDecision>>>);
 
+/// A live worker plus everything needed to restart it on the same session.
+struct WorkerHandle {
+    worker: std::sync::Arc<vox_core::adapters::worker::PersistentWorker>,
+    spawn: vox_core::adapters::worker::WorkerSpawn,
+}
+
 /// Conversational workers still alive, keyed by task_id.
-struct LiveWorkers(
-    Mutex<HashMap<String, std::sync::Arc<vox_core::adapters::worker::PersistentWorker>>>,
-);
+struct LiveWorkers(Mutex<HashMap<String, std::sync::Arc<WorkerHandle>>>);
 
 /// Permission requests raised by live workers: request_id -> task_id.
 struct WorkerPermissions(Mutex<HashMap<String, String>>);
@@ -227,6 +231,7 @@ enum DispatchOut {
     /// Conversational worker is up; results arrive as events.
     Started {
         task_id: String,
+        directives: vox_core::domain::directives::Directives,
     },
     Done {
         task_id: String,
@@ -313,23 +318,45 @@ fn worker_start(
     let _ = memory_files::write_brief(&planned.workspace_root, &task_id, &brief);
     update_registry_and_board(&config, &task_id, &planned, &instruction, WorkerStatus::Running);
 
+    let directives = vox_core::domain::directives::parse(&instruction);
     let spawn = vox_core::adapters::worker::WorkerSpawn {
         claude_bin: config.claude_bin_resolved(),
         cwd: planned.workspace_root.clone(),
         session_id: planned.session.session_id.clone(),
         instruction: instruction.clone(),
+        directives: directives.clone(),
     };
-    let (worker, stdout) =
-        vox_core::adapters::worker::PersistentWorker::spawn(&spawn).map_err(|e| e.to_string())?;
-    let worker = std::sync::Arc::new(worker);
-    live.0.lock().unwrap().insert(task_id.clone(), worker);
-
     let _ = &perms; // permissions are looked up via app.state in the reader
+    start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
+    Ok(DispatchOut::Started {
+        task_id,
+        directives,
+    })
+}
+
+/// Spawn a worker process for `task_id` and pump its output into the UI.
+/// Used by the first dispatch and by every restart (directive change).
+fn start_worker(
+    app: &AppHandle,
+    live: &State<'_, LiveWorkers>,
+    task_id: &str,
+    spawn: vox_core::adapters::worker::WorkerSpawn,
+) -> anyhow::Result<()> {
+    let (worker, stdout) = vox_core::adapters::worker::PersistentWorker::spawn(&spawn)?;
+    let pid = worker.pid;
+    live.0.lock().unwrap().insert(
+        task_id.to_string(),
+        std::sync::Arc::new(WorkerHandle {
+            worker: std::sync::Arc::new(worker),
+            spawn: spawn.clone(),
+        }),
+    );
+
     // Reader loop: parse every stdout line, stream rich events to the UI,
     // route permission requests, keep going across turns until EOF.
     let app2 = app.clone();
-    let task2 = task_id.clone();
-    let workspace = planned.workspace_root.clone();
+    let task2 = task_id.to_string();
+    let workspace = spawn.cwd.clone();
     std::thread::spawn(move || {
         use std::io::{BufRead, BufReader};
         let config = Config::load();
@@ -384,14 +411,24 @@ fn worker_start(
                 ClaudeEvent::Ignored => {}
             }
         }
-        emit_event(
-            &app2,
-            serde_json::json!({ "kind": "worker_exit", "task_id": task2 }),
-        );
-        app2.state::<LiveWorkers>().0.lock().unwrap().remove(&task2);
+        // Only report the exit if nobody restarted this task meanwhile.
+        let restarted = app2
+            .state::<LiveWorkers>()
+            .0
+            .lock()
+            .unwrap()
+            .get(&task2)
+            .is_some_and(|h| h.worker.pid != pid);
+        if !restarted {
+            emit_event(
+                &app2,
+                serde_json::json!({ "kind": "worker_exit", "task_id": task2 }),
+            );
+            app2.state::<LiveWorkers>().0.lock().unwrap().remove(&task2);
+        }
     });
 
-    Ok(DispatchOut::Started { task_id })
+    Ok(())
 }
 
 fn update_registry_and_board(
@@ -441,19 +478,78 @@ fn update_worker_summary(config: &Config, task_id: &str, summary: &str) {
     let _ = state_file::save(&config.data_dir(), &gstate);
 }
 
-/// Follow-up message into a live worker.
-#[tauri::command]
-fn worker_send(live: State<'_, LiveWorkers>, task_id: String, text: String) -> Result<(), String> {
-    let workers = live.0.lock().unwrap();
-    let worker = workers.get(&task_id).ok_or("worker não está mais ativo")?;
-    worker.send_text(&text, None).map_err(|e| e.to_string())
+/// Follow-up message into a live worker. If the message carries session
+/// directives ("planeja isso", "usa o opus", "capricha"), the worker is
+/// restarted on the SAME session with the new flags, so the conversation
+/// continues with the requested mode/effort/model.
+#[tauri::command(async)]
+fn worker_send(
+    app: AppHandle,
+    live: State<'_, LiveWorkers>,
+    task_id: String,
+    text: String,
+) -> Result<vox_core::domain::directives::Directives, String> {
+    let handle = live
+        .0
+        .lock()
+        .unwrap()
+        .get(&task_id)
+        .cloned()
+        .ok_or("worker não está mais ativo")?;
+
+    let asked = vox_core::domain::directives::parse(&text);
+    let mut next = handle.spawn.directives.clone();
+    if asked.mode.is_some() {
+        next.mode = asked.mode;
+    }
+    if asked.effort.is_some() {
+        next.effort = asked.effort;
+    }
+    if asked.model.is_some() {
+        next.model = asked.model.clone();
+    }
+
+    if next == handle.spawn.directives {
+        handle
+            .worker
+            .send_text(&text, None)
+            .map_err(|e| e.to_string())?;
+        return Ok(next);
+    }
+
+    // Directive changed: only a fresh process can carry new CLI flags.
+    emit_event(
+        &app,
+        serde_json::json!({ "kind": "status",
+            "text": format!("reabrindo a thread com {}", describe(&next)) }),
+    );
+    handle.worker.shutdown();
+    let spawn = vox_core::adapters::worker::WorkerSpawn {
+        instruction: text,
+        directives: next.clone(),
+        ..handle.spawn.clone()
+    };
+    start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
+    Ok(next)
+}
+
+fn describe(d: &vox_core::domain::directives::Directives) -> String {
+    [
+        d.mode.map(|m| format!("modo {}", m.label())),
+        d.effort.map(|e| format!("esforço {}", e.as_flag())),
+        d.model.clone(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ")
 }
 
 /// End the conversation: EOF + kill, board moves to waiting.
 #[tauri::command]
 fn worker_stop(live: State<'_, LiveWorkers>, task_id: String) -> Result<(), String> {
     let worker = live.0.lock().unwrap().remove(&task_id).ok_or("worker não encontrado")?;
-    worker.shutdown();
+    worker.worker.shutdown();
     let config = Config::load();
     let mut gstate = state_file::load(&config.data_dir());
     if let Some(record) = gstate.workers.iter_mut().find(|w| w.task_id == task_id) {
@@ -540,6 +636,7 @@ fn dispatch_text(
         cwd: planned.workspace_root.clone(),
         session_id: planned.session.session_id.clone(),
         instruction: instruction.clone(),
+        directives: vox_core::domain::directives::parse(&instruction),
     };
     let result = vox_core::adapters::worker::run(
         &spawn,
@@ -672,7 +769,7 @@ fn approve(
     };
     if let Some(task_id) = perms.0.lock().unwrap().remove(&request_id) {
         if let Some(worker) = live.0.lock().unwrap().get(&task_id) {
-            let _ = worker.respond_permission(&request_id, decision);
+            let _ = worker.worker.respond_permission(&request_id, decision);
         }
         return;
     }

@@ -5,6 +5,7 @@ import Markdown from "./Markdown";
 import Reader from "./Reader";
 import ToolCall, { ToolOutput } from "./ToolCall";
 import type {
+  Directives,
   DispatchOutcome,
   Msg,
   Overview,
@@ -43,7 +44,14 @@ export default function App() {
   } | null>(null);
   // All live conversational workers, keyed by task_id.
   const [liveWorkers, setLiveWorkers] = useState<
-    Record<string, { label: string; status: "running" | "turn_done" | "awaiting" }>
+    Record<
+      string,
+      {
+        label: string;
+        status: "running" | "turn_done" | "awaiting";
+        directives: Directives;
+      }
+    >
   >({});
   const [focused, setFocused] = useState<string | null>(null);
   const workersRef = useRef(liveWorkers);
@@ -179,7 +187,7 @@ export default function App() {
         const label = instruction.split(/\s+/).slice(0, 5).join(" ");
         setLiveWorkers((old) => ({
           ...old,
-          [out.task_id]: { label, status: "running" },
+          [out.task_id]: { label, status: "running", directives: out.directives },
         }));
         setFocused(out.task_id);
         push({
@@ -232,9 +240,14 @@ export default function App() {
     if (focused && !isQuestion) {
       push({ who: "user", text, task: focused });
       setInput("");
-      await invoke("worker_send", { taskId: focused, text }).catch((err) =>
-        push({ who: "sys", text: `worker: ${err}` }),
-      );
+      // The reply may carry directives ("planeja isso"): keep the chip in sync.
+      await invoke<Directives>("worker_send", { taskId: focused, text })
+        .then((directives) =>
+          setLiveWorkers((old) =>
+            old[focused] ? { ...old, [focused]: { ...old[focused], directives } } : old,
+          ),
+        )
+        .catch((err) => push({ who: "sys", text: `worker: ${err}` }));
       return;
     }
     push({ who: "user", text, image: img ?? undefined });
@@ -521,7 +534,13 @@ export default function App() {
                     )}
                     {(m.cost != null || m.model) && (
                       <span className="cost">
-                        {shortModel(m.model)} · ${(m.cost ?? 0).toFixed(4)}
+                        {[
+                          shortModel(m.model),
+                          ...directiveLabels(
+                            m.task ? liveWorkers[m.task]?.directives : undefined,
+                          ),
+                          `$${(m.cost ?? 0).toFixed(4)}`,
+                        ].join(" · ")}
                       </span>
                     )}
                   </>
@@ -601,6 +620,9 @@ export default function App() {
             <span className="dot" />
             {w.status === "awaiting" ? "🔐 " : ""}
             {w.label}
+            {directiveLabels(w.directives).length > 0 && (
+              <span className="chip-mode">{directiveLabels(w.directives).join(" ")}</span>
+            )}
             <button
               className="info"
               title="resumo da task"
@@ -803,6 +825,23 @@ export default function App() {
 
     </div>
   );
+}
+
+const MODE_LABEL: Record<string, string> = {
+  manual: "manual",
+  acceptEdits: "edições ok",
+  plan: "plano",
+  auto: "auto",
+  bypass: "sem trava",
+};
+
+/** Session directives as short footer chips, empty when using defaults. */
+function directiveLabels(d?: Directives): string[] {
+  if (!d) return [];
+  return [
+    d.mode ? MODE_LABEL[d.mode] : undefined,
+    d.effort ? `esforço ${d.effort}` : undefined,
+  ].filter((x): x is string => !!x);
 }
 
 /** Format the model id for the footer: "claude-sonnet-5" -> "sonnet-5". */

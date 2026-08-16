@@ -9,11 +9,35 @@ use crate::domain::claude_event::{
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 
+#[derive(Clone)]
 pub struct WorkerSpawn {
     pub claude_bin: String,
     pub cwd: PathBuf,
     pub session_id: String,
     pub instruction: String,
+    /// Session directives (permission mode, effort, model), all optional:
+    /// omitted flags keep the user's own Claude Code defaults.
+    pub directives: crate::domain::directives::Directives,
+}
+
+impl WorkerSpawn {
+    /// CLI flags for the current directives.
+    fn directive_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+        if let Some(mode) = self.directives.mode {
+            args.push("--permission-mode".into());
+            args.push(mode.as_flag().into());
+        }
+        if let Some(effort) = self.directives.effort {
+            args.push("--effort".into());
+            args.push(effort.as_flag().into());
+        }
+        if let Some(model) = &self.directives.model {
+            args.push("--model".into());
+            args.push(model.clone());
+        }
+        args
+    }
 }
 
 pub struct RunningWorker {
@@ -47,6 +71,7 @@ impl PersistentWorker {
                 "--permission-prompt-tool",
                 "stdio",
             ])
+            .args(spawn.directive_args())
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::inherit())

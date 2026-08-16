@@ -364,6 +364,7 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
     let _ = state_file::save(&config.data_dir(), &state);
 
     let spawn = worker::WorkerSpawn {
+        directives: vox_core::domain::directives::parse(instruction),
         claude_bin: config.claude_bin_resolved(),
         cwd: planned.workspace_root.clone(),
         session_id: planned.session.session_id.clone(),

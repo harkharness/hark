@@ -173,6 +173,10 @@ body {
 }
 .worker-chip.turn_done .dot { background: var(--ok); animation: none; }
 .worker-chip.awaiting { color: var(--warn); border-color: var(--warn); }
+.chip-mode {
+  color: var(--warn); font-size: 10px; background: rgba(224,175,104,.12);
+  border-radius: 8px; padding: 1px 6px;
+}
 .worker-chip.awaiting .dot { background: var(--warn); }
 .worker-chip.focused { color: var(--accent); border-color: var(--accent); }
 .worker-chip button {

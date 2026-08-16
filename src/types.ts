@@ -53,8 +53,14 @@ export type Msg =
     }
   | { who: "sys"; text: string };
 
+export type Directives = {
+  mode?: "manual" | "acceptEdits" | "plan" | "auto" | "bypass";
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  model?: string;
+};
+
 export type DispatchOutcome =
-  | { status: "started"; task_id: string }
+  | { status: "started"; task_id: string; directives: Directives }
   | { status: "done"; task_id: string; summary: string; cost_usd?: number }
   | { status: "failed"; task_id: string; summary: string }
   | { status: "choice"; candidates: { session_id: string; title: string; last_ts: string }[] }
