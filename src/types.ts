@@ -51,7 +51,7 @@ export type Msg =
       decision?: "allow" | "deny";
       task?: string;
     }
-  | { who: "sys"; text: string };
+  | { who: "sys"; text: string; task?: string };
 
 export type Directives = {
   mode?: "manual" | "acceptEdits" | "plan" | "auto" | "bypass";

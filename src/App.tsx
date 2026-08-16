@@ -73,6 +73,13 @@ export default function App() {
   const endRef = useRef<HTMLDivElement>(null);
 
   const push = useCallback((m: Msg) => setMessages((old) => [...old, m]), []);
+  // Tasks whose history was already injected once (avoid re-loading on refocus).
+  const loadedTasks = useRef(new Set<string>());
+  /** Thread key for worker events: the task LABEL, stable and readable. */
+  const labelFor = useCallback(
+    (taskId: string) => workersRef.current[taskId]?.label ?? taskId,
+    [],
+  );
   const refresh = useCallback(() => {
     invoke<Overview>("overview").then(setOverview).catch(() => {});
   }, []);
@@ -81,17 +88,18 @@ export default function App() {
     refresh();
     const un1 = listen<VoxEvent>("vox", (e) => {
       const ev = e.payload;
-      // Rich live transcript for conversational workers.
+      // Rich live transcript for conversational workers, keyed by task label
+      // so each thread renders in isolation.
       if (ev.kind === "assistant_text") {
-        push({ who: "vox", text: ev.text, task: ev.task_id });
+        push({ who: "vox", text: ev.text, task: labelFor(ev.task_id) });
       } else if (ev.kind === "worker") {
-        push({ who: "tool", name: ev.name, input: ev.input, task: ev.task_id });
+        push({ who: "tool", name: ev.name, input: ev.input, task: labelFor(ev.task_id) });
       } else if (ev.kind === "tool_result") {
         push({
           who: "output",
           content: ev.content,
           error: ev.is_error,
-          task: ev.task_id,
+          task: labelFor(ev.task_id),
         });
       } else if (ev.kind === "worker_turn") {
         push({
@@ -99,7 +107,7 @@ export default function App() {
           text: ev.text,
           cost: ev.cost_usd,
           model: ev.model,
-          task: ev.task_id,
+          task: labelFor(ev.task_id),
         });
         setLiveWorkers((old) =>
           old[ev.task_id]
@@ -115,7 +123,11 @@ export default function App() {
           }).catch(() => {});
         refresh();
       } else if (ev.kind === "worker_exit") {
-        push({ who: "sys", text: `worker ${ev.task_id} encerrado` });
+        push({
+          who: "sys",
+          text: `worker ${labelFor(ev.task_id)} encerrado`,
+          task: labelFor(ev.task_id),
+        });
         setLiveWorkers((old) => {
           const next = { ...old };
           delete next[ev.task_id];
@@ -134,7 +146,7 @@ export default function App() {
         requestId: ask.request_id,
         tool: ask.tool_name,
         input: ask.input,
-        task: ask.task_id,
+        task: labelFor(ask.task_id),
       });
       setLiveWorkers((old) =>
         old[ask.task_id]
@@ -192,15 +204,25 @@ export default function App() {
         sessionId: sessionId ?? null,
       });
       if (out.status === "started") {
-        const label = instruction.split(/\s+/).slice(0, 5).join(" ");
+        // Reuse the focused task's title as the thread key when this dispatch
+        // came from it; otherwise derive a label from the instruction.
+        const label =
+          focusedTask && sessionId === focusedTask.sessionId
+            ? focusedTask.title
+            : instruction.split(/\s+/).slice(0, 5).join(" ");
         setLiveWorkers((old) => ({
           ...old,
           [out.task_id]: { label, status: "running", directives: out.directives },
         }));
         setFocused(out.task_id);
+        setFocusedTask((old) =>
+          old?.title === label ? old : { title: label, sessionId: sessionId ?? "" },
+        );
+        loadedTasks.current.add(label);
         push({
           who: "sys",
-          text: `worker ${out.task_id} ativo (${label}); input responde a ele enquanto focado`,
+          text: `worker ativo (${label}); mensagens continuam esta task`,
+          task: label,
         });
       } else if (out.status === "done") {
         push({ who: "vox", text: out.summary, cost: out.cost_usd });
@@ -382,7 +404,8 @@ export default function App() {
    */
   async function focusTask(title: string, sessionId: string, note?: string) {
     setFocusedTask({ title, sessionId, note });
-    push({ who: "sys", text: `── retomando: ${title} ──` });
+    if (loadedTasks.current.has(title)) return; // thread already built once
+    loadedTasks.current.add(title);
     try {
       const out = await invoke<{
         session_title: string | null;
@@ -397,10 +420,11 @@ export default function App() {
       }
       push({
         who: "sys",
-        text: `contexto carregado (${out.session_title ?? title}); a próxima mensagem continua ESTA task`,
+        text: `contexto de "${out.session_title ?? title}" carregado; mensagens continuam esta task`,
+        task: title,
       });
     } catch (err) {
-      push({ who: "sys", text: `não consegui ler o histórico: ${err}` });
+      push({ who: "sys", text: `não consegui ler o histórico: ${err}`, task: title });
     }
   }
 
@@ -408,7 +432,7 @@ export default function App() {
   async function sendToFocusedTaskWith(title: string, sessionId: string, text: string) {
     const liveEntry = Object.entries(liveWorkers).find(([, w]) => w.label === title);
     if (liveEntry) {
-      push({ who: "user", text, task: liveEntry[0] });
+      push({ who: "user", text, task: title });
       await invoke<Directives>("worker_send", { taskId: liveEntry[0], text })
         .then((directives) =>
           setLiveWorkers((old) => ({
@@ -572,7 +596,15 @@ export default function App() {
       )}
 
       <div className="transcript" style={tab === "board" ? { display: "none" } : undefined}>
-        {messages.map((m, i) => (
+        {messages
+          // One thread at a time: the focused task's messages, or the
+          // general vox conversation when nothing is focused. Other threads
+          // keep running in background and swap in when refocused.
+          .filter((m) => {
+            const thread = "task" in m ? (m.task ?? null) : null;
+            return thread === (focusedTask?.title ?? null);
+          })
+          .map((m, i) => (
           <div key={i} className={`msg ${m.who}`}>
             {m.who === "sys" ? (
               <span>{m.text}</span>
@@ -674,7 +706,20 @@ export default function App() {
           <span
             key={taskId}
             className={`worker-chip ${w.status} ${focused === taskId ? "focused" : ""}`}
-            onClick={() => setFocused(focused === taskId ? null : taskId)}
+            onClick={() => {
+              // Focusing a live worker also swaps the visible thread to it.
+              if (focused === taskId) {
+                setFocused(null);
+                setFocusedTask(null);
+              } else {
+                setFocused(taskId);
+                const session = overview?.workers.find(
+                  (x) => x.task_id === taskId,
+                )?.session_id;
+                setFocusedTask({ title: w.label, sessionId: session ?? "" });
+                loadedTasks.current.add(w.label);
+              }
+            }}
             title={focused === taskId ? "focado (clique para soltar)" : "clique para focar"}
           >
             <span className="dot" />
