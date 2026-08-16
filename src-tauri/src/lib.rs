@@ -611,6 +611,28 @@ fn dispatch_text(
     Ok(out)
 }
 
+/// Read-only history of a past session, straight from its log file.
+/// Costs nothing: no process spawned, no tokens.
+#[tauri::command(async)]
+fn read_transcript(
+    session_id: String,
+    limit: Option<usize>,
+) -> Result<Vec<vox_core::domain::transcript::Entry>, String> {
+    use vox_core::ports::SessionStore;
+    let config = Config::load();
+    let store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let path = store
+        .session_path(&session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("sessão não está no índice (rode: vox index)")?;
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    Ok(vox_core::domain::transcript::tail_entries(
+        content.lines(),
+        limit.unwrap_or(200),
+    ))
+}
+
 #[tauri::command]
 fn board_move(title: String, status: vox_core::domain::board::TaskStatus) -> Result<(), String> {
     use vox_core::ports::SessionStore;
@@ -685,6 +707,7 @@ pub fn run() {
             worker_start,
             worker_send,
             worker_stop,
+            read_transcript,
             board_move,
             board_archive,
             approve

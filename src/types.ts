@@ -61,6 +61,14 @@ export type DispatchOutcome =
   | { status: "busy"; session_id: string }
   | { status: "no_match" };
 
+export type TranscriptEntry = {
+  ts: string;
+  role: "user" | "assistant" | "tool_use" | "tool_result";
+  text: string;
+  tool?: string;
+  is_error: boolean;
+};
+
 export type BoardTask = {
   title: string;
   status: "backlog" | "doing" | "waiting" | "done";
@@ -72,6 +80,12 @@ export type BoardTask = {
 export type Overview = {
   contexts: string[];
   active: string;
-  workers: { task_id: string; status: string; workspace: string; summary: string }[];
+  workers: {
+    task_id: string;
+    status: string;
+    workspace: string;
+    summary: string;
+    session_id: string;
+  }[];
   board: BoardTask[];
 };

@@ -290,6 +290,36 @@ body {
 }
 .resume-input:focus { outline: none; border-color: var(--accent); }
 
+/* ---- read-only thread reader ---- */
+.reader {
+  grid-column: 1 / 3;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  overflow: hidden;
+}
+.reader-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+}
+.reader-head button {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer;
+}
+.reader-head button:hover { border-color: var(--accent); }
+.reader-head .resume { margin-left: auto; color: var(--ok); }
+.reader-title { color: var(--accent); }
+.reader-meta { color: var(--dim); font-size: 11px; }
+.reader-body { overflow-y: auto; padding: 14px; }
+.reader-empty { color: var(--dim); text-align: center; padding: 40px; }
+.entry { margin-bottom: 14px; }
+.entry-ts { color: var(--dim); font-size: 10px; display: block; margin-bottom: 3px; opacity: .6; }
+.entry-user {
+  background: #1a2634; border: 1px solid #24344a; border-radius: 8px;
+  padding: 8px 10px; white-space: pre-wrap; line-height: 1.5;
+}
+.entry.assistant { border-left: 2px solid var(--border); padding-left: 12px; }
+
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.6);
   display: flex; align-items: center; justify-content: center; z-index: 10;

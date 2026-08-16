@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import Markdown from "./Markdown";
+import Reader from "./Reader";
 import ToolCall, { ToolOutput } from "./ToolCall";
 import type {
   DispatchOutcome,
@@ -34,6 +35,12 @@ export default function App() {
   const [recording, setRecording] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
   const [tab, setTab] = useState<"chat" | "board">("chat");
+  // Read-only thread being viewed (board tab), never executes anything.
+  const [reading, setReading] = useState<{
+    sessionId: string;
+    title: string;
+    resume?: { title: string; note?: string };
+  } | null>(null);
   // All live conversational workers, keyed by task_id.
   const [liveWorkers, setLiveWorkers] = useState<
     Record<string, { label: string; status: "running" | "turn_done" | "awaiting" }>
@@ -344,7 +351,28 @@ export default function App() {
         </span>
       </div>
 
-      {tab === "board" && (
+      {tab === "board" && reading && (
+        <Reader
+          sessionId={reading.sessionId}
+          title={reading.title}
+          onClose={() => setReading(null)}
+          onResume={
+            reading.resume &&
+            (() => {
+              const { title, note } = reading.resume!;
+              setReading(null);
+              setPending({
+                kind: "resume-task",
+                title,
+                sessionId: reading.sessionId,
+                instruction: `Continua a tarefa: ${title}.${note ? ` Contexto: ${note}.` : ""}`,
+              });
+            })
+          }
+        />
+      )}
+
+      {tab === "board" && !reading && (
         <div className="kanban">
           {(["backlog", "doing", "waiting", "done"] as const).map((status) => {
             const items = (overview?.board ?? []).filter(
@@ -382,6 +410,20 @@ export default function App() {
                         ` · ${t.session_ids.length} sessão(ões)`}
                     </div>
                     <div className="card-actions">
+                      {t.session_ids.length > 0 && (
+                        <button
+                          title="ler o histórico (não executa nada)"
+                          onClick={() =>
+                            setReading({
+                              sessionId: t.session_ids.at(-1)!,
+                              title: t.title,
+                              resume: { title: t.title, note: t.note },
+                            })
+                          }
+                        >
+                          📖 ler
+                        </button>
+                      )}
                       <button
                         title="retomar (despacha na sessão vinculada)"
                         onClick={() =>
@@ -564,7 +606,15 @@ export default function App() {
               title="resumo da task"
               onClick={(e) => {
                 e.stopPropagation();
-                setPending({ kind: "task-summary", taskId });
+                const session = overview?.workers.find(
+                  (w) => w.task_id === taskId,
+                )?.session_id;
+                if (session) {
+                  setTab("board");
+                  setReading({ sessionId: session, title: w.label });
+                } else {
+                  setPending({ kind: "task-summary", taskId });
+                }
               }}
             >
               ℹ

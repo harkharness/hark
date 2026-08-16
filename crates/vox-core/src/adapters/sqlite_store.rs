@@ -103,6 +103,17 @@ impl SqliteStore {
 }
 
 impl SessionStore for SqliteStore {
+    fn session_path(&self, session_id: &str) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT path FROM files WHERE session_id = ?1 LIMIT 1",
+                params![session_id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?)
+    }
+
     fn board(&self) -> anyhow::Result<Vec<crate::domain::board::Task>> {
         self.board_impl()
     }
