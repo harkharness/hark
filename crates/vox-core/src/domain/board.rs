@@ -36,6 +36,9 @@ pub struct BoardUpdate {
     pub status: TaskStatus,
     #[serde(default)]
     pub nota: Option<String>,
+    /// Session id this task came from, copied from the snapshot context.
+    #[serde(default)]
+    pub sessao: Option<String>,
 }
 
 /// Two titles are the same task when the significant terms of one are
@@ -61,8 +64,11 @@ pub fn apply_updates(
     session_id: Option<&str>,
 ) -> Vec<Task> {
     for update in updates {
+        // The update's own session reference (from the model) wins over the
+        // caller-level one (from a dispatch).
+        let sid = update.sessao.as_deref().or(session_id);
         let link = |ids: &mut Vec<String>| {
-            if let Some(sid) = session_id {
+            if let Some(sid) = sid {
                 if !ids.iter().any(|i| i == sid) {
                     ids.push(sid.to_string());
                 }
@@ -205,7 +211,25 @@ mod tests {
             titulo: title.into(),
             status,
             nota: Some("nota".into()),
+            sessao: None,
         }
+    }
+
+    #[test]
+    fn model_provided_session_links_the_task() {
+        let tasks = apply_updates(
+            Vec::new(),
+            &[BoardUpdate {
+                titulo: "Migração webhook".into(),
+                status: TaskStatus::Waiting,
+                nota: None,
+                sessao: Some("sess-from-model".into()),
+            }],
+            "2026-08-15T10:00:00Z",
+            None,
+            None, // no caller session: the model's reference must be used
+        );
+        assert_eq!(tasks[0].session_ids, vec!["sess-from-model"]);
     }
 
     #[test]

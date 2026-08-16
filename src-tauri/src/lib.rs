@@ -457,6 +457,7 @@ fn update_registry_and_board(
                 titulo: instruction.chars().take(60).collect(),
                 status: vox_core::domain::board::TaskStatus::Doing,
                 nota: Some("worker conversacional ativo".into()),
+                sessao: None,
             }];
             let merged = vox_core::domain::board::apply_updates(
                 current,
@@ -708,13 +709,17 @@ fn dispatch_text(
     Ok(out)
 }
 
+#[derive(Serialize)]
+struct TranscriptOut {
+    /// The session's own title, as shown in Claude Code.
+    session_title: Option<String>,
+    entries: Vec<vox_core::domain::transcript::Entry>,
+}
+
 /// Read-only history of a past session, straight from its log file.
 /// Costs nothing: no process spawned, no tokens.
 #[tauri::command(async)]
-fn read_transcript(
-    session_id: String,
-    limit: Option<usize>,
-) -> Result<Vec<vox_core::domain::transcript::Entry>, String> {
+fn read_transcript(session_id: String, limit: Option<usize>) -> Result<TranscriptOut, String> {
     use vox_core::ports::SessionStore;
     let config = Config::load();
     let store =
@@ -723,11 +728,31 @@ fn read_transcript(
         .session_path(&session_id)
         .map_err(|e| e.to_string())?
         .ok_or("sessão não está no índice (rode: vox index)")?;
+    let (session_title, _, _) = store
+        .file_state(&path)
+        .map_err(|e| e.to_string())?
+        .map(|(s, o, m)| (s.title, o, m))
+        .unwrap_or_default();
     let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    Ok(vox_core::domain::transcript::tail_entries(
-        content.lines(),
-        limit.unwrap_or(200),
-    ))
+    Ok(TranscriptOut {
+        session_title,
+        entries: vox_core::domain::transcript::tail_entries(content.lines(), limit.unwrap_or(200)),
+    })
+}
+
+/// Best session for a spoken/typed query, via the same topic search the
+/// snapshot uses. Local and free.
+#[tauri::command(async)]
+fn find_session(query: String) -> Result<Option<serde_json::Value>, String> {
+    use vox_core::ports::SessionStore;
+    let config = Config::load();
+    let store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let terms = vox_core::domain::dispatch::significant_terms(&query);
+    let hits = store.search_sessions(&terms, 1).map_err(|e| e.to_string())?;
+    Ok(hits.first().map(|s| {
+        serde_json::json!({ "session_id": s.session_id, "title": s.title })
+    }))
 }
 
 #[tauri::command]
@@ -876,6 +901,7 @@ pub fn run() {
             worker_send,
             worker_stop,
             read_transcript,
+            find_session,
             task_command,
             board_move,
             board_rename,

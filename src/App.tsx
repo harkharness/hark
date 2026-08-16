@@ -17,7 +17,7 @@ import type {
 } from "./types";
 
 type Pending =
-  | { kind: "confirm-dispatch"; instruction: string }
+  | { kind: "confirm-dispatch"; instruction: string; sessionId?: string }
   | { kind: "permission"; ask: PermissionAsk }
   | {
       kind: "choice";
@@ -43,6 +43,12 @@ export default function App() {
     sessionId: string;
     title: string;
     resume?: { title: string; note?: string };
+  } | null>(null);
+  // Task selected on the sidebar: dispatches target its session directly
+  // unless the message explicitly names another one.
+  const [focusedTask, setFocusedTask] = useState<{
+    title: string;
+    sessionId: string;
   } | null>(null);
   // All live conversational workers, keyed by task_id.
   const [liveWorkers, setLiveWorkers] = useState<
@@ -252,11 +258,17 @@ export default function App() {
 
     const route = await invoke<string>("route_text", { text });
     // Action verbs ALWAYS open a new parallel worker ("enquanto isso faz X"),
-    // even while another one is focused.
+    // even while another one is focused. A task selected on the sidebar pins
+    // the target session unless the message names another task explicitly
+    // (the resolver still runs when nothing is focused).
     if (route === "dispatch") {
       push({ who: "user", text });
       setInput("");
-      setPending({ kind: "confirm-dispatch", instruction: text });
+      setPending({
+        kind: "confirm-dispatch",
+        instruction: text,
+        sessionId: focusedTask?.sessionId,
+      });
       return;
     }
     // Explicit questions go to ask; anything else while focused is a reply
@@ -346,7 +358,7 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app tab-${tab}`}>
       <div className="topbar">
         <span className="title">VOX</span>
         <nav className="tabs">
@@ -389,16 +401,26 @@ export default function App() {
         </span>
       </div>
 
+      {tab === "chat" && (
       <Sidebar
         tasks={overview?.board ?? []}
-        activeTitle={reading?.title}
+        activeTitle={focusedTask?.title}
         liveTitles={Object.values(liveWorkers).map((w) => w.label)}
-        onOpen={(t) => {
-          const session = t.session_ids.at(-1);
+        onOpen={async (t) => {
+          // Focus the task: follow-up work targets its session directly.
+          let session = t.session_ids.at(-1);
           if (!session) {
-            push({ who: "sys", text: `${t.title} ainda não tem sessão vinculada` });
+            // No linked session yet: resolve one by topic search (free).
+            const hit = await invoke<{ session_id: string } | null>("find_session", {
+              query: t.title,
+            }).catch(() => null);
+            session = hit?.session_id ?? undefined;
+          }
+          if (!session) {
+            push({ who: "sys", text: `nenhuma sessão encontrada para "${t.title}"` });
             return;
           }
+          setFocusedTask({ title: t.title, sessionId: session });
           setTab("board");
           setReading({
             sessionId: session,
@@ -420,6 +442,7 @@ export default function App() {
           })
         }
       />
+      )}
 
       {tab === "board" && reading && (
         <Reader
@@ -713,7 +736,12 @@ export default function App() {
       {pending?.kind === "confirm-dispatch" && (
         <div className="modal-backdrop">
           <div className="modal">
-            <h2>Despachar tarefa?</h2>
+            <h2>
+              Despachar tarefa?
+              {pending.sessionId && focusedTask && (
+                <span className="reader-meta"> → {focusedTask.title}</span>
+              )}
+            </h2>
             <pre>{pending.instruction}</pre>
             <div className="row">
               <button className="plain" onClick={() => setPending(null)}>
@@ -722,9 +750,9 @@ export default function App() {
               <button
                 className="allow"
                 onClick={() => {
-                  const inst = pending.instruction;
+                  const { instruction, sessionId } = pending;
                   setPending(null);
-                  runDispatch(inst);
+                  runDispatch(instruction, sessionId);
                 }}
               >
                 confirmar

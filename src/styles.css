@@ -28,6 +28,9 @@ body {
   height: 100vh;
   background: var(--border);
 }
+/* Board tab has no sidebar: the kanban/reader take the full width. */
+.app.tab-board { grid-template-columns: 0 1fr 0; }
+.app.tab-board .events { display: none; }
 
 .topbar {
   grid-column: 1 / 4;

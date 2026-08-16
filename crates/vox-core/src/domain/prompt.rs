@@ -62,7 +62,8 @@ pub const RESPONSE_SCHEMA: &str = r#"{
         "properties": {
           "titulo": { "type": "string", "description": "Titulo curto e estavel da tarefa" },
           "status": { "type": "string", "enum": ["backlog", "doing", "waiting", "done"] },
-          "nota": { "type": "string", "description": "Uma linha de contexto (ex: aguardando GMUD)" }
+          "nota": { "type": "string", "description": "Uma linha de contexto (ex: aguardando GMUD)" },
+          "sessao": { "type": "string", "description": "Id da sessao de onde essa tarefa vem, copiado EXATAMENTE do contexto (campo 'sessao ...'). Sempre inclua quando a tarefa se refere a uma sessao listada." }
         },
         "required": ["titulo", "status"]
       }

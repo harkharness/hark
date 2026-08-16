@@ -313,6 +313,7 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
             let updates = [vox_core::domain::board::BoardUpdate {
                 titulo: instruction.chars().take(60).collect(),
                 status,
+                sessao: None,
                 nota: Some(nota),
             }];
             if let Ok(current) = store.board() {

@@ -20,13 +20,21 @@ export default function Reader({
   onResume?: () => void;
 }) {
   const [entries, setEntries] = useState<TranscriptEntry[] | null>(null);
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setEntries(null);
+    setSessionTitle(null);
     setError(null);
-    invoke<TranscriptEntry[]>("read_transcript", { sessionId, limit: 200 })
-      .then(setEntries)
+    invoke<{ session_title: string | null; entries: TranscriptEntry[] }>(
+      "read_transcript",
+      { sessionId, limit: 200 },
+    )
+      .then((out) => {
+        setEntries(out.entries);
+        setSessionTitle(out.session_title);
+      })
       .catch((err) => setError(String(err)));
   }, [sessionId]);
 
@@ -36,8 +44,9 @@ export default function Reader({
         <button className="back" onClick={onClose}>
           ← voltar
         </button>
-        <span className="reader-title">{title}</span>
+        <span className="reader-title">{sessionTitle ?? title}</span>
         <span className="reader-meta">
+          {sessionTitle && sessionTitle !== title ? `task: ${title} · ` : ""}
           somente leitura · {sessionId.slice(0, 8)}
         </span>
         {onResume && (
