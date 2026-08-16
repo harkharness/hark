@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import Markdown from "./Markdown";
 import Reader from "./Reader";
+import Sidebar from "./Sidebar";
 import ToolCall, { ToolOutput } from "./ToolCall";
 import type {
   Directives,
@@ -11,6 +12,7 @@ import type {
   Overview,
   PermissionAsk,
   Reply,
+  TaskCommandResult,
   VoxEvent,
 } from "./types";
 
@@ -225,6 +227,29 @@ export default function App() {
 
   async function submit(text: string, img: string | null) {
     if (!text.trim() || busy) return;
+
+    // Local board commands first: "mostra o log da X", "renomeia X para Y".
+    // They cost nothing and never reach an LLM.
+    const cmd = await invoke<TaskCommandResult | null>("task_command", { text }).catch(
+      () => null,
+    );
+    if (cmd) {
+      push({ who: "user", text });
+      setInput("");
+      if (cmd.kind === "open" && cmd.session_id) {
+        setTab("board");
+        setReading({ sessionId: cmd.session_id, title: cmd.title });
+        say(`Abrindo ${cmd.title}.`);
+      } else if (cmd.kind === "not_found") {
+        push({ who: "sys", text: `nenhuma task bate com "${cmd.query}"` });
+        say("Não achei essa task no quadro.");
+      } else {
+        push({ who: "sys", text: `${cmd.kind}: ${cmd.title}` });
+        refresh();
+      }
+      return;
+    }
+
     const route = await invoke<string>("route_text", { text });
     // Action verbs ALWAYS open a new parallel worker ("enquanto isso faz X"),
     // even while another one is focused.
@@ -364,6 +389,38 @@ export default function App() {
         </span>
       </div>
 
+      <Sidebar
+        tasks={overview?.board ?? []}
+        activeTitle={reading?.title}
+        liveTitles={Object.values(liveWorkers).map((w) => w.label)}
+        onOpen={(t) => {
+          const session = t.session_ids.at(-1);
+          if (!session) {
+            push({ who: "sys", text: `${t.title} ainda não tem sessão vinculada` });
+            return;
+          }
+          setTab("board");
+          setReading({
+            sessionId: session,
+            title: t.title,
+            resume: { title: t.title, note: t.note },
+          });
+        }}
+        onRename={(t, newTitle) =>
+          invoke("board_rename", { title: t.title, newTitle }).then(refresh)
+        }
+        onPin={(t) => invoke("board_pin", { title: t.title }).then(refresh)}
+        onArchive={(t) => invoke("board_archive", { title: t.title }).then(refresh)}
+        onResume={(t) =>
+          setPending({
+            kind: "resume-task",
+            title: t.title,
+            sessionId: t.session_ids.at(-1),
+            instruction: `Continua a tarefa: ${t.title}.${t.note ? ` Contexto: ${t.note}.` : ""}`,
+          })
+        }
+      />
+
       {tab === "board" && reading && (
         <Reader
           sessionId={reading.sessionId}
@@ -421,48 +478,6 @@ export default function App() {
                       {t.updated_at.slice(0, 16).replace("T", " ")}
                       {t.session_ids.length > 0 &&
                         ` · ${t.session_ids.length} sessão(ões)`}
-                    </div>
-                    <div className="card-actions">
-                      {t.session_ids.length > 0 && (
-                        <button
-                          title="ler o histórico (não executa nada)"
-                          onClick={() =>
-                            setReading({
-                              sessionId: t.session_ids.at(-1)!,
-                              title: t.title,
-                              resume: { title: t.title, note: t.note },
-                            })
-                          }
-                        >
-                          📖 ler
-                        </button>
-                      )}
-                      <button
-                        title="retomar (despacha na sessão vinculada)"
-                        onClick={() =>
-                          setPending({
-                            kind: "resume-task",
-                            title: t.title,
-                            sessionId: t.session_ids.at(-1),
-                            instruction: `Continua a tarefa: ${t.title}.${
-                              t.note ? ` Contexto: ${t.note}.` : ""
-                            }`,
-                          })
-                        }
-                      >
-                        ▶ retomar
-                      </button>
-                      <button
-                        title="arquivar (remove do board)"
-                        onClick={async () => {
-                          await invoke("board_archive", { title: t.title }).catch(
-                            () => {},
-                          );
-                          refresh();
-                        }}
-                      >
-                        arquivar
-                      </button>
                     </div>
                   </div>
                 ))}

@@ -23,6 +23,9 @@ pub struct Task {
     pub session_ids: Vec<String>,
     pub updated_at: String,
     pub note: Option<String>,
+    /// Kept at the top of the sidebar.
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 /// One board change proposed by Claude inside a structured reply
@@ -87,6 +90,7 @@ pub fn apply_updates(
                     session_ids,
                     updated_at: now.to_string(),
                     note: update.nota.clone(),
+                    pinned: false,
                 });
             }
         }
@@ -106,6 +110,42 @@ pub fn set_status(mut tasks: Vec<Task>, title: &str, status: TaskStatus, now: &s
 /// Manual archive: removes the task from the board entirely.
 pub fn archive(tasks: Vec<Task>, title: &str) -> Vec<Task> {
     tasks.into_iter().filter(|t| t.title != title).collect()
+}
+
+/// Rename in place, keeping status, sessions and note.
+pub fn rename(mut tasks: Vec<Task>, title: &str, new_title: &str, now: &str) -> Vec<Task> {
+    if let Some(task) = tasks.iter_mut().find(|t| t.title == title) {
+        task.title = new_title.to_string();
+        task.updated_at = now.to_string();
+    }
+    tasks
+}
+
+/// Toggle the pin that keeps a task at the top of the sidebar.
+pub fn toggle_pin(mut tasks: Vec<Task>, title: &str) -> Vec<Task> {
+    if let Some(task) = tasks.iter_mut().find(|t| t.title == title) {
+        task.pinned = !task.pinned;
+    }
+    tasks
+}
+
+/// Best task matching a spoken query (term overlap on title and note).
+pub fn find(tasks: &[Task], query: &str) -> Option<Task> {
+    let terms = significant_terms(query);
+    if terms.is_empty() {
+        return None;
+    }
+    tasks
+        .iter()
+        .map(|task| {
+            let haystack = format!("{} {}", task.title, task.note.clone().unwrap_or_default())
+                .to_lowercase();
+            let hits = terms.iter().filter(|t| haystack.contains(t.as_str())).count();
+            (hits, task)
+        })
+        .filter(|(hits, _)| *hits > 0)
+        .max_by_key(|(hits, task)| (*hits, task.updated_at.clone()))
+        .map(|(_, task)| task.clone())
 }
 
 /// Render the board for the prompt/screen: open tasks grouped by status,
@@ -224,6 +264,31 @@ mod tests {
             None,
         );
         assert_eq!(tasks.len(), 2);
+    }
+
+    #[test]
+    fn renames_pins_and_finds_by_spoken_query() {
+        let tasks = apply_updates(
+            Vec::new(),
+            &[
+                update("Migração do webhook Carteira", TaskStatus::Doing),
+                update("Padrão de alertas", TaskStatus::Backlog),
+            ],
+            "2026-08-15T10:00:00Z",
+            None,
+            None,
+        );
+
+        // Spoken query hits the right task without the exact title.
+        let found = find(&tasks, "webhook").expect("match");
+        assert_eq!(found.title, "Migração do webhook Carteira");
+        assert!(find(&tasks, "kafka").is_none());
+
+        let tasks = rename(tasks, &found.title, "Decom Carteira", "2026-08-15T11:00:00Z");
+        assert!(tasks.iter().any(|t| t.title == "Decom Carteira"));
+
+        let tasks = toggle_pin(tasks, "Decom Carteira");
+        assert!(tasks.iter().find(|t| t.title == "Decom Carteira").unwrap().pinned);
     }
 
     #[test]

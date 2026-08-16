@@ -81,7 +81,15 @@ export type BoardTask = {
   note?: string;
   updated_at: string;
   session_ids: string[];
+  pinned: boolean;
 };
+
+export type TaskCommandResult =
+  | { kind: "open"; title: string; session_id?: string }
+  | { kind: "renamed"; title: string }
+  | { kind: "pinned"; title: string }
+  | { kind: "archived"; title: string }
+  | { kind: "not_found"; query: string };
 
 export type Overview = {
   contexts: string[];

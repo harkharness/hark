@@ -741,6 +741,77 @@ fn board_move(title: String, status: vox_core::domain::board::TaskStatus) -> Res
     store.save_board(&tasks).map_err(|e| e.to_string())
 }
 
+fn with_board<T>(
+    f: impl FnOnce(&mut SqliteStore, Vec<vox_core::domain::board::Task>) -> anyhow::Result<T>,
+) -> Result<T, String> {
+    use vox_core::ports::SessionStore;
+    let config = Config::load();
+    let mut store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let tasks = store.board().map_err(|e| e.to_string())?;
+    f(&mut store, tasks).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn board_rename(title: String, new_title: String) -> Result<(), String> {
+    with_board(|store, tasks| {
+        use vox_core::ports::SessionStore;
+        let tasks = vox_core::domain::board::rename(tasks, &title, &new_title, &now_iso());
+        store.save_board(&tasks)
+    })
+}
+
+#[tauri::command]
+fn board_pin(title: String) -> Result<(), String> {
+    with_board(|store, tasks| {
+        use vox_core::ports::SessionStore;
+        let tasks = vox_core::domain::board::toggle_pin(tasks, &title);
+        store.save_board(&tasks)
+    })
+}
+
+/// Local board command spoken by the user ("mostra o log da X"). Resolves the
+/// task by term overlap and performs the action; no LLM, no tokens.
+#[tauri::command]
+fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
+    use vox_core::domain::task_command::TaskCommand;
+    let Some(command) = vox_core::domain::task_command::parse(&text) else {
+        return Ok(None);
+    };
+    let query = match &command {
+        TaskCommand::Open(q) | TaskCommand::Pin(q) | TaskCommand::Archive(q) => q,
+        TaskCommand::Rename { query, .. } => query,
+    };
+    with_board(|store, tasks| {
+        use vox_core::ports::SessionStore;
+        let Some(task) = vox_core::domain::board::find(&tasks, query) else {
+            return Ok(Some(serde_json::json!({ "kind": "not_found", "query": query })));
+        };
+        let title = task.title.clone();
+        match &command {
+            TaskCommand::Open(_) => Ok(Some(serde_json::json!({
+                "kind": "open", "title": title,
+                "session_id": task.session_ids.last(),
+            }))),
+            TaskCommand::Rename { title: new, .. } => {
+                let tasks = vox_core::domain::board::rename(tasks, &title, new, &now_iso());
+                store.save_board(&tasks)?;
+                Ok(Some(serde_json::json!({ "kind": "renamed", "title": new })))
+            }
+            TaskCommand::Pin(_) => {
+                let tasks = vox_core::domain::board::toggle_pin(tasks, &title);
+                store.save_board(&tasks)?;
+                Ok(Some(serde_json::json!({ "kind": "pinned", "title": title })))
+            }
+            TaskCommand::Archive(_) => {
+                let tasks = vox_core::domain::board::archive(tasks, &title);
+                store.save_board(&tasks)?;
+                Ok(Some(serde_json::json!({ "kind": "archived", "title": title })))
+            }
+        }
+    })
+}
+
 #[tauri::command]
 fn board_archive(title: String) -> Result<(), String> {
     use vox_core::ports::SessionStore;
@@ -805,7 +876,10 @@ pub fn run() {
             worker_send,
             worker_stop,
             read_transcript,
+            task_command,
             board_move,
+            board_rename,
+            board_pin,
             board_archive,
             approve
         ])
