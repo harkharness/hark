@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import Markdown from "./Markdown";
+import ToolCall, { ToolOutput } from "./ToolCall";
 import type {
   DispatchOutcome,
   Msg,
@@ -34,7 +36,7 @@ export default function App() {
   const [tab, setTab] = useState<"chat" | "board">("chat");
   // All live conversational workers, keyed by task_id.
   const [liveWorkers, setLiveWorkers] = useState<
-    Record<string, { label: string; status: "running" | "turn_done" }>
+    Record<string, { label: string; status: "running" | "turn_done" | "awaiting" }>
   >({});
   const [focused, setFocused] = useState<string | null>(null);
   const workersRef = useRef(liveWorkers);
@@ -60,14 +62,11 @@ export default function App() {
       if (ev.kind === "assistant_text") {
         push({ who: "vox", text: ev.text, task: ev.task_id });
       } else if (ev.kind === "worker") {
-        const short = ev.input.length > 110 ? ev.input.slice(0, 110) + "…" : ev.input;
-        push({ who: "tool", text: `⚙ ${ev.name} ${short}`, task: ev.task_id });
+        push({ who: "tool", name: ev.name, input: ev.input, task: ev.task_id });
       } else if (ev.kind === "tool_result") {
-        const short =
-          ev.content.length > 110 ? ev.content.slice(0, 110) + "…" : ev.content;
         push({
-          who: "tool",
-          text: `${ev.is_error ? "✗" : "✓"} ${short}`,
+          who: "output",
+          content: ev.content,
           error: ev.is_error,
           task: ev.task_id,
         });
@@ -103,8 +102,24 @@ export default function App() {
         refresh();
       }
     });
+    // Permission requests land INLINE in the thread, never as a blocking
+    // modal: other workers must keep streaming while one waits.
     const un2 = listen<PermissionAsk>("vox-permission", (e) => {
-      setPending({ kind: "permission", ask: e.payload });
+      const ask = e.payload;
+      push({
+        who: "permission",
+        requestId: ask.request_id,
+        tool: ask.tool_name,
+        input: ask.input,
+        task: ask.task_id,
+      });
+      setLiveWorkers((old) =>
+        old[ask.task_id]
+          ? { ...old, [ask.task_id]: { ...old[ask.task_id], status: "awaiting" } }
+          : old,
+      );
+      if (speakRef.current)
+        invoke("speak", { text: `${ask.tool_name} pede permissão.` }).catch(() => {});
     });
     return () => {
       un1.then((f) => f());
@@ -260,11 +275,29 @@ export default function App() {
     reader.readAsDataURL(file);
   }
 
-  async function answerPermission(allow: boolean) {
-    if (pending?.kind !== "permission") return;
-    const { request_id } = pending.ask;
-    setPending(null);
-    await invoke("approve", { requestId: request_id, allow }).catch(() => {});
+  /** Answer an inline permission card and mark it decided in place. */
+  async function answerPermission(requestId: string, allow: boolean) {
+    setMessages((old) =>
+      old.map((m) =>
+        m.who === "permission" && m.requestId === requestId
+          ? { ...m, decision: allow ? "allow" : "deny" }
+          : m,
+      ),
+    );
+    setLiveWorkers((old) => {
+      const entry = Object.entries(old).find(([, w]) => w.status === "awaiting");
+      return entry
+        ? { ...old, [entry[0]]: { ...entry[1], status: "running" } }
+        : old;
+    });
+    await invoke("approve", { requestId, allow }).catch(() => {});
+  }
+
+  /** Newest permission still waiting for a decision. */
+  function pendingPermission() {
+    return [...messages]
+      .reverse()
+      .find((m) => m.who === "permission" && !m.decision);
   }
 
   return (
@@ -390,10 +423,37 @@ export default function App() {
             {m.who === "sys" ? (
               <span>{m.text}</span>
             ) : m.who === "tool" ? (
-              <span className={`toolline ${m.error ? "error" : ""}`}>
-                {m.task && <span className="tasktag">{m.task.slice(0, 12)}</span>}
-                {m.text}
-              </span>
+              <ToolCall name={m.name} input={m.input} />
+            ) : m.who === "output" ? (
+              <ToolOutput content={m.content} isError={m.error} />
+            ) : m.who === "permission" ? (
+              <div className={`permission ${m.decision ?? "waiting"}`}>
+                <div className="perm-head">
+                  🔐 {m.tool} pede permissão
+                  {m.task && <span className="tasktag">{liveWorkers[m.task]?.label ?? m.task.slice(0, 12)}</span>}
+                </div>
+                <ToolCall name={m.tool} input={m.input} />
+                {m.decision ? (
+                  <div className={`perm-done ${m.decision}`}>
+                    {m.decision === "allow" ? "✓ permitido" : "✗ negado"}
+                  </div>
+                ) : (
+                  <div className="perm-actions">
+                    <button
+                      className="deny"
+                      onClick={() => answerPermission(m.requestId, false)}
+                    >
+                      negar <kbd>n</kbd>
+                    </button>
+                    <button
+                      className="allow"
+                      onClick={() => answerPermission(m.requestId, true)}
+                    >
+                      permitir <kbd>y</kbd>
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="bubble">
                 <span className="tag">
@@ -402,8 +462,14 @@ export default function App() {
                 </span>
                 {m.who === "vox" ? (
                   <>
-                    <div className="fala">{m.text}</div>
-                    {m.detalhes && <div className="detalhes">{m.detalhes}</div>}
+                    <div className="fala">
+                      <Markdown>{m.text}</Markdown>
+                    </div>
+                    {m.detalhes && (
+                      <div className="detalhes">
+                        <Markdown>{m.detalhes}</Markdown>
+                      </div>
+                    )}
                     {m.itens && m.itens.length > 0 && (
                       <ul className="itens">
                         {m.itens.map((it, j) => (
@@ -491,6 +557,7 @@ export default function App() {
             title={focused === taskId ? "focado (clique para soltar)" : "clique para focar"}
           >
             <span className="dot" />
+            {w.status === "awaiting" ? "🔐 " : ""}
             {w.label}
             <button
               className="info"
@@ -530,7 +597,18 @@ export default function App() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onPaste={onPaste}
-          onKeyDown={(e) => e.key === "Enter" && submit(input, image)}
+          onKeyDown={(e) => {
+            // Empty input + pending permission: y/n decide it, like a terminal.
+            if (!input) {
+              const perm = pendingPermission();
+              if (perm?.who === "permission" && (e.key === "y" || e.key === "n")) {
+                e.preventDefault();
+                answerPermission(perm.requestId, e.key === "y");
+                return;
+              }
+            }
+            if (e.key === "Enter") submit(input, image);
+          }}
           disabled={!!busy}
         />
         <button
@@ -639,13 +717,20 @@ export default function App() {
               {messages
                 .filter((m) => "task" in m && m.task === pending.taskId)
                 .slice(-14)
-                .map((m) =>
-                  m.who === "user"
-                    ? `você: ${m.text}`
-                    : m.who === "tool"
-                      ? `  ${m.text}`
-                      : `vox: ${m.text}`,
-                )
+                .map((m) => {
+                  switch (m.who) {
+                    case "user":
+                      return `você: ${m.text}`;
+                    case "tool":
+                      return `  ⚙ ${m.name}`;
+                    case "output":
+                      return `  ${m.error ? "✗" : "✓"} ${m.content.split("\n")[0]}`;
+                    case "permission":
+                      return `  🔐 ${m.tool} ${m.decision ?? "aguardando"}`;
+                    default:
+                      return `vox: ${"text" in m ? m.text : ""}`;
+                  }
+                })
                 .join("\n") || "(sem eventos ainda)"}
             </pre>
             <div className="row">
@@ -666,28 +751,11 @@ export default function App() {
         </div>
       )}
 
-      {pending?.kind === "permission" && (
-        <div className="modal-backdrop">
-          <div className="modal">
-            <h2>
-              🔐 {pending.ask.tool_name} pede permissão ({pending.ask.task_id})
-            </h2>
-            <pre>{prettyJson(pending.ask.input)}</pre>
-            <div className="row">
-              <button className="deny" onClick={() => answerPermission(false)}>
-                negar
-              </button>
-              <button className="allow" onClick={() => answerPermission(true)}>
-                permitir
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
+/** Format the model id for the footer: "claude-sonnet-5" -> "sonnet-5". */
 function shortModel(model?: string): string {
   if (!model) return "?";
   // "claude-sonnet-5" -> "sonnet-5"

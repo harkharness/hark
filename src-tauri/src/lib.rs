@@ -346,7 +346,7 @@ fn worker_start(
                 ClaudeEvent::ToolResult { content, is_error } => emit_event(
                     &app2,
                     serde_json::json!({ "kind": "tool_result", "task_id": task2,
-                        "content": content.chars().take(400).collect::<String>(), "is_error": is_error }),
+                        "content": content.chars().take(4000).collect::<String>(), "is_error": is_error }),
                 ),
                 ClaudeEvent::PermissionRequest {
                     request_id,

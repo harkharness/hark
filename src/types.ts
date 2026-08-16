@@ -41,7 +41,16 @@ export type Msg =
       model?: string;
       task?: string;
     }
-  | { who: "tool"; text: string; error?: boolean; task?: string }
+  | { who: "tool"; name: string; input: string; task?: string }
+  | { who: "output"; content: string; error: boolean; task?: string }
+  | {
+      who: "permission";
+      requestId: string;
+      tool: string;
+      input: string;
+      decision?: "allow" | "deny";
+      task?: string;
+    }
   | { who: "sys"; text: string };
 
 export type DispatchOutcome =
