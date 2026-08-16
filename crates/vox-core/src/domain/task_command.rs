@@ -8,6 +8,11 @@ use serde::Serialize;
 pub enum TaskCommand {
     /// Read a thread; never executes anything.
     Open(String),
+    /// Focus a task; optionally carry an instruction to run there.
+    Switch {
+        query: String,
+        instruction: Option<String>,
+    },
     Rename { query: String, title: String },
     Pin(String),
     Archive(String),
@@ -32,6 +37,10 @@ const OPEN_VERBS: &[&str] = &[
     "abre a thread", "abre o chat", "ler a thread", "lê a thread",
 ];
 
+const SWITCH_VERBS: &[&str] = &[
+    "vai pra task", "vai para a task", "vai pra tarefa", "vai para a tarefa",
+    "troca para a task", "troca pra task", "muda para a task", "muda pra task",
+];
 const RENAME_VERBS: &[&str] = &["renomeia", "renomear", "muda o titulo", "muda o título", "renomeie"];
 const PIN_VERBS: &[&str] = &["fixa ", "fixar ", "prende "];
 const ARCHIVE_VERBS: &[&str] = &["arquiva ", "arquivar "];
@@ -45,6 +54,19 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
             .map(|i| utterance[i + needle.len()..].trim().to_string())
     };
 
+    if let Some(verb) = SWITCH_VERBS.iter().find(|v| lower.contains(**v)) {
+        let rest = after(verb)?;
+        // "<query>" or "<query> e <instrução>"
+        let (query, instruction) = match rest.to_lowercase().find(" e ") {
+            Some(i) => (
+                rest[..i].to_string(),
+                Some(rest[i + " e ".len()..].trim().to_string()).filter(|s| !s.is_empty()),
+            ),
+            None => (rest, None),
+        };
+        let query = clean_query(&query);
+        return (!query.is_empty()).then_some(TaskCommand::Switch { query, instruction });
+    }
     if let Some(verb) = RENAME_VERBS.iter().find(|v| lower.contains(**v)) {
         let rest = after(verb)?;
         // "<query> para <novo titulo>"
@@ -115,6 +137,31 @@ mod tests {
         assert_eq!(
             parse("arquiva a task dos alertas"),
             Some(TaskCommand::Archive("alertas".into()))
+        );
+    }
+
+    #[test]
+    fn switches_focus_with_optional_instruction() {
+        assert_eq!(
+            parse("vai pra task do webhook"),
+            Some(TaskCommand::Switch {
+                query: "webhook".into(),
+                instruction: None
+            })
+        );
+        assert_eq!(
+            parse("vai para a task de pagamentos e roda os testes de novo"),
+            Some(TaskCommand::Switch {
+                query: "pagamentos".into(),
+                instruction: Some("roda os testes de novo".into())
+            })
+        );
+        assert_eq!(
+            parse("troca para a task dos alertas"),
+            Some(TaskCommand::Switch {
+                query: "alertas".into(),
+                instruction: None
+            })
         );
     }
 

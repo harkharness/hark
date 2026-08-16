@@ -13,6 +13,7 @@ import type {
   PermissionAsk,
   Reply,
   TaskCommandResult,
+  TranscriptEntry,
   VoxEvent,
 } from "./types";
 
@@ -30,7 +31,6 @@ type Pending =
 
 export default function App() {
   const [messages, setMessages] = useState<Msg[]>([]);
-  const [events, setEvents] = useState<VoxEvent[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [input, setInput] = useState("");
   const [image, setImage] = useState<string | null>(null); // dataURL
@@ -44,11 +44,12 @@ export default function App() {
     title: string;
     resume?: { title: string; note?: string };
   } | null>(null);
-  // Task selected on the sidebar: dispatches target its session directly
-  // unless the message explicitly names another one.
+  // Task selected on the sidebar: messages continue it directly unless
+  // the message explicitly names another one or is a question.
   const [focusedTask, setFocusedTask] = useState<{
     title: string;
     sessionId: string;
+    note?: string;
   } | null>(null);
   // All live conversational workers, keyed by task_id.
   const [liveWorkers, setLiveWorkers] = useState<
@@ -80,7 +81,6 @@ export default function App() {
     refresh();
     const un1 = listen<VoxEvent>("vox", (e) => {
       const ev = e.payload;
-      setEvents((old) => [...old.slice(-199), ev]);
       // Rich live transcript for conversational workers.
       if (ev.kind === "assistant_text") {
         push({ who: "vox", text: ev.text, task: ev.task_id });
@@ -246,6 +246,25 @@ export default function App() {
         setTab("board");
         setReading({ sessionId: cmd.session_id, title: cmd.title });
         say(`Abrindo ${cmd.title}.`);
+      } else if (cmd.kind === "switch") {
+        // "vai pra task X [e <instrução>]": focus, load context, maybe run.
+        let session = cmd.session_id;
+        if (!session) {
+          const hit = await invoke<{ session_id: string } | null>("find_session", {
+            query: cmd.title,
+          }).catch(() => null);
+          session = hit?.session_id;
+        }
+        if (!session) {
+          push({ who: "sys", text: `sem sessão para "${cmd.title}"` });
+          say("Não achei a sessão dessa task.");
+          return;
+        }
+        await focusTask(cmd.title, session, cmd.note);
+        say(`Na task ${cmd.title}.`);
+        if (cmd.instruction) {
+          await sendToFocusedTaskWith(cmd.title, session, cmd.instruction);
+        }
       } else if (cmd.kind === "not_found") {
         push({ who: "sys", text: `nenhuma task bate com "${cmd.query}"` });
         say("Não achei essa task no quadro.");
@@ -256,28 +275,12 @@ export default function App() {
       return;
     }
 
-    const route = await invoke<string>("route_text", { text });
-    // Action verbs ALWAYS open a new parallel worker ("enquanto isso faz X"),
-    // even while another one is focused. A task selected on the sidebar pins
-    // the target session unless the message names another task explicitly
-    // (the resolver still runs when nothing is focused).
-    if (route === "dispatch") {
-      push({ who: "user", text });
-      setInput("");
-      setPending({
-        kind: "confirm-dispatch",
-        instruction: text,
-        sessionId: focusedTask?.sessionId,
-      });
-      return;
-    }
-    // Explicit questions go to ask; anything else while focused is a reply
-    // to the focused worker.
+    // Explicit questions always go to ask, focused or not.
     const isQuestion = /\?\s*$/.test(text) || QUESTION_START.test(text.trim());
-    if (focused && !isQuestion) {
+    if (!isQuestion && focused) {
+      // A worker conversation in progress swallows plain replies.
       push({ who: "user", text, task: focused });
       setInput("");
-      // The reply may carry directives ("planeja isso"): keep the chip in sync.
       await invoke<Directives>("worker_send", { taskId: focused, text })
         .then((directives) =>
           setLiveWorkers((old) =>
@@ -285,6 +288,21 @@ export default function App() {
           ),
         )
         .catch((err) => push({ who: "sys", text: `worker: ${err}` }));
+      return;
+    }
+    if (!isQuestion && focusedTask) {
+      // A focused task swallows everything else: replies AND new commands
+      // continue it directly, no modal (the target is unambiguous).
+      setInput("");
+      setImage(null);
+      await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text);
+      return;
+    }
+    const route = await invoke<string>("route_text", { text });
+    if (route === "dispatch") {
+      push({ who: "user", text });
+      setInput("");
+      setPending({ kind: "confirm-dispatch", instruction: text });
       return;
     }
     push({ who: "user", text, image: img ?? undefined });
@@ -357,6 +375,54 @@ export default function App() {
       .find((m) => m.who === "permission" && !m.decision);
   }
 
+  /**
+   * Focus a task INSIDE the chat: pull the tail of its real history into
+   * the transcript (free, straight from the log file) so the next message
+   * continues from context.
+   */
+  async function focusTask(title: string, sessionId: string, note?: string) {
+    setFocusedTask({ title, sessionId, note });
+    push({ who: "sys", text: `── retomando: ${title} ──` });
+    try {
+      const out = await invoke<{
+        session_title: string | null;
+        entries: TranscriptEntry[];
+      }>("read_transcript", { sessionId, limit: 12 });
+      for (const e of out.entries) {
+        if (e.role === "user") push({ who: "user", text: e.text, task: title });
+        else if (e.role === "assistant") push({ who: "vox", text: e.text, task: title });
+        else if (e.role === "tool_use")
+          push({ who: "tool", name: e.tool ?? "tool", input: e.text, task: title });
+        // tool_result omitted on purpose: too noisy for a recap.
+      }
+      push({
+        who: "sys",
+        text: `contexto carregado (${out.session_title ?? title}); a próxima mensagem continua ESTA task`,
+      });
+    } catch (err) {
+      push({ who: "sys", text: `não consegui ler o histórico: ${err}` });
+    }
+  }
+
+  /** Send a message into a task: live worker if any, else a fresh resume. */
+  async function sendToFocusedTaskWith(title: string, sessionId: string, text: string) {
+    const liveEntry = Object.entries(liveWorkers).find(([, w]) => w.label === title);
+    if (liveEntry) {
+      push({ who: "user", text, task: liveEntry[0] });
+      await invoke<Directives>("worker_send", { taskId: liveEntry[0], text })
+        .then((directives) =>
+          setLiveWorkers((old) => ({
+            ...old,
+            [liveEntry[0]]: { ...old[liveEntry[0]], directives },
+          })),
+        )
+        .catch((err) => push({ who: "sys", text: `worker: ${err}` }));
+      return;
+    }
+    push({ who: "user", text, task: title });
+    await runDispatch(text, sessionId);
+  }
+
   return (
     <div className={`app tab-${tab}`}>
       <div className="topbar">
@@ -407,7 +473,8 @@ export default function App() {
         activeTitle={focusedTask?.title}
         liveTitles={Object.values(liveWorkers).map((w) => w.label)}
         onOpen={async (t) => {
-          // Focus the task: follow-up work targets its session directly.
+          // Focus IN the chat: load the thread's tail as context; the next
+          // message resumes it directly.
           let session = t.session_ids.at(-1);
           if (!session) {
             // No linked session yet: resolve one by topic search (free).
@@ -420,13 +487,7 @@ export default function App() {
             push({ who: "sys", text: `nenhuma sessão encontrada para "${t.title}"` });
             return;
           }
-          setFocusedTask({ title: t.title, sessionId: session });
-          setTab("board");
-          setReading({
-            sessionId: session,
-            title: t.title,
-            resume: { title: t.title, note: t.note },
-          });
+          await focusTask(t.title, session, t.note);
         }}
         onRename={(t, newTitle) =>
           invoke("board_rename", { title: t.title, newTitle }).then(refresh)
@@ -595,59 +656,20 @@ export default function App() {
         <div ref={endRef} />
       </div>
 
-      <div className="events" style={tab === "board" ? { display: "none" } : undefined}>
-        {overview && overview.board.length > 0 && (
-          <div className="board">
-            <h3>board</h3>
-            {overview.board
-              .filter((t) => t.status !== "done")
-              .slice(0, 10)
-              .map((t) => (
-                <div key={t.title} className={`task ${t.status}`}>
-                  <span className="status">{t.status}</span> {t.title}
-                  {t.note && <div className="note">{t.note}</div>}
-                </div>
-              ))}
-          </div>
-        )}
-        <h3>eventos</h3>
-        {events.slice(-40).map((e, i) => (
-          <div key={i} className="event">
-            {e.kind === "tool" || e.kind === "worker" ? (
-              <>
-                <span className="name">
-                  {"task_id" in e ? `[${e.task_id}] ` : ""}
-                  {e.name}
-                </span>
-                <pre>{e.input}</pre>
-              </>
-            ) : e.kind === "tool_result" ? (
-              <span>{e.is_error ? "✗" : "✓"} {e.content.slice(0, 120)}</span>
-            ) : e.kind === "assistant_text" || e.kind === "worker_turn" ? (
-              <span>{e.text.slice(0, 160)}</span>
-            ) : e.kind === "worker_exit" ? (
-              <span>worker {e.task_id} saiu</span>
-            ) : (
-              <span>{e.text}</span>
-            )}
-          </div>
-        ))}
-        {overview && overview.workers.length > 0 && (
-          <div className="workers">
-            <h3>workers</h3>
-            {overview.workers.map((w) => (
-              <div key={w.task_id} className={`worker ${w.status}`}>
-                <div className="name">
-                  {w.task_id} · {w.status}
-                </div>
-                <div>{w.summary}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
       <div className="inputbar">
+        {focusedTask &&
+          !Object.values(liveWorkers).some((w) => w.label === focusedTask.title) && (
+            <span className="worker-chip focused">
+              🎯 {focusedTask.title.slice(0, 28)}
+              <button
+                className="close"
+                title="soltar a task (voltar ao modo pergunta)"
+                onClick={() => setFocusedTask(null)}
+              >
+                ×
+              </button>
+            </span>
+          )}
         {Object.entries(liveWorkers).map(([taskId, w]) => (
           <span
             key={taskId}
@@ -701,8 +723,10 @@ export default function App() {
           type="text"
           placeholder={
             focused
-              ? `→ ${liveWorkers[focused]?.label ?? focused} (perguntas e novos comandos ainda funcionam)`
-              : 'pergunte ("pendências de hoje?") ou mande ("continua a migração do X")… cole um print com Cmd+V'
+              ? `→ ${liveWorkers[focused]?.label ?? focused} (perguntas ainda vão pro vox)`
+              : focusedTask
+                ? `→ ${focusedTask.title} (mensagem retoma a task; perguntas vão pro vox)`
+                : 'pergunte ("pendências de hoje?") ou mande ("continua a migração do X")… cole um print com Cmd+V'
           }
           value={input}
           onChange={(e) => setInput(e.target.value)}

@@ -805,6 +805,7 @@ fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
     };
     let query = match &command {
         TaskCommand::Open(q) | TaskCommand::Pin(q) | TaskCommand::Archive(q) => q,
+        TaskCommand::Switch { query, .. } => query,
         TaskCommand::Rename { query, .. } => query,
     };
     with_board(|store, tasks| {
@@ -817,6 +818,12 @@ fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
             TaskCommand::Open(_) => Ok(Some(serde_json::json!({
                 "kind": "open", "title": title,
                 "session_id": task.session_ids.last(),
+            }))),
+            TaskCommand::Switch { instruction, .. } => Ok(Some(serde_json::json!({
+                "kind": "switch", "title": title,
+                "session_id": task.session_ids.last(),
+                "note": task.note,
+                "instruction": instruction,
             }))),
             TaskCommand::Rename { title: new, .. } => {
                 let tasks = vox_core::domain::board::rename(tasks, &title, new, &now_iso());

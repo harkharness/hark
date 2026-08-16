@@ -86,6 +86,13 @@ export type BoardTask = {
 
 export type TaskCommandResult =
   | { kind: "open"; title: string; session_id?: string }
+  | {
+      kind: "switch";
+      title: string;
+      session_id?: string;
+      note?: string;
+      instruction?: string;
+    }
   | { kind: "renamed"; title: string }
   | { kind: "pinned"; title: string }
   | { kind: "archived"; title: string }

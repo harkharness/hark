@@ -22,18 +22,17 @@ body {
 
 .app {
   display: grid;
-  grid-template-columns: 230px 1fr 340px;
+  grid-template-columns: 240px 1fr;
   grid-template-rows: auto 1fr auto;
   gap: 1px;
   height: 100vh;
   background: var(--border);
 }
 /* Board tab has no sidebar: the kanban/reader take the full width. */
-.app.tab-board { grid-template-columns: 0 1fr 0; }
-.app.tab-board .events { display: none; }
+.app.tab-board { grid-template-columns: 0 1fr; }
 
 .topbar {
-  grid-column: 1 / 4;
+  grid-column: 1 / 3;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -270,7 +269,7 @@ body {
 .worker.Failed { border-color: var(--err); }
 
 .inputbar {
-  grid-column: 2 / 4;
+  grid-column: 2 / 3;
   display: flex;
   gap: 8px;
   padding: 10px 14px;
@@ -302,7 +301,7 @@ body {
 }
 
 .kanban {
-  grid-column: 2 / 4;
+  grid-column: 2 / 3;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1px;
@@ -351,7 +350,7 @@ body {
 
 /* ---- read-only thread reader ---- */
 .reader {
-  grid-column: 2 / 4;
+  grid-column: 2 / 3;
   display: flex;
   flex-direction: column;
   background: var(--panel);
