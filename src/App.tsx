@@ -8,6 +8,7 @@ import ToolCall, { ToolOutput } from "./ToolCall";
 import type {
   Directives,
   DispatchOutcome,
+  GateOut,
   Msg,
   Overview,
   PermissionAsk,
@@ -18,7 +19,7 @@ import type {
 } from "./types";
 
 type Pending =
-  | { kind: "confirm-dispatch"; instruction: string; sessionId?: string }
+  | { kind: "confirm-dispatch"; instruction: string; sessionId?: string; warning?: string }
   | { kind: "permission"; ask: PermissionAsk }
   | {
       kind: "choice";
@@ -102,19 +103,27 @@ export default function App() {
           task: labelFor(ev.task_id),
         });
       } else if (ev.kind === "worker_turn") {
-        push({
-          who: "vox",
-          text: ev.text,
-          cost: ev.cost_usd,
-          model: ev.model,
-          task: labelFor(ev.task_id),
+        const label = labelFor(ev.task_id);
+        // The final assistant_text often equals the result: don't show twice.
+        setMessages((old) => {
+          const lastVox = [...old]
+            .reverse()
+            .find((m) => m.who === "vox" && m.task === label);
+          if (lastVox && "text" in lastVox && lastVox.text === ev.text) {
+            return old.map((m) =>
+              m === lastVox ? { ...m, cost: ev.cost_usd, model: ev.model } : m,
+            );
+          }
+          return [
+            ...old,
+            { who: "vox", text: ev.text, cost: ev.cost_usd, model: ev.model, task: label },
+          ];
         });
         setLiveWorkers((old) =>
           old[ev.task_id]
             ? { ...old, [ev.task_id]: { ...old[ev.task_id], status: "turn_done" } }
             : old,
         );
-        const label = workersRef.current[ev.task_id]?.label ?? ev.task_id.slice(0, 12);
         if (speakRef.current)
           invoke("speak", {
             text: ev.is_error
@@ -313,10 +322,47 @@ export default function App() {
       return;
     }
     if (!isQuestion && focusedTask) {
-      // A focused task swallows everything else: replies AND new commands
-      // continue it directly, no modal (the target is unambiguous).
+      // THE GATE: before anything expensive runs on the focused session, a
+      // cheap evaluator decides whether this message really belongs there.
+      // Corrections aimed at Vox, mismatched sessions and costly contexts
+      // stop here instead of burning a turn in the wrong place.
       setInput("");
       setImage(null);
+      setBusy("avaliando…");
+      const gate = await invoke<GateOut>("evaluate", {
+        message: text,
+        focusedTask: focusedTask.title,
+        focusedSession: focusedTask.sessionId,
+      }).catch(() => null);
+      setBusy(null);
+      if (gate) {
+        push({
+          who: "sys",
+          text: `avaliador: ${gate.acao} (${Math.round(gate.confianca * 100)}%) · ${gate.motivo}${gate.aviso ? ` · ⚠ ${gate.aviso}` : ""} · $${(gate.cost_usd ?? 0).toFixed(4)}`,
+          task: focusedTask.title,
+        });
+        if (gate.acao === "meta_vox" || gate.acao === "pergunta") {
+          // Talk TO the vox, never into the session.
+          push({ who: "user", text });
+          runAsk(text, img);
+          return;
+        }
+        if (gate.acao === "trocar_task" && gate.task_alvo) {
+          push({ who: "sys", text: `o avaliador sugere a task "${gate.task_alvo}"; use a sidebar ou "vai pra task ${gate.task_alvo}"` });
+          say(`Isso parece ser da task ${gate.task_alvo}.`);
+          return;
+        }
+        if (gate.needs_confirmation) {
+          setPending({
+            kind: "confirm-dispatch",
+            instruction: text,
+            sessionId: focusedTask.sessionId,
+            warning: gate.aviso ?? gate.motivo,
+          });
+          say("Preciso de confirmação antes de executar.");
+          return;
+        }
+      }
       await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text);
       return;
     }
@@ -811,6 +857,7 @@ export default function App() {
                 <span className="reader-meta"> → {focusedTask.title}</span>
               )}
             </h2>
+            {pending.warning && <div className="gate-warning">⚠ {pending.warning}</div>}
             <pre>{pending.instruction}</pre>
             <div className="row">
               <button className="plain" onClick={() => setPending(null)}>

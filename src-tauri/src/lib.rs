@@ -795,6 +795,132 @@ fn board_pin(title: String) -> Result<(), String> {
     })
 }
 
+#[derive(Serialize)]
+struct GateOut {
+    acao: vox_core::domain::gate::GateAction,
+    confianca: f64,
+    motivo: String,
+    aviso: Option<String>,
+    task_alvo: Option<String>,
+    needs_confirmation: bool,
+    cost_usd: Option<f64>,
+}
+
+/// The pre-execution evaluator: one cheap haiku call that decides where a
+/// message goes BEFORE anything expensive runs. Runs with zero tools.
+#[tauri::command(async)]
+fn evaluate(
+    message: String,
+    focused_task: Option<String>,
+    focused_session: Option<String>,
+) -> Result<GateOut, String> {
+    use std::io::{BufRead, BufReader, Write};
+    use vox_core::domain::gate;
+    use vox_core::ports::SessionStore;
+
+    let config = Config::load();
+    let store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+
+    // Real session title + size hint: mismatches and heavy sessions are
+    // exactly what the evaluator must warn about.
+    let mut session_title = None;
+    let mut size_hint = String::new();
+    if let Some(sid) = &focused_session {
+        if let Ok(Some(path)) = store.session_path(sid) {
+            if let Ok(Some((summary, _, _))) = store.file_state(&path) {
+                session_title = summary.title;
+            }
+            if let Ok(meta) = std::fs::metadata(&path) {
+                let mb = meta.len() as f64 / 1_048_576.0;
+                if mb > 2.0 {
+                    size_hint = format!(" [historico de {mb:.1}MB, turno pode ser caro]");
+                }
+            }
+        }
+    }
+    let board_lines: Vec<String> = store
+        .board()
+        .unwrap_or_default()
+        .iter()
+        .map(|t| format!("- {} [{:?}]", t.title, t.status))
+        .collect();
+
+    let ctx = gate::GateContext {
+        focused_task,
+        focused_session,
+        focused_session_title: session_title.map(|t| format!("{t}{size_hint}")),
+        board_lines,
+        live_workers: state_file::load(&config.data_dir())
+            .workers
+            .iter()
+            .filter(|w| matches!(w.status, WorkerStatus::Running))
+            .map(|w| w.summary.clone())
+            .collect(),
+    };
+
+    let mut child = std::process::Command::new(config.claude_bin_resolved())
+        .current_dir(config.data_dir())
+        .args([
+            "-p",
+            "--input-format",
+            "stream-json",
+            "--model",
+            "haiku",
+            "--effort",
+            "low",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--json-schema",
+            gate::GATE_SCHEMA,
+            "--tools",
+            "",
+            "--setting-sources",
+            "",
+            "--system-prompt",
+            gate::GATE_SYSTEM_PROMPT,
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    let prompt = gate::build_prompt(&message, &ctx);
+    stdin
+        .write_all(
+            vox_core::domain::claude_event::user_message(&prompt, None).as_bytes(),
+        )
+        .and_then(|_| stdin.write_all(b"\n"))
+        .map_err(|e| e.to_string())?;
+    drop(stdin);
+
+    let stdout = child.stdout.take().expect("piped stdout");
+    let result = BufReader::new(stdout)
+        .lines()
+        .map_while(Result::ok)
+        .find_map(|line| match vox_core::domain::claude_event::parse(&line) {
+            ClaudeEvent::Result(r) => Some(r),
+            _ => None,
+        });
+    let _ = child.wait();
+
+    let turn = result.ok_or("avaliador não respondeu")?;
+    let decision: vox_core::domain::gate::GateDecision =
+        serde_json::from_str(&turn.raw).map_err(|e| format!("gate parse: {e}"))?;
+    Ok(GateOut {
+        needs_confirmation: decision.needs_confirmation(),
+        acao: decision.acao,
+        confianca: decision.confianca,
+        motivo: decision.motivo,
+        aviso: decision.aviso,
+        task_alvo: decision.task_alvo,
+        cost_usd: turn.cost_usd,
+    })
+}
+
 /// Local board command spoken by the user ("mostra o log da X"). Resolves the
 /// task by term overlap and performs the action; no LLM, no tokens.
 #[tauri::command]
@@ -910,6 +1036,7 @@ pub fn run() {
             read_transcript,
             find_session,
             task_command,
+            evaluate,
             board_move,
             board_rename,
             board_pin,

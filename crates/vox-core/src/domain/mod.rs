@@ -4,6 +4,7 @@ pub mod board;
 pub mod claude_event;
 pub mod context;
 pub mod directives;
+pub mod gate;
 pub mod dispatch;
 pub mod intent;
 pub mod memory;

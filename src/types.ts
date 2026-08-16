@@ -84,6 +84,16 @@ export type BoardTask = {
   pinned: boolean;
 };
 
+export type GateOut = {
+  acao: "meta_vox" | "continuar_task" | "trocar_task" | "nova_task" | "pergunta";
+  confianca: number;
+  motivo: string;
+  aviso?: string;
+  task_alvo?: string;
+  needs_confirmation: boolean;
+  cost_usd?: number;
+};
+
 export type TaskCommandResult =
   | { kind: "open"; title: string; session_id?: string }
   | {

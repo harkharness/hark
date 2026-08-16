@@ -393,6 +393,11 @@ body {
   max-height: 40vh; overflow-y: auto; margin-bottom: 14px;
 }
 .modal .row { display: flex; gap: 10px; justify-content: flex-end; }
+.gate-warning {
+  color: var(--warn); border: 1px solid var(--warn); border-radius: 6px;
+  background: rgba(224,175,104,.08); padding: 8px 10px; margin-bottom: 10px;
+  font-size: 12px;
+}
 .modal button { padding: 8px 18px; border-radius: 6px; font: inherit; cursor: pointer; border: 1px solid var(--border); }
 .modal button.allow { background: var(--ok); color: #08110a; border: none; font-weight: 700; }
 .modal button.deny { background: var(--err); color: #180a0d; border: none; font-weight: 700; }
