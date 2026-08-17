@@ -95,6 +95,7 @@ struct Overview {
     workers: Vec<WorkerRecord>,
     board: Vec<vox_core::domain::board::Task>,
     projects: Vec<vox_core::domain::project::Project>,
+    theme: String,
 }
 
 /// The editable project list. First run seeds it from what the machine
@@ -151,6 +152,7 @@ fn overview() -> Overview {
         workers,
         board,
         projects: load_projects(&config),
+        theme: config.theme,
     }
 }
 

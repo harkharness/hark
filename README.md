@@ -114,6 +114,7 @@ core stays pure and testable without a microphone, database, or network.
 model = "sonnet"
 language = "pt"
 voice = "Luciana"
+theme = "vox"            # code color scheme: "vox" (default) or "dracula"
 whisper_model = "~/.local/share/vox/models/ggml-large-v3-turbo.bin"
 projects_dir = "~/.claude/projects"
 repos = ["~/Projects/my-repo"]

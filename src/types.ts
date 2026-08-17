@@ -135,6 +135,8 @@ export type Overview = {
   }[];
   board: BoardTask[];
   projects: Project[];
+  /** Code color scheme from config.toml ("vox" | "dracula" | custom). */
+  theme: string;
 };
 
 /** A file open in the local viewer. */

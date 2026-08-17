@@ -88,7 +88,14 @@ export default function App() {
     [],
   );
   const refresh = useCallback(() => {
-    ipc.overview().then(setOverview).catch(() => {});
+    ipc
+      .overview()
+      .then((o) => {
+        setOverview(o);
+        // Code-surface theme (chat blocks, editor, terminal) via CSS vars.
+        document.documentElement.dataset.theme = o.theme;
+      })
+      .catch(() => {});
   }, []);
   const say = useCallback((text: string) => {
     if (speakRef.current) ipc.speak(text).catch(() => {});

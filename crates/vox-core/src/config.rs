@@ -42,6 +42,9 @@ pub struct Config {
     pub vocab: Vec<String>,
     /// Model tiers for the router (light/standard/heavy/max).
     pub models: ModelsTable,
+    /// Color scheme for code surfaces (chat blocks, editor, terminal).
+    /// Built-in: "vox" (default) and "dracula".
+    pub theme: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -74,6 +77,7 @@ impl Default for Config {
             .map(|s| s.to_string())
             .collect(),
             models: ModelsTable::default(),
+            theme: "vox".into(),
         }
     }
 }
@@ -187,6 +191,7 @@ match_cwd = ["/abs/beta"]
         let config: Config = toml::from_str(toml_text).unwrap();
         assert_eq!(config.default_context, "alpha");
         assert_eq!(config.context_names(), vec!["alpha", "beta"]);
+        assert_eq!(config.theme, "vox", "theme defaults to the app scheme");
 
         let alpha = config.context("alpha").unwrap();
         assert!(!alpha.match_cwd[0].starts_with('~'), "home must be expanded");

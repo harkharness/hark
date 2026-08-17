@@ -8,8 +8,34 @@
   --ok: #9ece6a;
   --warn: #e0af68;
   --err: #f7768e;
+  /* Code surfaces (chat blocks, editor, terminal) — themeable via
+     `theme = "..."` in config.toml. Default scheme: "vox". */
+  --code-bg: #0b0e12;
+  --code-fg: #d7dde6;
+  --hl-comment: #7a8698;
+  --hl-keyword: #bb9af7;
+  --hl-string: #9ece6a;
+  --hl-number: #e0af68;
+  --hl-title: #7aa2f7;
+  --hl-meta: #7dcfff;
+  --hl-del: #f7768e;
+  --hl-add: #9ece6a;
   font-family: "SF Mono", ui-monospace, Menlo, monospace;
   font-size: 13px;
+}
+
+/* Built-in alternative scheme. */
+[data-theme="dracula"] {
+  --code-bg: #282a36;
+  --code-fg: #f8f8f2;
+  --hl-comment: #6272a4;
+  --hl-keyword: #ff79c6;
+  --hl-string: #f1fa8c;
+  --hl-number: #bd93f9;
+  --hl-title: #50fa7b;
+  --hl-meta: #8be9fd;
+  --hl-del: #ff5555;
+  --hl-add: #50fa7b;
 }
 
 * { box-sizing: border-box; margin: 0; }
@@ -123,7 +149,8 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .term-body {
   flex: 1; overflow: auto; margin: 0; padding: 10px 12px;
-  font-size: 11px; line-height: 1.6; color: var(--dim);
+  font-size: 11px; line-height: 1.6; color: var(--hl-comment);
+  background: var(--code-bg);
   white-space: pre-wrap; word-break: break-all;
 }
 
@@ -254,11 +281,11 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   padding: 1px 5px; border-radius: 4px; font-size: 12px;
 }
 .md pre {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
   padding: 10px 12px; overflow-x: auto; margin: 8px 0;
 }
 .md pre code {
-  background: none; color: var(--text); padding: 0; font-size: 12px; line-height: 1.5;
+  background: none; color: var(--code-fg); padding: 0; font-size: 12px; line-height: 1.5;
 }
 .md table {
   border-collapse: collapse; margin: 8px 0; width: 100%; font-size: 12px;
@@ -269,14 +296,15 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .md th { background: rgba(255,255,255,.04); color: var(--dim); font-weight: 600; }
 
-/* highlight.js tokens, painted with the app palette */
-.hljs-comment, .hljs-quote { color: var(--dim); font-style: italic; }
-.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-name { color: #bb9af7; }
-.hljs-string, .hljs-attr, .hljs-addition { color: var(--ok); }
-.hljs-number, .hljs-literal, .hljs-variable, .hljs-template-variable { color: var(--warn); }
-.hljs-title, .hljs-section, .hljs-function .hljs-title { color: var(--accent); }
-.hljs-deletion { color: var(--err); }
-.hljs-meta, .hljs-symbol, .hljs-bullet { color: #7dcfff; }
+/* highlight.js tokens, painted with the active code theme */
+.hljs-comment, .hljs-quote { color: var(--hl-comment); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-name { color: var(--hl-keyword); }
+.hljs-string, .hljs-attr, .hljs-addition { color: var(--hl-string); }
+.hljs-number, .hljs-literal, .hljs-variable, .hljs-template-variable { color: var(--hl-number); }
+.hljs-title, .hljs-section, .hljs-function .hljs-title { color: var(--hl-title); }
+.hljs-deletion { color: var(--hl-del); }
+.hljs-addition { color: var(--hl-add); }
+.hljs-meta, .hljs-symbol, .hljs-bullet { color: var(--hl-meta); }
 .hljs-emphasis { font-style: italic; }
 .hljs-strong { font-weight: 700; }
 
@@ -562,12 +590,25 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .viewer-code {
   flex: 1; overflow: auto; margin: 0; padding: 12px 14px;
   font-size: 12px; line-height: 1.55; white-space: pre; tab-size: 4;
+  background: var(--code-bg); color: var(--code-fg);
 }
 .viewer-edit {
-  flex: 1; background: var(--bg); border: none; outline: none;
-  color: var(--text); font: inherit; font-size: 12px; line-height: 1.55;
+  flex: 1; background: var(--code-bg); border: none; outline: none;
+  color: var(--code-fg); font: inherit; font-size: 12px; line-height: 1.55;
   padding: 12px 14px; resize: none; white-space: pre; tab-size: 4;
+  overflow: auto;
 }
+/* Highlighted editing: the textarea types, the pre underneath paints.
+   Identical metrics on both keep the caret glued to the colored text. */
+.viewer-editwrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.viewer-editwrap .viewer-code.under {
+  position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+}
+.viewer-editwrap .viewer-edit { position: absolute; inset: 0; }
+.viewer-editwrap .viewer-edit.ghost {
+  color: transparent; caret-color: var(--code-fg); background: transparent;
+}
+.viewer-editwrap .viewer-edit.ghost::selection { background: rgba(122,162,247,.25); }
 
 /* ---- Cmd+P quick open ---- */
 .quickopen {

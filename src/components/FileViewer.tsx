@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Eye, Pencil, Save, X } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { highlightFile } from "../lib/highlight";
@@ -6,6 +6,9 @@ import Markdown from "./Markdown";
 import type { OpenFile } from "../types";
 
 const isMarkdown = (rel: string) => /\.(md|markdown)$/i.test(rel);
+/** Above this size, live re-highlighting on every keystroke gets slow:
+ * fall back to a plain (uncolored) textarea. */
+const HIGHLIGHT_EDIT_MAX = 120_000;
 
 /**
  * Local file panel, zero tokens both ways. Markdown opens RENDERED (edit
@@ -18,8 +21,10 @@ export default function FileViewer({ file, onClose }: { file: OpenFile; onClose:
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  const underRef = useRef<HTMLPreElement>(null);
 
   const dirty = editing && draft !== content;
+  const liveHighlight = draft.length < HIGHLIGHT_EDIT_MAX;
 
   useEffect(() => {
     setStatus(null);
@@ -94,19 +99,36 @@ export default function FileViewer({ file, onClose }: { file: OpenFile; onClose:
         </span>
       </div>
       {editing ? (
-        <textarea
-          className="viewer-edit"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-              e.preventDefault();
-              save();
-            }
-            if (e.key === "Escape") e.stopPropagation();
-          }}
-          spellCheck={false}
-        />
+        <div className="viewer-editwrap">
+          {liveHighlight && (
+            <pre className="viewer-code under" aria-hidden ref={underRef}>
+              <code
+                dangerouslySetInnerHTML={{ __html: `${highlightFile(file.rel, draft)}\n` }}
+              />
+            </pre>
+          )}
+          <textarea
+            className={`viewer-edit ${liveHighlight ? "ghost" : ""}`}
+            value={draft}
+            wrap="off"
+            onChange={(e) => setDraft(e.target.value)}
+            onScroll={(e) => {
+              const under = underRef.current;
+              if (under) {
+                under.scrollTop = e.currentTarget.scrollTop;
+                under.scrollLeft = e.currentTarget.scrollLeft;
+              }
+            }}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+                e.preventDefault();
+                save();
+              }
+              if (e.key === "Escape") e.stopPropagation();
+            }}
+            spellCheck={false}
+          />
+        </div>
       ) : isMarkdown(file.rel) ? (
         <div className="viewer-md">
           <Markdown>{content}</Markdown>
