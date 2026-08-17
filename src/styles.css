@@ -84,9 +84,6 @@ body {
 }
 .topbar .tabs button:hover { color: var(--text); }
 .topbar .tabs button.active { color: var(--text); background: var(--panel); box-shadow: 0 1px 4px rgba(0,0,0,.4); }
-/* shortcut pill that jumps to another window (costs live on the mother) */
-.topbar .tabs button.dim { opacity: .7; }
-.topbar .tabs button.dim:hover { opacity: 1; color: var(--accent); }
 .topbar .state { margin-left: auto; color: var(--dim); }
 .topbar .state.busy { color: var(--warn); }
 .topbar .scope {
@@ -119,17 +116,21 @@ body {
 /* ---- mother window (the voice that orchestrates) ---- */
 .mother {
   height: 100vh; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 18px; background: var(--bg); padding: 24px;
+  justify-content: center; gap: 18px; background: var(--bg);
+  padding: 62px 24px 24px;
 }
 /* board/custos tabs stretch the mother into a workbench */
 .mother.mother-wide {
   justify-content: flex-start; align-items: stretch; gap: 10px;
-  overflow: auto; padding: 14px 18px;
+  overflow: auto; padding: 62px 18px 14px;
 }
+/* Anchored to the window, never to the layout: the tab bar must sit in the
+   same place whatever the active tab renders below it. */
 .mother-tabs {
-  display: flex; gap: 2px; background: var(--bg); align-self: center;
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+  z-index: 20; display: flex; gap: 2px; background: var(--bg);
   border: 1px solid var(--border); border-radius: 9px; padding: 2px;
-  flex: 0 0 auto;
+  box-shadow: 0 6px 18px rgba(0,0,0,.45);
 }
 .mother-tabs button {
   background: transparent; color: var(--dim); border: none;

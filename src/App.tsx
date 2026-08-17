@@ -813,13 +813,6 @@ export default function App({ forcedProject }: { forcedProject?: Project }) {
           >
             board
           </button>
-          <button
-            className="dim"
-            title="custos globais ficam na janela mãe"
-            onClick={() => ipc.focusMain("custos")}
-          >
-            custos ↗
-          </button>
         </nav>
         <button
           className="scope"
