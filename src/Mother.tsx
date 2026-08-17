@@ -21,6 +21,8 @@ export default function Mother() {
   const [spentToday, setSpentToday] = useState<number | null>(null);
   const [input, setInput] = useState("");
   const speakRef = useRef(true);
+  // The global hotkey handler must see fresh state.
+  const micRef = useRef<() => void>(() => {});
 
   const push = useCallback((m: Msg) => setMessages((old) => [...old, m].slice(-30)), []);
   const refresh = useCallback(() => {
@@ -50,6 +52,7 @@ export default function Mother() {
     onSessionStarted: () => {},
     onSpeaking: setSpeaking,
     onRateLimit: setRateLimit,
+    onHotkeyMic: useCallback(() => micRef.current(), []),
     speakRef,
     refresh,
   });
@@ -108,6 +111,7 @@ export default function Mother() {
       setRecording(false);
     }
   }
+  micRef.current = onMic;
 
   const mode: OrbMode = recording ? "listening" : speaking ? "speaking" : busy ? "busy" : "idle";
   const recent = messages.filter((m) => !("task" in m) || !m.task).slice(-4);

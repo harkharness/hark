@@ -1583,6 +1583,14 @@ pub fn run() {
                 let config = Config::load();
                 let _ = stt(&config);
             });
+            // Register the global mic hotkey (config `hotkey`).
+            {
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                let hotkey = Config::load().hotkey;
+                if let Err(err) = app.handle().global_shortcut().register(hotkey.as_str()) {
+                    eprintln!("vox: hotkey global '{hotkey}' não registrada: {err}");
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1618,6 +1626,21 @@ pub fn run() {
             open_project_window,
             approve
         ])
+        // Global hotkey (default cmd+shift+space, config `hotkey`): from
+        // ANY app, focus the mother and open the mic — the JARVIS button.
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        if let Some(main) = app.get_webview_window("main") {
+                            let _ = main.show();
+                            let _ = main.set_focus();
+                        }
+                        let _ = app.emit_to("main", "vox", serde_json::json!({ "kind": "hotkey_mic" }));
+                    }
+                })
+                .build(),
+        )
         // The mother window commands everything: closing it closes the app
         // (project windows included). Closing a project window is local.
         .on_window_event(|window, event| {

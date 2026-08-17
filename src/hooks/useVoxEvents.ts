@@ -22,6 +22,8 @@ type Handlers = {
   onSpeaking: (on: boolean) => void;
   /** Subscription window signal from the newest turn. */
   onRateLimit: (state: import("../types").RateLimitState) => void;
+  /** Global hotkey pressed (mother window only receives this). */
+  onHotkeyMic?: () => void;
   speakRef: React.RefObject<boolean>;
   refresh: () => void;
 };
@@ -106,6 +108,8 @@ export function useVoxEvents(h: Handlers) {
         h.refresh();
       } else if (ev.kind === "speaking") {
         h.onSpeaking(ev.on);
+      } else if (ev.kind === "hotkey_mic") {
+        h.onHotkeyMic?.();
       } else if (ev.kind === "rate_limit") {
         h.onRateLimit({
           status: ev.status,

@@ -48,6 +48,8 @@ pub struct Config {
     /// Character budget of the ask prompt (~chars/4 tokens). Default keeps
     /// a question around 3k input tokens.
     pub prompt_budget_chars: usize,
+    /// Global hotkey that opens the mic from anywhere (mother window).
+    pub hotkey: String,
     /// Dollar ceiling per worker process (`--max-budget-usd`). The
     /// post-incident guardrail: 0 disables. Default 2.0.
     pub worker_budget_usd: f64,
@@ -87,6 +89,7 @@ impl Default for Config {
             models: ModelsTable::default(),
             theme: "vox".into(),
             prompt_budget_chars: 12_000,
+            hotkey: "cmd+shift+space".into(),
             worker_budget_usd: 2.0,
             worker_max_turns: 0,
         }

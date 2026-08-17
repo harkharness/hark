@@ -18,3 +18,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 urlencoding = "2"
+tauri-plugin-global-shortcut = "2.3.2"
