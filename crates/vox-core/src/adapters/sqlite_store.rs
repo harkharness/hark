@@ -112,6 +112,31 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// (input+cache_read+cache_created, context_window) of the newest live
+    /// non-sidechain row of a session: the weight the next turn drags.
+    pub fn last_context_weight(
+        &self,
+        session_id: &str,
+    ) -> anyhow::Result<Option<(u64, Option<u64>)>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT input_tokens + cache_read_tokens + cache_created_tokens, context_window
+                 FROM spend
+                 WHERE session_id = ?1 AND source = 'live' AND is_sidechain = 0
+                 ORDER BY ts DESC, id DESC LIMIT 1",
+                params![session_id],
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)? as u64,
+                        r.get::<_, Option<i64>>(1)?.map(|w| w as u64),
+                    ))
+                },
+            )
+            .optional()?;
+        Ok(row)
+    }
+
     fn row_to_agg(row: &rusqlite::Row) -> rusqlite::Result<crate::ports::SpendAgg> {
         Ok(crate::ports::SpendAgg {
             key: row.get(0)?,

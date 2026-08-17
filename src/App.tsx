@@ -9,6 +9,7 @@ import { FolderOpen, SquareTerminal, Volume2, VolumeX } from "lucide-react";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import Board from "./components/Board";
 import Composer from "./components/Composer";
+import CostsPanel from "./components/CostsPanel";
 import FileViewer from "./components/FileViewer";
 import Modals, { type Pending } from "./components/Modals";
 import QuickOpen from "./components/QuickOpen";
@@ -63,6 +64,7 @@ export default function App() {
   const [termOpen, setTermOpen] = useState(false);
   const [scopeInfo, setScopeInfo] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [rateLimit, setRateLimit] = useState<import("./types").RateLimitState | null>(null);
   /** Timestamp of the last Esc, for the double-Esc worker abort. */
   const lastEsc = useRef(0);
 
@@ -117,6 +119,7 @@ export default function App() {
     pushRaw,
     addCost,
     onSpeaking: setSpeaking,
+    onRateLimit: setRateLimit,
     speakRef,
     refresh,
     onWorkerExit: useCallback((taskId: string) => {
@@ -654,6 +657,17 @@ export default function App() {
         >
           {speak ? <Volume2 size={12} /> : <VolumeX size={12} />}
         </button>
+        {rateLimit && (
+          <span
+            className={`scope ratelimit ${rateLimit.status}`}
+            title={`janela ${rateLimit.limit_kind ?? "?"} · status ${rateLimit.status}`}
+          >
+            ⏳ {rateLimit.status === "allowed" ? "ok" : rateLimit.status === "allowed_warning" ? "quase no limite" : "limite atingido"}
+            {rateLimit.resets_at
+              ? ` · reseta ${new Date(rateLimit.resets_at * 1000).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
+              : ""}
+          </span>
+        )}
         <VoiceOrb
           mode={
             (recording
@@ -816,10 +830,13 @@ export default function App() {
           }
         />
       ) : (
-        <Board
-          tasks={board}
-          onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
-        />
+        <div className="boardwrap">
+          <Board
+            tasks={board}
+            onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
+          />
+          <CostsPanel />
+        </div>
       )}
 
       {scopeInfo && (

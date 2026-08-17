@@ -22,6 +22,8 @@ export default function SessionInfo({
 }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ledger, setLedger] = useState<{ day: number; week: number } | null>(null);
+  const [contextPct, setContextPct] = useState<number | null>(null);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -29,7 +31,28 @@ export default function SessionInfo({
       .sessionStats(sessionId)
       .then(setStats)
       .catch((err) => setError(String(err)));
+    ipc
+      .sessionContextWeight(sessionId)
+      .then((w) => setContextPct(w.pct))
+      .catch(() => {});
   }, [sessionId]);
+
+  useEffect(() => {
+    // Persistent ledger: survives the window closing (unlike `costs`).
+    const day = new Date(Date.now() - 24 * 3600e3).toISOString();
+    const week = new Date(Date.now() - 7 * 24 * 3600e3).toISOString();
+    Promise.all([
+      ipc.spendSummary(day, "kind", "live"),
+      ipc.spendSummary(week, "kind", "live"),
+    ])
+      .then(([d, w]) =>
+        setLedger({
+          day: d.reduce((a, b) => a + b.cost_usd, 0),
+          week: w.reduce((a, b) => a + b.cost_usd, 0),
+        }),
+      )
+      .catch(() => {});
+  }, []);
 
   const total = Object.values(costs).reduce((a, b) => a + b, 0);
   const spent = Object.entries(costs).sort((a, b) => b[1] - a[1]);
@@ -69,7 +92,28 @@ export default function SessionInfo({
           )}
         </>
       )}
+      {contextPct != null && (
+        <div className="scope-row">
+          <span>janela de contexto</span>
+          <b className={contextPct > 0.7 ? "warn" : ""}>{Math.round(contextPct * 100)}%</b>
+        </div>
+      )}
       {error && <div className="scope-row"><span className="warn">{error}</span></div>}
+      {ledger && (
+        <>
+          <div className="scope-row head">
+            <span>gasto medido (ledger)</span>
+          </div>
+          <div className="scope-row">
+            <span>últimas 24h</span>
+            <b>${ledger.day.toFixed(4)}</b>
+          </div>
+          <div className="scope-row">
+            <span>últimos 7 dias</span>
+            <b>${ledger.week.toFixed(4)}</b>
+          </div>
+        </>
+      )}
       <div className="scope-row head">
         <span>gasto nesta janela</span>
         <b>${total.toFixed(4)}</b>

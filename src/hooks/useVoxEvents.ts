@@ -20,6 +20,8 @@ type Handlers = {
   addCost: (label: string, usd: number) => void;
   /** TTS started/stopped (drives the voice orb). */
   onSpeaking: (on: boolean) => void;
+  /** Subscription window signal from the newest turn. */
+  onRateLimit: (state: import("../types").RateLimitState) => void;
   speakRef: React.RefObject<boolean>;
   refresh: () => void;
 };
@@ -62,12 +64,21 @@ export function useVoxEvents(h: Handlers) {
             .find((m) => m.who === "vox" && m.task === label);
           if (lastVox && "text" in lastVox && lastVox.text === ev.text) {
             return old.map((m) =>
-              m === lastVox ? { ...m, cost: ev.cost_usd, model: ev.model } : m,
+              m === lastVox
+                ? { ...m, cost: ev.cost_usd, model: ev.model, usage: ev.usage }
+                : m,
             );
           }
           return [
             ...old,
-            { who: "vox", text: ev.text, cost: ev.cost_usd, model: ev.model, task: label },
+            {
+              who: "vox",
+              text: ev.text,
+              cost: ev.cost_usd,
+              model: ev.model,
+              usage: ev.usage,
+              task: label,
+            },
           ];
         });
         h.setLiveWorkers((old) =>
@@ -95,6 +106,12 @@ export function useVoxEvents(h: Handlers) {
         h.refresh();
       } else if (ev.kind === "speaking") {
         h.onSpeaking(ev.on);
+      } else if (ev.kind === "rate_limit") {
+        h.onRateLimit({
+          status: ev.status,
+          resets_at: ev.resets_at,
+          limit_kind: ev.limit_kind,
+        });
       } else if (ev.kind === "status") {
         h.push({ who: "sys", text: ev.text });
       }

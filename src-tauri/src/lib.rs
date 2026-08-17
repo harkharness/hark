@@ -612,12 +612,37 @@ fn start_worker(
                         },
                         &turn,
                     );
+                    // Aggregate usage + how full the context window is.
+                    let mut usage = vox_core::domain::claude_event::TokenUsage::default();
+                    let mut window: Option<u64> = None;
+                    for m in &turn.usage {
+                        usage.input += m.usage.input;
+                        usage.output += m.usage.output;
+                        usage.cache_read += m.usage.cache_read;
+                        usage.cache_created += m.usage.cache_created;
+                        if m.context_window.unwrap_or(0) > window.unwrap_or(0) {
+                            window = m.context_window;
+                        }
+                    }
+                    let context_pct = window.filter(|w| *w > 0).map(|w| {
+                        ((usage.input + usage.cache_read + usage.cache_created) as f64
+                            / w as f64)
+                            .min(1.0)
+                    });
                     emit_event(
                         &app2,
                         serde_json::json!({ "kind": "worker_turn", "task_id": task2,
-                            "text": turn.raw, "cost_usd": turn.cost_usd, "model": turn.model, "is_error": turn.is_error }),
+                            "text": turn.raw, "cost_usd": turn.cost_usd, "model": turn.model, "is_error": turn.is_error,
+                            "usage": { "input": usage.input, "output": usage.output,
+                                       "cache_read": usage.cache_read, "cache_created": usage.cache_created },
+                            "context_pct": context_pct }),
                     );
                 }
+                ClaudeEvent::RateLimit(info) => emit_event(
+                    &app2,
+                    serde_json::json!({ "kind": "rate_limit", "status": info.status,
+                        "resets_at": info.resets_at, "limit_kind": info.kind }),
+                ),
                 _ => {}
             }
         }
@@ -990,6 +1015,126 @@ fn dispatch_text(
         &format!("- {} {task_id} [{:?}] {instruction}", now_iso(), status),
     );
     Ok(out)
+}
+
+#[derive(Serialize)]
+struct SpendAggOut {
+    key: String,
+    cost_usd: f64,
+    input: u64,
+    output: u64,
+    cache_read: u64,
+    cache_created: u64,
+    turns: u64,
+    errors: u64,
+}
+
+impl From<vox_core::ports::SpendAgg> for SpendAggOut {
+    fn from(a: vox_core::ports::SpendAgg) -> Self {
+        Self {
+            key: a.key,
+            cost_usd: a.cost_usd,
+            input: a.usage.input,
+            output: a.usage.output,
+            cache_read: a.usage.cache_read,
+            cache_created: a.usage.cache_created,
+            turns: a.turns,
+            errors: a.errors,
+        }
+    }
+}
+
+fn spend_group(group: &str) -> vox_core::ports::SpendGroup {
+    use vox_core::ports::SpendGroup;
+    match group {
+        "model" => SpendGroup::Model,
+        "label" => SpendGroup::Label,
+        "workspace" => SpendGroup::Workspace,
+        "day" => SpendGroup::Day,
+        "session" => SpendGroup::Session,
+        _ => SpendGroup::Kind,
+    }
+}
+
+/// Ledger aggregation for the UI. `source` keeps USD (live) and token
+/// history (jsonl) apart — the invariant of the whole ledger.
+#[tauri::command(async)]
+fn spend_summary(
+    since: Option<String>,
+    group: String,
+    source: String,
+) -> Result<Vec<SpendAggOut>, String> {
+    use vox_core::ports::{SpendLedger, SpendQuery};
+    let config = Config::load();
+    let store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let query = SpendQuery {
+        since,
+        group: spend_group(&group),
+        source: if source == "jsonl" {
+            vox_core::domain::spend::SpendSource::Jsonl
+        } else {
+            vox_core::domain::spend::SpendSource::Live
+        },
+    };
+    Ok(store
+        .spend_summary(&query)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(SpendAggOut::from)
+        .collect())
+}
+
+#[tauri::command(async)]
+fn spend_top_sessions(since: String, limit: usize) -> Result<Vec<SpendAggOut>, String> {
+    use vox_core::ports::{SessionStore, SpendLedger};
+    let config = Config::load();
+    let store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let mut aggs: Vec<SpendAggOut> = store
+        .spend_top_sessions(&since, limit)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(SpendAggOut::from)
+        .collect();
+    // Session ids mean nothing to a human: swap in the session title.
+    for agg in &mut aggs {
+        if let Ok(Some(path)) = store.session_path(&agg.key) {
+            if let Ok(Some((summary, _, _))) = store.file_state(&path) {
+                if let Some(title) = summary.title.or(summary.last_prompt) {
+                    agg.key = title.chars().take(48).collect();
+                }
+            }
+        }
+    }
+    Ok(aggs)
+}
+
+#[derive(Serialize)]
+struct ContextWeight {
+    /// input + cache_read + cache_created of the session's last live turn.
+    last_total_tokens: u64,
+    context_window: Option<u64>,
+    pct: Option<f64>,
+}
+
+/// How full a session's context window is, from its last live turn.
+#[tauri::command(async)]
+fn session_context_weight(session_id: String) -> Result<ContextWeight, String> {
+    let config = Config::load();
+    let store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let weight = store
+        .last_context_weight(&session_id)
+        .map_err(|e| e.to_string())?;
+    let (tokens, window) = weight.unwrap_or((0, None));
+    Ok(ContextWeight {
+        last_total_tokens: tokens,
+        context_window: window,
+        pct: window
+            .filter(|w| *w > 0)
+            .map(|w| (tokens as f64 / w as f64).min(1.0)),
+    })
 }
 
 #[derive(Serialize)]
@@ -1427,6 +1572,9 @@ pub fn run() {
             read_transcript,
             find_session,
             session_stats,
+            spend_summary,
+            spend_top_sessions,
+            session_context_weight,
             task_command,
             evaluate,
             board_move,

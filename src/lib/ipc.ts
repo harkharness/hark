@@ -60,6 +60,20 @@ export const readTranscript = (sessionId: string, limit?: number) =>
 export const findSession = (query: string) =>
   invoke<{ session_id: string; title?: string } | null>("find_session", { query });
 
+/** Ledger aggregation. USD lives in source="live"; token history in
+ * source="jsonl". Never sum across sources. */
+export const spendSummary = (
+  since: string | null,
+  group: "kind" | "model" | "label" | "workspace" | "day" | "session",
+  source: "live" | "jsonl",
+) => invoke<import("../types").SpendAgg[]>("spend_summary", { since, group, source });
+
+export const spendTopSessions = (since: string, limit: number) =>
+  invoke<import("../types").SpendAgg[]>("spend_top_sessions", { since, limit });
+
+export const sessionContextWeight = (sessionId: string) =>
+  invoke<import("../types").ContextWeight>("session_context_weight", { sessionId });
+
 /** Local, zero-token stats of one session (size = resume weight). */
 export const sessionStats = (sessionId: string) =>
   invoke<{ title: string | null; size_mb: number; entries: number; last_ts: string | null }>(

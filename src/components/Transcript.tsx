@@ -81,7 +81,17 @@ export default function Transcript({
                     </ul>
                   )}
                   {(m.cost != null || m.model) && (
-                    <span className="cost">
+                    <span
+                      className="cost"
+                      title={
+                        m.usage
+                          ? `in ${m.usage.input} · out ${m.usage.output} · cache lido ${m.usage.cache_read} · cache novo ${m.usage.cache_created}` +
+                            (m.usage.input + m.usage.cache_read + m.usage.cache_created > 0
+                              ? ` · cache ${Math.round((m.usage.cache_read / (m.usage.input + m.usage.cache_read + m.usage.cache_created)) * 100)}%`
+                              : "")
+                          : undefined
+                      }
+                    >
                       {[
                         shortModel(m.model),
                         ...directiveLabels(directivesFor(m.task)),

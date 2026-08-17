@@ -8,6 +8,13 @@ export type Reply = {
 
 export type Project = { name: string; path: string };
 
+export type TurnUsage = {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_created: number;
+};
+
 export type VoxEvent =
   | { kind: "tool"; name: string; input: string }
   | { kind: "worker"; task_id: string; name: string; input: string }
@@ -20,6 +27,14 @@ export type VoxEvent =
       cost_usd?: number;
       model?: string;
       is_error: boolean;
+      usage?: TurnUsage;
+      context_pct?: number | null;
+    }
+  | {
+      kind: "rate_limit";
+      status: "allowed" | "allowed_warning" | "rejected";
+      resets_at?: number | null;
+      limit_kind?: string | null;
     }
   | { kind: "worker_exit"; task_id: string }
   | { kind: "session_started"; task_id: string; session_id: string }
@@ -43,6 +58,7 @@ export type Msg =
       itens?: string[];
       cost?: number;
       model?: string;
+      usage?: TurnUsage;
       task?: string;
     }
   | { who: "tool"; name: string; input: string; task?: string }
@@ -137,6 +153,30 @@ export type Overview = {
   projects: Project[];
   /** Code color scheme from config.toml ("vox" | "dracula" | custom). */
   theme: string;
+};
+
+/** One aggregated bucket of the persistent spend ledger. */
+export type SpendAgg = {
+  key: string;
+  cost_usd: number;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_created: number;
+  turns: number;
+  errors: number;
+};
+
+export type ContextWeight = {
+  last_total_tokens: number;
+  context_window: number | null;
+  pct: number | null;
+};
+
+export type RateLimitState = {
+  status: "allowed" | "allowed_warning" | "rejected";
+  resets_at?: number | null;
+  limit_kind?: string | null;
 };
 
 /** A file open in the local viewer. */
