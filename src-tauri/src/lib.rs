@@ -1602,21 +1602,17 @@ fn open_project_window(app: AppHandle, name: String, path: String) -> Result<(),
     Ok(())
 }
 
-/// Open (or focus) the global HQ window: the full workbench WITHOUT a
-/// project filter — board and costs across everything. Demands are global;
-/// project windows are filtered views of the same data.
+/// Bring the mother window to the front, optionally switching its tab
+/// (board/custos live THERE — global views; project windows only filter).
 #[tauri::command]
-fn open_hq_window(app: AppHandle, tab: Option<String>) -> Result<(), String> {
-    if let Some(existing) = app.get_webview_window("hq") {
-        let _ = existing.set_focus();
-        return Ok(());
+fn focus_main(app: AppHandle, tab: Option<String>) -> Result<(), String> {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.set_focus();
     }
-    let url = format!("index.html?hq=1&tab={}", tab.as_deref().unwrap_or("board"));
-    tauri::WebviewWindowBuilder::new(&app, "hq", tauri::WebviewUrl::App(url.into()))
-        .title("Vox — HQ")
-        .inner_size(1280.0, 820.0)
-        .build()
-        .map_err(|e| e.to_string())?;
+    if let Some(tab) = tab {
+        let _ = app.emit_to("main", "vox", serde_json::json!({ "kind": "main_tab", "tab": tab }));
+    }
     Ok(())
 }
 
@@ -1701,7 +1697,7 @@ pub fn run() {
             board_pin,
             board_archive,
             open_project_window,
-            open_hq_window,
+            focus_main,
             approve
         ])
         // Global hotkey (default cmd+shift+space, config `hotkey`): from

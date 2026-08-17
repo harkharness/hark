@@ -40,6 +40,7 @@ export type VoxEvent =
   | { kind: "session_started"; task_id: string; session_id: string }
   | { kind: "speaking"; on: boolean }
   | { kind: "hotkey_mic" }
+  | { kind: "main_tab"; tab: string }
   | { kind: "status"; text: string }
   | { kind: "error"; text: string };
 

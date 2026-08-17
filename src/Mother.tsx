@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Kanban, Mic, Wallet } from "lucide-react";
+import { ExternalLink, Mic } from "lucide-react";
+import Board from "./components/Board";
+import CostsPanel from "./components/CostsPanel";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { useVoxEvents } from "./hooks/useVoxEvents";
 import * as ipc from "./lib/ipc";
 import type { Msg, Overview, Project, RateLimitState } from "./types";
 
+type MotherTab = "voz" | "board" | "custos";
+
 /**
- * The mother window: the voice of Vox. A big orb, the mic, the measured
- * spend, and one button per project — each opens its own window (VSCode
- * model). Closing this window closes everything; project windows are
- * expendable, the workers underneath never die with a window.
+ * The mother window: the voice of Vox AND the global views. Three tabs:
+ * voz (orb + mic), board (every project's demands — demands belong to the
+ * user, not to a directory) and custos (the whole ledger). Project windows
+ * are filtered views; closing the mother closes everything.
  *
  * Spoken commands resolve locally first (task_command: open project, new
  * chat, board/costs) — zero tokens; only real questions reach the ask
@@ -24,6 +28,7 @@ export default function Mother() {
   const [rateLimit, setRateLimit] = useState<RateLimitState | null>(null);
   const [spentToday, setSpentToday] = useState<number | null>(null);
   const [input, setInput] = useState("");
+  const [tab, setTab] = useState<MotherTab>("voz");
   const speakRef = useRef(true);
   // The global hotkey/Esc handlers must see fresh state.
   const micRef = useRef<() => void>(() => {});
@@ -69,7 +74,13 @@ export default function Mother() {
     onSessionStarted: () => {},
     onSpeaking: setSpeaking,
     onRateLimit: setRateLimit,
-    onHotkeyMic: useCallback(() => micRef.current(), []),
+    onHotkeyMic: useCallback(() => {
+      setTab("voz");
+      micRef.current();
+    }, []),
+    onMainTab: useCallback((t: string) => {
+      if (t === "board" || t === "custos") setTab(t);
+    }, []),
     speakRef,
     refresh,
   });
@@ -116,8 +127,8 @@ export default function Mother() {
         say(`Abri ${cmd.title}. Diga a primeira tarefa lá.`);
       }
     } else if (cmd.kind === "open_hq") {
-      ipc.openHqWindow(cmd.tab).catch(() => {});
-      say(cmd.tab === "custos" ? "Abrindo os custos." : "Abrindo o quadro.");
+      setTab(cmd.tab);
+      say(cmd.tab === "custos" ? "Custos na tela." : "Quadro na tela.");
     } else if (cmd.kind === "project_added") {
       push({ who: "sys", text: `projeto ${cmd.title} adicionado (${cmd.path})` });
       say(`Projeto ${cmd.title} adicionado.`);
@@ -142,8 +153,10 @@ export default function Mother() {
       push({ who: "sys", text: `nada bate com "${cmd.query}"` });
       say("Não achei esse projeto.");
     } else {
-      // Board actions (open/switch/rename/pin/archive) need the full UI.
-      ipc.openHqWindow("board").catch(() => {});
+      // Board actions (open/switch/rename/pin/archive) show their result
+      // on the board tab right here.
+      setTab("board");
+      refresh();
       say("Feito. Olha o quadro.");
     }
     return true;
@@ -187,54 +200,82 @@ export default function Mother() {
   const recent = messages.filter((m) => !("task" in m) || !m.task).slice(-4);
 
   return (
-    <div className="mother">
-      <div className="mother-orb" onClick={onMic} title="clique ou fale (Esc corta)">
-        <VoiceOrb mode={mode} />
-      </div>
-      <div className="mother-status">
-        {busy ?? (recording ? "ouvindo… (Esc corta)" : speaking ? "falando…" : "pronto")}
-        {spentToday != null && <span className="mother-spend"> · hoje ${spentToday.toFixed(2)}</span>}
-        {rateLimit && rateLimit.status !== "allowed" && (
-          <span className="warn"> · {rateLimit.status === "rejected" ? "limite atingido" : "quase no limite"}</span>
-        )}
-      </div>
+    <div className={tab === "voz" ? "mother" : "mother mother-wide"}>
+      <nav className="tabs mother-tabs">
+        <button className={tab === "voz" ? "active" : ""} onClick={() => setTab("voz")}>
+          voz
+        </button>
+        <button className={tab === "board" ? "active" : ""} onClick={() => setTab("board")}>
+          board
+        </button>
+        <button className={tab === "custos" ? "active" : ""} onClick={() => setTab("custos")}>
+          custos
+        </button>
+      </nav>
 
-      <div className="mother-chat">
-        {recent.map((m, i) => (
-          <div key={i} className={`mother-msg ${m.who}`}>
-            {"text" in m ? m.text : ""}
-          </div>
-        ))}
-      </div>
-
-      <div className="mother-input">
-        <input
-          placeholder='fale ou digite… ("abre o projeto vox", "quanto gastei hoje?")'
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submit(input);
-          }}
-          disabled={!!busy}
+      {tab === "board" ? (
+        <Board
+          tasks={overview?.board ?? []}
+          onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
         />
-        <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title="falar">
-          <Mic size={16} />
-        </button>
-      </div>
+      ) : tab === "custos" ? (
+        <div className="costs-page">
+          <CostsPanel />
+        </div>
+      ) : (
+        <>
+          <div className="mother-orb" onClick={onMic} title="clique ou fale (Esc corta)">
+            <VoiceOrb mode={mode} />
+          </div>
+          <div className="mother-status">
+            {busy ?? (recording ? "ouvindo… (Esc corta)" : speaking ? "falando…" : "pronto")}
+            {spentToday != null && (
+              <span className="mother-spend"> · hoje ${spentToday.toFixed(2)}</span>
+            )}
+            {rateLimit && rateLimit.status !== "allowed" && (
+              <span className="warn">
+                {" "}
+                · {rateLimit.status === "rejected" ? "limite atingido" : "quase no limite"}
+              </span>
+            )}
+          </div>
 
-      <div className="mother-projects">
-        <button className="mother-project" onClick={() => ipc.openHqWindow("board")}>
-          <Kanban size={12} /> board
-        </button>
-        <button className="mother-project" onClick={() => ipc.openHqWindow("custos")}>
-          <Wallet size={12} /> custos
-        </button>
-        {(overview?.projects ?? []).map((p) => (
-          <button key={p.path} className="mother-project" onClick={() => openProject(p)}>
-            <ExternalLink size={12} /> {p.name}
-          </button>
-        ))}
-      </div>
+          <div className="mother-chat">
+            {recent.map((m, i) => (
+              <div key={i} className={`mother-msg ${m.who}`}>
+                {"text" in m ? m.text : ""}
+              </div>
+            ))}
+          </div>
+
+          <div className="mother-input">
+            <input
+              placeholder='fale ou digite… ("abre o projeto vox", "quanto gastei hoje?")'
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submit(input);
+              }}
+              disabled={!!busy}
+            />
+            <button
+              className={`mic ${recording ? "recording" : ""}`}
+              onClick={onMic}
+              title="falar"
+            >
+              <Mic size={16} />
+            </button>
+          </div>
+
+          <div className="mother-projects">
+            {(overview?.projects ?? []).map((p) => (
+              <button key={p.path} className="mother-project" onClick={() => openProject(p)}>
+                <ExternalLink size={12} /> {p.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -11,12 +11,16 @@ export default function SessionInfo({
   taskTitle,
   sessionId,
   projectName,
+  workspace,
   costs,
   onClose,
 }: {
   taskTitle?: string;
   sessionId?: string;
   projectName?: string;
+  /** Project root path: when set, the ledger summary is FILTERED to this
+   * project (project windows show their slice; the mother shows it all). */
+  workspace?: string;
   costs: Record<string, number>;
   onClose: () => void;
 }) {
@@ -39,20 +43,22 @@ export default function SessionInfo({
 
   useEffect(() => {
     // Persistent ledger: survives the window closing (unlike `costs`).
+    // With a workspace, group by workspace and keep only this project's
+    // slice (rows record the worker cwd, so prefix-match covers subdirs).
     const day = new Date(Date.now() - 24 * 3600e3).toISOString();
     const week = new Date(Date.now() - 7 * 24 * 3600e3).toISOString();
+    const group = workspace ? "workspace" : "kind";
+    const slice = (aggs: { key: string; cost_usd: number }[]) =>
+      aggs
+        .filter((a) => !workspace || a.key === workspace || a.key.startsWith(`${workspace}/`))
+        .reduce((sum, a) => sum + a.cost_usd, 0);
     Promise.all([
-      ipc.spendSummary(day, "kind", "live"),
-      ipc.spendSummary(week, "kind", "live"),
+      ipc.spendSummary(day, group, "live"),
+      ipc.spendSummary(week, group, "live"),
     ])
-      .then(([d, w]) =>
-        setLedger({
-          day: d.reduce((a, b) => a + b.cost_usd, 0),
-          week: w.reduce((a, b) => a + b.cost_usd, 0),
-        }),
-      )
+      .then(([d, w]) => setLedger({ day: slice(d), week: slice(w) }))
       .catch(() => {});
-  }, []);
+  }, [workspace]);
 
   const total = Object.values(costs).reduce((a, b) => a + b, 0);
   const spent = Object.entries(costs).sort((a, b) => b[1] - a[1]);
@@ -102,7 +108,7 @@ export default function SessionInfo({
       {ledger && (
         <>
           <div className="scope-row head">
-            <span>gasto medido (ledger)</span>
+            <span>{workspace ? "gasto do projeto (ledger)" : "gasto medido (ledger)"}</span>
           </div>
           <div className="scope-row">
             <span>últimas 24h</span>

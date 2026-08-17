@@ -9,7 +9,6 @@ import { FolderOpen, SquareTerminal, Volume2, VolumeX } from "lucide-react";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import Board from "./components/Board";
 import Composer from "./components/Composer";
-import CostsPanel from "./components/CostsPanel";
 import FilesEditor from "./components/FilesEditor";
 import FilesPanel from "./components/FilesPanel";
 import Modals, { type Pending } from "./components/Modals";
@@ -33,13 +32,7 @@ import type {
   Project,
 } from "./types";
 
-export default function App({
-  forcedProject,
-  initialTab,
-}: {
-  forcedProject?: Project;
-  initialTab?: "code" | "board" | "custos";
-}) {
+export default function App({ forcedProject }: { forcedProject?: Project }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -47,7 +40,8 @@ export default function App({
   // The global Esc handler must see the live value (no stale closure).
   const recordingRef = useRef(false);
   const [pending, setPending] = useState<Pending>(null);
-  const [tab, setTab] = useState<"code" | "board" | "custos">(initialTab ?? "code");
+  // Costs are global and live on the mother window; here only code|board.
+  const [tab, setTab] = useState<"code" | "board">("code");
   // Read-only thread being viewed (board tab), never executes anything.
   const [reading, setReading] = useState<{
     sessionId: string;
@@ -488,8 +482,14 @@ export default function App({
           say(`Abrindo o projeto ${cmd.title}.`);
         }
       } else if (cmd.kind === "open_hq") {
-        setTab(cmd.tab);
-        say(cmd.tab === "custos" ? "Custos na tela." : "Quadro na tela.");
+        if (cmd.tab === "board") {
+          setTab("board");
+          say("Quadro na tela.");
+        } else {
+          // Costs are global: they live on the mother window.
+          await ipc.focusMain("custos").catch(() => {});
+          say("Custos na janela mãe.");
+        }
       } else if (cmd.kind === "not_found") {
         push({ who: "sys", text: `nada bate com "${cmd.query}"` });
         say("Não achei isso no quadro.");
@@ -814,13 +814,11 @@ export default function App({
             board
           </button>
           <button
-            className={tab === "custos" ? "active" : ""}
-            onClick={() => {
-              setReading(null);
-              setTab("custos");
-            }}
+            className="dim"
+            title="custos globais ficam na janela mãe"
+            onClick={() => ipc.focusMain("custos")}
           >
-            custos
+            custos ↗
           </button>
         </nav>
         <button
@@ -1031,15 +1029,11 @@ export default function App({
             })
           }
         />
-      ) : tab === "board" ? (
+      ) : (
         <Board
           tasks={board}
           onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
         />
-      ) : (
-        <div className="costs-page">
-          <CostsPanel />
-        </div>
       )}
 
       {scopeInfo && (
@@ -1047,6 +1041,7 @@ export default function App({
           taskTitle={focusedTask?.title}
           sessionId={focusedTask?.sessionId || undefined}
           projectName={activeProject?.name}
+          workspace={forcedProject?.path}
           costs={costs}
           onClose={() => setScopeInfo(false)}
         />
