@@ -96,14 +96,22 @@ body {
 .topbar .scope:disabled { opacity: .4; cursor: default; }
 
 /* costs popover, anchored to the button that opens it */
-.scope-anchor { position: relative; display: inline-flex; }
+.scope-anchor { position: relative; display: inline-flex; flex: 0 0 auto; }
 .scope-pop {
-  position: absolute; top: calc(100% + 8px); right: 0; z-index: 14;
-  width: 340px; max-height: 70vh; overflow-y: auto;
+  /* Opens to the RIGHT of the button: it sits just after the tabs, so
+     right-aligning would push the box past the window's left edge. */
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 14;
+  /* Fixed track, never wider than the window: long task names must clip,
+     not stretch the box. */
+  width: min(360px, calc(100vw - 24px)); max-height: 70vh;
+  overflow-y: auto; overflow-x: hidden;
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
   padding: 12px 14px; box-shadow: 0 16px 44px rgba(0,0,0,.6); font-size: 12px;
   display: grid; gap: 12px;
 }
+/* Grid/flex children default to min-width:auto, so any nowrap text inside
+   would stretch the popover instead of being ellipsised. */
+.scope-pop, .scope-pop * { min-width: 0; }
 .scope-head { display: grid; gap: 2px; }
 .scope-head b { color: var(--text); font-size: 13px; }
 .scope-head .hint {
@@ -245,7 +253,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .meter-fill { height: 100%; transition: width .25s ease; }
 .meter-legend { list-style: none; margin: 8px 0 0; display: grid; gap: 3px; }
 .meter-legend li {
-  display: grid; grid-template-columns: 10px 1fr auto auto; gap: 8px;
+  display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; gap: 8px;
   align-items: center; color: var(--text); font-size: 12px;
 }
 .meter-legend li.muted { color: var(--dim); }
@@ -256,19 +264,23 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .meter-legend .share {
   min-width: 46px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600;
 }
-.meter-row { display: grid; gap: 4px; }
+.meter-row { display: grid; gap: 4px; min-width: 0; }
 .meter-row-head {
-  display: flex; align-items: baseline; gap: 8px; font-size: 12px;
+  display: flex; align-items: baseline; gap: 8px; font-size: 12px; min-width: 0;
 }
 .meter-row-head .name {
   color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0; flex: 1 1 auto;
 }
 .meter-row-head .caption { color: var(--dim); font-size: 11px; margin-left: auto; }
 .meter-row-head .val {
   margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .meter-row-head .caption + .val { margin-left: 0; }
-.meter-note { color: var(--dim); font-size: 11px; }
+.meter-note {
+  color: var(--dim); font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* ---- costs tab ---- */
 .costs-page { flex: 1; min-height: 0; display: flex; }
