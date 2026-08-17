@@ -5,7 +5,7 @@ import CostsPanel from "./components/CostsPanel";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { useVoxEvents } from "./hooks/useVoxEvents";
 import * as ipc from "./lib/ipc";
-import type { BoardTask, Msg, Overview, Project, RateLimitState } from "./types";
+import type { BoardTask, Msg, Overview, Project, RateLimitState, SessionHit } from "./types";
 
 type MotherTab = "voz" | "board" | "custos";
 
@@ -29,6 +29,8 @@ export default function Mother() {
   const [spentToday, setSpentToday] = useState<number | null>(null);
   const [input, setInput] = useState("");
   const [tab, setTab] = useState<MotherTab>("voz");
+  // Sessions matching a recovery request, waiting for the user to pick one.
+  const [picks, setPicks] = useState<{ query: string; candidates: SessionHit[] } | null>(null);
   const speakRef = useRef(true);
   // The global hotkey/Esc handlers must see fresh state.
   const micRef = useRef<() => void>(() => {});
@@ -93,6 +95,37 @@ export default function Mother() {
     ipc
       .openProjectWindow(p.name, p.path, task?.title, task?.session)
       .catch((err) => push({ who: "sys", text: `janela: ${err}` }));
+  }
+
+  /**
+   * Recover an existing session: it becomes a board task named after the
+   * SESSION and opens in its project's window, chat loaded. All local —
+   * the index already knows every session on this machine.
+   */
+  async function recoverSession(hit: SessionHit) {
+    setPicks(null);
+    let task: { title: string; workspace?: string | null };
+    try {
+      task = await ipc.taskFromSession(hit.session_id);
+    } catch (err) {
+      push({ who: "sys", text: `não consegui registrar a sessão: ${err}` });
+      return;
+    }
+    const ws = task.workspace;
+    const project = ws
+      ? (overview?.projects ?? []).find((p) => ws === p.path || ws.startsWith(`${p.path}/`))
+      : undefined;
+    refresh();
+    if (!project) {
+      push({
+        who: "sys",
+        text: `"${task.title}" virou task, mas ${ws ?? "o diretório dela"} não é um projeto registrado — adiciona ele pra abrir o chat`,
+      });
+      say(`Criei a task ${task.title}, mas o projeto dela não está registrado.`);
+      return;
+    }
+    openProject(project, { title: task.title, session: hit.session_id });
+    say(`Retomando ${task.title} em ${project.name}.`);
   }
 
   /**
@@ -178,6 +211,17 @@ export default function Mother() {
         say(`Abre o arquivo na janela de ${target.name}.`);
       } else {
         say("Arquivos eu abro na janela do projeto. Qual projeto?");
+      }
+    } else if (cmd.kind === "session_candidates") {
+      if (cmd.candidates.length === 0) {
+        push({ who: "sys", text: `nenhuma sessão fala sobre "${cmd.query}"` });
+        say("Não achei sessão sobre isso.");
+      } else if (cmd.candidates.length === 1) {
+        await recoverSession(cmd.candidates[0]);
+      } else {
+        setTab("voz");
+        setPicks({ query: cmd.query, candidates: cmd.candidates });
+        say(`Achei ${cmd.candidates.length} sessões. Qual delas?`);
       }
     } else if (cmd.kind === "not_found") {
       push({ who: "sys", text: `nada bate com "${cmd.query}"` });
@@ -279,6 +323,24 @@ export default function Mother() {
               </div>
             ))}
           </div>
+
+          {picks && (
+            <div className="mother-picks">
+              <div className="mother-picks-head">
+                sessões sobre “{picks.query}”
+                <button onClick={() => setPicks(null)}>fechar</button>
+              </div>
+              {picks.candidates.map((c) => (
+                <button key={c.session_id} onClick={() => recoverSession(c)}>
+                  <b>{c.title}</b>
+                  <span>
+                    {c.last_ts ? c.last_ts.slice(0, 10) : ""}
+                    {c.cwd ? ` · ${c.cwd.split("/").filter(Boolean).pop()}` : ""}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="mother-input">
             <input

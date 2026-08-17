@@ -688,6 +688,19 @@ fn start_worker(
     Ok(())
 }
 
+/// Board title for a worker. A resumed session already HAS a name — the
+/// words the user opened it with — and the instruction that reached it is
+/// a terrible title, especially when dictated ("tinha um chat aberto de…").
+/// Only a brand-new session falls back to the instruction.
+fn worker_board_title(session_id: Option<&str>, instruction: &str) -> String {
+    let from_session = session_id.filter(|s| !s.is_empty()).and_then(|id| {
+        let config = Config::load();
+        let store = SqliteStore::open(&config.data_dir().join("index.db")).ok()?;
+        session_summary(&store, id).map(|s| session_label(&s))
+    });
+    from_session.unwrap_or_else(|| instruction.chars().take(60).collect())
+}
+
 fn update_registry_and_board(
     config: &Config,
     task_id: &str,
@@ -712,7 +725,7 @@ fn update_registry_and_board(
     if let Ok(mut store) = SqliteStore::open(&config.data_dir().join("index.db")) {
         if let Ok(current) = store.board() {
             let updates = [vox_core::domain::board::BoardUpdate {
-                titulo: instruction.chars().take(60).collect(),
+                titulo: worker_board_title(session_id, instruction),
                 status: vox_core::domain::board::TaskStatus::Doing,
                 nota: Some("worker conversacional ativo".into()),
                 sessao: None,
@@ -1276,6 +1289,100 @@ fn find_session(query: String) -> Result<Option<serde_json::Value>, String> {
     }))
 }
 
+/// One indexed session offered as a recovery candidate.
+#[derive(Serialize)]
+struct SessionHit {
+    session_id: String,
+    /// Never empty: real title, opening prompt, or the id itself.
+    title: String,
+    cwd: Option<String>,
+    last_ts: Option<String>,
+    last_prompt: Option<String>,
+}
+
+/// The indexed summary of one session (id → path → folded state).
+fn session_summary(
+    store: &SqliteStore,
+    session_id: &str,
+) -> Option<vox_core::domain::snapshot::SessionSummary> {
+    use vox_core::ports::SessionStore;
+    let path = store.session_path(session_id).ok().flatten()?;
+    store.file_state(&path).ok().flatten().map(|(s, _, _)| s)
+}
+
+/// The name a human recognises this session by.
+fn session_label(summary: &vox_core::domain::snapshot::SessionSummary) -> String {
+    summary
+        .title
+        .as_deref()
+        .or(summary.last_prompt.as_deref())
+        .map(friendly_session_name)
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| summary.session_id.chars().take(8).collect())
+}
+
+/// Sessions matching a topic, straight from the local index. Recovering a
+/// session someone remembers is a lookup, not an investigation: no agent,
+/// no shell archaeology, zero tokens.
+fn session_hits(query: &str, limit: usize) -> Result<Vec<SessionHit>, String> {
+    use vox_core::ports::SessionStore;
+    let config = Config::load();
+    let store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let terms = vox_core::domain::dispatch::significant_terms(query);
+    let hits = store
+        .search_sessions(&terms, limit)
+        .map_err(|e| e.to_string())?;
+    Ok(hits
+        .into_iter()
+        .map(|s| SessionHit {
+            title: session_label(&s),
+            session_id: s.session_id,
+            cwd: s.cwd,
+            last_ts: s.last_ts,
+            last_prompt: s.last_prompt.map(|p| p.chars().take(120).collect()),
+        })
+        .collect())
+}
+
+/// Search sessions by topic on demand (the "recuperar sessão" picker).
+#[tauri::command(async)]
+fn session_candidates(query: String, limit: Option<usize>) -> Result<Vec<SessionHit>, String> {
+    session_hits(&query, limit.unwrap_or(6))
+}
+
+/// Turn a recovered session into a board task named after the SESSION —
+/// never after the sentence that found it — and bind the two, so the chat
+/// and the card are the same thing from here on.
+#[tauri::command(async)]
+fn task_from_session(session_id: String) -> Result<serde_json::Value, String> {
+    use vox_core::ports::SessionStore;
+    let config = Config::load();
+    let mut store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let summary = session_summary(&store, &session_id)
+        .ok_or_else(|| format!("sessão {session_id} não está no índice"))?;
+    let title = session_label(&summary);
+    let tasks = store.board().map_err(|e| e.to_string())?;
+    let updates = [vox_core::domain::board::BoardUpdate {
+        titulo: title.clone(),
+        status: vox_core::domain::board::TaskStatus::Doing,
+        nota: Some("sessão recuperada".into()),
+        sessao: None,
+    }];
+    let merged = vox_core::domain::board::apply_updates(
+        tasks,
+        &updates,
+        &now_iso(),
+        summary.cwd.as_deref(),
+        Some(&session_id),
+    );
+    store.save_board(&merged).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "title": title, "workspace": summary.cwd, "session_id": session_id,
+    }))
+}
+
 #[tauri::command]
 fn board_move(title: String, status: vox_core::domain::board::TaskStatus) -> Result<(), String> {
     use vox_core::ports::SessionStore;
@@ -1533,6 +1640,14 @@ fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
         TaskCommand::OpenHq { tab } => {
             return Ok(Some(serde_json::json!({ "kind": "open_hq", "tab": tab })));
         }
+        TaskCommand::FindSession { query } => {
+            // Every session on this machine is already indexed: recovering
+            // one is a local lookup, never an agent digging through logs.
+            let hits = session_hits(query, 6)?;
+            return Ok(Some(serde_json::json!({
+                "kind": "session_candidates", "query": query, "candidates": hits,
+            })));
+        }
         _ => {}
     }
     let query = match &command {
@@ -1543,7 +1658,8 @@ fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
         | TaskCommand::AddProject { .. }
         | TaskCommand::NewChat { .. }
         | TaskCommand::OpenProject { .. }
-        | TaskCommand::OpenHq { .. } => {
+        | TaskCommand::OpenHq { .. }
+        | TaskCommand::FindSession { .. } => {
             unreachable!("handled above")
         }
     };
@@ -1583,7 +1699,8 @@ fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
             | TaskCommand::AddProject { .. }
             | TaskCommand::NewChat { .. }
             | TaskCommand::OpenProject { .. }
-            | TaskCommand::OpenHq { .. } => unreachable!("handled above"),
+            | TaskCommand::OpenHq { .. }
+            | TaskCommand::FindSession { .. } => unreachable!("handled above"),
         }
     })
 }
@@ -1797,6 +1914,8 @@ pub fn run() {
             board_rename,
             board_pin,
             board_archive,
+            session_candidates,
+            task_from_session,
             open_project_window,
             focus_main,
             subscription_limits,

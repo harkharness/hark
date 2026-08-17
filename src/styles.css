@@ -211,6 +211,29 @@ body {
 }
 .mother-project:hover { border-color: var(--accent); color: var(--accent); }
 
+/* Sessions found for a recovery request: pick one and go back to work. */
+.mother-picks {
+  display: flex; flex-direction: column; gap: 6px;
+  width: min(640px, 92vw); margin-bottom: 4px;
+}
+.mother-picks-head {
+  display: flex; justify-content: space-between; align-items: center;
+  color: var(--dim); font-size: 11px;
+}
+.mother-picks-head button {
+  background: none; border: none; color: var(--dim); font: inherit;
+  font-size: 11px; cursor: pointer; text-decoration: underline;
+}
+.mother-picks > button {
+  display: flex; flex-direction: column; gap: 3px; text-align: left;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  color: var(--text); font: inherit; font-size: 13px; padding: 8px 12px; cursor: pointer;
+  min-width: 0;
+}
+.mother-picks > button:hover { border-color: var(--accent); }
+.mother-picks > button b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mother-picks > button span { color: var(--dim); font-size: 11px; }
+
 /* ---- voice orb (state-driven waveform, no audio analysis) ---- */
 .orb { display: inline-flex; align-items: center; gap: 2px; height: 16px; }
 .orb-bar {
@@ -853,6 +876,10 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .modal button.plain { background: var(--bg); color: var(--text); }
 .modal .choice { display: block; width: 100%; text-align: left; margin-bottom: 6px; background: var(--bg); color: var(--text); }
 .modal .choice:hover { border-color: var(--accent); }
+.modal .choice-note {
+  color: var(--dim); font-size: 11px; margin-top: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* ---- local file viewer (zero tokens) ---- */
 .viewer {

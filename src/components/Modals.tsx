@@ -1,7 +1,8 @@
-import type { LiveWorker, Msg } from "../types";
+import type { LiveWorker, Msg, SessionHit } from "../types";
 
 export type Pending =
   | { kind: "confirm-dispatch"; instruction: string; sessionId?: string; warning?: string }
+  | { kind: "pick-session"; query: string; candidates: SessionHit[] }
   | {
       kind: "choice";
       instruction: string;
@@ -21,6 +22,7 @@ export default function Modals({
   messages,
   onDispatch,
   onFocusWorker,
+  onPickSession,
 }: {
   pending: Pending;
   setPending: (p: Pending) => void;
@@ -29,8 +31,42 @@ export default function Modals({
   messages: Msg[];
   onDispatch: (instruction: string, sessionId?: string, taskTitle?: string) => void;
   onFocusWorker: (taskId: string) => void;
+  /** A recovered session becomes a task and opens its chat. */
+  onPickSession: (hit: SessionHit) => void;
 }) {
   if (!pending) return null;
+
+  if (pending.kind === "pick-session") {
+    return (
+      <div className="modal-backdrop" onClick={() => setPending(null)}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <h2>Sessões sobre “{pending.query}”</h2>
+          {pending.candidates.map((c) => (
+            <button
+              key={c.session_id}
+              className="choice"
+              onClick={() => {
+                setPending(null);
+                onPickSession(c);
+              }}
+            >
+              <b>{c.title}</b>
+              <span className="reader-meta">
+                {c.last_ts ? ` · ${c.last_ts.slice(0, 16).replace("T", " ")}` : ""}
+                {c.cwd ? ` · ${c.cwd.split("/").filter(Boolean).pop()}` : ""}
+              </span>
+              {c.last_prompt && <div className="choice-note">{c.last_prompt}</div>}
+            </button>
+          ))}
+          <div className="row">
+            <button className="plain" onClick={() => setPending(null)}>
+              cancelar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (pending.kind === "confirm-dispatch") {
     return (

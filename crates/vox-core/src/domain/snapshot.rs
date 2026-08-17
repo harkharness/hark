@@ -24,6 +24,17 @@ pub struct SessionSummary {
     pub recent_prompts: Vec<RecentPrompt>,
 }
 
+/// A name out of an opening prompt: its first non-empty line, clipped.
+fn opening_title(text: &str) -> Option<String> {
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty())?;
+    let clipped: String = line.chars().take(60).collect();
+    Some(if line.chars().count() > 60 {
+        format!("{clipped}…")
+    } else {
+        clipped
+    })
+}
+
 impl SessionSummary {
     pub fn new(session_id: impl Into<String>) -> Self {
         Self {
@@ -51,12 +62,17 @@ impl SessionSummary {
                         text: text.clone(),
                     }))
                     .collect();
+                // Most sessions never receive a custom-title: the CLI names
+                // them after the opening line, and so do we. An unnamed
+                // session cannot be recognised when you go looking for it.
+                let title = self.title.or_else(|| opening_title(&text));
                 Self {
                     last_ts: self.last_ts.max(Some(ts)),
                     last_prompt: Some(text),
                     cwd: cwd.or(self.cwd),
                     git_branch: git_branch.or(self.git_branch),
                     recent_prompts,
+                    title,
                     ..self
                 }
             }
@@ -111,6 +127,29 @@ mod tests {
         assert_eq!(s.last_prompt.as_deref(), Some("now open the PR"));
         assert_eq!(s.last_ts.as_deref(), Some("2026-08-14T10:10:00.000Z"));
         assert_eq!(s.recent_prompts.len(), 2);
+    }
+
+    #[test]
+    fn names_untitled_sessions_after_their_first_prompt() {
+        // Most sessions never get a custom-title: the CLI names them after
+        // the opening message, and so must we — an unnamed session cannot
+        // be recognised in a recovery list.
+        let s = vec![
+            prompt("2026-08-14T10:00:00.000Z", "Alerts migration to the new team"),
+            prompt("2026-08-14T10:10:00.000Z", "now open the PR"),
+        ]
+        .into_iter()
+        .fold(SessionSummary::new("abc"), SessionSummary::apply);
+        assert_eq!(s.title.as_deref(), Some("Alerts migration to the new team"));
+
+        // A real title always wins, whenever it arrives.
+        let titled = vec![
+            prompt("2026-08-14T10:00:00.000Z", "Alerts migration to the new team"),
+            SessionEvent::Title("Cluster alerts".into()),
+        ]
+        .into_iter()
+        .fold(SessionSummary::new("abc"), SessionSummary::apply);
+        assert_eq!(titled.title.as_deref(), Some("Cluster alerts"));
     }
 
     #[test]

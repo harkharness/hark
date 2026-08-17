@@ -30,6 +30,7 @@ import type {
   OpenFile,
   Overview,
   Project,
+  SessionHit,
 } from "./types";
 
 export default function App({
@@ -512,6 +513,18 @@ export default function App({
           await ipc.focusMain("custos").catch(() => {});
           say("Custos na janela mãe.");
         }
+      } else if (cmd.kind === "session_candidates") {
+        // Recovering a session is a local lookup: the index already knows
+        // every session on this machine. No agent, no digging, no tokens.
+        if (cmd.candidates.length === 0) {
+          push({ who: "sys", text: `nenhuma sessão fala sobre "${cmd.query}"` });
+          say("Não achei sessão sobre isso.");
+        } else if (cmd.candidates.length === 1) {
+          await recoverSession(cmd.candidates[0]);
+        } else {
+          setPending({ kind: "pick-session", query: cmd.query, candidates: cmd.candidates });
+          say(`Achei ${cmd.candidates.length} sessões. Qual delas?`);
+        }
       } else if (cmd.kind === "not_found") {
         push({ who: "sys", text: `nada bate com "${cmd.query}"` });
         say("Não achei isso no quadro.");
@@ -756,6 +769,39 @@ export default function App({
 
   const openTaskFromSidebar = (t: BoardTask) =>
     openTaskByTitle(t.title, t.session_ids.at(-1), t.note);
+
+  /**
+   * Recover an existing session: it becomes a board task named after the
+   * SESSION (not after the sentence that found it) and its chat opens with
+   * the history loaded. Sessions living in another project open there.
+   */
+  async function recoverSession(hit: SessionHit) {
+    let task: { title: string; workspace?: string | null };
+    try {
+      task = await ipc.taskFromSession(hit.session_id);
+    } catch (err) {
+      push({ who: "sys", text: `não consegui registrar a sessão: ${err}` });
+      return;
+    }
+    const ws = task.workspace;
+    const elsewhere =
+      ws && forcedProject && ws !== forcedProject.path && !ws.startsWith(`${forcedProject.path}/`);
+    if (elsewhere) {
+      const owner = allProjects.find((p) => ws === p.path || ws.startsWith(`${p.path}/`));
+      if (owner) {
+        await ipc
+          .openProjectWindow(owner.name, owner.path, task.title, hit.session_id)
+          .catch((err) => push({ who: "sys", text: `janela: ${err}` }));
+        push({ who: "sys", text: `"${task.title}" é do projeto ${owner.name}: abri lá` });
+        say(`Essa sessão é do projeto ${owner.name}. Abri a janela dele.`);
+        refresh();
+        return;
+      }
+    }
+    await openTaskByTitle(task.title, hit.session_id);
+    refresh();
+    say(`Retomando ${task.title}.`);
+  }
 
   const visibleMessages = messages.filter((m) => {
     const thread = "task" in m ? (m.task ?? null) : null;
@@ -1098,6 +1144,7 @@ export default function App({
           runDispatch(instruction, sessionId);
         }}
         onFocusWorker={(taskId) => setFocused(taskId)}
+        onPickSession={recoverSession}
       />
     </div>
   );

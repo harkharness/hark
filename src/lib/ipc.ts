@@ -59,6 +59,20 @@ export const readTranscript = (sessionId: string, limit?: number) =>
     limit,
   });
 
+/** Sessions matching a topic, from the local index — zero tokens, no agent. */
+export const sessionCandidates = (query: string, limit?: number) =>
+  invoke<import("../types").SessionHit[]>("session_candidates", {
+    query,
+    limit: limit ?? null,
+  });
+
+/** Bind a recovered session to a board task named after the SESSION. */
+export const taskFromSession = (sessionId: string) =>
+  invoke<{ title: string; workspace?: string | null; session_id: string }>(
+    "task_from_session",
+    { sessionId },
+  );
+
 export const findSession = (query: string) =>
   invoke<{ session_id: string; title?: string; cwd?: string | null } | null>("find_session", {
     query,

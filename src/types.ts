@@ -142,7 +142,18 @@ export type TaskCommandResult =
   | { kind: "new_chat"; title: string; path: string; instruction?: string | null }
   | { kind: "open_project"; title: string; path: string; instruction?: string | null }
   | { kind: "open_hq"; tab: "board" | "custos" }
+  | { kind: "session_candidates"; query: string; candidates: SessionHit[] }
   | { kind: "not_found"; query: string };
+
+/** One indexed session offered when recovering work by topic. */
+export type SessionHit = {
+  session_id: string;
+  /** Never empty: real title, opening prompt, or the id. */
+  title: string;
+  cwd?: string | null;
+  last_ts?: string | null;
+  last_prompt?: string | null;
+};
 
 export type Overview = {
   contexts: string[];

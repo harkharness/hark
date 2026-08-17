@@ -36,6 +36,10 @@ pub enum TaskCommand {
     },
     /// Open the global HQ window (board/costs across every project).
     OpenHq { tab: String },
+    /// Recover an EXISTING Claude Code session by topic. The local index
+    /// already knows every session on this machine, so this must never
+    /// cost a token — and never spawn an agent to go digging.
+    FindSession { query: String },
 }
 
 /// Words that only glue the sentence together and never name a task.
@@ -96,6 +100,39 @@ const HQ_VERBS: &[(&str, &str)] = &[
     ("abre os custos", "custos"), ("abra os custos", "custos"),
     ("mostra os custos", "custos"), ("abre custos", "custos"),
 ];
+
+/// Recovering a session someone remembers having. The word "sessão"/"chat"
+/// is mandatory: without it the sentence is work, not a lookup.
+const FIND_SESSION_VERBS: &[&str] = &[
+    "tinha um chat", "tinha uma sessão", "tinha uma sessao",
+    "recupera a sessão", "recupera a sessao", "recupera o chat",
+    "recuperar a sessão", "recuperar a sessao", "recuperar o chat",
+    "acha a sessão", "acha a sessao", "acha o chat",
+    "encontra a sessão", "encontra a sessao", "encontra o chat",
+    "procura a sessão", "procura a sessao", "procura o chat",
+    "retoma a sessão", "retoma a sessao", "retoma o chat",
+    "retomar a sessão", "retomar a sessao", "retomar o chat",
+    "continua a sessão", "continua a sessao", "continua o chat",
+    "volta pra sessão", "volta para a sessão", "volta pro chat",
+    "abre a sessão", "abre a sessao", "abrir a sessão",
+];
+
+/// Leading words that only point at the topic ("aberto de", "sobre a").
+const TOPIC_FILLER: &[&str] = &[
+    "aberto", "aberta", "sobre", "que", "com", "falando", "focado", "focada",
+    "tratando", "chat", "sessão", "sessao", "a", "o", "as", "os", "da", "do",
+    "das", "dos", "de", "em", "no", "na", "para", "pra",
+];
+
+/// Drop the words before the topic itself, keeping everything after.
+fn clean_topic(raw: &str) -> String {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let start = words
+        .iter()
+        .position(|w| !TOPIC_FILLER.contains(&w.to_lowercase().as_str()))
+        .unwrap_or(words.len());
+    words[start..].join(" ").trim().to_string()
+}
 
 /// Split "<head> <sep> <tail>" on the first separator, both halves trimmed.
 fn split_once_word(text: &str, sep: &str) -> Option<(String, String)> {
@@ -172,6 +209,10 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
     if let Some((_, tab)) = HQ_VERBS.iter().find(|(v, _)| lower.contains(*v)) {
         return Some(TaskCommand::OpenHq { tab: (*tab).to_string() });
     }
+    if let Some(verb) = FIND_SESSION_VERBS.iter().find(|v| lower.contains(**v)) {
+        let query = clean_topic(&after(verb)?);
+        return (!query.is_empty()).then_some(TaskCommand::FindSession { query });
+    }
     if let Some(verb) = SWITCH_VERBS.iter().find(|v| lower.contains(**v)) {
         let rest = after(verb)?;
         // "<query>" or "<query> e <instrução>"
@@ -225,6 +266,58 @@ mod tests {
         assert_eq!(
             parse("me mostra a thread dos alertas"),
             Some(TaskCommand::Open("alertas".into()))
+        );
+    }
+
+    #[test]
+    fn recovers_an_existing_session_by_topic() {
+        // Spoken the way a person actually says it, mid-sentence.
+        assert_eq!(
+            parse("tinha um chat aberto de busca de alertas e cluster"),
+            Some(TaskCommand::FindSession {
+                query: "busca de alertas e cluster".into()
+            })
+        );
+        assert_eq!(
+            parse("recupera a sessão dos alertas"),
+            Some(TaskCommand::FindSession {
+                query: "alertas".into()
+            })
+        );
+        assert_eq!(
+            parse("acha o chat sobre a migração do webhook"),
+            Some(TaskCommand::FindSession {
+                query: "migração do webhook".into()
+            })
+        );
+        assert_eq!(
+            parse("retoma a sessão de pagamentos"),
+            Some(TaskCommand::FindSession {
+                query: "pagamentos".into()
+            })
+        );
+        // Dictated whole, filler and all — the sentence that used to cost a
+        // full worker digging through log files.
+        assert_eq!(
+            parse("eu estou dizendo que tinha um chat focado na busca de alertas e do cluster"),
+            Some(TaskCommand::FindSession {
+                query: "busca de alertas e do cluster".into()
+            })
+        );
+    }
+
+    #[test]
+    fn session_recovery_never_swallows_real_work() {
+        // No session/chat word: this is work, and work belongs to a worker.
+        assert_eq!(parse("continua a migração de assinaturas"), None);
+        assert_eq!(parse("recupera o backup do banco"), None);
+        // Board tasks keep their own verb: a task is not a session.
+        assert_eq!(
+            parse("retoma a task do webhook"),
+            Some(TaskCommand::Switch {
+                query: "webhook".into(),
+                instruction: None
+            })
         );
     }
 
