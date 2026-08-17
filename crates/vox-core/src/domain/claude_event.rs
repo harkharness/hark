@@ -16,6 +16,26 @@ pub struct VoiceReply {
     pub board: Vec<crate::domain::board::BoardUpdate>,
 }
 
+/// Token counters of one model in one turn. This is the raw material of
+/// the spend ledger: without measuring, nothing can be saved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TokenUsage {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_created: u64,
+}
+
+/// Per-model usage of a turn, straight from the CLI's `modelUsage`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModelUsage {
+    pub model: String,
+    pub usage: TokenUsage,
+    pub cost_usd: Option<f64>,
+    /// The model's context window, reported for free by the CLI.
+    pub context_window: Option<u64>,
+}
+
 /// Final outcome of one turn.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TurnResult {
@@ -28,6 +48,20 @@ pub struct TurnResult {
     pub duration_ms: Option<u64>,
     /// Main model that produced the turn (highest-cost entry in modelUsage).
     pub model: Option<String>,
+    /// Token usage per model (empty only when the CLI reported nothing).
+    pub usage: Vec<ModelUsage>,
+}
+
+/// Subscription window signal emitted by the CLI on every turn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RateLimitInfo {
+    /// allowed | allowed_warning | rejected
+    pub status: String,
+    /// Epoch seconds when the current window resets.
+    pub resets_at: Option<u64>,
+    /// five_hour | seven_day | seven_day_opus | ...
+    pub kind: Option<String>,
+    pub overage: bool,
 }
 
 /// One line of CLI output, reduced to what Vox reacts to.
@@ -50,7 +84,9 @@ pub enum ClaudeEvent {
     /// The CLI announced which session this process writes to. Essential
     /// for brand-new sessions, whose id only exists after spawn.
     SessionStarted(String),
-    /// Anything else (rate limits, partial deltas we don't use yet).
+    /// Subscription window status (five_hour/seven_day), one per turn.
+    RateLimit(RateLimitInfo),
+    /// Anything else (thinking estimates, partial deltas we don't use yet).
     Ignored,
 }
 
@@ -80,6 +116,7 @@ pub fn parse(line: &str) -> ClaudeEvent {
             .and_then(|_| v.get("session_id").and_then(Value::as_str))
             .map(|s| ClaudeEvent::SessionStarted(s.to_string()))
             .unwrap_or(ClaudeEvent::Ignored),
+        Some("rate_limit_event") => parse_rate_limit(&v).unwrap_or(ClaudeEvent::Ignored),
         _ => ClaudeEvent::Ignored,
     }
 }
@@ -179,7 +216,60 @@ fn parse_result(v: &Value) -> Option<TurnResult> {
         cost_usd: v.get("total_cost_usd").and_then(Value::as_f64),
         duration_ms: v.get("duration_ms").and_then(Value::as_u64),
         model: main_model(v),
+        usage: parse_usage(v),
     })
+}
+
+/// Per-model tokens from `modelUsage` (camelCase); falls back to one
+/// "unknown" entry from the aggregate `usage` (snake_case) on old CLIs.
+fn parse_usage(v: &Value) -> Vec<ModelUsage> {
+    let num = |m: &Value, key: &str| m.get(key).and_then(Value::as_u64).unwrap_or(0);
+    if let Some(models) = v.get("modelUsage").and_then(Value::as_object) {
+        return models
+            .iter()
+            .map(|(model, m)| ModelUsage {
+                model: model.clone(),
+                usage: TokenUsage {
+                    input: num(m, "inputTokens"),
+                    output: num(m, "outputTokens"),
+                    cache_read: num(m, "cacheReadInputTokens"),
+                    cache_created: num(m, "cacheCreationInputTokens"),
+                },
+                cost_usd: m.get("costUSD").and_then(Value::as_f64),
+                context_window: m.get("contextWindow").and_then(Value::as_u64).filter(|w| *w > 0),
+            })
+            .collect();
+    }
+    let Some(aggregate) = v.get("usage") else {
+        return Vec::new();
+    };
+    vec![ModelUsage {
+        model: "unknown".into(),
+        usage: TokenUsage {
+            input: num(aggregate, "input_tokens"),
+            output: num(aggregate, "output_tokens"),
+            cache_read: num(aggregate, "cache_read_input_tokens"),
+            cache_created: num(aggregate, "cache_creation_input_tokens"),
+        },
+        cost_usd: v.get("total_cost_usd").and_then(Value::as_f64),
+        context_window: None,
+    }]
+}
+
+fn parse_rate_limit(v: &Value) -> Option<ClaudeEvent> {
+    let info = v.get("rate_limit_info")?;
+    Some(ClaudeEvent::RateLimit(RateLimitInfo {
+        status: info.get("status")?.as_str()?.to_string(),
+        resets_at: info.get("resetsAt").and_then(Value::as_u64),
+        kind: info
+            .get("rateLimitType")
+            .and_then(Value::as_str)
+            .map(String::from),
+        overage: info
+            .get("isUsingOverage")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    }))
 }
 
 /// The model that did the real work: highest-cost entry in modelUsage
@@ -306,6 +396,85 @@ mod tests {
     fn other_lines_are_ignored_but_tagged() {
         assert_eq!(parse(r#"{"type":"system","subtype":"init"}"#), ClaudeEvent::Ignored);
         assert_eq!(parse("garbage"), ClaudeEvent::Ignored);
+    }
+
+    #[test]
+    fn result_extracts_per_model_token_usage() {
+        let line = r#"{"type":"result","subtype":"success","is_error":false,"result":"ok",
+            "total_cost_usd":0.0491,"duration_ms":8480,
+            "usage":{"input_tokens":4,"output_tokens":268,"cache_creation_input_tokens":4660,"cache_read_input_tokens":54366},
+            "modelUsage":{
+              "claude-haiku-4-5":{"inputTokens":774,"outputTokens":14,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.000844,"contextWindow":200000},
+              "claude-sonnet-5":{"inputTokens":4,"outputTokens":268,"cacheReadInputTokens":54366,"cacheCreationInputTokens":4660,"costUSD":0.0483,"contextWindow":1000000}
+            }}"#;
+        let ClaudeEvent::Result(result) = parse(line) else {
+            panic!("expected result");
+        };
+        assert_eq!(result.usage.len(), 2);
+        let sonnet = result.usage.iter().find(|m| m.model == "claude-sonnet-5").unwrap();
+        assert_eq!(sonnet.usage.input, 4);
+        assert_eq!(sonnet.usage.output, 268);
+        assert_eq!(sonnet.usage.cache_read, 54366);
+        assert_eq!(sonnet.usage.cache_created, 4660);
+        assert_eq!(sonnet.context_window, Some(1_000_000));
+        let haiku = result.usage.iter().find(|m| m.model == "claude-haiku-4-5").unwrap();
+        assert_eq!(haiku.usage.input, 774);
+        let total: f64 = result.usage.iter().filter_map(|m| m.cost_usd).sum();
+        assert!((total - 0.049144).abs() < 1e-6, "per-model costs sum to ~total");
+    }
+
+    #[test]
+    fn result_without_model_usage_falls_back_to_aggregate() {
+        let line = r#"{"type":"result","subtype":"success","is_error":false,"result":"ok",
+            "total_cost_usd":0.01,
+            "usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":30,"cache_read_input_tokens":40}}"#;
+        let ClaudeEvent::Result(result) = parse(line) else {
+            panic!("expected result");
+        };
+        assert_eq!(result.usage.len(), 1);
+        assert_eq!(result.usage[0].model, "unknown");
+        assert_eq!(result.usage[0].usage.input, 10);
+        assert_eq!(result.usage[0].usage.output, 20);
+        assert_eq!(result.usage[0].usage.cache_created, 30);
+        assert_eq!(result.usage[0].usage.cache_read, 40);
+        assert_eq!(result.usage[0].cost_usd, Some(0.01));
+    }
+
+    #[test]
+    fn error_results_still_carry_usage() {
+        let line = r#"{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom",
+            "total_cost_usd":0.02,
+            "modelUsage":{"claude-sonnet-5":{"inputTokens":5,"outputTokens":6,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.02,"contextWindow":1000000}}}"#;
+        let ClaudeEvent::Result(result) = parse(line) else {
+            panic!("expected result");
+        };
+        assert!(result.is_error);
+        assert_eq!(result.usage.len(), 1);
+        assert_eq!(result.usage[0].usage.output, 6);
+    }
+
+    #[test]
+    fn parses_rate_limit_events() {
+        let full = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1786728000,"rateLimitType":"five_hour","overageStatus":"rejected","isUsingOverage":false}}"#;
+        assert_eq!(
+            parse(full),
+            ClaudeEvent::RateLimit(RateLimitInfo {
+                status: "allowed".into(),
+                resets_at: Some(1786728000),
+                kind: Some("five_hour".into()),
+                overage: false,
+            })
+        );
+        let minimal = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning"}}"#;
+        assert_eq!(
+            parse(minimal),
+            ClaudeEvent::RateLimit(RateLimitInfo {
+                status: "allowed_warning".into(),
+                resets_at: None,
+                kind: None,
+                overage: false,
+            })
+        );
     }
 
     #[test]

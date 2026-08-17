@@ -31,18 +31,97 @@ fn main() {
             cmd_dispatch(&words, session.as_deref())
         }
         Some((cmd, rest)) if cmd == "ps" => cmd_ps(rest.first().is_some_and(|f| f == "--clear")),
+        Some((cmd, rest)) if cmd == "spend" => cmd_spend(rest),
         Some((cmd, _)) if cmd == "board" => cmd_board(),
         Some((cmd, _)) if cmd == "setup" => cmd_setup(),
         Some((cmd, _)) if cmd == "hear" => cmd_hear(),
         Some((cmd, _)) if cmd == "listen" => cmd_listen(),
         _ => {
             eprintln!(
-                "usage: vox listen | vox hear | vox setup | vox ask \"<q>\" | vox dispatch [--session <id>] \"<instruction>\" | vox ps | vox index | vox sessions | vox use <context> | vox contexts"
+                "usage: vox listen | vox hear | vox setup | vox ask \"<q>\" | vox dispatch [--session <id>] \"<instruction>\" | vox ps | vox spend [--day|--week|--project] [--rebuild] | vox index | vox sessions | vox use <context> | vox contexts"
             );
             2
         }
     };
     std::process::exit(code);
+}
+
+/// The spend ledger from the terminal: `vox spend [--day|--week|--project]
+/// [--rebuild]`. USD comes from live rows; tokens from the jsonl history —
+/// the two are never summed together.
+fn cmd_spend(rest: &[String]) -> i32 {
+    use vox_core::domain::spend::SpendSource;
+    use vox_core::ports::{SpendGroup, SpendLedger, SpendQuery};
+    let config = Config::load();
+    let has = |flag: &str| rest.iter().any(|f| f == flag);
+    let result = (|| -> anyhow::Result<i32> {
+        let mut store = open_store(&config)?;
+        if has("--rebuild") {
+            let scanned =
+                vox_core::adapters::jsonl_scan::rebuild_spend(&config.projects_dir, &mut store)?;
+            eprintln!("[rebuild: {scanned} arquivos de sessão varridos]");
+        }
+        let since = {
+            use vox_core::chrono::{Duration, Utc};
+            if has("--day") {
+                Some((Utc::now() - Duration::hours(24)).to_rfc3339())
+            } else if has("--week") {
+                Some((Utc::now() - Duration::days(7)).to_rfc3339())
+            } else {
+                None
+            }
+        };
+        let group = if has("--project") {
+            SpendGroup::Workspace
+        } else {
+            SpendGroup::Kind
+        };
+
+        println!("== gasto medido (USD, turnos do Vox) ==");
+        let live = store.spend_summary(&SpendQuery {
+            since: since.clone(),
+            group,
+            source: SpendSource::Live,
+        })?;
+        if live.is_empty() {
+            println!("(nenhum turno registrado ainda)");
+        }
+        for agg in &live {
+            println!(
+                "{:<40} ${:<9.4} {:>4} turnos {:>2} erros  in {} out {} cache {}",
+                agg.key.chars().take(40).collect::<String>(),
+                agg.cost_usd,
+                agg.turns,
+                agg.errors,
+                agg.usage.input,
+                agg.usage.output,
+                agg.usage.cache_read,
+            );
+        }
+        let total: f64 = live.iter().map(|a| a.cost_usd).sum::<f64>().max(0.0);
+        println!("{:<40} ${total:.4}", "TOTAL");
+
+        println!("\n== tokens do histórico (jsonl, máquina inteira) ==");
+        for agg in store.spend_summary(&SpendQuery {
+            since,
+            group: SpendGroup::Model,
+            source: SpendSource::Jsonl,
+        })? {
+            println!(
+                "{:<40} in {:>10} out {:>10} cache_read {:>12} cache_new {:>10}",
+                agg.key.chars().take(40).collect::<String>(),
+                agg.usage.input,
+                agg.usage.output,
+                agg.usage.cache_read,
+                agg.usage.cache_created,
+            );
+        }
+        Ok(0)
+    })();
+    result.unwrap_or_else(|err| {
+        eprintln!("vox: {err:#}");
+        1
+    })
 }
 
 fn cmd_use(name: &str) -> i32 {
@@ -400,6 +479,26 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
             }
         },
     );
+
+    // Ledger before anything else: even failed turns burned tokens.
+    if let Ok(turn) = &result {
+        use vox_core::ports::SpendLedger;
+        if let Ok(mut store) = open_store(&config) {
+            let workspace_str = planned.workspace_root.display().to_string();
+            let rows = vox_core::domain::spend::rows_from_turn(
+                &now_iso(),
+                vox_core::domain::spend::SpendKind::Dispatch,
+                &vox_core::domain::spend::SpendMeta {
+                    task_id: Some(&task_id),
+                    session_id: Some(&planned.session.session_id),
+                    workspace: Some(&workspace_str),
+                    ..Default::default()
+                },
+                turn,
+            );
+            let _ = store.record_spend(&rows);
+        }
+    }
 
     // Close out: registry + workspace state + exit code.
     let (status, code, summary) = match &result {

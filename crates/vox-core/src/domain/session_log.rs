@@ -16,6 +16,18 @@ pub enum SessionEvent {
     },
     /// Any assistant output; only the timestamp matters (session freshness).
     Activity { ts: String },
+    /// Assistant output carrying token usage: the retroactive spend trail
+    /// (session files never carry USD, only tokens).
+    AssistantUsage {
+        ts: String,
+        /// Dedup key: the same message can repeat across lines.
+        request_id: Option<String>,
+        model: Option<String>,
+        usage: crate::domain::claude_event::TokenUsage,
+        is_sidechain: bool,
+    },
+    /// Context compaction record: how many tokens the window dropped.
+    CompactBoundary { ts: String, pre_tokens: u64, post_tokens: u64 },
     /// User-assigned session title.
     Title(String),
 }
@@ -41,9 +53,40 @@ pub fn parse_line(line: &str) -> Option<SessionEvent> {
                 git_branch: str_of("gitBranch"),
             })
         }
-        "assistant" => Some(SessionEvent::Activity {
-            ts: str_of("timestamp")?,
-        }),
+        "assistant" => {
+            let ts = str_of("timestamp")?;
+            let Some(usage) = v.get("message").and_then(|m| m.get("usage")) else {
+                return Some(SessionEvent::Activity { ts });
+            };
+            let num = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+            Some(SessionEvent::AssistantUsage {
+                ts,
+                request_id: str_of("requestId"),
+                model: v
+                    .get("message")
+                    .and_then(|m| m.get("model"))
+                    .and_then(Value::as_str)
+                    .map(String::from),
+                usage: crate::domain::claude_event::TokenUsage {
+                    input: num("input_tokens"),
+                    output: num("output_tokens"),
+                    cache_read: num("cache_read_input_tokens"),
+                    cache_created: num("cache_creation_input_tokens"),
+                },
+                is_sidechain: v.get("isSidechain").and_then(Value::as_bool) == Some(true),
+            })
+        }
+        "system" => {
+            if v.get("subtype").and_then(Value::as_str) != Some("compact_boundary") {
+                return None;
+            }
+            let meta = v.get("compactMetadata")?;
+            Some(SessionEvent::CompactBoundary {
+                ts: str_of("timestamp")?,
+                pre_tokens: meta.get("preTokens").and_then(Value::as_u64).unwrap_or(0),
+                post_tokens: meta.get("postTokens").and_then(Value::as_u64).unwrap_or(0),
+            })
+        }
         "custom-title" => Some(SessionEvent::Title(str_of("customTitle")?)),
         _ => None,
     }
@@ -131,6 +174,45 @@ mod tests {
             parse_line(line),
             Some(SessionEvent::Activity {
                 ts: "2026-08-14T11:00:00.000Z".into()
+            })
+        );
+    }
+
+    #[test]
+    fn assistant_lines_with_usage_become_the_spend_trail() {
+        use crate::domain::claude_event::TokenUsage;
+        let line = r#"{"type":"assistant","timestamp":"2026-08-14T11:01:00.000Z","requestId":"req_01","isSidechain":false,
+            "message":{"role":"assistant","model":"claude-opus-5","content":[],
+              "usage":{"input_tokens":2,"output_tokens":1033,"cache_creation_input_tokens":6480,"cache_read_input_tokens":437950}}}"#;
+        assert_eq!(
+            parse_line(line),
+            Some(SessionEvent::AssistantUsage {
+                ts: "2026-08-14T11:01:00.000Z".into(),
+                request_id: Some("req_01".into()),
+                model: Some("claude-opus-5".into()),
+                usage: TokenUsage { input: 2, output: 1033, cache_read: 437_950, cache_created: 6480 },
+                is_sidechain: false,
+            })
+        );
+        // Sidechain (subagent) usage is real spend, kept but flagged.
+        let side = r#"{"type":"assistant","timestamp":"2026-08-14T11:02:00.000Z","isSidechain":true,
+            "message":{"role":"assistant","model":"claude-haiku-4-5","content":[],"usage":{"input_tokens":1,"output_tokens":2}}}"#;
+        assert!(matches!(
+            parse_line(side),
+            Some(SessionEvent::AssistantUsage { is_sidechain: true, .. })
+        ));
+    }
+
+    #[test]
+    fn parses_compact_boundary_tokens() {
+        let line = r#"{"type":"system","subtype":"compact_boundary","timestamp":"2026-08-14T12:00:00.000Z",
+            "compactMetadata":{"trigger":"manual","preTokens":849759,"postTokens":29096}}"#;
+        assert_eq!(
+            parse_line(line),
+            Some(SessionEvent::CompactBoundary {
+                ts: "2026-08-14T12:00:00.000Z".into(),
+                pre_tokens: 849_759,
+                post_tokens: 29_096,
             })
         );
     }

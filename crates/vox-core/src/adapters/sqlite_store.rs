@@ -32,6 +32,32 @@ CREATE TABLE IF NOT EXISTS board (
     title       TEXT PRIMARY KEY,
     task        TEXT NOT NULL  -- full Task as JSON
 );
+CREATE TABLE IF NOT EXISTS spend (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts                   TEXT NOT NULL,
+    kind                 TEXT NOT NULL,   -- ask|gate|worker|dispatch|session
+    source               TEXT NOT NULL,   -- live|jsonl (NEVER aggregate across)
+    task_id              TEXT,
+    label                TEXT,
+    session_id           TEXT,
+    workspace            TEXT,
+    model                TEXT NOT NULL,
+    input_tokens         INTEGER NOT NULL DEFAULT 0,
+    output_tokens        INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens    INTEGER NOT NULL DEFAULT 0,
+    cache_created_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd             REAL,            -- NULL on jsonl rows (no USD on disk)
+    duration_ms          INTEGER,
+    is_error             INTEGER NOT NULL DEFAULT 0,
+    is_sidechain         INTEGER NOT NULL DEFAULT 0,
+    context_window       INTEGER,
+    request_id           TEXT,
+    outcome              TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_spend_ts ON spend(ts);
+CREATE INDEX IF NOT EXISTS idx_spend_session ON spend(session_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_spend_request
+    ON spend(request_id, model) WHERE request_id IS NOT NULL;
 ";
 
 impl SqliteStore {
@@ -86,6 +112,21 @@ impl SqliteStore {
         Ok(())
     }
 
+    fn row_to_agg(row: &rusqlite::Row) -> rusqlite::Result<crate::ports::SpendAgg> {
+        Ok(crate::ports::SpendAgg {
+            key: row.get(0)?,
+            cost_usd: row.get(1)?,
+            usage: crate::domain::claude_event::TokenUsage {
+                input: row.get::<_, i64>(2)? as u64,
+                output: row.get::<_, i64>(3)? as u64,
+                cache_read: row.get::<_, i64>(4)? as u64,
+                cache_created: row.get::<_, i64>(5)? as u64,
+            },
+            turns: row.get::<_, i64>(6)? as u64,
+            errors: row.get::<_, i64>(7)? as u64,
+        })
+    }
+
     fn prompts_for(&self, path: &str) -> anyhow::Result<Vec<RecentPrompt>> {
         let mut stmt = self
             .conn
@@ -97,6 +138,99 @@ impl SqliteStore {
                     text: r.get(1)?,
                 })
             })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+}
+
+impl crate::ports::SpendLedger for SqliteStore {
+    fn record_spend(&mut self, rows: &[crate::domain::spend::SpendRow]) -> anyhow::Result<()> {
+        let tx = self.conn.transaction()?;
+        for r in rows {
+            // OR IGNORE + unique(request_id, model): jsonl rebuilds are idempotent.
+            tx.execute(
+                "INSERT OR IGNORE INTO spend (ts, kind, source, task_id, label, session_id,
+                    workspace, model, input_tokens, output_tokens, cache_read_tokens,
+                    cache_created_tokens, cost_usd, duration_ms, is_error, is_sidechain,
+                    context_window, request_id, outcome)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
+                params![
+                    r.ts,
+                    r.kind.as_str(),
+                    r.source.as_str(),
+                    r.task_id,
+                    r.label,
+                    r.session_id,
+                    r.workspace,
+                    r.model,
+                    r.usage.input as i64,
+                    r.usage.output as i64,
+                    r.usage.cache_read as i64,
+                    r.usage.cache_created as i64,
+                    r.cost_usd,
+                    r.duration_ms.map(|d| d as i64),
+                    r.is_error as i64,
+                    r.is_sidechain as i64,
+                    r.context_window.map(|w| w as i64),
+                    r.request_id,
+                    r.outcome,
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn spend_summary(
+        &self,
+        query: &crate::ports::SpendQuery,
+    ) -> anyhow::Result<Vec<crate::ports::SpendAgg>> {
+        use crate::ports::SpendGroup;
+        let group = match query.group {
+            SpendGroup::Kind => "kind",
+            SpendGroup::Model => "model",
+            SpendGroup::Label => "COALESCE(label, '—')",
+            SpendGroup::Workspace => "COALESCE(workspace, '—')",
+            SpendGroup::Day => "substr(ts, 1, 10)",
+            SpendGroup::Session => "COALESCE(session_id, '—')",
+        };
+        let sql = format!(
+            "SELECT {group} AS k,
+                    COALESCE(SUM(cost_usd), 0.0),
+                    COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+                    COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_created_tokens), 0),
+                    COUNT(DISTINCT ts),
+                    COUNT(DISTINCT CASE WHEN is_error = 1 THEN ts END)
+             FROM spend
+             WHERE source = ?1 AND (?2 IS NULL OR ts >= ?2)
+             GROUP BY k
+             ORDER BY 2 DESC, 5 DESC"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map(params![query.source.as_str(), query.since], Self::row_to_agg)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    fn spend_top_sessions(
+        &self,
+        since: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<crate::ports::SpendAgg>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT COALESCE(session_id, '—') AS k,
+                    COALESCE(SUM(cost_usd), 0.0),
+                    COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+                    COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_created_tokens), 0),
+                    COUNT(DISTINCT ts),
+                    COUNT(DISTINCT CASE WHEN is_error = 1 THEN ts END)
+             FROM spend
+             WHERE source = 'live' AND ts >= ?1 AND session_id IS NOT NULL
+             GROUP BY k ORDER BY 2 DESC LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![since, limit as i64], Self::row_to_agg)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
@@ -378,5 +512,85 @@ mod tests {
         let recent = store.sessions_since("2026-08-14T00:00:00.000Z").unwrap();
         let ids: Vec<_> = recent.iter().map(|s| s.session_id.as_str()).collect();
         assert_eq!(ids, vec!["b", "a"]);
+    }
+
+    #[test]
+    fn spend_ledger_records_aggregates_and_never_mixes_sources() {
+        use crate::domain::claude_event::TokenUsage;
+        use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
+        use crate::ports::{SpendGroup, SpendLedger, SpendQuery};
+
+        let mut store = SqliteStore::in_memory().unwrap();
+        let row = |ts: &str, kind: SpendKind, source: SpendSource, cost: Option<f64>,
+                   request: Option<&str>, error: bool| SpendRow {
+            ts: ts.into(),
+            kind,
+            source,
+            task_id: None,
+            label: Some("migração".into()),
+            session_id: Some("s-1".into()),
+            workspace: Some("/p/vox".into()),
+            model: "claude-sonnet-5".into(),
+            usage: TokenUsage { input: 10, output: 20, cache_read: 100, cache_created: 5 },
+            cost_usd: cost,
+            duration_ms: Some(900),
+            is_error: error,
+            is_sidechain: false,
+            context_window: Some(200_000),
+            request_id: request.map(String::from),
+            outcome: None,
+        };
+
+        store
+            .record_spend(&[
+                row("2026-08-17T10:00:00Z", SpendKind::Worker, SpendSource::Live, Some(0.05), None, false),
+                row("2026-08-17T11:00:00Z", SpendKind::Ask, SpendSource::Live, Some(0.01), None, true),
+                row("2026-08-17T10:00:01Z", SpendKind::Session, SpendSource::Jsonl, None, Some("req-1"), false),
+            ])
+            .unwrap();
+        // Rebuild replays the same jsonl row: unique(request_id, model) ignores it.
+        store
+            .record_spend(&[row(
+                "2026-08-17T10:00:01Z", SpendKind::Session, SpendSource::Jsonl, None, Some("req-1"), false,
+            )])
+            .unwrap();
+
+        let live = store
+            .spend_summary(&SpendQuery {
+                since: None,
+                group: SpendGroup::Kind,
+                source: SpendSource::Live,
+            })
+            .unwrap();
+        let total: f64 = live.iter().map(|a| a.cost_usd).sum();
+        assert!((total - 0.06).abs() < 1e-9, "USD only from live rows");
+        assert_eq!(live.iter().map(|a| a.turns).sum::<u64>(), 2);
+        assert_eq!(live.iter().map(|a| a.errors).sum::<u64>(), 1);
+
+        let jsonl = store
+            .spend_summary(&SpendQuery {
+                since: None,
+                group: SpendGroup::Model,
+                source: SpendSource::Jsonl,
+            })
+            .unwrap();
+        assert_eq!(jsonl.len(), 1);
+        assert_eq!(jsonl[0].usage.input, 10, "duplicate request_id ignored");
+        assert_eq!(jsonl[0].cost_usd, 0.0, "jsonl rows carry no USD");
+
+        let top = store.spend_top_sessions("2026-08-17T00:00:00Z", 5).unwrap();
+        assert_eq!(top[0].key, "s-1");
+        assert!((top[0].cost_usd - 0.06).abs() < 1e-9);
+
+        // Window filter respects `since`.
+        let later = store
+            .spend_summary(&SpendQuery {
+                since: Some("2026-08-17T10:30:00Z".into()),
+                group: SpendGroup::Kind,
+                source: SpendSource::Live,
+            })
+            .unwrap();
+        assert_eq!(later.len(), 1);
+        assert_eq!(later[0].key, "ask");
     }
 }

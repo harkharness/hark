@@ -72,7 +72,7 @@ export type LiveWorker = {
 export type DispatchOutcome =
   | { status: "started"; task_id: string; directives: Directives }
   | { status: "done"; task_id: string; summary: string; cost_usd?: number }
-  | { status: "failed"; task_id: string; summary: string }
+  | { status: "failed"; task_id: string; summary: string; cost_usd?: number }
   | { status: "choice"; candidates: { session_id: string; title: string; last_ts: string }[] }
   | { status: "busy"; session_id: string }
   | { status: "no_match" };

@@ -1,9 +1,12 @@
 //! Incremental scanner for `~/.claude/projects/**/*.jsonl`.
 //! Resumes each file from its stored byte offset (the logs are append-only)
-//! and skips files whose mtime is unchanged.
+//! and skips files whose mtime is unchanged. The SAME pass feeds two
+//! stores: the session index and the token spend ledger (source=jsonl).
 
-use crate::domain::session_log::parse_line;
+use crate::domain::claude_event::TokenUsage;
+use crate::domain::session_log::{parse_line, SessionEvent};
 use crate::domain::snapshot::SessionSummary;
+use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
 use crate::ports::SessionStore;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
@@ -59,14 +62,100 @@ fn index_file(path: &Path, store: &mut (impl SessionStore + ?Sized)) -> anyhow::
 
     let mut reader = BufReader::new(std::fs::File::open(path)?);
     reader.seek(SeekFrom::Start(offset))?;
+    let mut spend_rows = Vec::new();
+    let session_id = summary.session_id.clone();
+    let workspace = summary.cwd.clone();
     let summary = reader
         .lines()
         .map_while(Result::ok)
         .filter_map(|line| parse_line(&line))
+        .inspect(|event| {
+            if let Some(row) = spend_row(event, &session_id, workspace.as_deref()) {
+                spend_rows.push(row);
+            }
+        })
         .fold(summary, SessionSummary::apply);
 
+    store.record_spend(&spend_rows)?;
     store.save_file_state(&path_str, &summary, len, mtime)?;
     Ok(true)
+}
+
+/// Ledger row for one assistant message (tokens only; session files never
+/// carry USD). The synthetic request id keeps rebuilds idempotent even on
+/// lines without one.
+fn spend_row(event: &SessionEvent, session_id: &str, workspace: Option<&str>) -> Option<SpendRow> {
+    let SessionEvent::AssistantUsage { ts, request_id, model, usage, is_sidechain } = event else {
+        return None;
+    };
+    // Synthetic/zero rows are CLI plumbing, not spend.
+    if usage.input + usage.output + usage.cache_read + usage.cache_created == 0 {
+        return None;
+    }
+    let model = model.clone().unwrap_or_else(|| "unknown".into());
+    if model == "<synthetic>" {
+        return None;
+    }
+    Some(SpendRow {
+        ts: ts.clone(),
+        kind: SpendKind::Session,
+        source: SpendSource::Jsonl,
+        task_id: None,
+        label: None,
+        session_id: Some(session_id.to_string()),
+        workspace: workspace.map(String::from),
+        model: model.clone(),
+        usage: TokenUsage { ..*usage },
+        cost_usd: None,
+        duration_ms: None,
+        is_error: false,
+        is_sidechain: *is_sidechain,
+        context_window: None,
+        request_id: Some(
+            request_id
+                .clone()
+                .unwrap_or_else(|| format!("{session_id}:{ts}:{model}")),
+        ),
+        outcome: None,
+    })
+}
+
+/// Full retroactive sweep: parse EVERY line of every session file and
+/// insert token rows (idempotent through the request_id unique index).
+/// Never touches the incremental byte offsets of the summary index.
+pub fn rebuild_spend(
+    projects_dir: &Path,
+    store: &mut (impl SessionStore + ?Sized),
+) -> anyhow::Result<usize> {
+    let files = jsonl_files(projects_dir)?;
+    let mut scanned = 0usize;
+    for path in &files {
+        let session_id = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let reader = BufReader::new(std::fs::File::open(path)?);
+        let mut cwd: Option<String> = None;
+        let mut rows = Vec::new();
+        for line in reader.lines().map_while(Result::ok) {
+            match parse_line(&line) {
+                Some(SessionEvent::UserPrompt { cwd: seen, .. }) => {
+                    if seen.is_some() {
+                        cwd = seen;
+                    }
+                }
+                Some(event @ SessionEvent::AssistantUsage { .. }) => {
+                    if let Some(row) = spend_row(&event, &session_id, cwd.as_deref()) {
+                        rows.push(row);
+                    }
+                }
+                _ => {}
+            }
+        }
+        store.record_spend(&rows)?;
+        scanned += 1;
+    }
+    Ok(scanned)
 }
 
 fn fresh_summary(path: &Path) -> SessionSummary {
@@ -157,6 +246,44 @@ mod tests {
         assert!(offset_after > offset_before);
         assert_eq!(summary.last_prompt.as_deref(), Some("now run tests"));
         assert_eq!(summary.recent_prompts.len(), 2);
+    }
+
+    #[test]
+    fn same_pass_feeds_the_spend_ledger_idempotently() {
+        use crate::domain::spend::SpendSource;
+        use crate::ports::{SpendGroup, SpendLedger, SpendQuery};
+        let assistant = |ts: &str, req: &str| {
+            format!(
+                r#"{{"type":"assistant","timestamp":"{ts}","requestId":"{req}","message":{{"role":"assistant","model":"claude-sonnet-5","content":[],"usage":{{"input_tokens":3,"output_tokens":7,"cache_read_input_tokens":11,"cache_creation_input_tokens":13}}}}}}"#
+            )
+        };
+        let dir = tempfile::tempdir().unwrap();
+        write_session(
+            dir.path(),
+            "sess-2.jsonl",
+            &[
+                user_line("2026-08-14T10:00:00.000Z", "work"),
+                assistant("2026-08-14T10:00:05.000Z", "req-a"),
+                // Same requestId repeated on a second line (real CLI behavior).
+                assistant("2026-08-14T10:00:05.000Z", "req-a"),
+                assistant("2026-08-14T10:00:09.000Z", "req-b"),
+            ],
+        );
+        let mut store = SqliteStore::in_memory().unwrap();
+        refresh_index(dir.path(), &mut store).unwrap();
+
+        let agg = store
+            .spend_summary(&SpendQuery {
+                since: None,
+                group: SpendGroup::Session,
+                source: SpendSource::Jsonl,
+            })
+            .unwrap();
+        assert_eq!(agg.len(), 1);
+        assert_eq!(agg[0].key, "sess-2");
+        assert_eq!(agg[0].usage.input, 6, "duplicate requestId collapses");
+        assert_eq!(agg[0].usage.output, 14);
+        assert_eq!(agg[0].usage.cache_read, 22);
     }
 
     /// Ensure mtime visibly changes even on coarse-grained filesystems.

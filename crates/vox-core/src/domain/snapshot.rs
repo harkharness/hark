@@ -60,7 +60,11 @@ impl SessionSummary {
                     ..self
                 }
             }
-            SessionEvent::Activity { ts } => Self {
+            // Usage/compaction events only refresh the activity timestamp
+            // here; their token payload feeds the spend ledger separately.
+            SessionEvent::Activity { ts }
+            | SessionEvent::AssistantUsage { ts, .. }
+            | SessionEvent::CompactBoundary { ts, .. } => Self {
                 last_ts: self.last_ts.max(Some(ts)),
                 ..self
             },

@@ -390,6 +390,8 @@ enum DispatchOut {
     Failed {
         task_id: String,
         summary: String,
+        /// Even failed turns burn tokens; the UI shows it.
+        cost_usd: Option<f64>,
     },
     Choice {
         candidates: Vec<Candidate>,
@@ -515,12 +517,17 @@ fn start_worker(
     let workspace = spawn.cwd.clone();
     let is_new_session = spawn.session_id.is_empty();
     let board_title: String = spawn.instruction.chars().take(60).collect();
+    let mut current_session = spawn.session_id.clone();
     std::thread::spawn(move || {
         use std::io::{BufRead, BufReader};
         let config = Config::load();
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             match vox_core::domain::claude_event::parse(&line) {
-                ClaudeEvent::SessionStarted(session_id) if is_new_session => {
+                ClaudeEvent::SessionStarted(session_id) => {
+                    current_session = session_id.clone();
+                    if !is_new_session {
+                        continue;
+                    }
                     // A fresh session finally has an id: link registry+board.
                     let mut gstate = state_file::load(&config.data_dir());
                     if let Some(w) = gstate.workers.iter_mut().find(|w| w.task_id == task2) {
@@ -591,6 +598,19 @@ fn start_worker(
                     let _ = memory_files::append_state(
                         &workspace,
                         &format!("- {} {task2} [turn] {}", now_iso(), turn.raw.chars().take(160).collect::<String>()),
+                    );
+                    let workspace_str = workspace.display().to_string();
+                    record_live_spend(
+                        &config,
+                        vox_core::domain::spend::SpendKind::Worker,
+                        &vox_core::domain::spend::SpendMeta {
+                            task_id: Some(&task2),
+                            session_id: (!current_session.is_empty())
+                                .then_some(current_session.as_str()),
+                            workspace: Some(&workspace_str),
+                            ..Default::default()
+                        },
+                        &turn,
                     );
                     emit_event(
                         &app2,
@@ -690,6 +710,24 @@ fn chat_start(
     };
     start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
     Ok(DispatchOut::Started { task_id, directives })
+}
+
+/// Persist one live turn into the spend ledger. Failures never break the
+/// flow: the ledger is bookkeeping, not the critical path.
+fn record_live_spend(
+    config: &Config,
+    kind: vox_core::domain::spend::SpendKind,
+    meta: &vox_core::domain::spend::SpendMeta,
+    turn: &vox_core::domain::claude_event::TurnResult,
+) {
+    use vox_core::ports::SpendLedger;
+    let rows = vox_core::domain::spend::rows_from_turn(&now_iso(), kind, meta, turn);
+    if rows.is_empty() {
+        return;
+    }
+    if let Ok(mut store) = SqliteStore::open(&config.data_dir().join("index.db")) {
+        let _ = store.record_spend(&rows);
+    }
 }
 
 fn update_worker_summary(config: &Config, task_id: &str, summary: &str) {
@@ -896,6 +934,22 @@ fn dispatch_text(
         },
     );
 
+    // Ledger before anything else: even failed turns burned tokens.
+    if let Ok(turn) = &result {
+        let workspace_str = planned.workspace_root.display().to_string();
+        record_live_spend(
+            &config,
+            vox_core::domain::spend::SpendKind::Dispatch,
+            &vox_core::domain::spend::SpendMeta {
+                task_id: Some(&task_id),
+                session_id: Some(&planned.session.session_id),
+                workspace: Some(&workspace_str),
+                ..Default::default()
+            },
+            turn,
+        );
+    }
+
     let (status, out) = match &result {
         Ok(turn) if !turn.is_error => (
             WorkerStatus::Done,
@@ -910,6 +964,7 @@ fn dispatch_text(
             DispatchOut::Failed {
                 task_id: task_id.clone(),
                 summary: turn.raw.clone(),
+                cost_usd: turn.cost_usd,
             },
         ),
         Err(err) => (
@@ -917,6 +972,7 @@ fn dispatch_text(
             DispatchOut::Failed {
                 task_id: task_id.clone(),
                 summary: format!("{err:#}"),
+                cost_usd: None,
             },
         ),
     };
@@ -1114,6 +1170,7 @@ fn evaluate(
         .map(|t| format!("- {} [{:?}]", t.title, t.status))
         .collect();
 
+    let ledger_session = focused_session.clone();
     let ctx = gate::GateContext {
         focused_task,
         focused_session,
@@ -1176,10 +1233,30 @@ fn evaluate(
     let _ = child.wait();
 
     let turn = result.ok_or("avaliador não respondeu")?;
-    let decision: vox_core::domain::gate::GateDecision =
-        serde_json::from_str::<vox_core::domain::gate::GateDecision>(&turn.raw)
-            .map_err(|e| format!("gate parse: {e}"))?
-            .sanitized();
+    let decision_parse = serde_json::from_str::<vox_core::domain::gate::GateDecision>(&turn.raw);
+    // Ledger with the verdict as outcome (feeds the savings counters);
+    // a failed parse still cost a haiku turn.
+    let outcome = match &decision_parse {
+        Ok(d) => format!(
+            "gate:{}",
+            serde_json::to_string(&d.acao).unwrap_or_default().trim_matches('"')
+        ),
+        Err(_) => "gate:parse_error".into(),
+    };
+    record_live_spend(
+        &config,
+        vox_core::domain::spend::SpendKind::Gate,
+        &vox_core::domain::spend::SpendMeta {
+            label: Some("avaliador"),
+            session_id: ledger_session.as_deref(),
+            outcome: Some(&outcome),
+            ..Default::default()
+        },
+        &turn,
+    );
+    let decision = decision_parse
+        .map_err(|e| format!("gate parse: {e}"))?
+        .sanitized();
     Ok(GateOut {
         needs_confirmation: decision.needs_confirmation(),
         acao: decision.acao,

@@ -57,7 +57,31 @@ pub fn ask_with_image(
         image,
         model: &model,
     };
-    let result = deps.runner.ask(&request, on_event)?;
+    let mut turn_session: Option<String> = None;
+    let result = deps.runner.ask(&request, &mut |event| {
+        if let ClaudeEvent::SessionStarted(id) = event {
+            turn_session = Some(id.clone());
+        }
+        on_event(event);
+    })?;
+
+    // Ledger first, reply later: failed turns burn tokens too.
+    {
+        let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        let meta = crate::domain::spend::SpendMeta {
+            label: Some("vox (perguntas)"),
+            session_id: turn_session.as_deref(),
+            workspace: context.as_ref().and_then(|c| c.repos.first()).map(String::as_str),
+            ..Default::default()
+        };
+        let rows = crate::domain::spend::rows_from_turn(
+            &now,
+            crate::domain::spend::SpendKind::Ask,
+            &meta,
+            &result,
+        );
+        let _ = deps.store.record_spend(&rows);
+    }
 
     if let Some(reply) = &result.reply {
         let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);

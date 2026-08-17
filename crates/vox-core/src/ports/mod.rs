@@ -23,8 +23,47 @@ pub trait AgentRunner {
     ) -> anyhow::Result<TurnResult>;
 }
 
+/// The persistent token/cost ledger. Every Claude turn lands here — the
+/// window closing must never erase what was spent.
+pub trait SpendLedger {
+    fn record_spend(&mut self, rows: &[crate::domain::spend::SpendRow]) -> anyhow::Result<()>;
+    /// Aggregate over a window. USD aggregations must filter source=live;
+    /// token aggregations source=jsonl (never sum across sources).
+    fn spend_summary(&self, query: &SpendQuery) -> anyhow::Result<Vec<SpendAgg>>;
+    /// Most expensive sessions in USD (live rows), newest window first.
+    fn spend_top_sessions(&self, since: &str, limit: usize) -> anyhow::Result<Vec<SpendAgg>>;
+}
+
+/// Ledger aggregation request.
+pub struct SpendQuery {
+    /// ISO-8601 lower bound (inclusive); None = everything.
+    pub since: Option<String>,
+    pub group: SpendGroup,
+    pub source: crate::domain::spend::SpendSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpendGroup {
+    Kind,
+    Model,
+    Label,
+    Workspace,
+    Day,
+    Session,
+}
+
+/// One aggregated ledger bucket.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpendAgg {
+    pub key: String,
+    pub cost_usd: f64,
+    pub usage: crate::domain::claude_event::TokenUsage,
+    pub turns: u64,
+    pub errors: u64,
+}
+
 /// Persistent index of session summaries and file read offsets.
-pub trait SessionStore {
+pub trait SessionStore: SpendLedger {
     /// Stored fold state for a log file: (summary so far, byte offset, mtime).
     fn file_state(&self, path: &str) -> anyhow::Result<Option<(SessionSummary, u64, i64)>>;
     fn save_file_state(
