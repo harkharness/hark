@@ -1,0 +1,90 @@
+import { useEffect, useState } from "react";
+import * as ipc from "../lib/ipc";
+
+type Stats = { title: string | null; size_mb: number; entries: number; last_ts: string | null };
+
+/**
+ * Scope popover: what am I focused on, how heavy is that session on a
+ * resume, and what this window has spent so far. All local, zero tokens.
+ */
+export default function SessionInfo({
+  taskTitle,
+  sessionId,
+  projectName,
+  costs,
+  onClose,
+}: {
+  taskTitle?: string;
+  sessionId?: string;
+  projectName?: string;
+  costs: Record<string, number>;
+  onClose: () => void;
+}) {
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    ipc
+      .sessionStats(sessionId)
+      .then(setStats)
+      .catch((err) => setError(String(err)));
+  }, [sessionId]);
+
+  const total = Object.values(costs).reduce((a, b) => a + b, 0);
+  const spent = Object.entries(costs).sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div className="scope-pop" onMouseLeave={onClose}>
+      <div className="scope-row head">
+        <span>{taskTitle ?? "nenhuma task focada"}</span>
+      </div>
+      {projectName && (
+        <div className="scope-row">
+          <span>projeto</span>
+          <b>{projectName}</b>
+        </div>
+      )}
+      {stats && (
+        <>
+          {stats.title && stats.title !== taskTitle && (
+            <div className="scope-row">
+              <span>sessão</span>
+              <b>{stats.title.slice(0, 34)}</b>
+            </div>
+          )}
+          <div className="scope-row">
+            <span>peso do resume</span>
+            <b className={stats.size_mb > 2 ? "warn" : ""}>{stats.size_mb.toFixed(1)} MB</b>
+          </div>
+          <div className="scope-row">
+            <span>eventos no log</span>
+            <b>{stats.entries}</b>
+          </div>
+          {stats.last_ts && (
+            <div className="scope-row">
+              <span>última atividade</span>
+              <b>{stats.last_ts.slice(0, 16).replace("T", " ")}</b>
+            </div>
+          )}
+        </>
+      )}
+      {error && <div className="scope-row"><span className="warn">{error}</span></div>}
+      <div className="scope-row head">
+        <span>gasto nesta janela</span>
+        <b>${total.toFixed(4)}</b>
+      </div>
+      {spent.slice(0, 6).map(([label, usd]) => (
+        <div className="scope-row" key={label}>
+          <span>{label.slice(0, 30)}</span>
+          <b>${usd.toFixed(4)}</b>
+        </div>
+      ))}
+      {spent.length === 0 && (
+        <div className="scope-row">
+          <span>nada gasto ainda</span>
+        </div>
+      )}
+    </div>
+  );
+}

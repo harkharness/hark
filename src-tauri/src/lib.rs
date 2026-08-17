@@ -925,6 +925,47 @@ fn dispatch_text(
 }
 
 #[derive(Serialize)]
+struct SessionStats {
+    title: Option<String>,
+    /// Session log size on disk: the weight a resume drags along.
+    size_mb: f64,
+    /// Lines in the log (rough message/event count).
+    entries: usize,
+    last_ts: Option<String>,
+}
+
+/// Cheap local stats for one session (drives the scope popover). The size
+/// is the same signal the gate uses to warn about expensive resumes.
+#[tauri::command(async)]
+fn session_stats(session_id: String) -> Result<SessionStats, String> {
+    use vox_core::ports::SessionStore;
+    let config = Config::load();
+    let store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let path = store
+        .session_path(&session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("sessão não está no índice")?;
+    let (title, last_ts) = store
+        .file_state(&path)
+        .map_err(|e| e.to_string())?
+        .map(|(s, _, _)| (s.title, s.last_ts))
+        .unwrap_or_default();
+    let size_mb = std::fs::metadata(&path)
+        .map(|m| m.len() as f64 / 1_048_576.0)
+        .unwrap_or(0.0);
+    let entries = std::fs::read_to_string(&path)
+        .map(|c| c.lines().count())
+        .unwrap_or(0);
+    Ok(SessionStats {
+        title,
+        size_mb,
+        entries,
+        last_ts,
+    })
+}
+
+#[derive(Serialize)]
 struct TranscriptOut {
     /// The session's own title, as shown in Claude Code.
     session_title: Option<String>,
@@ -1295,6 +1336,7 @@ pub fn run() {
             file_save,
             read_transcript,
             find_session,
+            session_stats,
             task_command,
             evaluate,
             board_move,

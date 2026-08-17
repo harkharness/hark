@@ -57,7 +57,40 @@ body {
 .topbar .state.busy { color: var(--warn); }
 .topbar .scope {
   color: var(--dim); font-size: 12px; border: 1px solid var(--border);
-  border-radius: 10px; padding: 2px 10px;
+  border-radius: 10px; padding: 2px 10px; background: none; font-family: inherit;
+  cursor: pointer;
+}
+.topbar .scope:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.topbar .scope.on { color: var(--accent); border-color: var(--accent); }
+.topbar .scope:disabled { opacity: .4; cursor: default; }
+
+/* scope/session stats popover */
+.scope-pop {
+  position: fixed; top: 42px; right: 120px; z-index: 12; min-width: 300px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px; box-shadow: 0 12px 36px rgba(0,0,0,.55); font-size: 12px;
+}
+.scope-row {
+  display: flex; justify-content: space-between; gap: 14px;
+  padding: 3px 4px; color: var(--dim);
+}
+.scope-row b { color: var(--text); font-weight: 600; }
+.scope-row b.warn, .scope-row .warn { color: var(--warn); }
+.scope-row.head {
+  color: var(--accent); border-top: 1px solid var(--border);
+  margin-top: 6px; padding-top: 8px;
+}
+.scope-pop .scope-row.head:first-child { border-top: none; margin-top: 0; padding-top: 3px; }
+
+/* per-task terminal pane */
+.termpane {
+  display: flex; flex-direction: column; height: 100%;
+  background: var(--bg); border-left: 1px solid var(--border);
+}
+.term-body {
+  flex: 1; overflow: auto; margin: 0; padding: 10px 12px;
+  font-size: 11px; line-height: 1.6; color: var(--dim);
+  white-space: pre-wrap; word-break: break-all;
 }
 
 /* ---- clickable file tree (sidebar) ---- */

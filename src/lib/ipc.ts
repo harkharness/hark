@@ -59,6 +59,13 @@ export const readTranscript = (sessionId: string, limit?: number) =>
 export const findSession = (query: string) =>
   invoke<{ session_id: string; title?: string } | null>("find_session", { query });
 
+/** Local, zero-token stats of one session (size = resume weight). */
+export const sessionStats = (sessionId: string) =>
+  invoke<{ title: string | null; size_mb: number; entries: number; last_ts: string | null }>(
+    "session_stats",
+    { sessionId },
+  );
+
 export const taskCommand = (text: string) =>
   invoke<TaskCommandResult | null>("task_command", { text });
 

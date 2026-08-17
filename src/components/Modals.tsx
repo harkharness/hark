@@ -27,7 +27,7 @@ export default function Modals({
   focusedTaskTitle?: string;
   liveWorkers: Record<string, LiveWorker>;
   messages: Msg[];
-  onDispatch: (instruction: string, sessionId?: string) => void;
+  onDispatch: (instruction: string, sessionId?: string, taskTitle?: string) => void;
   onFocusWorker: (taskId: string) => void;
 }) {
   if (!pending) return null;
@@ -110,9 +110,9 @@ export default function Modals({
             <button
               className="allow"
               onClick={() => {
-                const { instruction, sessionId } = pending;
+                const { instruction, sessionId, title } = pending;
                 setPending(null);
-                onDispatch(instruction, sessionId);
+                onDispatch(instruction, sessionId, title);
               }}
             >
               despachar

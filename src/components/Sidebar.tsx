@@ -50,8 +50,16 @@ export default function Sidebar({
   /** Projects whose clickable file tree is expanded. */
   const [treesOpen, setTreesOpen] = useState<Set<string>>(new Set());
 
-  const ordered = [...tasks].sort((a, b) => {
+  // Finished tasks sink to the bottom and vanish after a week (still
+  // recoverable by search/voice: "retoma a task do hydrator").
+  const WEEK_MS = 7 * 24 * 3600 * 1000;
+  const visible = (t: BoardTask) =>
+    t.status !== "done" || Date.now() - Date.parse(t.updated_at) < WEEK_MS;
+  const ordered = [...tasks].filter(visible).sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    const doneA = a.status === "done" ? 1 : 0;
+    const doneB = b.status === "done" ? 1 : 0;
+    if (doneA !== doneB) return doneA - doneB;
     return b.updated_at.localeCompare(a.updated_at);
   });
   const inProject = (t: BoardTask, p: Project) =>

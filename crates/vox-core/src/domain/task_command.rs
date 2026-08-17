@@ -49,6 +49,9 @@ const OPEN_VERBS: &[&str] = &[
 const SWITCH_VERBS: &[&str] = &[
     "vai pra task", "vai para a task", "vai pra tarefa", "vai para a tarefa",
     "troca para a task", "troca pra task", "muda para a task", "muda pra task",
+    // Recovery of finished/hidden tasks: focusing one pulls it back to work.
+    "retoma a task", "retomar a task", "retoma a tarefa", "retomar a tarefa",
+    "reabre a task", "reabrir a task", "volta pra task", "volta para a task",
 ];
 const RENAME_VERBS: &[&str] = &["renomeia", "renomear", "muda o titulo", "muda o título", "renomeie"];
 const PIN_VERBS: &[&str] = &["fixa ", "fixar ", "prende "];
@@ -213,6 +216,31 @@ mod tests {
             Some(TaskCommand::Switch {
                 query: "alertas".into(),
                 instruction: None
+            })
+        );
+    }
+
+    #[test]
+    fn recovers_finished_tasks_by_resume_verbs() {
+        assert_eq!(
+            parse("retoma a task do hydrator"),
+            Some(TaskCommand::Switch {
+                query: "hydrator".into(),
+                instruction: None
+            })
+        );
+        assert_eq!(
+            parse("quero retomar a task do hydrator"),
+            Some(TaskCommand::Switch {
+                query: "hydrator".into(),
+                instruction: None
+            })
+        );
+        assert_eq!(
+            parse("reabre a task dos alertas e continua a revisão"),
+            Some(TaskCommand::Switch {
+                query: "alertas".into(),
+                instruction: Some("continua a revisão".into())
             })
         );
     }

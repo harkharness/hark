@@ -14,9 +14,16 @@ type Handlers = {
   setLiveWorkers: React.Dispatch<React.SetStateAction<Record<string, LiveWorker>>>;
   onWorkerExit: (taskId: string) => void;
   onSessionStarted: (taskId: string, sessionId: string) => void;
+  /** Raw per-thread feed (the task's own "terminal"). */
+  pushRaw: (label: string, line: string) => void;
+  /** Window-accumulated spend, per thread label. */
+  addCost: (label: string, usd: number) => void;
   speakRef: React.RefObject<boolean>;
   refresh: () => void;
 };
+
+const ts = () => new Date().toTimeString().slice(0, 8);
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
 export function useVoxEvents(h: Handlers) {
   useEffect(() => {
@@ -24,8 +31,10 @@ export function useVoxEvents(h: Handlers) {
       const ev = e.payload;
       if (ev.kind === "assistant_text") {
         h.push({ who: "vox", text: ev.text, task: h.labelFor(ev.task_id) });
+        h.pushRaw(h.labelFor(ev.task_id), `${ts()} ${clip(ev.text, 400)}`);
       } else if (ev.kind === "worker") {
         h.push({ who: "tool", name: ev.name, input: ev.input, task: h.labelFor(ev.task_id) });
+        h.pushRaw(h.labelFor(ev.task_id), `${ts()} ⚙ ${ev.name} ${clip(ev.input, 400)}`);
       } else if (ev.kind === "tool_result") {
         h.push({
           who: "output",
@@ -33,8 +42,17 @@ export function useVoxEvents(h: Handlers) {
           error: ev.is_error,
           task: h.labelFor(ev.task_id),
         });
+        h.pushRaw(
+          h.labelFor(ev.task_id),
+          `${ts()} ${ev.is_error ? "✗" : "✓"} ${clip(ev.content, 400)}`,
+        );
       } else if (ev.kind === "worker_turn") {
         const label = h.labelFor(ev.task_id);
+        h.pushRaw(
+          label,
+          `${ts()} ── turno ${ev.is_error ? "FALHOU " : ""}${ev.model ?? ""} $${(ev.cost_usd ?? 0).toFixed(4)}`,
+        );
+        if (ev.cost_usd) h.addCost(label, ev.cost_usd);
         // The final assistant_text often equals the result: don't show twice.
         h.setMessages((old) => {
           const lastVox = [...old]
@@ -89,6 +107,7 @@ export function useVoxEvents(h: Handlers) {
         input: ask.input,
         task: h.labelFor(ask.task_id),
       });
+      h.pushRaw(h.labelFor(ask.task_id), `${ts()} 🔐 ${ask.tool_name} aguardando decisão`);
       h.setLiveWorkers((old) =>
         old[ask.task_id]
           ? { ...old, [ask.task_id]: { ...old[ask.task_id], status: "awaiting" } }

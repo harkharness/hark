@@ -11,7 +11,9 @@ import FileViewer from "./components/FileViewer";
 import Modals, { type Pending } from "./components/Modals";
 import QuickOpen from "./components/QuickOpen";
 import Reader from "./components/Reader";
+import SessionInfo from "./components/SessionInfo";
 import Sidebar from "./components/Sidebar";
+import TerminalPane from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import WorkerChips from "./components/WorkerChips";
 import { useVoxEvents } from "./hooks/useVoxEvents";
@@ -53,6 +55,11 @@ export default function App() {
   const [speak, setSpeak] = useState(true);
   const [viewer, setViewer] = useState<OpenFile | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
+  // Per-thread raw worker feed (the task's "terminal") and window spend.
+  const [rawLog, setRawLog] = useState<Record<string, string[]>>({});
+  const [costs, setCosts] = useState<Record<string, number>>({});
+  const [termOpen, setTermOpen] = useState(false);
+  const [scopeInfo, setScopeInfo] = useState(false);
 
   const workersRef = useRef(liveWorkers);
   workersRef.current = liveWorkers;
@@ -76,6 +83,12 @@ export default function App() {
   const say = useCallback((text: string) => {
     if (speakRef.current) ipc.speak(text).catch(() => {});
   }, []);
+  const pushRaw = useCallback((label: string, line: string) => {
+    setRawLog((old) => ({ ...old, [label]: [...(old[label] ?? []), line].slice(-500) }));
+  }, []);
+  const addCost = useCallback((label: string, usd: number) => {
+    setCosts((old) => ({ ...old, [label]: (old[label] ?? 0) + usd }));
+  }, []);
 
   useEffect(refresh, [refresh]);
 
@@ -84,6 +97,8 @@ export default function App() {
     push,
     setMessages,
     setLiveWorkers,
+    pushRaw,
+    addCost,
     speakRef,
     refresh,
     onWorkerExit: useCallback((taskId: string) => {
@@ -165,6 +180,7 @@ export default function App() {
         cost: reply.cost_usd,
         model: reply.model,
       });
+      if (reply.cost_usd) addCost("vox (perguntas)", reply.cost_usd);
       say(reply.fala);
     } catch (err) {
       push({ who: "sys", text: `erro: ${err}` });
@@ -352,6 +368,7 @@ export default function App() {
         .catch(() => null);
       setBusy(null);
       if (gate) {
+        if (gate.cost_usd) addCost("avaliador", gate.cost_usd);
         push({
           who: "sys",
           text: `avaliador: ${gate.acao} (${Math.round(gate.confianca * 100)}%) · ${gate.motivo}${gate.aviso ? ` · ⚠ ${gate.aviso}` : ""} · $${(gate.cost_usd ?? 0).toFixed(4)}`,
@@ -439,6 +456,16 @@ export default function App() {
     .reverse()
     .find((m) => m.who === "permission" && !m.decision);
 
+  /** A finished task that receives work again comes back to "doing". */
+  async function reactivateIfDone(title: string) {
+    const task = (overview?.board ?? []).find((t) => t.title === title);
+    if (task?.status === "done") {
+      await ipc.boardMove(title, "doing").catch(() => {});
+      push({ who: "sys", text: `task "${title}" reativada (done → doing)`, task: title });
+      refresh();
+    }
+  }
+
   /**
    * Focus a task INSIDE the chat: pull the tail of its real history into
    * the transcript (free, straight from the log file).
@@ -449,7 +476,19 @@ export default function App() {
     if (loadedTasks.current.has(title)) return; // thread already built once
     loadedTasks.current.add(title);
     try {
-      const out = await ipc.readTranscript(sessionId, 12);
+      const out = await ipc.readTranscript(sessionId, 12).catch(async (err) => {
+        // Linked session vanished from disk (os error 2): fall back to the
+        // best topic match instead of a dead end.
+        const hit = await ipc.findSession(title).catch(() => null);
+        if (!hit || hit.session_id === sessionId) throw err;
+        setFocusedTask({ title, sessionId: hit.session_id, note });
+        push({
+          who: "sys",
+          text: `sessão vinculada sumiu; usando "${hit.title ?? hit.session_id.slice(0, 8)}"`,
+          task: title,
+        });
+        return ipc.readTranscript(hit.session_id, 12);
+      });
       for (const e of out.entries) {
         if (e.role === "user") push({ who: "user", text: e.text, task: title });
         else if (e.role === "assistant") push({ who: "vox", text: e.text, task: title });
@@ -473,6 +512,7 @@ export default function App() {
     text: string,
     img: string | null,
   ) {
+    await reactivateIfDone(title);
     const liveEntry = Object.entries(liveWorkers).find(([, w]) => w.label === title);
     push({ who: "user", text, image: img ?? undefined, task: title });
     if (liveEntry) {
@@ -549,9 +589,21 @@ export default function App() {
             board
           </button>
         </nav>
-        <span className="scope" title="escopo atual: segue a task/projeto focado">
+        <button
+          className="scope"
+          title="escopo atual (clique: stats da sessão e gastos)"
+          onClick={() => setScopeInfo((s) => !s)}
+        >
           🗂 {activeProject?.name ?? "todos"}
-        </span>
+        </button>
+        <button
+          className={`scope ${termOpen ? "on" : ""}`}
+          title="terminal da task focada (feed bruto do worker)"
+          onClick={() => setTermOpen((t) => !t)}
+          disabled={!focusedTask}
+        >
+          {">_"}
+        </button>
         <label>
           <input type="checkbox" checked={speak} onChange={(e) => setSpeak(e.target.checked)} />{" "}
           voz
@@ -673,6 +725,18 @@ export default function App() {
               </Panel>
             </>
           )}
+          {termOpen && focusedTask && (
+            <>
+              <PanelResizeHandle className="rhandle" />
+              <Panel defaultSize={34} minSize={18} className="pane">
+                <TerminalPane
+                  label={focusedTask.title}
+                  lines={rawLog[focusedTask.title] ?? []}
+                  onClose={() => setTermOpen(false)}
+                />
+              </Panel>
+            </>
+          )}
         </PanelGroup>
       ) : reading ? (
         <Reader
@@ -700,6 +764,16 @@ export default function App() {
         />
       )}
 
+      {scopeInfo && (
+        <SessionInfo
+          taskTitle={focusedTask?.title}
+          sessionId={focusedTask?.sessionId || undefined}
+          projectName={activeProject?.name}
+          costs={costs}
+          onClose={() => setScopeInfo(false)}
+        />
+      )}
+
       {quickOpen && (
         <QuickOpen
           projects={projects}
@@ -718,8 +792,10 @@ export default function App() {
         focusedTaskTitle={focusedTask?.title}
         liveWorkers={liveWorkers}
         messages={messages}
-        onDispatch={(instruction, sessionId) => {
+        onDispatch={(instruction, sessionId, taskTitle) => {
           setTab("code");
+          const title = taskTitle ?? focusedTask?.title;
+          if (title) reactivateIfDone(title);
           runDispatch(instruction, sessionId);
         }}
         onFocusWorker={(taskId) => setFocused(taskId)}
