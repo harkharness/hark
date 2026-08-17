@@ -100,28 +100,106 @@ fn compact(text: &str, max: usize) -> String {
 
 /// Render the full user prompt: context snapshot + the spoken question.
 pub fn build(question: &str, snapshot: &Snapshot) -> String {
-    let sessions = sorted_sessions(snapshot);
-    let sections = [
+    build_budgeted(question, snapshot, &[], &PromptBudget::default())
+}
+
+/// Character budget for the whole prompt (~chars/4 tokens). Default keeps
+/// the ask around 3k input tokens without dropping anything essential.
+#[derive(Debug, Clone, Copy)]
+pub struct PromptBudget {
+    pub max_chars: usize,
+}
+
+impl Default for PromptBudget {
+    fn default() -> Self {
+        Self { max_chars: 12_000 }
+    }
+}
+
+/// Rough token count (chars/4): good enough to budget a prompt.
+pub fn estimate_tokens(text: &str) -> usize {
+    text.chars().count() / 4
+}
+
+/// Budget-aware prompt: sections irrelevant to the question are dropped,
+/// topic-matched sessions survive the cut FIRST (they exist because the
+/// question asked for them), and session blocks stop when the budget is
+/// hit — never cut mid-block. Board, workers and the question always fit.
+pub fn build_budgeted(
+    question: &str,
+    snapshot: &Snapshot,
+    topical_ids: &[String],
+    budget: &PromptBudget,
+) -> String {
+    let q = question.to_lowercase();
+    let wants_repos = ["git", "branch", "commit", "deploy", "repo", "pr ", " pr", "diff"]
+        .iter()
+        .any(|t| q.contains(t));
+    // Follow-ups lean on the journal; standalone questions don't need it.
+    let wants_journal = q.split_whitespace().count() <= 8
+        || ["isso", "aquilo", "dela", "dele", "anterior", "ontem", "continua"]
+            .iter()
+            .any(|t| q.contains(t));
+
+    let mut fixed = vec![
         format!("Contexto gerado em: {}", snapshot.generated_at),
         board_section(&snapshot.board),
         live_section(&snapshot.live),
         workers_section(&snapshot.workers),
-        repos_section(&snapshot.repos),
-        sessions_section(&sessions),
-        journal_section(&snapshot.journal),
+    ];
+    if wants_repos {
+        fixed.push(repos_section(&snapshot.repos));
+    }
+    let tail_sections = [
+        if wants_journal {
+            journal_section(&snapshot.journal)
+        } else {
+            String::new()
+        },
         format!("Pergunta do usuario (por voz):\n{question}"),
     ];
-    sections
-        .iter()
+
+    let spent: usize = fixed.iter().chain(tail_sections.iter()).map(|s| s.chars().count()).sum();
+    let room = budget.max_chars.saturating_sub(spent);
+
+    // Topical sessions first, then the recent window, into the budget.
+    let ordered = sorted_sessions(snapshot, topical_ids);
+    let mut blocks: Vec<String> = Vec::new();
+    let mut used = 0usize;
+    for session in ordered {
+        let block = session_block(session);
+        let len = block.chars().count();
+        if used + len > room {
+            break;
+        }
+        used += len;
+        blocks.push(block);
+    }
+    let sessions_text = if blocks.is_empty() {
+        String::new()
+    } else {
+        format!("Sessoes recentes do Claude Code:\n\n{}", blocks.join("\n\n"))
+    };
+
+    fixed
+        .into_iter()
+        .chain(std::iter::once(sessions_text))
+        .chain(tail_sections)
         .filter(|s| !s.is_empty())
-        .cloned()
         .collect::<Vec<_>>()
         .join("\n\n")
 }
 
-fn sorted_sessions(snapshot: &Snapshot) -> Vec<&SessionSummary> {
+/// Topic hits first (the question summoned them), then recency.
+fn sorted_sessions<'a>(snapshot: &'a Snapshot, topical_ids: &[String]) -> Vec<&'a SessionSummary> {
     let mut sessions: Vec<_> = snapshot.sessions.iter().collect();
-    sessions.sort_by(|a, b| b.last_ts.cmp(&a.last_ts));
+    sessions.sort_by(|a, b| {
+        let topical_a = topical_ids.contains(&a.session_id);
+        let topical_b = topical_ids.contains(&b.session_id);
+        topical_b
+            .cmp(&topical_a)
+            .then_with(|| b.last_ts.cmp(&a.last_ts))
+    });
     sessions.truncate(MAX_SESSIONS);
     sessions
 }
@@ -206,17 +284,6 @@ fn repos_section(repos: &[RepoStatus]) -> String {
         })
         .collect();
     format!("Repositorios monitorados:\n{}", lines.join("\n"))
-}
-
-fn sessions_section(sessions: &[&SessionSummary]) -> String {
-    if sessions.is_empty() {
-        return "Nenhuma sessao recente no historico.".to_string();
-    }
-    let blocks: Vec<String> = sessions.iter().map(|s| session_block(s)).collect();
-    format!(
-        "Historico de sessoes recentes (mais nova primeiro):\n{}",
-        blocks.join("\n")
-    )
 }
 
 fn session_block(s: &SessionSummary) -> String {
@@ -328,11 +395,70 @@ mod tests {
         assert!(text.contains("feat/webhook"));
         assert!(text.contains("open the PR"));
         assert!(text.contains("beta-42"));
-        assert!(text.contains("dirty files: 3"));
+        // Repos are pruned: this question says nothing about git/deploy.
+        assert!(!text.contains("dirty files: 3"));
         // Newest session must come before the older one.
         let newest = text.find("Webhook migration").unwrap();
         let oldest = text.find("Alpha refactor").unwrap();
         assert!(newest < oldest);
+    }
+
+    #[test]
+    fn git_questions_keep_the_repos_section() {
+        let text = build("qual branch está com commit pendente?", &snapshot());
+        assert!(text.contains("dirty files: 3"));
+    }
+
+    #[test]
+    fn budget_cuts_whole_session_blocks_never_essentials() {
+        let mut snap = snapshot();
+        snap.sessions = (0..40)
+            .map(|i| SessionSummary {
+                session_id: format!("s{i}"),
+                last_ts: Some(format!("2026-08-14T{:02}:00:00.000Z", i % 24)),
+                last_prompt: Some(format!("prompt {i} {}", "x".repeat(300))),
+                ..SessionSummary::new(format!("s{i}"))
+            })
+            .collect();
+        let budget = PromptBudget { max_chars: 4000 };
+        let text = build_budgeted("o que ficou pendente?", &snap, &[], &budget);
+        assert!(text.chars().count() <= 4600, "orçamento respeitado (+ folga de seções fixas)");
+        assert!(text.contains("Pergunta do usuario"), "pergunta sempre presente");
+        assert!(text.contains("Quadro de tarefas") || !snap.board.is_empty());
+        let rendered = text.matches("- sessao ").count();
+        assert!(rendered > 0 && rendered < 40, "corta blocos inteiros: {rendered}");
+    }
+
+    #[test]
+    fn topical_sessions_survive_the_cut_first() {
+        let mut snap = snapshot();
+        // 30 recent noise sessions + 1 OLD topical session.
+        snap.sessions = (0..30)
+            .map(|i| SessionSummary {
+                session_id: format!("recent{i}"),
+                last_ts: Some(format!("2026-08-14T{:02}:30:00.000Z", i % 24)),
+                last_prompt: Some("ruído".into()),
+                ..SessionSummary::new(format!("recent{i}"))
+            })
+            .collect();
+        snap.sessions.push(SessionSummary {
+            session_id: "old-webhook".into(),
+            last_ts: Some("2026-01-01T00:00:00.000Z".into()),
+            title: Some("Webhook antiga".into()),
+            last_prompt: Some("migrar webhook".into()),
+            ..SessionSummary::new("old-webhook")
+        });
+        let budget = PromptBudget { max_chars: 2500 };
+        let text = build_budgeted(
+            "como está o webhook?",
+            &snap,
+            &["old-webhook".to_string()],
+            &budget,
+        );
+        assert!(
+            text.contains("Webhook antiga"),
+            "a sessão topical antiga NUNCA pode ser ejetada pelo corte"
+        );
     }
 
     #[test]

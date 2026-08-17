@@ -478,6 +478,7 @@ fn worker_start(
 
     let directives = vox_core::domain::directives::parse(&instruction);
     let spawn = vox_core::adapters::worker::WorkerSpawn {
+        limits: config.spawn_limits(),
         claude_bin: config.claude_bin_resolved(),
         cwd: planned.workspace_root.clone(),
         session_id: planned.session.session_id.clone(),
@@ -727,6 +728,7 @@ fn chat_start(
 
     let directives = vox_core::domain::directives::parse(&instruction);
     let spawn = vox_core::adapters::worker::WorkerSpawn {
+        limits: config.spawn_limits(),
         claude_bin: config.claude_bin_resolved(),
         cwd: root,
         session_id: String::new(),
@@ -815,6 +817,7 @@ fn worker_send(
             "text": format!("reabrindo a thread com {}", describe(&next)) }),
     );
     handle.worker.shutdown();
+    // Limits carry over from the original spawn (`..clone()`).
     let spawn = vox_core::adapters::worker::WorkerSpawn {
         instruction: text,
         directives: next.clone(),
@@ -923,6 +926,7 @@ fn dispatch_text(
     let _ = state_file::save(&config.data_dir(), &gstate);
 
     let spawn = vox_core::adapters::worker::WorkerSpawn {
+        limits: config.spawn_limits(),
         claude_bin: config.claude_bin_resolved(),
         cwd: planned.workspace_root.clone(),
         session_id: planned.session.session_id.clone(),

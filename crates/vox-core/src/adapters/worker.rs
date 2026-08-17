@@ -9,6 +9,16 @@ use crate::domain::claude_event::{
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 
+/// Hard ceilings per worker process — the post-$18-incident guardrail.
+/// The CLI aborts the turn with an error result when a cap is hit.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SpawnLimits {
+    /// `--max-budget-usd`: dollars this process may spend. None = no cap.
+    pub max_budget_usd: Option<f64>,
+    /// `--max-turns`: agentic turns before an early exit. None = no cap.
+    pub max_turns: Option<u32>,
+}
+
 #[derive(Clone)]
 pub struct WorkerSpawn {
     pub claude_bin: String,
@@ -20,6 +30,7 @@ pub struct WorkerSpawn {
     /// Session directives (permission mode, effort, model), all optional:
     /// omitted flags keep the user's own Claude Code defaults.
     pub directives: crate::domain::directives::Directives,
+    pub limits: SpawnLimits,
 }
 
 impl WorkerSpawn {
@@ -49,6 +60,33 @@ impl WorkerSpawn {
         }
         args
     }
+
+    /// The COMPLETE argument list every worker path must use. One source
+    /// of truth: the one-shot runner used to skip directive flags entirely
+    /// (a spoken "rapidinho" was silently ignored).
+    pub fn cli_args(&self, partial_messages: bool) -> Vec<String> {
+        let mut args: Vec<String> = vec!["-p".into(), "--input-format".into(), "stream-json".into()];
+        args.extend(self.resume_args());
+        args.extend([
+            "--output-format".into(),
+            "stream-json".into(),
+            "--verbose".into(),
+        ]);
+        if partial_messages {
+            args.push("--include-partial-messages".into());
+        }
+        args.extend(["--permission-prompt-tool".into(), "stdio".into()]);
+        args.extend(self.directive_args());
+        if let Some(budget) = self.limits.max_budget_usd.filter(|b| *b > 0.0) {
+            args.push("--max-budget-usd".into());
+            args.push(format!("{budget}"));
+        }
+        if let Some(turns) = self.limits.max_turns.filter(|t| *t > 0) {
+            args.push("--max-turns".into());
+            args.push(turns.to_string());
+        }
+        args
+    }
 }
 
 pub struct RunningWorker {
@@ -69,17 +107,7 @@ impl PersistentWorker {
     pub fn spawn(spawn: &WorkerSpawn) -> anyhow::Result<(Self, std::process::ChildStdout)> {
         let mut child = std::process::Command::new(&spawn.claude_bin)
             .current_dir(&spawn.cwd)
-            .args(["-p", "--input-format", "stream-json"])
-            .args(spawn.resume_args())
-            .args([
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--include-partial-messages",
-                "--permission-prompt-tool",
-                "stdio",
-            ])
-            .args(spawn.directive_args())
+            .args(spawn.cli_args(true))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::inherit())
@@ -148,15 +176,7 @@ pub fn run(
     // never as a CLI argument.
     let mut child = std::process::Command::new(&spawn.claude_bin)
         .current_dir(&spawn.cwd)
-        .args(["-p", "--input-format", "stream-json"])
-        .args(spawn.resume_args())
-        .args([
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--permission-prompt-tool",
-            "stdio",
-        ])
+        .args(spawn.cli_args(false))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -220,5 +240,64 @@ pub fn run(
             "worker exited ({status}) without a result event; stderr: {}",
             stderr_tail.trim()
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::directives::{Directives, Effort, Mode};
+
+    fn spawn(session: &str, directives: Directives) -> WorkerSpawn {
+        WorkerSpawn {
+            claude_bin: "claude".into(),
+            cwd: PathBuf::from("/tmp"),
+            session_id: session.into(),
+            instruction: "go".into(),
+            directives,
+            limits: SpawnLimits::default(),
+        }
+    }
+
+    #[test]
+    fn cli_args_carry_directives_on_every_path() {
+        let directives = Directives {
+            mode: Some(Mode::Plan),
+            effort: Some(Effort::Low),
+            model: Some("haiku".into()),
+        };
+        // Both the persistent (partial messages) and one-shot paths must
+        // apply spoken directives — the one-shot used to drop them.
+        for partial in [true, false] {
+            let args = spawn("s-1", directives.clone()).cli_args(partial);
+            assert!(args.contains(&"--resume".to_string()));
+            assert!(args.contains(&"--permission-mode".to_string()));
+            assert!(args.contains(&"--effort".to_string()));
+            assert!(args.contains(&"low".to_string()));
+            assert!(args.contains(&"--model".to_string()));
+            assert_eq!(partial, args.contains(&"--include-partial-messages".to_string()));
+        }
+    }
+
+    #[test]
+    fn empty_session_id_means_a_fresh_session() {
+        let args = spawn("", Directives::default()).cli_args(true);
+        assert!(!args.contains(&"--resume".to_string()));
+    }
+
+    #[test]
+    fn hard_limits_become_cli_caps() {
+        let mut s = spawn("s-1", Directives::default());
+        s.limits = SpawnLimits { max_budget_usd: Some(2.0), max_turns: Some(30) };
+        let args = s.cli_args(true);
+        assert!(args.contains(&"--max-budget-usd".to_string()));
+        assert!(args.contains(&"2".to_string()));
+        assert!(args.contains(&"--max-turns".to_string()));
+        assert!(args.contains(&"30".to_string()));
+        // Zero means disabled, not "cap at zero".
+        s.limits = SpawnLimits { max_budget_usd: Some(0.0), max_turns: Some(0) };
+        let args = s.cli_args(true);
+        assert!(!args.contains(&"--max-budget-usd".to_string()));
+        assert!(!args.contains(&"--max-turns".to_string()));
     }
 }

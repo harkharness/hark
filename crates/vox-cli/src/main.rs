@@ -249,8 +249,13 @@ fn cmd_prompt(question: &str) -> i32 {
             runner: &NoopRunner,
             config: &config,
         };
-        let snapshot = vox_core::app::ask::snapshot_for_question(&mut deps, question)?;
-        Ok(vox_core::domain::prompt::build(question, &snapshot))
+        let (snapshot, topical) = vox_core::app::ask::snapshot_for_question(&mut deps, question)?;
+        let budget = vox_core::domain::prompt::PromptBudget {
+            max_chars: config.prompt_budget_chars,
+        };
+        Ok(vox_core::domain::prompt::build_budgeted(
+            question, &snapshot, &topical, &budget,
+        ))
     })();
     match result {
         Ok(prompt) => {
@@ -452,6 +457,7 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
     let _ = state_file::save(&config.data_dir(), &state);
 
     let spawn = worker::WorkerSpawn {
+        limits: config.spawn_limits(),
         directives: vox_core::domain::directives::parse(instruction),
         claude_bin: config.claude_bin_resolved(),
         cwd: planned.workspace_root.clone(),

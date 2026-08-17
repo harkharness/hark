@@ -49,9 +49,44 @@ pub fn ask_with_image(
     on_event: &mut dyn FnMut(&ClaudeEvent),
 ) -> anyhow::Result<TurnResult> {
     let context = resolve_context(deps, Some(question));
-    let snapshot = snapshot_for_question(deps, question)?;
-    let prompt = prompt::build(question, &snapshot);
-    let model = crate::domain::intent::model_for(question, &deps.config.models());
+
+    // THE THREE LAYERS: local (zero tokens) > mini-format (light model,
+    // minimal context) > full snapshot. Images always take the full path.
+    let plan = if image.is_some() {
+        crate::domain::answer::AnswerPlan::FullAsk
+    } else {
+        let board = deps.store.board().unwrap_or_default();
+        let facts = crate::domain::answer::LocalFacts {
+            board: &board,
+            workers: &deps.workers,
+            spend_day_usd: spent_since(deps, 24),
+            spend_week_usd: spent_since(deps, 24 * 7),
+        };
+        crate::domain::answer::plan_answer(question, &facts)
+    };
+
+    if let crate::domain::answer::AnswerPlan::Local(reply) = plan {
+        return Ok(finish_local(question, reply, deps, &context));
+    }
+
+    let (prompt, model, outcome) = match &plan {
+        crate::domain::answer::AnswerPlan::MiniFormat { context: mini } => (
+            crate::domain::answer::mini_prompt(mini, question),
+            deps.config.models().light,
+            Some("mini_format"),
+        ),
+        _ => {
+            let (snapshot, topical) = snapshot_for_question(deps, question)?;
+            let budget = prompt::PromptBudget {
+                max_chars: deps.config.prompt_budget_chars,
+            };
+            (
+                prompt::build_budgeted(question, &snapshot, &topical, &budget),
+                crate::domain::intent::model_for(question, &deps.config.models()),
+                None,
+            )
+        }
+    };
     let request = crate::ports::TurnRequest {
         prompt: &prompt,
         image,
@@ -72,6 +107,7 @@ pub fn ask_with_image(
             label: Some("vox (perguntas)"),
             session_id: turn_session.as_deref(),
             workspace: context.as_ref().and_then(|c| c.repos.first()).map(String::as_str),
+            outcome,
             ..Default::default()
         };
         let rows = crate::domain::spend::rows_from_turn(
@@ -94,6 +130,58 @@ pub fn ask_with_image(
         }
     }
     Ok(result)
+}
+
+/// Measured USD in the last N hours (live rows only), for local answers.
+fn spent_since(deps: &AskDeps, hours: i64) -> Option<f64> {
+    let since = (Utc::now() - Duration::hours(hours)).to_rfc3339();
+    deps.store
+        .spend_summary(&crate::ports::SpendQuery {
+            since: Some(since),
+            group: crate::ports::SpendGroup::Kind,
+            source: crate::domain::spend::SpendSource::Live,
+        })
+        .ok()
+        .map(|aggs| aggs.iter().map(|a| a.cost_usd).sum())
+}
+
+/// A layer-1 answer: journal it, ledger it (cost zero, model "local"),
+/// and hand back a synthetic turn that walks the normal pipeline.
+fn finish_local(
+    question: &str,
+    reply: crate::domain::claude_event::VoiceReply,
+    deps: &mut AskDeps,
+    context: &Option<ContextDef>,
+) -> TurnResult {
+    let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+    let entry = crate::domain::memory::journal_entry(&now, question, &reply.fala);
+    let _ = deps.journal.append(&journal_root(deps, context.as_ref()), &entry);
+    let turn = TurnResult {
+        is_error: false,
+        raw: reply.fala.clone(),
+        reply: Some(reply),
+        cost_usd: Some(0.0),
+        duration_ms: Some(0),
+        model: Some("local".into()),
+        usage: vec![crate::domain::claude_event::ModelUsage {
+            model: "local".into(),
+            usage: crate::domain::claude_event::TokenUsage::default(),
+            cost_usd: Some(0.0),
+            context_window: None,
+        }],
+    };
+    let rows = crate::domain::spend::rows_from_turn(
+        &now,
+        crate::domain::spend::SpendKind::Ask,
+        &crate::domain::spend::SpendMeta {
+            label: Some("vox (local)"),
+            outcome: Some("local"),
+            ..Default::default()
+        },
+        &turn,
+    );
+    let _ = deps.store.record_spend(&rows);
+    turn
 }
 
 /// Merge board updates and persist (used by ask and by the dispatcher).
@@ -129,22 +217,32 @@ const TOPIC_HITS: usize = 5;
 /// Snapshot exactly as `ask` would assemble it: recent window + context
 /// filter + topic search over the FULL index (a question about "webhook"
 /// must surface the webhook sessions even if untouched for weeks).
+/// Returns the topic-hit ids too: those sessions exist BECAUSE the
+/// question asked, so the budget cut must spare them first.
 /// Also used by the `prompt` debug command.
-pub fn snapshot_for_question(deps: &mut AskDeps, question: &str) -> anyhow::Result<Snapshot> {
+pub fn snapshot_for_question(
+    deps: &mut AskDeps,
+    question: &str,
+) -> anyhow::Result<(Snapshot, Vec<String>)> {
     let hours = crate::domain::intent::window_hours(question, deps.config.hours_back);
     let context = resolve_context(deps, Some(question));
     let mut snapshot = build_snapshot_with(deps, hours, context.as_ref())?;
 
     let terms = crate::domain::dispatch::significant_terms(question);
     let topical = deps.store.search_sessions(&terms, TOPIC_HITS)?;
+    let mut topical_ids = Vec::new();
     for session in topical {
         let in_context = context.as_ref().is_none_or(|c| c.matches(session.cwd.as_deref()));
+        if !in_context {
+            continue;
+        }
+        topical_ids.push(session.session_id.clone());
         let already_in = snapshot.sessions.iter().any(|s| s.session_id == session.session_id);
-        if in_context && !already_in {
+        if !already_in {
             snapshot.sessions.push(session);
         }
     }
-    Ok(snapshot)
+    Ok((snapshot, topical_ids))
 }
 
 /// Snapshot for dispatch target hunting: context from the instruction,

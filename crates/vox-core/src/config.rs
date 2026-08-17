@@ -45,6 +45,14 @@ pub struct Config {
     /// Color scheme for code surfaces (chat blocks, editor, terminal).
     /// Built-in: "vox" (default) and "dracula".
     pub theme: String,
+    /// Character budget of the ask prompt (~chars/4 tokens). Default keeps
+    /// a question around 3k input tokens.
+    pub prompt_budget_chars: usize,
+    /// Dollar ceiling per worker process (`--max-budget-usd`). The
+    /// post-incident guardrail: 0 disables. Default 2.0.
+    pub worker_budget_usd: f64,
+    /// Optional turn ceiling per worker process (`--max-turns`); 0 = off.
+    pub worker_max_turns: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -78,6 +86,19 @@ impl Default for Config {
             .collect(),
             models: ModelsTable::default(),
             theme: "vox".into(),
+            prompt_budget_chars: 12_000,
+            worker_budget_usd: 2.0,
+            worker_max_turns: 0,
+        }
+    }
+}
+
+impl Config {
+    /// Hard caps applied to every worker spawn.
+    pub fn spawn_limits(&self) -> crate::adapters::worker::SpawnLimits {
+        crate::adapters::worker::SpawnLimits {
+            max_budget_usd: (self.worker_budget_usd > 0.0).then_some(self.worker_budget_usd),
+            max_turns: (self.worker_max_turns > 0).then_some(self.worker_max_turns),
         }
     }
 }
