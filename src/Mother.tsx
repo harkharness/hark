@@ -5,7 +5,7 @@ import CostsPanel from "./components/CostsPanel";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { useVoxEvents } from "./hooks/useVoxEvents";
 import * as ipc from "./lib/ipc";
-import type { Msg, Overview, Project, RateLimitState } from "./types";
+import type { BoardTask, Msg, Overview, Project, RateLimitState } from "./types";
 
 type MotherTab = "voz" | "board" | "custos";
 
@@ -89,10 +89,40 @@ export default function Mother() {
     ipc.speak(text).catch(() => {});
   }, []);
 
-  function openProject(p: Project) {
-    ipc.openProjectWindow(p.name, p.path).catch((err) =>
-      push({ who: "sys", text: `janela: ${err}` }),
-    );
+  function openProject(p: Project, task?: { title: string; session?: string }) {
+    ipc
+      .openProjectWindow(p.name, p.path, task?.title, task?.session)
+      .catch((err) => push({ who: "sys", text: `janela: ${err}` }));
+  }
+
+  /**
+   * A card click on the global board: open the window of the project that
+   * task belongs to, with its chat already loaded — back to work in one
+   * click, no hunting for the session.
+   */
+  async function openTask(t: BoardTask) {
+    const resolve = (dir?: string | null) =>
+      dir
+        ? (overview?.projects ?? []).find((p) => dir === p.path || dir.startsWith(`${p.path}/`))
+        : undefined;
+    let project = resolve(t.workspace);
+    let session = t.session_ids.at(-1);
+    if (!project) {
+      // Older tasks carry no workspace: the session's own cwd says where
+      // the work lives.
+      const hit = await ipc.findSession(t.title).catch(() => null);
+      project = resolve(hit?.cwd);
+      session = session ?? hit?.session_id;
+    }
+    if (!project) {
+      push({
+        who: "sys",
+        text: `"${t.title}" não aponta pra nenhum projeto registrado; adiciona o projeto pra abrir o chat`,
+      });
+      say("Essa task não tem projeto registrado.");
+      return;
+    }
+    openProject(project, { title: t.title, session });
   }
 
   /** Local commands (zero tokens) the mother can execute herself. */
@@ -216,7 +246,9 @@ export default function Mother() {
       {tab === "board" ? (
         <Board
           tasks={overview?.board ?? []}
+          projects={overview?.projects ?? []}
           onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
+          onOpen={openTask}
         />
       ) : tab === "custos" ? (
         <div className="costs-page">

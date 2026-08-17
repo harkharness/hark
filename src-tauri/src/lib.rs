@@ -1270,7 +1270,9 @@ fn find_session(query: String) -> Result<Option<serde_json::Value>, String> {
     let terms = vox_core::domain::dispatch::significant_terms(&query);
     let hits = store.search_sessions(&terms, 1).map_err(|e| e.to_string())?;
     Ok(hits.first().map(|s| {
-        serde_json::json!({ "session_id": s.session_id, "title": s.title })
+        // cwd travels too: it is how a board task with no workspace still
+        // resolves to a project window.
+        serde_json::json!({ "session_id": s.session_id, "title": s.title, "cwd": s.cwd })
     }))
 }
 
@@ -1599,8 +1601,19 @@ fn board_archive(title: String) -> Result<(), String> {
 
 /// Open (or focus) the dedicated window of one project — the VSCode-style
 /// "one project, one window" model. The main window stays the orchestrator.
+///
+/// With `task`, that task lands focused in the chat of the window (clicking
+/// a card on the global board goes straight back to work). A window that
+/// already exists gets an event; a fresh one carries it in the URL, since
+/// its webview is not listening yet.
 #[tauri::command]
-fn open_project_window(app: AppHandle, name: String, path: String) -> Result<(), String> {
+fn open_project_window(
+    app: AppHandle,
+    name: String,
+    path: String,
+    task: Option<String>,
+    session: Option<String>,
+) -> Result<(), String> {
     let label: String = format!(
         "proj-{}",
         path.chars()
@@ -1611,14 +1624,32 @@ fn open_project_window(app: AppHandle, name: String, path: String) -> Result<(),
     .take(60)
     .collect();
     if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.unminimize();
         let _ = existing.set_focus();
+        if let Some(title) = task {
+            let _ = app.emit_to(
+                label.as_str(),
+                "vox",
+                serde_json::json!({
+                    "kind": "focus_task",
+                    "title": title,
+                    "session_id": session,
+                }),
+            );
+        }
         return Ok(());
     }
-    let url = format!(
+    let mut url = format!(
         "index.html?project={}&name={}",
         urlencoding::encode(&path),
         urlencoding::encode(&name)
     );
+    if let Some(title) = &task {
+        url.push_str(&format!("&task={}", urlencoding::encode(title)));
+    }
+    if let Some(session) = &session {
+        url.push_str(&format!("&session={}", urlencoding::encode(session)));
+    }
     tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
         .title(format!("Vox — {name}"))
         .inner_size(1280.0, 820.0)

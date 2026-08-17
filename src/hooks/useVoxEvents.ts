@@ -26,6 +26,8 @@ type Handlers = {
   onHotkeyMic?: () => void;
   /** Another window asked the mother to show a tab (board/custos). */
   onMainTab?: (tab: string) => void;
+  /** The global board asked this project window to open a task's chat. */
+  onFocusTask?: (title: string, sessionId?: string | null) => void;
   speakRef: React.RefObject<boolean>;
   refresh: () => void;
 };
@@ -114,6 +116,8 @@ export function useVoxEvents(h: Handlers) {
         h.onHotkeyMic?.();
       } else if (ev.kind === "main_tab") {
         h.onMainTab?.(ev.tab);
+      } else if (ev.kind === "focus_task") {
+        h.onFocusTask?.(ev.title, ev.session_id);
       } else if (ev.kind === "rate_limit") {
         h.onRateLimit({
           status: ev.status,

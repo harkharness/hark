@@ -11,11 +11,19 @@ import "./styles.css";
 const params = new URLSearchParams(window.location.search);
 const projectPath = params.get("project");
 const projectName = params.get("name");
+// Opened from a card on the global board: land in that task's chat.
+const taskTitle = params.get("task");
+const taskSession = params.get("session");
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     {projectPath ? (
-      <App forcedProject={{ name: projectName ?? projectPath, path: projectPath }} />
+      <App
+        forcedProject={{ name: projectName ?? projectPath, path: projectPath }}
+        initialTask={
+          taskTitle ? { title: taskTitle, sessionId: taskSession ?? undefined } : undefined
+        }
+      />
     ) : (
       <Mother />
     )}

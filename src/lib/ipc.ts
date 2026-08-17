@@ -60,7 +60,9 @@ export const readTranscript = (sessionId: string, limit?: number) =>
   });
 
 export const findSession = (query: string) =>
-  invoke<{ session_id: string; title?: string } | null>("find_session", { query });
+  invoke<{ session_id: string; title?: string; cwd?: string | null } | null>("find_session", {
+    query,
+  });
 
 /** Ledger aggregation. USD lives in source="live"; token history in
  * source="jsonl". Never sum across sources. */
@@ -122,8 +124,20 @@ export const projectAdd = (path: string) => invoke<Project>("project_add", { pat
 export const projectRemove = (key: string) => invoke("project_remove", { key });
 
 /** Open (or focus) a project's own window — the VSCode model. */
-export const openProjectWindow = (name: string, path: string) =>
-  invoke("open_project_window", { name, path });
+/** Open (or focus) a project window. With `task`, that task's chat is the
+ *  landing screen — a card click on the global board resumes the work. */
+export const openProjectWindow = (
+  name: string,
+  path: string,
+  task?: string,
+  session?: string,
+) =>
+  invoke("open_project_window", {
+    name,
+    path,
+    task: task ?? null,
+    session: session ?? null,
+  });
 
 /** Bring the mother window to the front, optionally on a specific tab
  * (board/custos are global and live there). */

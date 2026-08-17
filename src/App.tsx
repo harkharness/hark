@@ -32,7 +32,14 @@ import type {
   Project,
 } from "./types";
 
-export default function App({ forcedProject }: { forcedProject?: Project }) {
+export default function App({
+  forcedProject,
+  initialTask,
+}: {
+  forcedProject?: Project;
+  /** Task to open on mount (a card click on the mother's global board). */
+  initialTask?: { title: string; sessionId?: string };
+}) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -90,6 +97,11 @@ export default function App({ forcedProject }: { forcedProject?: Project }) {
   // stopWorker is declared below (hoisted); the ref keeps the Esc handler fresh.
   const stopWorkerRef = useRef<(taskId: string) => void>(() => {});
   stopWorkerRef.current = stopWorker;
+  // Same trick for the board→chat jump (mount effect and event listener).
+  const openTaskRef = useRef<(title: string, sessionId?: string, note?: string) => void>(
+    () => {},
+  );
+  openTaskRef.current = openTaskByTitle;
   const speakRef = useRef(speak);
   speakRef.current = speak;
   const sidebarRef = useRef<ImperativePanelHandle>(null);
@@ -124,6 +136,13 @@ export default function App({ forcedProject }: { forcedProject?: Project }) {
 
   useEffect(refresh, [refresh]);
 
+  // This window was opened by a card click: the chat of that task is the
+  // landing screen, history already loaded, ready to keep working.
+  useEffect(() => {
+    if (initialTask) openTaskRef.current(initialTask.title, initialTask.sessionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useVoxEvents({
     labelFor,
     push,
@@ -142,6 +161,9 @@ export default function App({ forcedProject }: { forcedProject?: Project }) {
         return next;
       });
       setFocused((f) => (f === taskId ? null : f));
+    }, []),
+    onFocusTask: useCallback((title: string, sessionId?: string | null) => {
+      openTaskRef.current(title, sessionId ?? undefined);
     }, []),
     onSessionStarted: useCallback((taskId: string, sessionId: string) => {
       // A fresh chat finally has a session: link the focused task to it.
@@ -713,18 +735,27 @@ export default function App({ forcedProject }: { forcedProject?: Project }) {
     });
   }
 
-  async function openTaskFromSidebar(t: BoardTask) {
-    let session = t.session_ids.at(-1);
+  /**
+   * Open a task's chat: resolve its session (board link first, then best
+   * topic match) and focus it. The single door used by the sidebar, the
+   * board cards and the global board of the mother window.
+   */
+  async function openTaskByTitle(title: string, sessionId?: string, note?: string) {
+    setTab("code");
+    let session = sessionId;
     if (!session) {
-      const hit = await ipc.findSession(t.title).catch(() => null);
+      const hit = await ipc.findSession(title).catch(() => null);
       session = hit?.session_id ?? undefined;
     }
     if (!session) {
-      push({ who: "sys", text: `nenhuma sessão encontrada para "${t.title}"` });
+      push({ who: "sys", text: `nenhuma sessão encontrada para "${title}"` });
       return;
     }
-    await focusTask(t.title, session, t.note);
+    await focusTask(title, session, note);
   }
+
+  const openTaskFromSidebar = (t: BoardTask) =>
+    openTaskByTitle(t.title, t.session_ids.at(-1), t.note);
 
   const visibleMessages = messages.filter((m) => {
     const thread = "task" in m ? (m.task ?? null) : null;
@@ -1038,6 +1069,7 @@ export default function App({ forcedProject }: { forcedProject?: Project }) {
         <Board
           tasks={board}
           onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
+          onOpen={openTaskFromSidebar}
         />
       )}
 
