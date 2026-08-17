@@ -16,6 +16,15 @@ pub enum TaskCommand {
     Rename { query: String, title: String },
     Pin(String),
     Archive(String),
+    /// Open a file in the local viewer (zero tokens).
+    OpenFile {
+        query: String,
+        project: Option<String>,
+    },
+    /// Register a directory as a project.
+    AddProject { path: String },
+    /// Start a brand-new chat (fresh session) inside a project.
+    NewChat { project: String },
 }
 
 /// Words that only glue the sentence together and never name a task.
@@ -44,6 +53,16 @@ const SWITCH_VERBS: &[&str] = &[
 const RENAME_VERBS: &[&str] = &["renomeia", "renomear", "muda o titulo", "muda o título", "renomeie"];
 const PIN_VERBS: &[&str] = &["fixa ", "fixar ", "prende "];
 const ARCHIVE_VERBS: &[&str] = &["arquiva ", "arquivar "];
+const OPEN_FILE_VERBS: &[&str] = &[
+    "abre o arquivo", "abra o arquivo", "abrir o arquivo", "mostra o arquivo",
+];
+const ADD_PROJECT_VERBS: &[&str] = &[
+    "adiciona o projeto", "adiciona projeto", "adicionar o projeto",
+    "adiciona o diretório", "adiciona o diretorio", "registra o projeto",
+];
+const NEW_CHAT_VERBS: &[&str] = &[
+    "novo chat", "nova sessão", "nova sessao", "nova task", "nova tarefa",
+];
 
 /// Parse a board command, or None when the sentence is real work.
 pub fn parse(utterance: &str) -> Option<TaskCommand> {
@@ -54,6 +73,39 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
             .map(|i| utterance[i + needle.len()..].trim().to_string())
     };
 
+    if let Some(verb) = OPEN_FILE_VERBS.iter().find(|v| lower.contains(**v)) {
+        let rest = after(verb)?;
+        let rest_lower = rest.to_lowercase();
+        let (query, project) = ["do projeto ", "no projeto "]
+            .iter()
+            .find_map(|sep| {
+                rest_lower.find(sep).map(|i| {
+                    (
+                        rest[..i].trim().to_string(),
+                        Some(rest[i + sep.len()..].trim().to_string()),
+                    )
+                })
+            })
+            .unwrap_or((rest.trim().to_string(), None));
+        return (!query.is_empty()).then_some(TaskCommand::OpenFile {
+            query,
+            project: project.filter(|p| !p.is_empty()),
+        });
+    }
+    if let Some(verb) = ADD_PROJECT_VERBS.iter().find(|v| lower.contains(**v)) {
+        let path = crate::domain::project::path_from_speech(&after(verb)?);
+        return (!path.is_empty()).then_some(TaskCommand::AddProject { path });
+    }
+    if lower.contains("projeto") {
+        if let Some(verb) = NEW_CHAT_VERBS.iter().find(|v| lower.contains(**v)) {
+            let rest = after(verb)?;
+            let rest_lower = rest.to_lowercase();
+            let project = rest_lower
+                .find("projeto ")
+                .map(|i| rest["projeto ".len() + i..].trim().to_string())?;
+            return (!project.is_empty()).then_some(TaskCommand::NewChat { project });
+        }
+    }
     if let Some(verb) = SWITCH_VERBS.iter().find(|v| lower.contains(**v)) {
         let rest = after(verb)?;
         // "<query>" or "<query> e <instrução>"
@@ -166,10 +218,65 @@ mod tests {
     }
 
     #[test]
+    fn opens_files_optionally_scoped_to_a_project() {
+        assert_eq!(
+            parse("abre o arquivo readme do projeto vox"),
+            Some(TaskCommand::OpenFile {
+                query: "readme".into(),
+                project: Some("vox".into())
+            })
+        );
+        assert_eq!(
+            parse("mostra o arquivo main.rs"),
+            Some(TaskCommand::OpenFile {
+                query: "main.rs".into(),
+                project: None
+            })
+        );
+        assert_eq!(
+            parse("abre o arquivo config.toml no projeto workspace-fabrica"),
+            Some(TaskCommand::OpenFile {
+                query: "config.toml".into(),
+                project: Some("workspace-fabrica".into())
+            })
+        );
+    }
+
+    #[test]
+    fn adds_projects_from_typed_or_spoken_paths() {
+        assert_eq!(
+            parse("adiciona o projeto ~/Projects/vox"),
+            Some(TaskCommand::AddProject { path: "~/Projects/vox".into() })
+        );
+        assert_eq!(
+            parse("adiciona o diretório home projects demo"),
+            Some(TaskCommand::AddProject { path: "~/projects/demo".into() })
+        );
+    }
+
+    #[test]
+    fn starts_new_chats_inside_a_project() {
+        assert_eq!(
+            parse("novo chat no projeto vox"),
+            Some(TaskCommand::NewChat { project: "vox".into() })
+        );
+        assert_eq!(
+            parse("nova sessão no projeto workspace-fabrica"),
+            Some(TaskCommand::NewChat { project: "workspace-fabrica".into() })
+        );
+        assert_eq!(
+            parse("nova task no projeto demo"),
+            Some(TaskCommand::NewChat { project: "demo".into() })
+        );
+    }
+
+    #[test]
     fn leaves_real_work_alone() {
         // Anything that is not board bookkeeping must fall through.
         assert_eq!(parse("continua a migração do webhook"), None);
         assert_eq!(parse("quais as pendências de hoje?"), None);
         assert_eq!(parse("abre o PR do DNS antigo"), None);
+        assert_eq!(parse("adiciona logs no serviço de webhook"), None);
+        assert_eq!(parse("cria uma nova rota no gateway"), None);
     }
 }

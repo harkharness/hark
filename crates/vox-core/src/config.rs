@@ -163,7 +163,8 @@ fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default()
 }
 
-fn expand_home(path: &str) -> String {
+/// Expand a leading `~` to the user's home directory.
+pub fn expand_home(path: &str) -> String {
     path.strip_prefix("~")
         .map(|rest| format!("{}{rest}", home().display()))
         .unwrap_or_else(|| path.to_string())

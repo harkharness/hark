@@ -13,6 +13,8 @@ use std::path::PathBuf;
 pub struct WorkerSpawn {
     pub claude_bin: String,
     pub cwd: PathBuf,
+    /// Session to resume; EMPTY starts a brand-new session in `cwd` (the
+    /// real id arrives later via `ClaudeEvent::SessionStarted`).
     pub session_id: String,
     pub instruction: String,
     /// Session directives (permission mode, effort, model), all optional:
@@ -21,6 +23,15 @@ pub struct WorkerSpawn {
 }
 
 impl WorkerSpawn {
+    /// `--resume <id>` when continuing a session; nothing when starting fresh.
+    fn resume_args(&self) -> Vec<String> {
+        if self.session_id.is_empty() {
+            Vec::new()
+        } else {
+            vec!["--resume".into(), self.session_id.clone()]
+        }
+    }
+
     /// CLI flags for the current directives.
     fn directive_args(&self) -> Vec<String> {
         let mut args = Vec::new();
@@ -58,12 +69,9 @@ impl PersistentWorker {
     pub fn spawn(spawn: &WorkerSpawn) -> anyhow::Result<(Self, std::process::ChildStdout)> {
         let mut child = std::process::Command::new(&spawn.claude_bin)
             .current_dir(&spawn.cwd)
+            .args(["-p", "--input-format", "stream-json"])
+            .args(spawn.resume_args())
             .args([
-                "-p",
-                "--input-format",
-                "stream-json",
-                "--resume",
-                &spawn.session_id,
                 "--output-format",
                 "stream-json",
                 "--verbose",
@@ -140,12 +148,9 @@ pub fn run(
     // never as a CLI argument.
     let mut child = std::process::Command::new(&spawn.claude_bin)
         .current_dir(&spawn.cwd)
+        .args(["-p", "--input-format", "stream-json"])
+        .args(spawn.resume_args())
         .args([
-            "-p",
-            "--input-format",
-            "stream-json",
-            "--resume",
-            &spawn.session_id,
             "--output-format",
             "stream-json",
             "--verbose",

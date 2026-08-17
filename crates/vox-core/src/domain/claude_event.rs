@@ -47,7 +47,10 @@ pub enum ClaudeEvent {
         tool_name: String,
         input: String,
     },
-    /// Anything else (init, rate limits, partial deltas we don't use yet).
+    /// The CLI announced which session this process writes to. Essential
+    /// for brand-new sessions, whose id only exists after spawn.
+    SessionStarted(String),
+    /// Anything else (rate limits, partial deltas we don't use yet).
     Ignored,
 }
 
@@ -70,6 +73,13 @@ pub fn parse(line: &str) -> ClaudeEvent {
         Some("user") => parse_tool_result(&v).unwrap_or(ClaudeEvent::Ignored),
         Some("result") => parse_result(&v).map(ClaudeEvent::Result).unwrap_or(ClaudeEvent::Ignored),
         Some("control_request") => parse_permission(&v).unwrap_or(ClaudeEvent::Ignored),
+        Some("system") => v
+            .get("subtype")
+            .and_then(Value::as_str)
+            .filter(|s| *s == "init")
+            .and_then(|_| v.get("session_id").and_then(Value::as_str))
+            .map(|s| ClaudeEvent::SessionStarted(s.to_string()))
+            .unwrap_or(ClaudeEvent::Ignored),
         _ => ClaudeEvent::Ignored,
     }
 }
@@ -296,6 +306,19 @@ mod tests {
     fn other_lines_are_ignored_but_tagged() {
         assert_eq!(parse(r#"{"type":"system","subtype":"init"}"#), ClaudeEvent::Ignored);
         assert_eq!(parse("garbage"), ClaudeEvent::Ignored);
+    }
+
+    #[test]
+    fn init_with_session_id_reports_the_session() {
+        assert_eq!(
+            parse(r#"{"type":"system","subtype":"init","session_id":"abc-123","cwd":"/p"}"#),
+            ClaudeEvent::SessionStarted("abc-123".into())
+        );
+        // Other system subtypes stay ignored.
+        assert_eq!(
+            parse(r#"{"type":"system","subtype":"hook","session_id":"abc"}"#),
+            ClaudeEvent::Ignored
+        );
     }
 
     #[test]

@@ -11,6 +11,8 @@ pub struct GlobalState {
     pub active_context: Option<String>,
     /// Dispatched workers across all workspaces (the machine-wide registry).
     pub workers: Vec<crate::domain::memory::WorkerRecord>,
+    /// User-editable project directories (the sidebar groups).
+    pub projects: Vec<crate::domain::project::Project>,
 }
 
 fn state_path(data_dir: &Path) -> PathBuf {
@@ -41,9 +43,21 @@ mod tests {
 
         let state = GlobalState {
             active_context: Some("fabrica".into()),
+            projects: vec![crate::domain::project::Project {
+                name: "vox".into(),
+                path: "/p/vox".into(),
+            }],
             ..GlobalState::default()
         };
         save(dir.path(), &state).unwrap();
         assert_eq!(load(dir.path()), state);
+
+        // Old state files (no projects key) must still load.
+        std::fs::write(
+            dir.path().join("state.json"),
+            r#"{"active_context":"nu","workers":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(load(dir.path()).active_context.as_deref(), Some("nu"));
     }
 }

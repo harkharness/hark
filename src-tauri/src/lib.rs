@@ -91,6 +91,41 @@ struct Overview {
     active: String,
     workers: Vec<WorkerRecord>,
     board: Vec<vox_core::domain::board::Task>,
+    projects: Vec<vox_core::domain::project::Project>,
+}
+
+/// The editable project list. First run seeds it from what the machine
+/// already knows: board workspaces and configured context repos.
+fn load_projects(config: &Config) -> Vec<vox_core::domain::project::Project> {
+    use vox_core::domain::project;
+    use vox_core::ports::SessionStore;
+    let mut state = state_file::load(&config.data_dir());
+    if !state.projects.is_empty() {
+        return state.projects;
+    }
+    let mut candidates = std::collections::BTreeSet::new();
+    if let Ok(store) = SqliteStore::open(&config.data_dir().join("index.db")) {
+        for task in store.board().unwrap_or_default() {
+            if let Some(workspace) = task.workspace {
+                candidates.insert(workspace);
+            }
+        }
+    }
+    for name in config.context_names() {
+        if let Some(ctx) = config.context(&name) {
+            candidates.extend(ctx.repos);
+        }
+    }
+    let mut projects = Vec::new();
+    for path in candidates {
+        if std::path::Path::new(&path).is_dir() {
+            let (next, _) = project::add(projects, &project::derive_name(&path), &path);
+            projects = next;
+        }
+    }
+    state.projects = projects.clone();
+    let _ = state_file::save(&config.data_dir(), &state);
+    projects
 }
 
 #[tauri::command]
@@ -112,7 +147,99 @@ fn overview() -> Overview {
             .unwrap_or_else(|| config.default_context.clone()),
         workers,
         board,
+        projects: load_projects(&config),
     }
+}
+
+#[tauri::command]
+fn project_add(path: String) -> Result<vox_core::domain::project::Project, String> {
+    use vox_core::domain::project;
+    let expanded = vox_core::config::expand_home(&path);
+    let root = std::path::PathBuf::from(&expanded)
+        .canonicalize()
+        .map_err(|_| format!("diretório não existe: {expanded}"))?;
+    if !root.is_dir() {
+        return Err(format!("não é um diretório: {}", root.display()));
+    }
+    let config = Config::load();
+    let path_str = root.display().to_string();
+    let mut state = state_file::load(&config.data_dir());
+    let seeded = load_projects(&config);
+    let (projects, entry) = project::add(seeded, &project::derive_name(&path_str), &path_str);
+    state.projects = projects;
+    state_file::save(&config.data_dir(), &state).map_err(|e| e.to_string())?;
+    Ok(entry)
+}
+
+#[tauri::command]
+fn project_remove(key: String) -> Result<(), String> {
+    let config = Config::load();
+    let mut state = state_file::load(&config.data_dir());
+    state.projects = vox_core::domain::project::remove(state.projects, &key);
+    state_file::save(&config.data_dir(), &state).map_err(|e| e.to_string())
+}
+
+/// Fuzzy file search inside a project (drives @mention and quick-open).
+#[tauri::command(async)]
+fn project_files(path: String, query: String, limit: Option<usize>) -> Vec<String> {
+    let root = std::path::PathBuf::from(vox_core::config::expand_home(&path));
+    let files = vox_core::adapters::fs_files::list_files(&root, 8000);
+    vox_core::domain::file_search::search(
+        &query,
+        files.iter().map(|s| s.as_str()),
+        limit.unwrap_or(30),
+    )
+}
+
+/// Only files inside registered projects are readable/writable from the UI.
+fn guard_project_path(path: &str) -> Result<std::path::PathBuf, String> {
+    let config = Config::load();
+    let target = std::path::PathBuf::from(vox_core::config::expand_home(path))
+        .canonicalize()
+        .map_err(|e| format!("{path}: {e}"))?;
+    let allowed = load_projects(&config).iter().any(|proj| {
+        std::path::PathBuf::from(vox_core::config::expand_home(&proj.path))
+            .canonicalize()
+            .map(|root| target.starts_with(root))
+            .unwrap_or(false)
+    });
+    if allowed {
+        Ok(target)
+    } else {
+        Err("arquivo fora dos projetos registrados".into())
+    }
+}
+
+#[derive(Serialize)]
+struct FileOut {
+    content: String,
+    truncated: bool,
+}
+
+/// Read a file for the local viewer. Zero tokens: never touches Claude.
+#[tauri::command(async)]
+fn file_read(path: String) -> Result<FileOut, String> {
+    let target = guard_project_path(&path)?;
+    let content = std::fs::read_to_string(&target).map_err(|e| e.to_string())?;
+    const MAX: usize = 400_000;
+    if content.chars().count() > MAX {
+        Ok(FileOut {
+            content: content.chars().take(MAX).collect(),
+            truncated: true,
+        })
+    } else {
+        Ok(FileOut {
+            content,
+            truncated: false,
+        })
+    }
+}
+
+/// Save a local edit made by the USER in the viewer (never by a model).
+#[tauri::command(async)]
+fn file_save(path: String, content: String) -> Result<(), String> {
+    let target = guard_project_path(&path)?;
+    std::fs::write(&target, content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -316,7 +443,14 @@ fn worker_start(
         planned.workspace_root.display()
     );
     let _ = memory_files::write_brief(&planned.workspace_root, &task_id, &brief);
-    update_registry_and_board(&config, &task_id, &planned, &instruction, WorkerStatus::Running);
+    update_registry_and_board(
+        &config,
+        &task_id,
+        &planned.workspace_root,
+        Some(&planned.session.session_id),
+        &instruction,
+        WorkerStatus::Running,
+    );
 
     let directives = vox_core::domain::directives::parse(&instruction);
     let spawn = vox_core::adapters::worker::WorkerSpawn {
@@ -357,11 +491,45 @@ fn start_worker(
     let app2 = app.clone();
     let task2 = task_id.to_string();
     let workspace = spawn.cwd.clone();
+    let is_new_session = spawn.session_id.is_empty();
+    let board_title: String = spawn.instruction.chars().take(60).collect();
     std::thread::spawn(move || {
         use std::io::{BufRead, BufReader};
         let config = Config::load();
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             match vox_core::domain::claude_event::parse(&line) {
+                ClaudeEvent::SessionStarted(session_id) if is_new_session => {
+                    // A fresh session finally has an id: link registry+board.
+                    let mut gstate = state_file::load(&config.data_dir());
+                    if let Some(w) = gstate.workers.iter_mut().find(|w| w.task_id == task2) {
+                        w.session_id = session_id.clone();
+                    }
+                    let _ = state_file::save(&config.data_dir(), &gstate);
+                    use vox_core::ports::SessionStore;
+                    if let Ok(mut store) = SqliteStore::open(&config.data_dir().join("index.db")) {
+                        if let Ok(current) = store.board() {
+                            let updates = [vox_core::domain::board::BoardUpdate {
+                                titulo: board_title.clone(),
+                                status: vox_core::domain::board::TaskStatus::Doing,
+                                nota: None,
+                                sessao: None,
+                            }];
+                            let merged = vox_core::domain::board::apply_updates(
+                                current,
+                                &updates,
+                                &now_iso(),
+                                Some(&workspace.display().to_string()),
+                                Some(&session_id),
+                            );
+                            let _ = store.save_board(&merged);
+                        }
+                    }
+                    emit_event(
+                        &app2,
+                        serde_json::json!({ "kind": "session_started",
+                            "task_id": task2, "session_id": session_id }),
+                    );
+                }
                 ClaudeEvent::AssistantText(text) => emit_event(
                     &app2,
                     serde_json::json!({ "kind": "assistant_text", "task_id": task2, "text": text }),
@@ -408,7 +576,7 @@ fn start_worker(
                             "text": turn.raw, "cost_usd": turn.cost_usd, "model": turn.model, "is_error": turn.is_error }),
                     );
                 }
-                ClaudeEvent::Ignored => {}
+                _ => {}
             }
         }
         // Only report the exit if nobody restarted this task meanwhile.
@@ -434,7 +602,8 @@ fn start_worker(
 fn update_registry_and_board(
     config: &Config,
     task_id: &str,
-    planned: &vox_core::app::dispatch::Planned,
+    workspace_root: &std::path::Path,
+    session_id: Option<&str>,
     instruction: &str,
     status: WorkerStatus,
 ) {
@@ -442,8 +611,8 @@ fn update_registry_and_board(
     gstate.workers.push(WorkerRecord {
         task_id: task_id.to_string(),
         context: String::new(),
-        workspace: planned.workspace_root.display().to_string(),
-        session_id: planned.session.session_id.clone(),
+        workspace: workspace_root.display().to_string(),
+        session_id: session_id.unwrap_or_default().to_string(),
         status,
         started_at: now_iso(),
         summary: instruction.chars().take(120).collect(),
@@ -463,12 +632,42 @@ fn update_registry_and_board(
                 current,
                 &updates,
                 &now_iso(),
-                Some(&planned.workspace_root.display().to_string()),
-                Some(&planned.session.session_id),
+                Some(&workspace_root.display().to_string()),
+                session_id,
             );
             let _ = store.save_board(&merged);
         }
     }
+}
+
+/// Brand-new chat (fresh Claude Code session) inside a project directory.
+/// No plan/resume: the session id arrives via `SessionStarted` and is then
+/// linked to the board task and registry.
+#[tauri::command(async)]
+fn chat_start(
+    app: AppHandle,
+    live: State<'_, LiveWorkers>,
+    project_path: String,
+    instruction: String,
+) -> Result<DispatchOut, String> {
+    let config = Config::load();
+    let root = std::path::PathBuf::from(vox_core::config::expand_home(&project_path));
+    if !root.is_dir() {
+        return Err(format!("diretório não existe: {}", root.display()));
+    }
+    let task_id = format!("n-{}", Utc::now().format("%m%d%H%M%S"));
+    update_registry_and_board(&config, &task_id, &root, None, &instruction, WorkerStatus::Running);
+
+    let directives = vox_core::domain::directives::parse(&instruction);
+    let spawn = vox_core::adapters::worker::WorkerSpawn {
+        claude_bin: config.claude_bin_resolved(),
+        cwd: root,
+        session_id: String::new(),
+        instruction,
+        directives: directives.clone(),
+    };
+    start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
+    Ok(DispatchOut::Started { task_id, directives })
 }
 
 fn update_worker_summary(config: &Config, task_id: &str, summary: &str) {
@@ -489,6 +688,8 @@ fn worker_send(
     live: State<'_, LiveWorkers>,
     task_id: String,
     text: String,
+    image_b64: Option<String>,
+    media_type: Option<String>,
 ) -> Result<vox_core::domain::directives::Directives, String> {
     let handle = live
         .0
@@ -511,9 +712,13 @@ fn worker_send(
     }
 
     if next == handle.spawn.directives {
+        let image = match (&media_type, &image_b64) {
+            (Some(m), Some(d)) => Some((m.as_str(), d.as_str())),
+            _ => None,
+        };
         handle
             .worker
-            .send_text(&text, None)
+            .send_text(&text, image)
             .map_err(|e| e.to_string())?;
         return Ok(next);
     }
@@ -931,10 +1136,44 @@ fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
     let Some(command) = vox_core::domain::task_command::parse(&text) else {
         return Ok(None);
     };
+    // Project/file commands resolve without the board.
+    match &command {
+        TaskCommand::OpenFile { query, project } => {
+            return Ok(Some(serde_json::json!({
+                "kind": "open_file", "query": query, "project": project,
+            })));
+        }
+        TaskCommand::AddProject { path } => {
+            return Ok(Some(match project_add(path.clone()) {
+                Ok(entry) => serde_json::json!({
+                    "kind": "project_added", "title": entry.name, "path": entry.path,
+                }),
+                Err(message) => serde_json::json!({
+                    "kind": "project_error", "title": message,
+                }),
+            }));
+        }
+        TaskCommand::NewChat { project } => {
+            let config = Config::load();
+            let projects = load_projects(&config);
+            return Ok(Some(
+                match vox_core::domain::project::find(&projects, project) {
+                    Some(hit) => serde_json::json!({
+                        "kind": "new_chat", "title": hit.name, "path": hit.path,
+                    }),
+                    None => serde_json::json!({ "kind": "not_found", "query": project }),
+                },
+            ));
+        }
+        _ => {}
+    }
     let query = match &command {
         TaskCommand::Open(q) | TaskCommand::Pin(q) | TaskCommand::Archive(q) => q,
         TaskCommand::Switch { query, .. } => query,
         TaskCommand::Rename { query, .. } => query,
+        TaskCommand::OpenFile { .. } | TaskCommand::AddProject { .. } | TaskCommand::NewChat { .. } => {
+            unreachable!("handled above")
+        }
     };
     with_board(|store, tasks| {
         use vox_core::ports::SessionStore;
@@ -968,6 +1207,9 @@ fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
                 store.save_board(&tasks)?;
                 Ok(Some(serde_json::json!({ "kind": "archived", "title": title })))
             }
+            TaskCommand::OpenFile { .. }
+            | TaskCommand::AddProject { .. }
+            | TaskCommand::NewChat { .. } => unreachable!("handled above"),
         }
     })
 }
@@ -1035,6 +1277,12 @@ pub fn run() {
             worker_start,
             worker_send,
             worker_stop,
+            chat_start,
+            project_add,
+            project_remove,
+            project_files,
+            file_read,
+            file_save,
             read_transcript,
             find_session,
             task_command,

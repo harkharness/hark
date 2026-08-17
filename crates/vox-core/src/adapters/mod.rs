@@ -2,6 +2,7 @@
 
 pub mod claude_cli;
 pub mod cpal_audio;
+pub mod fs_files;
 pub mod git_collect;
 pub mod jsonl_scan;
 pub mod live_sessions;
