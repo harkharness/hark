@@ -20,6 +20,8 @@ export const routeText = (text: string) => invoke<string>("route_text", { text }
 export const speak = (text: string) => invoke("speak", { text });
 export const speakStop = () => invoke("speak_stop");
 export const hearOnce = () => invoke<string>("hear_once");
+/** Esc while recording: cut the capture and transcribe what was said. */
+export const hearStop = () => invoke("hear_stop");
 
 export const askText = (
   question: string,
@@ -103,6 +105,10 @@ export const projectRemove = (key: string) => invoke("project_remove", { key });
 /** Open (or focus) a project's own window — the VSCode model. */
 export const openProjectWindow = (name: string, path: string) =>
   invoke("open_project_window", { name, path });
+
+/** Open (or focus) the global HQ window (board + costs across projects). */
+export const openHqWindow = (tab?: "board" | "custos") =>
+  invoke("open_hq_window", { tab: tab ?? null });
 
 /** Fuzzy file search inside one project (relative paths). */
 export const projectFiles = (path: string, query: string, limit?: number) =>

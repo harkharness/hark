@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Mother window + per-project windows",
-  "windows": ["main", "proj-*"],
+  "description": "Mother window + HQ + per-project windows",
+  "windows": ["main", "hq", "proj-*"],
   "permissions": ["core:default"]
 }

@@ -137,7 +137,9 @@ export type TaskCommandResult =
   | { kind: "open_file"; query: string; project?: string | null }
   | { kind: "project_added"; title: string; path: string }
   | { kind: "project_error"; title: string }
-  | { kind: "new_chat"; title: string; path: string }
+  | { kind: "new_chat"; title: string; path: string; instruction?: string | null }
+  | { kind: "open_project"; title: string; path: string; instruction?: string | null }
+  | { kind: "open_hq"; tab: "board" | "custos" }
   | { kind: "not_found"; query: string };
 
 export type Overview = {

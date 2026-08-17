@@ -4,12 +4,16 @@
 use crate::domain::vad::{end_of_speech, VadConfig};
 use crate::ports::AudioIn;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 
 pub struct CpalMic {
     pub vad: VadConfig,
     /// Hard cap so a noisy room can't record forever.
     pub max_seconds: usize,
+    /// Manual cut (Esc in the window): set true and the capture returns
+    /// whatever was said so far, without waiting for the VAD.
+    pub stop: Arc<AtomicBool>,
 }
 
 impl Default for CpalMic {
@@ -17,6 +21,7 @@ impl Default for CpalMic {
         Self {
             vad: VadConfig::default(),
             max_seconds: 30,
+            stop: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -55,6 +60,10 @@ impl AudioIn for CpalMic {
             };
             raw.extend(chunk);
             let resampled = resample_to_16k(&raw, src_rate);
+            if self.stop.swap(false, Ordering::SeqCst) {
+                drop(stream);
+                return Ok(resampled);
+            }
             if let Some(end) = end_of_speech(&resampled, &self.vad) {
                 drop(stream);
                 return Ok(resampled[..end].to_vec());

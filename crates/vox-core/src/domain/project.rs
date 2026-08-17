@@ -74,16 +74,57 @@ pub fn as_context(project: &Project) -> crate::domain::context::ContextDef {
     }
 }
 
-/// Find a project by (partial, case-insensitive) name.
+/// Speech-friendly normalization: lowercase, pt-BR accents stripped, and
+/// `-`/`_`/`.` become spaces so "workspace fábrica" equals "workspace-fabrica".
+fn normalize(text: &str) -> String {
+    text.chars()
+        .map(|c| match c.to_lowercase().next().unwrap_or(c) {
+            'á' | 'à' | 'â' | 'ã' | 'ä' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'í' | 'ì' | 'î' | 'ï' => 'i',
+            'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
+            'ú' | 'ù' | 'û' | 'ü' => 'u',
+            'ç' => 'c',
+            '-' | '_' | '.' => ' ',
+            other => other,
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Find a project by (partial, accent/separator-insensitive) name.
 pub fn find<'a>(projects: &'a [Project], query: &str) -> Option<&'a Project> {
-    let q = query.trim().to_lowercase();
+    let q = normalize(query);
     if q.is_empty() {
         return None;
     }
     projects
         .iter()
-        .find(|p| p.name.to_lowercase() == q)
-        .or_else(|| projects.iter().find(|p| p.name.to_lowercase().contains(&q)))
+        .find(|p| normalize(&p.name) == q)
+        .or_else(|| projects.iter().find(|p| normalize(&p.name).contains(&q)))
+}
+
+/// Find a project whose name appears (as whole words) anywhere in a spoken
+/// sentence: "ok, então abra workspace fábrica" hits `workspace-fabrica`.
+/// Longest name wins when several match; unknown names never guess.
+pub fn find_spoken<'a>(projects: &'a [Project], utterance: &str) -> Option<&'a Project> {
+    let spoken: Vec<String> = normalize(utterance)
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect();
+    projects
+        .iter()
+        .filter_map(|p| {
+            let name: Vec<String> =
+                normalize(&p.name).split(' ').map(str::to_string).collect();
+            let hit = !name.is_empty() && spoken.windows(name.len()).any(|w| w == name);
+            hit.then_some((name.len(), p))
+        })
+        .max_by_key(|(len, p)| (*len, p.name.len()))
+        .map(|(_, p)| p)
 }
 
 #[cfg(test)]
@@ -139,5 +180,47 @@ mod tests {
         assert_eq!(find(&projects, "fabrica").unwrap().path, "/p/wu");
         assert!(find(&projects, "nope").is_none());
         assert!(find(&projects, "").is_none());
+    }
+
+    #[test]
+    fn finds_projects_ignoring_accents_and_separators() {
+        // STT writes natural Portuguese ("workspace fábrica"); names on disk
+        // use hyphens and no accents. Both sides must normalize.
+        let projects = vec![
+            Project { name: "workspace-fabrica".into(), path: "/p/wu".into() },
+            Project { name: "vox".into(), path: "/p/vox".into() },
+        ];
+        assert_eq!(find(&projects, "workspace fábrica").unwrap().path, "/p/wu");
+        assert_eq!(find(&projects, "Workspace Fabrica").unwrap().path, "/p/wu");
+        assert_eq!(find(&projects, "fábrica").unwrap().path, "/p/wu");
+    }
+
+    #[test]
+    fn spots_project_names_inside_sentences() {
+        let projects = vec![
+            Project { name: "workspace-fabrica".into(), path: "/p/wu".into() },
+            Project { name: "vox".into(), path: "/p/vox".into() },
+        ];
+        assert_eq!(
+            find_spoken(&projects, "ok, então abra workspace fábrica").unwrap().path,
+            "/p/wu"
+        );
+        assert_eq!(find_spoken(&projects, "abre o vox aí").unwrap().path, "/p/vox");
+        // No registered name in the sentence: never guess.
+        assert!(find_spoken(&projects, "abre o PR do DNS antigo").is_none());
+        // Partial words don't count ("voxel" is not "vox").
+        assert!(find_spoken(&projects, "abre o voxel").is_none());
+    }
+
+    #[test]
+    fn spoken_match_prefers_the_longest_name() {
+        let projects = vec![
+            Project { name: "vox".into(), path: "/p/vox".into() },
+            Project { name: "vox-docs".into(), path: "/p/voxdocs".into() },
+        ];
+        assert_eq!(
+            find_spoken(&projects, "abre o vox docs").unwrap().path,
+            "/p/voxdocs"
+        );
     }
 }

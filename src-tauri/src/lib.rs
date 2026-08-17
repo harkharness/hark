@@ -289,6 +289,15 @@ fn speak_stop(app: AppHandle) {
     emit_event(&app, serde_json::json!({ "kind": "speaking", "on": false }));
 }
 
+/// Shared manual-cut flag: `hear_stop` (Esc) flips it, the capture loop in
+/// `hear_once` sees it and returns what was said so far.
+fn mic_stop_flag() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+    static FLAG: std::sync::OnceLock<std::sync::Arc<std::sync::atomic::AtomicBool>> =
+        std::sync::OnceLock::new();
+    FLAG.get_or_init(|| std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))
+        .clone()
+}
+
 #[tauri::command(async)]
 fn hear_once() -> Result<String, String> {
     let config = Config::load();
@@ -296,12 +305,24 @@ fn hear_once() -> Result<String, String> {
     let tts = SayTts {
         voice: config.voice.clone(),
     };
+    let stop = mic_stop_flag();
+    stop.store(false, std::sync::atomic::Ordering::SeqCst);
     tts.beep(vox_core::ports::Cue::Listening);
-    let audio = CpalMic::default()
-        .record_utterance()
-        .map_err(|e| e.to_string())?;
+    let audio = CpalMic {
+        stop,
+        ..CpalMic::default()
+    }
+    .record_utterance()
+    .map_err(|e| e.to_string())?;
     tts.beep(vox_core::ports::Cue::Captured);
     stt.transcribe(&audio).map_err(|e| e.to_string())
+}
+
+/// Esc while the orb is red: cut the capture NOW and transcribe what was
+/// already said (the VAD can be slow in a noisy room).
+#[tauri::command]
+fn hear_stop() {
+    mic_stop_flag().store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 #[derive(Serialize)]
@@ -1423,6 +1444,20 @@ fn evaluate(
 fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
     use vox_core::domain::task_command::TaskCommand;
     let Some(command) = vox_core::domain::task_command::parse(&text) else {
+        // Fallback: "abre <nome>" without the word "projeto" ("ok, então
+        // abra workspace fábrica"). Only fires when a REGISTERED project name
+        // appears in the sentence — never guesses.
+        let lower = text.to_lowercase();
+        if ["abre", "abra", "abrir"].iter().any(|v| lower.contains(v)) {
+            let config = Config::load();
+            let projects = load_projects(&config);
+            if let Some(hit) = vox_core::domain::project::find_spoken(&projects, &text) {
+                return Ok(Some(serde_json::json!({
+                    "kind": "open_project", "title": hit.name, "path": hit.path,
+                    "instruction": null,
+                })));
+            }
+        }
         return Ok(None);
     };
     // Project/file commands resolve without the board.
@@ -1442,17 +1477,34 @@ fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
                 }),
             }));
         }
-        TaskCommand::NewChat { project } => {
+        TaskCommand::NewChat { project, instruction } => {
             let config = Config::load();
             let projects = load_projects(&config);
             return Ok(Some(
                 match vox_core::domain::project::find(&projects, project) {
                     Some(hit) => serde_json::json!({
                         "kind": "new_chat", "title": hit.name, "path": hit.path,
+                        "instruction": instruction,
                     }),
                     None => serde_json::json!({ "kind": "not_found", "query": project }),
                 },
             ));
+        }
+        TaskCommand::OpenProject { query, instruction } => {
+            let config = Config::load();
+            let projects = load_projects(&config);
+            let hit = vox_core::domain::project::find(&projects, query)
+                .or_else(|| vox_core::domain::project::find_spoken(&projects, query));
+            return Ok(Some(match hit {
+                Some(hit) => serde_json::json!({
+                    "kind": "open_project", "title": hit.name, "path": hit.path,
+                    "instruction": instruction,
+                }),
+                None => serde_json::json!({ "kind": "not_found", "query": query }),
+            }));
+        }
+        TaskCommand::OpenHq { tab } => {
+            return Ok(Some(serde_json::json!({ "kind": "open_hq", "tab": tab })));
         }
         _ => {}
     }
@@ -1460,7 +1512,11 @@ fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
         TaskCommand::Open(q) | TaskCommand::Pin(q) | TaskCommand::Archive(q) => q,
         TaskCommand::Switch { query, .. } => query,
         TaskCommand::Rename { query, .. } => query,
-        TaskCommand::OpenFile { .. } | TaskCommand::AddProject { .. } | TaskCommand::NewChat { .. } => {
+        TaskCommand::OpenFile { .. }
+        | TaskCommand::AddProject { .. }
+        | TaskCommand::NewChat { .. }
+        | TaskCommand::OpenProject { .. }
+        | TaskCommand::OpenHq { .. } => {
             unreachable!("handled above")
         }
     };
@@ -1498,7 +1554,9 @@ fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
             }
             TaskCommand::OpenFile { .. }
             | TaskCommand::AddProject { .. }
-            | TaskCommand::NewChat { .. } => unreachable!("handled above"),
+            | TaskCommand::NewChat { .. }
+            | TaskCommand::OpenProject { .. }
+            | TaskCommand::OpenHq { .. } => unreachable!("handled above"),
         }
     })
 }
@@ -1538,6 +1596,24 @@ fn open_project_window(app: AppHandle, name: String, path: String) -> Result<(),
     );
     tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
         .title(format!("Vox — {name}"))
+        .inner_size(1280.0, 820.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Open (or focus) the global HQ window: the full workbench WITHOUT a
+/// project filter — board and costs across everything. Demands are global;
+/// project windows are filtered views of the same data.
+#[tauri::command]
+fn open_hq_window(app: AppHandle, tab: Option<String>) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window("hq") {
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+    let url = format!("index.html?hq=1&tab={}", tab.as_deref().unwrap_or("board"));
+    tauri::WebviewWindowBuilder::new(&app, "hq", tauri::WebviewUrl::App(url.into()))
+        .title("Vox — HQ")
         .inner_size(1280.0, 820.0)
         .build()
         .map_err(|e| e.to_string())?;
@@ -1600,6 +1676,7 @@ pub fn run() {
             speak,
             speak_stop,
             hear_once,
+            hear_stop,
             ask_text,
             dispatch_text,
             worker_start,
@@ -1624,6 +1701,7 @@ pub fn run() {
             board_pin,
             board_archive,
             open_project_window,
+            open_hq_window,
             approve
         ])
         // Global hotkey (default cmd+shift+space, config `hotkey`): from

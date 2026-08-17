@@ -33,13 +33,21 @@ import type {
   Project,
 } from "./types";
 
-export default function App({ forcedProject }: { forcedProject?: Project }) {
+export default function App({
+  forcedProject,
+  initialTab,
+}: {
+  forcedProject?: Project;
+  initialTab?: "code" | "board" | "custos";
+}) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  // The global Esc handler must see the live value (no stale closure).
+  const recordingRef = useRef(false);
   const [pending, setPending] = useState<Pending>(null);
-  const [tab, setTab] = useState<"code" | "board" | "custos">("code");
+  const [tab, setTab] = useState<"code" | "board" | "custos">(initialTab ?? "code");
   // Read-only thread being viewed (board tab), never executes anything.
   const [reading, setReading] = useState<{
     sessionId: string;
@@ -164,6 +172,12 @@ export default function App({ forcedProject }: { forcedProject?: Project }) {
         if (panel) panel.isCollapsed() ? panel.expand() : panel.collapse();
       }
       if (e.key === "Escape") {
+        // Recording? Esc means "parei de falar": cut the capture and let
+        // the transcription of what was said proceed. Nothing else.
+        if (recordingRef.current) {
+          ipc.hearStop().catch(() => {});
+          return;
+        }
         ipc.speakStop().catch(() => {});
         const now = Date.now();
         if (now - lastEsc.current < 900) {
@@ -455,8 +469,27 @@ export default function App({ forcedProject }: { forcedProject?: Project }) {
         push({ who: "sys", text: cmd.title });
         say("Não consegui adicionar esse projeto.");
       } else if (cmd.kind === "new_chat") {
-        startDraftChat({ name: cmd.title, path: cmd.path });
-        say(`Novo chat em ${cmd.title}. Qual a primeira tarefa?`);
+        if (cmd.instruction) {
+          await runNewChat({ name: cmd.title, path: cmd.path }, cmd.instruction);
+        } else {
+          startDraftChat({ name: cmd.title, path: cmd.path });
+          say(`Novo chat em ${cmd.title}. Qual a primeira tarefa?`);
+        }
+      } else if (cmd.kind === "open_project") {
+        await ipc.openProjectWindow(cmd.title, cmd.path).catch((err) =>
+          push({ who: "sys", text: `janela: ${err}` }),
+        );
+        if (cmd.instruction) {
+          await ipc.chatStart(cmd.path, cmd.instruction).catch((err) =>
+            push({ who: "sys", text: `chat: ${err}` }),
+          );
+          say(`Abrindo ${cmd.title} e iniciando o trabalho.`);
+        } else {
+          say(`Abrindo o projeto ${cmd.title}.`);
+        }
+      } else if (cmd.kind === "open_hq") {
+        setTab(cmd.tab);
+        say(cmd.tab === "custos" ? "Custos na tela." : "Quadro na tela.");
       } else if (cmd.kind === "not_found") {
         push({ who: "sys", text: `nada bate com "${cmd.query}"` });
         say("Não achei isso no quadro.");
@@ -558,6 +591,7 @@ export default function App({ forcedProject }: { forcedProject?: Project }) {
   async function onMic() {
     if (recording || busy) return;
     setRecording(true);
+    recordingRef.current = true;
     try {
       const text = await ipc.hearOnce();
       if (text) await submit(text, null);
@@ -565,6 +599,7 @@ export default function App({ forcedProject }: { forcedProject?: Project }) {
       push({ who: "sys", text: `mic: ${err}` });
     } finally {
       setRecording(false);
+      recordingRef.current = false;
     }
   }
 

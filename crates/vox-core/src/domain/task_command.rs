@@ -23,8 +23,19 @@ pub enum TaskCommand {
     },
     /// Register a directory as a project.
     AddProject { path: String },
-    /// Start a brand-new chat (fresh session) inside a project.
-    NewChat { project: String },
+    /// Start a brand-new chat (fresh session) inside a project, optionally
+    /// carrying its first instruction.
+    NewChat {
+        project: String,
+        instruction: Option<String>,
+    },
+    /// Open a project's dedicated window; optionally dispatch work there.
+    OpenProject {
+        query: String,
+        instruction: Option<String>,
+    },
+    /// Open the global HQ window (board/costs across every project).
+    OpenHq { tab: String },
 }
 
 /// Words that only glue the sentence together and never name a task.
@@ -63,9 +74,38 @@ const ADD_PROJECT_VERBS: &[&str] = &[
     "adiciona o projeto", "adiciona projeto", "adicionar o projeto",
     "adiciona o diretório", "adiciona o diretorio", "registra o projeto",
 ];
+/// Unambiguous: these words always mean "open a fresh Claude session".
 const NEW_CHAT_VERBS: &[&str] = &[
-    "novo chat", "nova sessão", "nova sessao", "nova task", "nova tarefa",
+    "novo chat", "inicia um chat", "iniciar um chat", "roda um chat",
+    "rode um chat", "executa um chat", "cria um chat", "começa um chat",
+    "comeca um chat",
 ];
+/// Ambiguous ("nova task" is usually real work): only a chat command when
+/// the sentence names a project explicitly.
+const NEW_CHAT_GATED_VERBS: &[&str] = &[
+    "nova sessão", "nova sessao", "nova task", "nova tarefa",
+];
+const OPEN_PROJECT_VERBS: &[&str] = &[
+    "abre o projeto", "abra o projeto", "abrir o projeto",
+    "abre a janela do projeto", "abra a janela do projeto",
+];
+/// (verbs, tab) pairs for the global HQ window.
+const HQ_VERBS: &[(&str, &str)] = &[
+    ("abre a board", "board"), ("abra a board", "board"), ("abre o board", "board"),
+    ("mostra a board", "board"), ("abre o quadro", "board"), ("mostra o quadro", "board"),
+    ("abre os custos", "custos"), ("abra os custos", "custos"),
+    ("mostra os custos", "custos"), ("abre custos", "custos"),
+];
+
+/// Split "<head> <sep> <tail>" on the first separator, both halves trimmed.
+fn split_once_word(text: &str, sep: &str) -> Option<(String, String)> {
+    text.to_lowercase().find(sep).map(|i| {
+        (
+            text[..i].trim().to_string(),
+            text[i + sep.len()..].trim().to_string(),
+        )
+    })
+}
 
 /// Parse a board command, or None when the sentence is real work.
 pub fn parse(utterance: &str) -> Option<TaskCommand> {
@@ -99,15 +139,38 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
         let path = crate::domain::project::path_from_speech(&after(verb)?);
         return (!path.is_empty()).then_some(TaskCommand::AddProject { path });
     }
-    if lower.contains("projeto") {
-        if let Some(verb) = NEW_CHAT_VERBS.iter().find(|v| lower.contains(**v)) {
-            let rest = after(verb)?;
-            let rest_lower = rest.to_lowercase();
-            let project = rest_lower
-                .find("projeto ")
-                .map(|i| rest["projeto ".len() + i..].trim().to_string())?;
-            return (!project.is_empty()).then_some(TaskCommand::NewChat { project });
-        }
+    let chat_verb = NEW_CHAT_VERBS
+        .iter()
+        .find(|v| lower.contains(**v))
+        .or_else(|| {
+            NEW_CHAT_GATED_VERBS
+                .iter()
+                .find(|v| lower.contains(**v))
+                .filter(|_| lower.contains("projeto"))
+        });
+    if let Some(verb) = chat_verb {
+        let rest = after(verb)?;
+        // "... para <instrução>" carries the first task of the chat.
+        let (place, instruction) = split_once_word(&rest, " para ")
+            .map(|(p, i)| (p, Some(i).filter(|s| !s.is_empty())))
+            .unwrap_or((rest.trim().to_string(), None));
+        // "no projeto X" | "no X" | "em X" — the project name is what's left.
+        let project = ["no projeto ", "na projeto ", "no ", "na ", "em "]
+            .iter()
+            .find_map(|sep| split_once_word(&place, sep).map(|(_, tail)| tail))
+            .unwrap_or(place);
+        return (!project.is_empty()).then_some(TaskCommand::NewChat { project, instruction });
+    }
+    if let Some(verb) = OPEN_PROJECT_VERBS.iter().find(|v| lower.contains(**v)) {
+        let rest = after(verb)?;
+        // "<projeto>" or "<projeto> e <instrução>": open AND dispatch.
+        let (query, instruction) = split_once_word(&rest, " e ")
+            .map(|(q, i)| (q, Some(i).filter(|s| !s.is_empty())))
+            .unwrap_or((rest.trim().to_string(), None));
+        return (!query.is_empty()).then_some(TaskCommand::OpenProject { query, instruction });
+    }
+    if let Some((_, tab)) = HQ_VERBS.iter().find(|(v, _)| lower.contains(*v)) {
+        return Some(TaskCommand::OpenHq { tab: (*tab).to_string() });
     }
     if let Some(verb) = SWITCH_VERBS.iter().find(|v| lower.contains(**v)) {
         let rest = after(verb)?;
@@ -286,15 +349,88 @@ mod tests {
     fn starts_new_chats_inside_a_project() {
         assert_eq!(
             parse("novo chat no projeto vox"),
-            Some(TaskCommand::NewChat { project: "vox".into() })
+            Some(TaskCommand::NewChat { project: "vox".into(), instruction: None })
         );
         assert_eq!(
             parse("nova sessão no projeto workspace-fabrica"),
-            Some(TaskCommand::NewChat { project: "workspace-fabrica".into() })
+            Some(TaskCommand::NewChat {
+                project: "workspace-fabrica".into(),
+                instruction: None
+            })
         );
         assert_eq!(
             parse("nova task no projeto demo"),
-            Some(TaskCommand::NewChat { project: "demo".into() })
+            Some(TaskCommand::NewChat { project: "demo".into(), instruction: None })
+        );
+    }
+
+    #[test]
+    fn new_chats_accept_bare_project_names_and_instructions() {
+        // "projeto" is optional; STT rarely says it.
+        assert_eq!(
+            parse("inicia um chat no workspace-fabrica"),
+            Some(TaskCommand::NewChat {
+                project: "workspace-fabrica".into(),
+                instruction: None
+            })
+        );
+        // "... para <instrução>" carries the first task of the chat.
+        assert_eq!(
+            parse("roda um chat no workspace fábrica para reindexar as tasks perdidas"),
+            Some(TaskCommand::NewChat {
+                project: "workspace fábrica".into(),
+                instruction: Some("reindexar as tasks perdidas".into())
+            })
+        );
+        assert_eq!(
+            parse("novo chat no projeto vox para revisar o README"),
+            Some(TaskCommand::NewChat {
+                project: "vox".into(),
+                instruction: Some("revisar o README".into())
+            })
+        );
+    }
+
+    #[test]
+    fn opens_project_windows_with_optional_instruction() {
+        assert_eq!(
+            parse("abra o projeto vox"),
+            Some(TaskCommand::OpenProject { query: "vox".into(), instruction: None })
+        );
+        // Works inside a longer sentence (STT never starts at the verb).
+        assert_eq!(
+            parse("eu quero que você abra o projeto workspace fábrica"),
+            Some(TaskCommand::OpenProject {
+                query: "workspace fábrica".into(),
+                instruction: None
+            })
+        );
+        // "... e <instrução>" opens AND dispatches inside it.
+        assert_eq!(
+            parse("abre o projeto workspace fábrica e roda a reindexação das tasks"),
+            Some(TaskCommand::OpenProject {
+                query: "workspace fábrica".into(),
+                instruction: Some("roda a reindexação das tasks".into())
+            })
+        );
+        // File commands keep priority even when they cite a project.
+        assert_eq!(
+            parse("abre o arquivo readme do projeto vox"),
+            Some(TaskCommand::OpenFile {
+                query: "readme".into(),
+                project: Some("vox".into())
+            })
+        );
+    }
+
+    #[test]
+    fn opens_the_global_board_and_costs() {
+        assert_eq!(parse("abre a board"), Some(TaskCommand::OpenHq { tab: "board".into() }));
+        assert_eq!(parse("mostra o quadro"), Some(TaskCommand::OpenHq { tab: "board".into() }));
+        assert_eq!(parse("abre os custos"), Some(TaskCommand::OpenHq { tab: "custos".into() }));
+        assert_eq!(
+            parse("mostra os custos"),
+            Some(TaskCommand::OpenHq { tab: "custos".into() })
         );
     }
 
@@ -306,5 +442,7 @@ mod tests {
         assert_eq!(parse("abre o PR do DNS antigo"), None);
         assert_eq!(parse("adiciona logs no serviço de webhook"), None);
         assert_eq!(parse("cria uma nova rota no gateway"), None);
+        // "nova task" without a named project is real work for the gate.
+        assert_eq!(parse("nova task adiciona logs no serviço"), None);
     }
 }

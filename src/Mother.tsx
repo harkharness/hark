@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Mic } from "lucide-react";
+import { ExternalLink, Kanban, Mic, Wallet } from "lucide-react";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { useVoxEvents } from "./hooks/useVoxEvents";
 import * as ipc from "./lib/ipc";
@@ -10,6 +10,10 @@ import type { Msg, Overview, Project, RateLimitState } from "./types";
  * spend, and one button per project — each opens its own window (VSCode
  * model). Closing this window closes everything; project windows are
  * expendable, the workers underneath never die with a window.
+ *
+ * Spoken commands resolve locally first (task_command: open project, new
+ * chat, board/costs) — zero tokens; only real questions reach the ask
+ * pipeline.
  */
 export default function Mother() {
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -21,8 +25,9 @@ export default function Mother() {
   const [spentToday, setSpentToday] = useState<number | null>(null);
   const [input, setInput] = useState("");
   const speakRef = useRef(true);
-  // The global hotkey handler must see fresh state.
+  // The global hotkey/Esc handlers must see fresh state.
   const micRef = useRef<() => void>(() => {});
+  const recordingRef = useRef(false);
 
   const push = useCallback((m: Msg) => setMessages((old) => [...old, m].slice(-30)), []);
   const refresh = useCallback(() => {
@@ -40,6 +45,18 @@ export default function Mother() {
       .catch(() => {});
   }, []);
   useEffect(refresh, [refresh]);
+
+  // Esc anywhere in this window: recording → cut the capture (transcribe
+  // what was said); otherwise → cut the voice.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (recordingRef.current) ipc.hearStop().catch(() => {});
+      else ipc.speakStop().catch(() => {});
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useVoxEvents({
     labelFor: (id) => id,
@@ -67,24 +84,75 @@ export default function Mother() {
     );
   }
 
-  /** "abre o projeto vox" — the mother's own verb. */
-  function matchOpenProject(text: string): Project | undefined {
-    const m = text.toLowerCase().match(/^(?:abre|abrir|abra)\s+(?:a\s+janela\s+d[oe]\s+)?(?:o\s+)?projeto\s+(.+)$/);
-    if (!m) return undefined;
-    const query = m[1].trim();
-    return (overview?.projects ?? []).find((p) => p.name.toLowerCase().includes(query));
+  /** Local commands (zero tokens) the mother can execute herself. */
+  async function runCommand(text: string): Promise<boolean> {
+    const cmd = await ipc.taskCommand(text).catch(() => null);
+    if (!cmd) return false;
+    push({ who: "user", text });
+    if (cmd.kind === "open_project") {
+      openProject({ name: cmd.title, path: cmd.path });
+      if (cmd.instruction) {
+        try {
+          await ipc.chatStart(cmd.path, cmd.instruction);
+          say(`Abrindo ${cmd.title} e iniciando o trabalho.`);
+        } catch (err) {
+          push({ who: "sys", text: `chat: ${err}` });
+          say(`Abri ${cmd.title}, mas o chat falhou. Olha a janela.`);
+        }
+      } else {
+        say(`Abrindo o projeto ${cmd.title}.`);
+      }
+    } else if (cmd.kind === "new_chat") {
+      openProject({ name: cmd.title, path: cmd.path });
+      if (cmd.instruction) {
+        try {
+          await ipc.chatStart(cmd.path, cmd.instruction);
+          say(`Chat iniciado em ${cmd.title}.`);
+        } catch (err) {
+          push({ who: "sys", text: `chat: ${err}` });
+          say("O chat não subiu, olha a janela.");
+        }
+      } else {
+        say(`Abri ${cmd.title}. Diga a primeira tarefa lá.`);
+      }
+    } else if (cmd.kind === "open_hq") {
+      ipc.openHqWindow(cmd.tab).catch(() => {});
+      say(cmd.tab === "custos" ? "Abrindo os custos." : "Abrindo o quadro.");
+    } else if (cmd.kind === "project_added") {
+      push({ who: "sys", text: `projeto ${cmd.title} adicionado (${cmd.path})` });
+      say(`Projeto ${cmd.title} adicionado.`);
+      refresh();
+    } else if (cmd.kind === "project_error") {
+      push({ who: "sys", text: cmd.title });
+      say("Não consegui adicionar esse projeto.");
+    } else if (cmd.kind === "open_file") {
+      // The mother has no editor: send the user to the project window.
+      const target = cmd.project
+        ? (overview?.projects ?? []).find((p) =>
+            p.name.toLowerCase().includes(cmd.project!.toLowerCase()),
+          )
+        : undefined;
+      if (target) {
+        openProject(target);
+        say(`Abre o arquivo na janela de ${target.name}.`);
+      } else {
+        say("Arquivos eu abro na janela do projeto. Qual projeto?");
+      }
+    } else if (cmd.kind === "not_found") {
+      push({ who: "sys", text: `nada bate com "${cmd.query}"` });
+      say("Não achei esse projeto.");
+    } else {
+      // Board actions (open/switch/rename/pin/archive) need the full UI.
+      ipc.openHqWindow("board").catch(() => {});
+      say("Feito. Olha o quadro.");
+    }
+    return true;
   }
 
   async function submit(text: string) {
     if (!text.trim() || busy) return;
     setInput("");
-    const target = matchOpenProject(text);
-    if (target) {
-      push({ who: "user", text });
-      openProject(target);
-      say(`Abrindo o projeto ${target.name}.`);
-      return;
-    }
+    if (await runCommand(text)) return;
     push({ who: "user", text });
     setBusy("perguntando…");
     try {
@@ -102,6 +170,7 @@ export default function Mother() {
   async function onMic() {
     if (recording || busy) return;
     setRecording(true);
+    recordingRef.current = true;
     try {
       const text = await ipc.hearOnce();
       if (text) await submit(text);
@@ -109,6 +178,7 @@ export default function Mother() {
       push({ who: "sys", text: `mic: ${err}` });
     } finally {
       setRecording(false);
+      recordingRef.current = false;
     }
   }
   micRef.current = onMic;
@@ -122,7 +192,7 @@ export default function Mother() {
         <VoiceOrb mode={mode} />
       </div>
       <div className="mother-status">
-        {busy ?? (recording ? "ouvindo…" : speaking ? "falando…" : "pronto")}
+        {busy ?? (recording ? "ouvindo… (Esc corta)" : speaking ? "falando…" : "pronto")}
         {spentToday != null && <span className="mother-spend"> · hoje ${spentToday.toFixed(2)}</span>}
         {rateLimit && rateLimit.status !== "allowed" && (
           <span className="warn"> · {rateLimit.status === "rejected" ? "limite atingido" : "quase no limite"}</span>
@@ -144,7 +214,6 @@ export default function Mother() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") submit(input);
-            if (e.key === "Escape") ipc.speakStop().catch(() => {});
           }}
           disabled={!!busy}
         />
@@ -154,6 +223,12 @@ export default function Mother() {
       </div>
 
       <div className="mother-projects">
+        <button className="mother-project" onClick={() => ipc.openHqWindow("board")}>
+          <Kanban size={12} /> board
+        </button>
+        <button className="mother-project" onClick={() => ipc.openHqWindow("custos")}>
+          <Wallet size={12} /> custos
+        </button>
         {(overview?.projects ?? []).map((p) => (
           <button key={p.path} className="mother-project" onClick={() => openProject(p)}>
             <ExternalLink size={12} /> {p.name}
