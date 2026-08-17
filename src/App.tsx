@@ -1,44 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import Markdown from "./Markdown";
-import Reader from "./Reader";
-import Sidebar from "./Sidebar";
-import ToolCall, { ToolOutput } from "./ToolCall";
+import {
+  Panel,
+  PanelGroup,
+  PanelResizeHandle,
+  type ImperativePanelHandle,
+} from "react-resizable-panels";
+import Board from "./components/Board";
+import Composer from "./components/Composer";
+import FileViewer from "./components/FileViewer";
+import Modals, { type Pending } from "./components/Modals";
+import QuickOpen from "./components/QuickOpen";
+import Reader from "./components/Reader";
+import Sidebar from "./components/Sidebar";
+import Transcript from "./components/Transcript";
+import WorkerChips from "./components/WorkerChips";
+import { useVoxEvents } from "./hooks/useVoxEvents";
+import * as ipc from "./lib/ipc";
 import type {
+  BoardTask,
   Directives,
-  DispatchOutcome,
-  GateOut,
+  LiveWorker,
   Msg,
+  OpenFile,
   Overview,
-  PermissionAsk,
-  Reply,
-  TaskCommandResult,
-  TranscriptEntry,
-  VoxEvent,
+  Project,
 } from "./types";
-
-type Pending =
-  | { kind: "confirm-dispatch"; instruction: string; sessionId?: string; warning?: string }
-  | { kind: "permission"; ask: PermissionAsk }
-  | {
-      kind: "choice";
-      instruction: string;
-      candidates: { session_id: string; title: string; last_ts: string }[];
-    }
-  | { kind: "resume-task"; title: string; sessionId?: string; instruction: string }
-  | { kind: "task-summary"; taskId: string }
-  | null;
 
 export default function App() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [input, setInput] = useState("");
-  const [image, setImage] = useState<string | null>(null); // dataURL
   const [busy, setBusy] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
-  const [tab, setTab] = useState<"chat" | "board">("chat");
+  const [tab, setTab] = useState<"code" | "board">("code");
   // Read-only thread being viewed (board tab), never executes anything.
   const [reading, setReading] = useState<{
     sessionId: string;
@@ -52,141 +46,114 @@ export default function App() {
     sessionId: string;
     note?: string;
   } | null>(null);
-  // All live conversational workers, keyed by task_id.
-  const [liveWorkers, setLiveWorkers] = useState<
-    Record<
-      string,
-      {
-        label: string;
-        status: "running" | "turn_done" | "awaiting";
-        directives: Directives;
-      }
-    >
-  >({});
+  // A "+" click on a project: the NEXT message opens a fresh session there.
+  const [draftChat, setDraftChat] = useState<Project | null>(null);
+  const [liveWorkers, setLiveWorkers] = useState<Record<string, LiveWorker>>({});
   const [focused, setFocused] = useState<string | null>(null);
+  const [speak, setSpeak] = useState(true);
+  const [viewer, setViewer] = useState<OpenFile | null>(null);
+  const [quickOpen, setQuickOpen] = useState(false);
+
   const workersRef = useRef(liveWorkers);
   workersRef.current = liveWorkers;
-  const focusedRef = useRef(focused);
-  focusedRef.current = focused;
-  const [speak, setSpeak] = useState(true);
+  const focusedTaskRef = useRef(focusedTask);
+  focusedTaskRef.current = focusedTask;
   const speakRef = useRef(speak);
   speakRef.current = speak;
-  const endRef = useRef<HTMLDivElement>(null);
-
-  const push = useCallback((m: Msg) => setMessages((old) => [...old, m]), []);
+  const sidebarRef = useRef<ImperativePanelHandle>(null);
   // Tasks whose history was already injected once (avoid re-loading on refocus).
   const loadedTasks = useRef(new Set<string>());
+
+  const push = useCallback((m: Msg) => setMessages((old) => [...old, m]), []);
   /** Thread key for worker events: the task LABEL, stable and readable. */
   const labelFor = useCallback(
     (taskId: string) => workersRef.current[taskId]?.label ?? taskId,
     [],
   );
   const refresh = useCallback(() => {
-    invoke<Overview>("overview").then(setOverview).catch(() => {});
+    ipc.overview().then(setOverview).catch(() => {});
   }, []);
-
-  useEffect(() => {
-    refresh();
-    const un1 = listen<VoxEvent>("vox", (e) => {
-      const ev = e.payload;
-      // Rich live transcript for conversational workers, keyed by task label
-      // so each thread renders in isolation.
-      if (ev.kind === "assistant_text") {
-        push({ who: "vox", text: ev.text, task: labelFor(ev.task_id) });
-      } else if (ev.kind === "worker") {
-        push({ who: "tool", name: ev.name, input: ev.input, task: labelFor(ev.task_id) });
-      } else if (ev.kind === "tool_result") {
-        push({
-          who: "output",
-          content: ev.content,
-          error: ev.is_error,
-          task: labelFor(ev.task_id),
-        });
-      } else if (ev.kind === "worker_turn") {
-        const label = labelFor(ev.task_id);
-        // The final assistant_text often equals the result: don't show twice.
-        setMessages((old) => {
-          const lastVox = [...old]
-            .reverse()
-            .find((m) => m.who === "vox" && m.task === label);
-          if (lastVox && "text" in lastVox && lastVox.text === ev.text) {
-            return old.map((m) =>
-              m === lastVox ? { ...m, cost: ev.cost_usd, model: ev.model } : m,
-            );
-          }
-          return [
-            ...old,
-            { who: "vox", text: ev.text, cost: ev.cost_usd, model: ev.model, task: label },
-          ];
-        });
-        setLiveWorkers((old) =>
-          old[ev.task_id]
-            ? { ...old, [ev.task_id]: { ...old[ev.task_id], status: "turn_done" } }
-            : old,
-        );
-        if (speakRef.current)
-          invoke("speak", {
-            text: ev.is_error
-              ? `A task ${label} falhou, olha a tela.`
-              : `Task ${label} terminou o turno.`,
-          }).catch(() => {});
-        refresh();
-      } else if (ev.kind === "worker_exit") {
-        push({
-          who: "sys",
-          text: `worker ${labelFor(ev.task_id)} encerrado`,
-          task: labelFor(ev.task_id),
-        });
-        setLiveWorkers((old) => {
-          const next = { ...old };
-          delete next[ev.task_id];
-          return next;
-        });
-        if (focusedRef.current === ev.task_id) setFocused(null);
-        refresh();
-      }
-    });
-    // Permission requests land INLINE in the thread, never as a blocking
-    // modal: other workers must keep streaming while one waits.
-    const un2 = listen<PermissionAsk>("vox-permission", (e) => {
-      const ask = e.payload;
-      push({
-        who: "permission",
-        requestId: ask.request_id,
-        tool: ask.tool_name,
-        input: ask.input,
-        task: labelFor(ask.task_id),
-      });
-      setLiveWorkers((old) =>
-        old[ask.task_id]
-          ? { ...old, [ask.task_id]: { ...old[ask.task_id], status: "awaiting" } }
-          : old,
-      );
-      if (speakRef.current)
-        invoke("speak", { text: `${ask.tool_name} pede permissão.` }).catch(() => {});
-    });
-    return () => {
-      un1.then((f) => f());
-      un2.then((f) => f());
-    };
-  }, [refresh]);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
   const say = useCallback((text: string) => {
-    if (speakRef.current) invoke("speak", { text }).catch(() => {});
+    if (speakRef.current) ipc.speak(text).catch(() => {});
   }, []);
+
+  useEffect(refresh, [refresh]);
+
+  useVoxEvents({
+    labelFor,
+    push,
+    setMessages,
+    setLiveWorkers,
+    speakRef,
+    refresh,
+    onWorkerExit: useCallback((taskId: string) => {
+      setLiveWorkers((old) => {
+        const next = { ...old };
+        delete next[taskId];
+        return next;
+      });
+      setFocused((f) => (f === taskId ? null : f));
+    }, []),
+    onSessionStarted: useCallback((taskId: string, sessionId: string) => {
+      // A fresh chat finally has a session: link the focused task to it.
+      const label = workersRef.current[taskId]?.label;
+      setFocusedTask((old) =>
+        old && old.title === label ? { ...old, sessionId } : old,
+      );
+    }, []),
+  });
+
+  // Global shortcuts: Cmd+P quick-open, Cmd+B sidebar collapse.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "p") {
+        e.preventDefault();
+        setQuickOpen((q) => !q);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "b") {
+        e.preventDefault();
+        const panel = sidebarRef.current;
+        if (panel) panel.isCollapsed() ? panel.expand() : panel.collapse();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const projects = overview?.projects ?? [];
+  const board = overview?.board ?? [];
+
+  /** Project a board task lives in (by workspace prefix). */
+  const projectOf = useCallback(
+    (task?: BoardTask): Project | undefined => {
+      const ws = task?.workspace;
+      if (!ws) return undefined;
+      return projects.find((p) => ws === p.path || ws.startsWith(`${p.path}/`));
+    },
+    [projects],
+  );
+
+  /** Project scoping @mentions / file commands right now. */
+  const activeProject =
+    draftChat ??
+    (focusedTask ? projectOf(board.find((t) => t.title === focusedTask.title)) : undefined);
+
+  const directivesFor = useCallback(
+    (taskLabel?: string): Directives | undefined =>
+      taskLabel
+        ? Object.values(workersRef.current).find((w) => w.label === taskLabel)?.directives
+        : undefined,
+    [],
+  );
 
   async function runAsk(question: string, img: string | null) {
     setBusy("perguntando…");
     try {
-      const reply = await invoke<Reply>("ask_text", {
+      const reply = await ipc.askText(
         question,
-        imageB64: img ? img.split(",")[1] : null,
-        mediaType: img ? img.slice(5, img.indexOf(";")) : null,
-      });
+        img ? img.split(",")[1] : null,
+        img ? img.slice(5, img.indexOf(";")) : null,
+      );
       push({
         who: "vox",
         text: reply.fala,
@@ -204,35 +171,30 @@ export default function App() {
     }
   }
 
+  /** Register a started worker in the UI and focus its thread. */
+  function adoptWorker(taskId: string, label: string, directives: Directives, sessionId: string) {
+    setLiveWorkers((old) => ({ ...old, [taskId]: { label, status: "running", directives } }));
+    setFocused(taskId);
+    setFocusedTask((old) => (old?.title === label ? old : { title: label, sessionId }));
+    loadedTasks.current.add(label);
+    push({
+      who: "sys",
+      text: `worker ativo (${label}); mensagens continuam esta task`,
+      task: label,
+    });
+  }
+
   async function runDispatch(instruction: string, sessionId?: string) {
     setBusy("despachando…");
     push({ who: "sys", text: `dispatch: ${instruction}` });
     try {
-      const out = await invoke<DispatchOutcome>("worker_start", {
-        instruction,
-        sessionId: sessionId ?? null,
-      });
+      const out = await ipc.workerStart(instruction, sessionId ?? null);
       if (out.status === "started") {
-        // Reuse the focused task's title as the thread key when this dispatch
-        // came from it; otherwise derive a label from the instruction.
         const label =
           focusedTask && sessionId === focusedTask.sessionId
             ? focusedTask.title
             : instruction.split(/\s+/).slice(0, 5).join(" ");
-        setLiveWorkers((old) => ({
-          ...old,
-          [out.task_id]: { label, status: "running", directives: out.directives },
-        }));
-        setFocused(out.task_id);
-        setFocusedTask((old) =>
-          old?.title === label ? old : { title: label, sessionId: sessionId ?? "" },
-        );
-        loadedTasks.current.add(label);
-        push({
-          who: "sys",
-          text: `worker ativo (${label}); mensagens continuam esta task`,
-          task: label,
-        });
+        adoptWorker(out.task_id, label, out.directives, sessionId ?? "");
       } else if (out.status === "done") {
         push({ who: "vox", text: out.summary, cost: out.cost_usd });
         say("Tarefa concluída.");
@@ -259,31 +221,66 @@ export default function App() {
     }
   }
 
+  /** First message of a "+" draft: opens a brand-new session in the project. */
+  async function runNewChat(project: Project, instruction: string) {
+    setBusy("abrindo sessão nova…");
+    push({ who: "sys", text: `novo chat em ${project.name}` });
+    try {
+      const out = await ipc.chatStart(project.path, instruction);
+      if (out.status === "started") {
+        const label = instruction.split(/\s+/).slice(0, 5).join(" ");
+        push({ who: "user", text: instruction, task: label });
+        adoptWorker(out.task_id, label, out.directives, "");
+      } else {
+        push({ who: "sys", text: `não abriu: ${JSON.stringify(out)}` });
+      }
+    } catch (err) {
+      push({ who: "sys", text: `erro: ${err}` });
+    } finally {
+      setDraftChat(null);
+      setBusy(null);
+      refresh();
+    }
+  }
+
+  /** Resolve a spoken/typed file query to a real file and open the viewer. */
+  async function openFileByQuery(query: string, projectName?: string | null) {
+    const named = projectName
+      ? projects.find((p) => p.name.toLowerCase().includes(projectName.toLowerCase()))
+      : undefined;
+    const scope = named ? [named] : activeProject ? [activeProject] : projects;
+    for (const project of scope) {
+      const hits = await ipc.projectFiles(project.path, query, 1).catch(() => []);
+      if (hits.length > 0) {
+        setViewer({ abs: `${project.path}/${hits[0]}`, rel: hits[0], project });
+        setTab("code");
+        say(`Abrindo ${hits[0].split("/").pop()}.`);
+        return;
+      }
+    }
+    push({ who: "sys", text: `nenhum arquivo bate com "${query}"` });
+    say("Não achei esse arquivo.");
+  }
+
   const QUESTION_START =
     /^(quais|qual|como|o que|onde|quando|por que|porque|quem|quanto|lista|resumo|status)\b/i;
 
   async function submit(text: string, img: string | null) {
     if (!text.trim() || busy) return;
 
-    // Local board commands first: "mostra o log da X", "renomeia X para Y".
-    // They cost nothing and never reach an LLM.
-    const cmd = await invoke<TaskCommandResult | null>("task_command", { text }).catch(
-      () => null,
-    );
+    // Local commands first ("abre o arquivo X", "vai pra task Y", "novo
+    // chat no projeto Z"): zero tokens, resolved on this machine.
+    const cmd = await ipc.taskCommand(text).catch(() => null);
     if (cmd) {
       push({ who: "user", text });
-      setInput("");
       if (cmd.kind === "open" && cmd.session_id) {
         setTab("board");
         setReading({ sessionId: cmd.session_id, title: cmd.title });
         say(`Abrindo ${cmd.title}.`);
       } else if (cmd.kind === "switch") {
-        // "vai pra task X [e <instrução>]": focus, load context, maybe run.
         let session = cmd.session_id;
         if (!session) {
-          const hit = await invoke<{ session_id: string } | null>("find_session", {
-            query: cmd.title,
-          }).catch(() => null);
+          const hit = await ipc.findSession(cmd.title).catch(() => null);
           session = hit?.session_id;
         }
         if (!session) {
@@ -294,11 +291,23 @@ export default function App() {
         await focusTask(cmd.title, session, cmd.note);
         say(`Na task ${cmd.title}.`);
         if (cmd.instruction) {
-          await sendToFocusedTaskWith(cmd.title, session, cmd.instruction);
+          await sendToFocusedTaskWith(cmd.title, session, cmd.instruction, null);
         }
+      } else if (cmd.kind === "open_file") {
+        await openFileByQuery(cmd.query, cmd.project);
+      } else if (cmd.kind === "project_added") {
+        push({ who: "sys", text: `projeto ${cmd.title} adicionado (${cmd.path})` });
+        say(`Projeto ${cmd.title} adicionado.`);
+        refresh();
+      } else if (cmd.kind === "project_error") {
+        push({ who: "sys", text: cmd.title });
+        say("Não consegui adicionar esse projeto.");
+      } else if (cmd.kind === "new_chat") {
+        startDraftChat({ name: cmd.title, path: cmd.path });
+        say(`Novo chat em ${cmd.title}. Qual a primeira tarefa?`);
       } else if (cmd.kind === "not_found") {
-        push({ who: "sys", text: `nenhuma task bate com "${cmd.query}"` });
-        say("Não achei essa task no quadro.");
+        push({ who: "sys", text: `nada bate com "${cmd.query}"` });
+        say("Não achei isso no quadro.");
       } else {
         push({ who: "sys", text: `${cmd.kind}: ${cmd.title}` });
         refresh();
@@ -306,13 +315,23 @@ export default function App() {
       return;
     }
 
-    // Explicit questions always go to ask, focused or not.
+    // A pending "+" draft: this message opens the new session.
     const isQuestion = /\?\s*$/.test(text) || QUESTION_START.test(text.trim());
+    if (draftChat && !isQuestion) {
+      await runNewChat(draftChat, text);
+      return;
+    }
+
+    // Explicit questions always go to ask, focused or not.
     if (!isQuestion && focused) {
-      // A worker conversation in progress swallows plain replies.
-      push({ who: "user", text, task: focused });
-      setInput("");
-      await invoke<Directives>("worker_send", { taskId: focused, text })
+      push({ who: "user", text, image: img ?? undefined, task: focused && labelFor(focused) });
+      await ipc
+        .workerSend(
+          focused,
+          text,
+          img ? img.split(",")[1] : null,
+          img ? img.slice(5, img.indexOf(";")) : null,
+        )
         .then((directives) =>
           setLiveWorkers((old) =>
             old[focused] ? { ...old, [focused]: { ...old[focused], directives } } : old,
@@ -324,16 +343,10 @@ export default function App() {
     if (!isQuestion && focusedTask) {
       // THE GATE: before anything expensive runs on the focused session, a
       // cheap evaluator decides whether this message really belongs there.
-      // Corrections aimed at Vox, mismatched sessions and costly contexts
-      // stop here instead of burning a turn in the wrong place.
-      setInput("");
-      setImage(null);
       setBusy("avaliando…");
-      const gate = await invoke<GateOut>("evaluate", {
-        message: text,
-        focusedTask: focusedTask.title,
-        focusedSession: focusedTask.sessionId,
-      }).catch(() => null);
+      const gate = await ipc
+        .evaluate(text, focusedTask.title, focusedTask.sessionId)
+        .catch(() => null);
       setBusy(null);
       if (gate) {
         push({
@@ -342,13 +355,15 @@ export default function App() {
           task: focusedTask.title,
         });
         if (gate.acao === "meta_vox" || gate.acao === "pergunta") {
-          // Talk TO the vox, never into the session.
           push({ who: "user", text });
           runAsk(text, img);
           return;
         }
         if (gate.acao === "trocar_task" && gate.task_alvo) {
-          push({ who: "sys", text: `o avaliador sugere a task "${gate.task_alvo}"; use a sidebar ou "vai pra task ${gate.task_alvo}"` });
+          push({
+            who: "sys",
+            text: `o avaliador sugere a task "${gate.task_alvo}"; use a sidebar ou "vai pra task ${gate.task_alvo}"`,
+          });
           say(`Isso parece ser da task ${gate.task_alvo}.`);
           return;
         }
@@ -363,24 +378,21 @@ export default function App() {
           return;
         }
       }
-      await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text);
+      await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text, img);
       return;
     }
-    const route = await invoke<string>("route_text", { text });
+    const route = await ipc.routeText(text);
     if (route === "dispatch") {
       push({ who: "user", text });
-      setInput("");
       setPending({ kind: "confirm-dispatch", instruction: text });
       return;
     }
     push({ who: "user", text, image: img ?? undefined });
-    setInput("");
-    setImage(null);
     runAsk(text, img);
   }
 
   async function stopWorker(taskId: string) {
-    await invoke("worker_stop", { taskId }).catch(() => {});
+    await ipc.workerStop(taskId).catch(() => {});
     setLiveWorkers((old) => {
       const next = { ...old };
       delete next[taskId];
@@ -394,28 +406,13 @@ export default function App() {
     if (recording || busy) return;
     setRecording(true);
     try {
-      const text = await invoke<string>("hear_once");
-      if (text) {
-        setInput(text);
-        await submit(text, image);
-      }
+      const text = await ipc.hearOnce();
+      if (text) await submit(text, null);
     } catch (err) {
       push({ who: "sys", text: `mic: ${err}` });
     } finally {
       setRecording(false);
     }
-  }
-
-  function onPaste(e: React.ClipboardEvent) {
-    const item = Array.from(e.clipboardData.items).find((i) =>
-      i.type.startsWith("image/"),
-    );
-    if (!item) return;
-    const file = item.getAsFile();
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setImage(reader.result as string);
-    reader.readAsDataURL(file);
   }
 
   /** Answer an inline permission card and mark it decided in place. */
@@ -429,40 +426,32 @@ export default function App() {
     );
     setLiveWorkers((old) => {
       const entry = Object.entries(old).find(([, w]) => w.status === "awaiting");
-      return entry
-        ? { ...old, [entry[0]]: { ...entry[1], status: "running" } }
-        : old;
+      return entry ? { ...old, [entry[0]]: { ...entry[1], status: "running" } } : old;
     });
-    await invoke("approve", { requestId, allow }).catch(() => {});
+    await ipc.approve(requestId, allow).catch(() => {});
   }
 
   /** Newest permission still waiting for a decision. */
-  function pendingPermission() {
-    return [...messages]
-      .reverse()
-      .find((m) => m.who === "permission" && !m.decision);
-  }
+  const pendingPermission = [...messages]
+    .reverse()
+    .find((m) => m.who === "permission" && !m.decision);
 
   /**
    * Focus a task INSIDE the chat: pull the tail of its real history into
-   * the transcript (free, straight from the log file) so the next message
-   * continues from context.
+   * the transcript (free, straight from the log file).
    */
   async function focusTask(title: string, sessionId: string, note?: string) {
+    setDraftChat(null);
     setFocusedTask({ title, sessionId, note });
     if (loadedTasks.current.has(title)) return; // thread already built once
     loadedTasks.current.add(title);
     try {
-      const out = await invoke<{
-        session_title: string | null;
-        entries: TranscriptEntry[];
-      }>("read_transcript", { sessionId, limit: 12 });
+      const out = await ipc.readTranscript(sessionId, 12);
       for (const e of out.entries) {
         if (e.role === "user") push({ who: "user", text: e.text, task: title });
         else if (e.role === "assistant") push({ who: "vox", text: e.text, task: title });
         else if (e.role === "tool_use")
           push({ who: "tool", name: e.tool ?? "tool", input: e.text, task: title });
-        // tool_result omitted on purpose: too noisy for a recap.
       }
       push({
         who: "sys",
@@ -475,11 +464,22 @@ export default function App() {
   }
 
   /** Send a message into a task: live worker if any, else a fresh resume. */
-  async function sendToFocusedTaskWith(title: string, sessionId: string, text: string) {
+  async function sendToFocusedTaskWith(
+    title: string,
+    sessionId: string,
+    text: string,
+    img: string | null,
+  ) {
     const liveEntry = Object.entries(liveWorkers).find(([, w]) => w.label === title);
+    push({ who: "user", text, image: img ?? undefined, task: title });
     if (liveEntry) {
-      push({ who: "user", text, task: title });
-      await invoke<Directives>("worker_send", { taskId: liveEntry[0], text })
+      await ipc
+        .workerSend(
+          liveEntry[0],
+          text,
+          img ? img.split(",")[1] : null,
+          img ? img.slice(5, img.indexOf(";")) : null,
+        )
         .then((directives) =>
           setLiveWorkers((old) => ({
             ...old,
@@ -489,20 +489,52 @@ export default function App() {
         .catch((err) => push({ who: "sys", text: `worker: ${err}` }));
       return;
     }
-    push({ who: "user", text, task: title });
     await runDispatch(text, sessionId);
   }
 
+  function startDraftChat(project: Project) {
+    setDraftChat(project);
+    setFocusedTask(null);
+    setFocused(null);
+    push({
+      who: "sys",
+      text: `novo chat em ${project.name} (${project.path}): a próxima mensagem abre a sessão`,
+    });
+  }
+
+  async function openTaskFromSidebar(t: BoardTask) {
+    let session = t.session_ids.at(-1);
+    if (!session) {
+      const hit = await ipc.findSession(t.title).catch(() => null);
+      session = hit?.session_id ?? undefined;
+    }
+    if (!session) {
+      push({ who: "sys", text: `nenhuma sessão encontrada para "${t.title}"` });
+      return;
+    }
+    await focusTask(t.title, session, t.note);
+  }
+
+  const visibleMessages = messages.filter((m) => {
+    const thread = "task" in m ? (m.task ?? null) : null;
+    return thread === (focusedTask?.title ?? null);
+  });
+
+  const placeholder = draftChat
+    ? `primeira mensagem do novo chat em ${draftChat.name}…`
+    : focused
+      ? `→ ${labelFor(focused)} (perguntas ainda vão pro vox)`
+      : focusedTask
+        ? `→ ${focusedTask.title} (mensagem retoma a task; perguntas vão pro vox)`
+        : 'pergunte ("pendências de hoje?"), mande trabalho, @arquivo, Cmd+P abre arquivos';
+
   return (
-    <div className={`app tab-${tab}`}>
+    <div className="app">
       <div className="topbar">
         <span className="title">VOX</span>
         <nav className="tabs">
-          <button
-            className={tab === "chat" ? "active" : ""}
-            onClick={() => setTab("chat")}
-          >
-            chat
+          <button className={tab === "code" ? "active" : ""} onClick={() => setTab("code")}>
+            code
           </button>
           <button
             className={tab === "board" ? "active" : ""}
@@ -517,7 +549,7 @@ export default function App() {
         <select
           value={overview?.active ?? "all"}
           onChange={(e) => {
-            invoke("use_context", { name: e.target.value }).then(refresh);
+            ipc.useContext(e.target.value).then(refresh);
           }}
         >
           {["all", ...(overview?.contexts ?? [])].map((c) => (
@@ -525,11 +557,7 @@ export default function App() {
           ))}
         </select>
         <label>
-          <input
-            type="checkbox"
-            checked={speak}
-            onChange={(e) => setSpeak(e.target.checked)}
-          />{" "}
+          <input type="checkbox" checked={speak} onChange={(e) => setSpeak(e.target.checked)} />{" "}
           voz
         </label>
         <span className={`state ${busy ? "busy" : ""}`}>
@@ -537,45 +565,119 @@ export default function App() {
         </span>
       </div>
 
-      {tab === "chat" && (
-      <Sidebar
-        tasks={overview?.board ?? []}
-        activeTitle={focusedTask?.title}
-        liveTitles={Object.values(liveWorkers).map((w) => w.label)}
-        onOpen={async (t) => {
-          // Focus IN the chat: load the thread's tail as context; the next
-          // message resumes it directly.
-          let session = t.session_ids.at(-1);
-          if (!session) {
-            // No linked session yet: resolve one by topic search (free).
-            const hit = await invoke<{ session_id: string } | null>("find_session", {
-              query: t.title,
-            }).catch(() => null);
-            session = hit?.session_id ?? undefined;
-          }
-          if (!session) {
-            push({ who: "sys", text: `nenhuma sessão encontrada para "${t.title}"` });
-            return;
-          }
-          await focusTask(t.title, session, t.note);
-        }}
-        onRename={(t, newTitle) =>
-          invoke("board_rename", { title: t.title, newTitle }).then(refresh)
-        }
-        onPin={(t) => invoke("board_pin", { title: t.title }).then(refresh)}
-        onArchive={(t) => invoke("board_archive", { title: t.title }).then(refresh)}
-        onResume={(t) =>
-          setPending({
-            kind: "resume-task",
-            title: t.title,
-            sessionId: t.session_ids.at(-1),
-            instruction: `Continua a tarefa: ${t.title}.${t.note ? ` Contexto: ${t.note}.` : ""}`,
-          })
-        }
-      />
-      )}
-
-      {tab === "board" && reading && (
+      {tab === "code" ? (
+        <PanelGroup direction="horizontal" autoSaveId="vox-code" className="workarea">
+          <Panel
+            ref={sidebarRef}
+            collapsible
+            defaultSize={18}
+            minSize={10}
+            maxSize={34}
+            className="pane"
+          >
+            <Sidebar
+              projects={projects}
+              tasks={board}
+              activeTitle={focusedTask?.title}
+              liveTitles={Object.values(liveWorkers).map((w) => w.label)}
+              onOpen={openTaskFromSidebar}
+              onRename={(t, newTitle) =>
+                ipc.boardRename(t.title, newTitle).then(refresh)
+              }
+              onPin={(t) => ipc.boardPin(t.title).then(refresh)}
+              onArchive={(t) => ipc.boardArchive(t.title).then(refresh)}
+              onResume={(t) =>
+                setPending({
+                  kind: "resume-task",
+                  title: t.title,
+                  sessionId: t.session_ids.at(-1),
+                  instruction: `Continua a tarefa: ${t.title}.${t.note ? ` Contexto: ${t.note}.` : ""}`,
+                })
+              }
+              onNewChat={startDraftChat}
+              onAddProject={(path) =>
+                ipc
+                  .projectAdd(path)
+                  .then((p) => {
+                    push({ who: "sys", text: `projeto ${p.name} adicionado (${p.path})` });
+                    refresh();
+                  })
+                  .catch((err) => push({ who: "sys", text: `projeto: ${err}` }))
+              }
+              onRemoveProject={(p) =>
+                ipc.projectRemove(p.path).then(() => {
+                  push({ who: "sys", text: `projeto ${p.name} removido da lista` });
+                  refresh();
+                })
+              }
+            />
+          </Panel>
+          <PanelResizeHandle className="rhandle" />
+          <Panel minSize={30} className="pane">
+            <div className="maincol">
+              <Transcript
+                messages={visibleMessages}
+                directivesFor={directivesFor}
+                onAnswerPermission={answerPermission}
+              />
+              <Composer
+                disabled={!!busy}
+                recording={recording}
+                placeholder={placeholder}
+                projects={projects}
+                activeProject={activeProject}
+                pendingPermissionId={
+                  pendingPermission?.who === "permission" ? pendingPermission.requestId : undefined
+                }
+                onSubmit={submit}
+                onMic={onMic}
+                onAnswerPermission={answerPermission}
+              >
+                <WorkerChips
+                  liveWorkers={liveWorkers}
+                  focused={focused}
+                  focusedTaskTitle={focusedTask?.title}
+                  onToggleFocus={(taskId) => {
+                    if (focused === taskId) {
+                      setFocused(null);
+                      setFocusedTask(null);
+                    } else {
+                      setFocused(taskId);
+                      const session = overview?.workers.find(
+                        (x) => x.task_id === taskId,
+                      )?.session_id;
+                      const label = labelFor(taskId);
+                      setFocusedTask({ title: label, sessionId: session ?? "" });
+                      loadedTasks.current.add(label);
+                    }
+                  }}
+                  onReleaseFocusedTask={() => setFocusedTask(null)}
+                  onInfo={(taskId) => {
+                    const session = overview?.workers.find(
+                      (w) => w.task_id === taskId,
+                    )?.session_id;
+                    if (session) {
+                      setTab("board");
+                      setReading({ sessionId: session, title: labelFor(taskId) });
+                    } else {
+                      setPending({ kind: "task-summary", taskId });
+                    }
+                  }}
+                  onStop={stopWorker}
+                />
+              </Composer>
+            </div>
+          </Panel>
+          {viewer && (
+            <>
+              <PanelResizeHandle className="rhandle" />
+              <Panel defaultSize={42} minSize={20} className="pane">
+                <FileViewer file={viewer} onClose={() => setViewer(null)} />
+              </Panel>
+            </>
+          )}
+        </PanelGroup>
+      ) : reading ? (
         <Reader
           sessionId={reading.sessionId}
           title={reading.title}
@@ -594,426 +696,37 @@ export default function App() {
             })
           }
         />
-      )}
-
-      {tab === "board" && !reading && (
-        <div className="kanban">
-          {(["backlog", "doing", "waiting", "done"] as const).map((status) => {
-            const items = (overview?.board ?? []).filter(
-              (t) => t.status === status,
-            );
-            return (
-              <div
-                key={status}
-                className={`column ${status}`}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={async (e) => {
-                  const title = e.dataTransfer.getData("text/vox-task");
-                  if (!title) return;
-                  await invoke("board_move", { title, status }).catch(() => {});
-                  refresh();
-                }}
-              >
-                <h3>
-                  {status} <span className="count">{items.length}</span>
-                </h3>
-                {items.map((t) => (
-                  <div
-                    key={t.title}
-                    className="card"
-                    draggable
-                    onDragStart={(e) =>
-                      e.dataTransfer.setData("text/vox-task", t.title)
-                    }
-                  >
-                    <div className="card-title">{t.title}</div>
-                    {t.note && <div className="card-note">{t.note}</div>}
-                    <div className="card-meta">
-                      {t.updated_at.slice(0, 16).replace("T", " ")}
-                      {t.session_ids.length > 0 &&
-                        ` · ${t.session_ids.length} sessão(ões)`}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="transcript" style={tab === "board" ? { display: "none" } : undefined}>
-        {messages
-          // One thread at a time: the focused task's messages, or the
-          // general vox conversation when nothing is focused. Other threads
-          // keep running in background and swap in when refocused.
-          .filter((m) => {
-            const thread = "task" in m ? (m.task ?? null) : null;
-            return thread === (focusedTask?.title ?? null);
-          })
-          .map((m, i) => (
-          <div key={i} className={`msg ${m.who}`}>
-            {m.who === "sys" ? (
-              <span>{m.text}</span>
-            ) : m.who === "tool" ? (
-              <ToolCall name={m.name} input={m.input} />
-            ) : m.who === "output" ? (
-              <ToolOutput content={m.content} isError={m.error} />
-            ) : m.who === "permission" ? (
-              <div className={`permission ${m.decision ?? "waiting"}`}>
-                <div className="perm-head">
-                  🔐 {m.tool} pede permissão
-                  {m.task && <span className="tasktag">{liveWorkers[m.task]?.label ?? m.task.slice(0, 12)}</span>}
-                </div>
-                <ToolCall name={m.tool} input={m.input} />
-                {m.decision ? (
-                  <div className={`perm-done ${m.decision}`}>
-                    {m.decision === "allow" ? "✓ permitido" : "✗ negado"}
-                  </div>
-                ) : (
-                  <div className="perm-actions">
-                    <button
-                      className="deny"
-                      onClick={() => answerPermission(m.requestId, false)}
-                    >
-                      negar <kbd>n</kbd>
-                    </button>
-                    <button
-                      className="allow"
-                      onClick={() => answerPermission(m.requestId, true)}
-                    >
-                      permitir <kbd>y</kbd>
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="bubble">
-                <span className="tag">
-                  {m.who === "user" ? "você" : "vox"}
-                  {m.task ? ` → ${m.task.slice(0, 12)}` : ""}
-                </span>
-                {m.who === "vox" ? (
-                  <>
-                    <div className="fala">
-                      <Markdown>{m.text}</Markdown>
-                    </div>
-                    {m.detalhes && (
-                      <div className="detalhes">
-                        <Markdown>{m.detalhes}</Markdown>
-                      </div>
-                    )}
-                    {m.itens && m.itens.length > 0 && (
-                      <ul className="itens">
-                        {m.itens.map((it, j) => (
-                          <li key={j}>{it}</li>
-                        ))}
-                      </ul>
-                    )}
-                    {(m.cost != null || m.model) && (
-                      <span className="cost">
-                        {[
-                          shortModel(m.model),
-                          ...directiveLabels(
-                            m.task ? liveWorkers[m.task]?.directives : undefined,
-                          ),
-                          `$${(m.cost ?? 0).toFixed(4)}`,
-                        ].join(" · ")}
-                      </span>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <div>{m.text}</div>
-                    {m.image && <img className="paste" src={m.image} alt="pasted" />}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-        <div ref={endRef} />
-      </div>
-
-      <div className="inputbar">
-        {focusedTask &&
-          !Object.values(liveWorkers).some((w) => w.label === focusedTask.title) && (
-            <span className="worker-chip focused">
-              🎯 {focusedTask.title.slice(0, 28)}
-              <button
-                className="close"
-                title="soltar a task (voltar ao modo pergunta)"
-                onClick={() => setFocusedTask(null)}
-              >
-                ×
-              </button>
-            </span>
-          )}
-        {Object.entries(liveWorkers).map(([taskId, w]) => (
-          <span
-            key={taskId}
-            className={`worker-chip ${w.status} ${focused === taskId ? "focused" : ""}`}
-            onClick={() => {
-              // Focusing a live worker also swaps the visible thread to it.
-              if (focused === taskId) {
-                setFocused(null);
-                setFocusedTask(null);
-              } else {
-                setFocused(taskId);
-                const session = overview?.workers.find(
-                  (x) => x.task_id === taskId,
-                )?.session_id;
-                setFocusedTask({ title: w.label, sessionId: session ?? "" });
-                loadedTasks.current.add(w.label);
-              }
-            }}
-            title={focused === taskId ? "focado (clique para soltar)" : "clique para focar"}
-          >
-            <span className="dot" />
-            {w.status === "awaiting" ? "🔐 " : ""}
-            {w.label}
-            {directiveLabels(w.directives).length > 0 && (
-              <span className="chip-mode">{directiveLabels(w.directives).join(" ")}</span>
-            )}
-            <button
-              className="info"
-              title="resumo da task"
-              onClick={(e) => {
-                e.stopPropagation();
-                const session = overview?.workers.find(
-                  (w) => w.task_id === taskId,
-                )?.session_id;
-                if (session) {
-                  setTab("board");
-                  setReading({ sessionId: session, title: w.label });
-                } else {
-                  setPending({ kind: "task-summary", taskId });
-                }
-              }}
-            >
-              ℹ
-            </button>
-            <button
-              className="close"
-              title="finalizar worker"
-              onClick={(e) => {
-                e.stopPropagation();
-                stopWorker(taskId);
-              }}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        {image && (
-          <span className="thumb">
-            <img src={image} alt="attachment" />
-            <button onClick={() => setImage(null)}>×</button>
-          </span>
-        )}
-        <input
-          type="text"
-          placeholder={
-            focused
-              ? `→ ${liveWorkers[focused]?.label ?? focused} (perguntas ainda vão pro vox)`
-              : focusedTask
-                ? `→ ${focusedTask.title} (mensagem retoma a task; perguntas vão pro vox)`
-                : 'pergunte ("pendências de hoje?") ou mande ("continua a migração do X")… cole um print com Cmd+V'
-          }
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onPaste={onPaste}
-          onKeyDown={(e) => {
-            // Empty input + pending permission: y/n decide it, like a terminal.
-            if (!input) {
-              const perm = pendingPermission();
-              if (perm?.who === "permission" && (e.key === "y" || e.key === "n")) {
-                e.preventDefault();
-                answerPermission(perm.requestId, e.key === "y");
-                return;
-              }
-            }
-            if (e.key === "Enter") submit(input, image);
-          }}
-          disabled={!!busy}
+      ) : (
+        <Board
+          tasks={board}
+          onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
         />
-        <button
-          className={`mic ${recording ? "recording" : ""}`}
-          onClick={onMic}
-          title="falar"
-        >
-          🎤
-        </button>
-        <button onClick={() => submit(input, image)} disabled={!!busy}>
-          enviar
-        </button>
-      </div>
-
-      {pending?.kind === "confirm-dispatch" && (
-        <div className="modal-backdrop">
-          <div className="modal">
-            <h2>
-              Despachar tarefa?
-              {pending.sessionId && focusedTask && (
-                <span className="reader-meta"> → {focusedTask.title}</span>
-              )}
-            </h2>
-            {pending.warning && <div className="gate-warning">⚠ {pending.warning}</div>}
-            <pre>{pending.instruction}</pre>
-            <div className="row">
-              <button className="plain" onClick={() => setPending(null)}>
-                cancelar
-              </button>
-              <button
-                className="allow"
-                onClick={() => {
-                  const { instruction, sessionId } = pending;
-                  setPending(null);
-                  runDispatch(instruction, sessionId);
-                }}
-              >
-                confirmar
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
-      {pending?.kind === "choice" && (
-        <div className="modal-backdrop">
-          <div className="modal">
-            <h2>Qual sessão?</h2>
-            {pending.candidates.map((c) => (
-              <button
-                key={c.session_id}
-                className="choice"
-                onClick={() => {
-                  const inst = pending.instruction;
-                  setPending(null);
-                  runDispatch(inst, c.session_id);
-                }}
-              >
-                {c.title || c.session_id} · {c.last_ts}
-              </button>
-            ))}
-            <div className="row">
-              <button className="plain" onClick={() => setPending(null)}>
-                cancelar
-              </button>
-            </div>
-          </div>
-        </div>
+      {quickOpen && (
+        <QuickOpen
+          projects={projects}
+          onPick={(file) => {
+            setViewer(file);
+            setQuickOpen(false);
+            setTab("code");
+          }}
+          onClose={() => setQuickOpen(false)}
+        />
       )}
 
-      {pending?.kind === "resume-task" && (
-        <div className="modal-backdrop">
-          <div className="modal">
-            <h2>▶ Retomar: {pending.title}</h2>
-            <textarea
-              className="resume-input"
-              value={pending.instruction}
-              onChange={(e) =>
-                setPending({ ...pending, instruction: e.target.value })
-              }
-              rows={4}
-            />
-            <div className="row">
-              <button className="plain" onClick={() => setPending(null)}>
-                cancelar
-              </button>
-              <button
-                className="allow"
-                onClick={() => {
-                  const { instruction, sessionId } = pending;
-                  setPending(null);
-                  setTab("chat");
-                  runDispatch(instruction, sessionId);
-                }}
-              >
-                despachar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {pending?.kind === "task-summary" && (
-        <div className="modal-backdrop" onClick={() => setPending(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>
-              ℹ {liveWorkers[pending.taskId]?.label ?? pending.taskId}
-              {liveWorkers[pending.taskId] &&
-                ` · ${liveWorkers[pending.taskId].status === "running" ? "rodando" : "aguardando você"}`}
-            </h2>
-            <pre>
-              {messages
-                .filter((m) => "task" in m && m.task === pending.taskId)
-                .slice(-14)
-                .map((m) => {
-                  switch (m.who) {
-                    case "user":
-                      return `você: ${m.text}`;
-                    case "tool":
-                      return `  ⚙ ${m.name}`;
-                    case "output":
-                      return `  ${m.error ? "✗" : "✓"} ${m.content.split("\n")[0]}`;
-                    case "permission":
-                      return `  🔐 ${m.tool} ${m.decision ?? "aguardando"}`;
-                    default:
-                      return `vox: ${"text" in m ? m.text : ""}`;
-                  }
-                })
-                .join("\n") || "(sem eventos ainda)"}
-            </pre>
-            <div className="row">
-              <button
-                className="plain"
-                onClick={() => {
-                  setFocused(pending.taskId);
-                  setPending(null);
-                }}
-              >
-                focar nela
-              </button>
-              <button className="plain" onClick={() => setPending(null)}>
-                fechar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
+      <Modals
+        pending={pending}
+        setPending={setPending}
+        focusedTaskTitle={focusedTask?.title}
+        liveWorkers={liveWorkers}
+        messages={messages}
+        onDispatch={(instruction, sessionId) => {
+          setTab("code");
+          runDispatch(instruction, sessionId);
+        }}
+        onFocusWorker={(taskId) => setFocused(taskId)}
+      />
     </div>
   );
-}
-
-const MODE_LABEL: Record<string, string> = {
-  manual: "manual",
-  acceptEdits: "edições ok",
-  plan: "plano",
-  auto: "auto",
-  bypass: "sem trava",
-};
-
-/** Session directives as short footer chips, empty when using defaults. */
-function directiveLabels(d?: Directives): string[] {
-  if (!d) return [];
-  return [
-    d.mode ? MODE_LABEL[d.mode] : undefined,
-    d.effort ? `esforço ${d.effort}` : undefined,
-  ].filter((x): x is string => !!x);
-}
-
-/** Format the model id for the footer: "claude-sonnet-5" -> "sonnet-5". */
-function shortModel(model?: string): string {
-  if (!model) return "?";
-  // "claude-sonnet-5" -> "sonnet-5"
-  return model.replace(/^claude-/, "");
-}
-
-function prettyJson(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
-  }
 }

@@ -21,18 +21,21 @@ body {
 }
 
 .app {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  grid-template-rows: auto 1fr auto;
-  gap: 1px;
+  display: flex;
+  flex-direction: column;
   height: 100vh;
-  background: var(--border);
+  background: var(--bg);
 }
-/* Board tab has no sidebar: the kanban/reader take the full width. */
-.app.tab-board { grid-template-columns: 0 1fr; }
+
+/* Resizable work area (code tab): sidebar | chat | viewer */
+.workarea { flex: 1; min-height: 0; }
+.pane { min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
+.maincol { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.rhandle { width: 3px; background: var(--border); cursor: col-resize; flex-shrink: 0; }
+.rhandle:hover, .rhandle[data-resize-handle-active] { background: var(--accent); }
 
 .topbar {
-  grid-column: 1 / 3;
+  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -53,17 +56,35 @@ body {
 .topbar .state { margin-left: auto; color: var(--dim); }
 .topbar .state.busy { color: var(--warn); }
 
-/* ---- task sidebar ---- */
+/* ---- task sidebar (grouped by project) ---- */
 .sidebar {
   background: var(--panel);
   overflow-y: auto;
   padding: 10px 6px;
-  grid-row: 2;
+  height: 100%;
 }
-.sidebar h3 {
-  color: var(--dim); font-size: 11px; text-transform: uppercase;
-  letter-spacing: 1px; padding: 0 8px 8px;
+.side-group { margin-bottom: 14px; }
+.side-group-head {
+  position: relative; display: flex; align-items: center; gap: 4px;
+  padding: 0 8px 4px;
 }
+.side-group-name {
+  flex: 1; color: var(--dim); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.side-group-add {
+  background: none; border: 1px solid var(--border); border-radius: 4px;
+  color: var(--dim); font: inherit; cursor: pointer; padding: 0 6px; line-height: 1.4;
+}
+.side-group-add:hover { color: var(--accent); border-color: var(--accent); }
+.side-group-head .side-menu-btn { opacity: 0; }
+.side-group-head:hover .side-menu-btn { opacity: 1; }
+.side-add-project {
+  display: block; width: 100%; background: none; border: 1px dashed var(--border);
+  border-radius: 6px; color: var(--dim); font: inherit; font-size: 12px;
+  padding: 6px; cursor: pointer; margin-top: 4px;
+}
+.side-add-project:hover { color: var(--accent); border-color: var(--accent); }
 .side-empty { color: var(--dim); font-size: 12px; padding: 8px; }
 .side-item {
   position: relative; display: flex; align-items: center;
@@ -111,7 +132,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  grid-column: 2;
+  flex: 1;
+  min-height: 0;
 }
 .msg { max-width: 92%; white-space: pre-wrap; word-break: break-word; line-height: 1.45; }
 .msg .tag { color: var(--dim); font-size: 11px; display: block; margin-bottom: 2px; }
@@ -269,15 +291,17 @@ body {
 .worker.Failed { border-color: var(--err); }
 
 .inputbar {
-  grid-column: 2 / 3;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 14px;
   background: var(--panel);
-  align-items: center;
+  border-top: 1px solid var(--border);
+  align-items: flex-end;
 }
-.inputbar input[type="text"] {
-  flex: 1;
+.composer { position: relative; flex: 1; min-width: 200px; }
+.composer textarea {
+  width: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -285,8 +309,27 @@ body {
   padding: 9px 12px;
   font: inherit;
   outline: none;
+  resize: none;
+  line-height: 1.45;
+  max-height: 180px;
 }
-.inputbar input[type="text"]:focus { border-color: var(--accent); }
+.composer textarea:focus { border-color: var(--accent); }
+
+/* @mention dropdown, anchored above the textarea */
+.mention-pop {
+  position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 8;
+  min-width: 320px; max-width: 90%;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+.mention-pop button, .quickopen-list button {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  color: var(--text); font: inherit; font-size: 12px; padding: 6px 10px;
+  border-radius: 4px; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mention-pop button.sel, .quickopen-list button.sel { background: rgba(122,162,247,.15); }
+.mention-proj { color: var(--dim); }
 .inputbar button {
   background: var(--bg); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer;
@@ -301,7 +344,8 @@ body {
 }
 
 .kanban {
-  grid-column: 2 / 3;
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1px;
@@ -350,7 +394,8 @@ body {
 
 /* ---- read-only thread reader ---- */
 .reader {
-  grid-column: 2 / 3;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -404,3 +449,51 @@ body {
 .modal button.plain { background: var(--bg); color: var(--text); }
 .modal .choice { display: block; width: 100%; text-align: left; margin-bottom: 6px; background: var(--bg); color: var(--text); }
 .modal .choice:hover { border-color: var(--accent); }
+
+/* ---- local file viewer (zero tokens) ---- */
+.viewer {
+  display: flex; flex-direction: column; height: 100%;
+  background: var(--panel); border-left: 1px solid var(--border);
+}
+.viewer-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.viewer-proj { color: var(--dim); }
+.viewer-path {
+  color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.viewer-badge {
+  color: var(--warn); border: 1px solid var(--warn); border-radius: 8px;
+  font-size: 10px; padding: 0 6px;
+}
+.viewer-status { color: var(--ok); font-size: 11px; }
+.viewer-actions { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
+.viewer-actions button {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 5px; padding: 3px 10px; font: inherit; font-size: 11px; cursor: pointer;
+}
+.viewer-actions button:hover { border-color: var(--accent); }
+.viewer-code {
+  flex: 1; overflow: auto; margin: 0; padding: 12px 14px;
+  font-size: 12px; line-height: 1.55; white-space: pre; tab-size: 4;
+}
+.viewer-edit {
+  flex: 1; background: var(--bg); border: none; outline: none;
+  color: var(--text); font: inherit; font-size: 12px; line-height: 1.55;
+  padding: 12px 14px; resize: none; white-space: pre; tab-size: 4;
+}
+
+/* ---- Cmd+P quick open ---- */
+.quickopen {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  width: min(620px, 90vw); margin-bottom: 30vh;
+  box-shadow: 0 16px 48px rgba(0,0,0,.6); padding: 8px;
+}
+.quickopen input {
+  width: 100%; background: var(--bg); border: 1px solid var(--accent);
+  border-radius: 6px; color: var(--text); padding: 9px 12px; font: inherit;
+  outline: none; margin-bottom: 6px;
+}
+.quickopen-list { max-height: 40vh; overflow-y: auto; }

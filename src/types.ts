@@ -6,6 +6,8 @@ export type Reply = {
   model?: string;
 };
 
+export type Project = { name: string; path: string };
+
 export type VoxEvent =
   | { kind: "tool"; name: string; input: string }
   | { kind: "worker"; task_id: string; name: string; input: string }
@@ -20,6 +22,7 @@ export type VoxEvent =
       is_error: boolean;
     }
   | { kind: "worker_exit"; task_id: string }
+  | { kind: "session_started"; task_id: string; session_id: string }
   | { kind: "status"; text: string }
   | { kind: "error"; text: string };
 
@@ -59,6 +62,12 @@ export type Directives = {
   model?: string;
 };
 
+export type LiveWorker = {
+  label: string;
+  status: "running" | "turn_done" | "awaiting";
+  directives: Directives;
+};
+
 export type DispatchOutcome =
   | { status: "started"; task_id: string; directives: Directives }
   | { status: "done"; task_id: string; summary: string; cost_usd?: number }
@@ -82,6 +91,7 @@ export type BoardTask = {
   updated_at: string;
   session_ids: string[];
   pinned: boolean;
+  workspace?: string | null;
 };
 
 export type GateOut = {
@@ -106,6 +116,10 @@ export type TaskCommandResult =
   | { kind: "renamed"; title: string }
   | { kind: "pinned"; title: string }
   | { kind: "archived"; title: string }
+  | { kind: "open_file"; query: string; project?: string | null }
+  | { kind: "project_added"; title: string; path: string }
+  | { kind: "project_error"; title: string }
+  | { kind: "new_chat"; title: string; path: string }
   | { kind: "not_found"; query: string };
 
 export type Overview = {
@@ -119,4 +133,14 @@ export type Overview = {
     session_id: string;
   }[];
   board: BoardTask[];
+  projects: Project[];
+};
+
+/** A file open in the local viewer. */
+export type OpenFile = {
+  /** Absolute path (what the backend reads/saves). */
+  abs: string;
+  /** Path relative to the project root (what the UI shows). */
+  rel: string;
+  project: Project;
 };

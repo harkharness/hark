@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput } from "./ToolCall";
-import type { TranscriptEntry } from "./types";
+import type { TranscriptEntry } from "../types";
 
 /**
  * Read-only view of a past session, loaded from its log file.
