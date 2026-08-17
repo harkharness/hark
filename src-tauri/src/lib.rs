@@ -1088,6 +1088,7 @@ fn spend_summary(
     since: Option<String>,
     group: String,
     source: String,
+    workspace: Option<String>,
 ) -> Result<Vec<SpendAggOut>, String> {
     use vox_core::ports::{SpendLedger, SpendQuery};
     let config = Config::load();
@@ -1101,6 +1102,8 @@ fn spend_summary(
         } else {
             vox_core::domain::spend::SpendSource::Live
         },
+        // The project window scopes every number to its own directory.
+        workspace: workspace.map(|w| vox_core::config::expand_home(&w)),
     };
     Ok(store
         .spend_summary(&query)
@@ -1127,7 +1130,7 @@ fn spend_top_sessions(since: String, limit: usize) -> Result<Vec<SpendAggOut>, S
         if let Ok(Some(path)) = store.session_path(&agg.key) {
             if let Ok(Some((summary, _, _))) = store.file_state(&path) {
                 if let Some(title) = summary.title.or(summary.last_prompt) {
-                    agg.key = title.chars().take(48).collect();
+                    agg.key = friendly_session_name(&title);
                 }
             }
         }
@@ -1135,10 +1138,27 @@ fn spend_top_sessions(since: String, limit: usize) -> Result<Vec<SpendAggOut>, S
     Ok(aggs)
 }
 
+/// Ask sessions are titled by their own prompt, which starts with the
+/// snapshot header — useless on a list of expensive sessions. Everything
+/// else keeps its real title, clipped.
+fn friendly_session_name(title: &str) -> String {
+    if let Some(rest) = title.strip_prefix("Contexto gerado em: ") {
+        let when = rest.get(..16).unwrap_or(rest).replace('T', " ");
+        return format!("pergunta ao vox · {when}");
+    }
+    title.chars().take(48).collect()
+}
+
 #[derive(Serialize)]
 struct ContextWeight {
     /// input + cache_read + cache_created of the session's last live turn.
     last_total_tokens: u64,
+    /// The same total split into its parts, so the UI can draw the window
+    /// like the CLI does: reused cache, fresh cache, new prompt.
+    cache_read: u64,
+    cache_created: u64,
+    input: u64,
+    output: u64,
     context_window: Option<u64>,
     pct: Option<f64>,
 }
@@ -1149,16 +1169,21 @@ fn session_context_weight(session_id: String) -> Result<ContextWeight, String> {
     let config = Config::load();
     let store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
-    let weight = store
+    let w = store
         .last_context_weight(&session_id)
-        .map_err(|e| e.to_string())?;
-    let (tokens, window) = weight.unwrap_or((0, None));
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
     Ok(ContextWeight {
-        last_total_tokens: tokens,
-        context_window: window,
-        pct: window
-            .filter(|w| *w > 0)
-            .map(|w| (tokens as f64 / w as f64).min(1.0)),
+        last_total_tokens: w.total,
+        cache_read: w.cache_read,
+        cache_created: w.cache_created,
+        input: w.input,
+        output: w.output,
+        context_window: w.context_window,
+        pct: w
+            .context_window
+            .filter(|c| *c > 0)
+            .map(|c| (w.total as f64 / c as f64).min(1.0)),
     })
 }
 
@@ -1602,6 +1627,51 @@ fn open_project_window(app: AppHandle, name: String, path: String) -> Result<(),
     Ok(())
 }
 
+fn bridge_paths(config: &Config) -> vox_core::adapters::statusline_bridge::BridgePaths {
+    let home = std::path::PathBuf::from(vox_core::config::expand_home("~"));
+    vox_core::adapters::statusline_bridge::BridgePaths::new(&home, &config.data_dir())
+}
+
+/// The subscription windows (5h / weekly / per-model), the only numbers the
+/// CLI keeps to itself — they exist solely in the statusLine payload, so
+/// this returns None until the user installs the bridge.
+#[tauri::command(async)]
+fn subscription_limits() -> Result<Option<vox_core::domain::statusline::StatusLine>, String> {
+    let config = Config::load();
+    // 10 minutes: a status line renders on every turn, so anything older
+    // means the user stopped working — showing it as current would lie.
+    Ok(vox_core::adapters::statusline_bridge::read(
+        &bridge_paths(&config),
+        600,
+    ))
+}
+
+#[tauri::command(async)]
+fn statusline_bridge_status(
+) -> Result<vox_core::adapters::statusline_bridge::BridgeStatus, String> {
+    let config = Config::load();
+    Ok(vox_core::adapters::statusline_bridge::status(&bridge_paths(
+        &config,
+    )))
+}
+
+/// Install the bridge. ONLY ever called from an explicit click: it edits
+/// `~/.claude/settings.json` (after backing it up) and keeps whatever
+/// status line was configured before running underneath.
+#[tauri::command(async)]
+fn statusline_bridge_install() -> Result<Option<String>, String> {
+    let config = Config::load();
+    vox_core::adapters::statusline_bridge::install(&bridge_paths(&config))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+fn statusline_bridge_uninstall() -> Result<(), String> {
+    let config = Config::load();
+    vox_core::adapters::statusline_bridge::uninstall(&bridge_paths(&config))
+        .map_err(|e| e.to_string())
+}
+
 /// Bring the mother window to the front, optionally switching its tab
 /// (board/custos live THERE — global views; project windows only filter).
 #[tauri::command]
@@ -1698,6 +1768,10 @@ pub fn run() {
             board_archive,
             open_project_window,
             focus_main,
+            subscription_limits,
+            statusline_bridge_status,
+            statusline_bridge_install,
+            statusline_bridge_uninstall,
             approve
         ])
         // Global hotkey (default cmd+shift+space, config `hotkey`): from

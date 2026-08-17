@@ -140,6 +140,7 @@ fn spent_since(deps: &AskDeps, hours: i64) -> Option<f64> {
             since: Some(since),
             group: crate::ports::SpendGroup::Kind,
             source: crate::domain::spend::SpendSource::Live,
+            workspace: None,
         })
         .ok()
         .map(|aggs| aggs.iter().map(|a| a.cost_usd).sum())

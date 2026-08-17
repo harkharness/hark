@@ -5,7 +5,7 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
-import { FolderOpen, SquareTerminal, Volume2, VolumeX } from "lucide-react";
+import { SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import Board from "./components/Board";
 import Composer from "./components/Composer";
@@ -814,13 +814,25 @@ export default function App({ forcedProject }: { forcedProject?: Project }) {
             board
           </button>
         </nav>
-        <button
-          className="scope"
-          title="escopo atual (clique: stats da sessão e gastos)"
-          onClick={() => setScopeInfo((s) => !s)}
-        >
-          <FolderOpen size={12} /> {activeProject?.name ?? "todos"}
-        </button>
+        <div className="scope-anchor">
+          <button
+            className={`scope ${scopeInfo ? "on" : ""}`}
+            title="custos deste projeto e peso da sessão focada"
+            onClick={() => setScopeInfo((s) => !s)}
+          >
+            <Wallet size={12} /> custos
+          </button>
+          {scopeInfo && (
+            <SessionInfo
+              taskTitle={focusedTask?.title}
+              sessionId={focusedTask?.sessionId || undefined}
+              projectName={activeProject?.name}
+              workspace={forcedProject?.path}
+              costs={costs}
+              onClose={() => setScopeInfo(false)}
+            />
+          )}
+        </div>
         <button
           className={`scope ${termOpen ? "on" : ""}`}
           title="janela Terminal (feeds brutos dos workers)"
@@ -1026,17 +1038,6 @@ export default function App({ forcedProject }: { forcedProject?: Project }) {
         <Board
           tasks={board}
           onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
-        />
-      )}
-
-      {scopeInfo && (
-        <SessionInfo
-          taskTitle={focusedTask?.title}
-          sessionId={focusedTask?.sessionId || undefined}
-          projectName={activeProject?.name}
-          workspace={forcedProject?.path}
-          costs={costs}
-          onClose={() => setScopeInfo(false)}
         />
       )}
 

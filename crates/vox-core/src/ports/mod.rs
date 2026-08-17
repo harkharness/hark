@@ -40,6 +40,9 @@ pub struct SpendQuery {
     pub since: Option<String>,
     pub group: SpendGroup,
     pub source: crate::domain::spend::SpendSource,
+    /// Project root: keeps only rows whose workspace is that directory or
+    /// lives under it. None = every project.
+    pub workspace: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +53,19 @@ pub enum SpendGroup {
     Workspace,
     Day,
     Session,
+}
+
+/// What the newest turn of a session weighs, split into the parts that
+/// occupy the context window (output is charged but not carried).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ContextWeight {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_created: u64,
+    /// input + cache_read + cache_created: what the next turn drags along.
+    pub total: u64,
+    pub context_window: Option<u64>,
 }
 
 /// One aggregated ledger bucket.

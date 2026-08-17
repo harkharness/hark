@@ -10,5 +10,6 @@ pub mod memory_files;
 pub mod say_tts;
 pub mod sqlite_store;
 pub mod state_file;
+pub mod statusline_bridge;
 pub mod whisper_stt;
 pub mod worker;

@@ -173,8 +173,37 @@ export type SpendAgg = {
 
 export type ContextWeight = {
   last_total_tokens: number;
+  /** The total split into the parts that occupy the window. */
+  cache_read: number;
+  cache_created: number;
+  input: number;
+  output: number;
   context_window: number | null;
   pct: number | null;
+};
+
+/** One subscription usage window (5h, weekly, per-model weekly). */
+export type LimitWindow = {
+  key: string;
+  /** 0..1 */
+  used: number;
+  resets_at?: string | null;
+};
+
+/** Last statusLine payload — the only source of subscription percentages. */
+export type StatusLine = {
+  context_used: number | null;
+  context_tokens: number | null;
+  context_window: number | null;
+  model: string | null;
+  session_id: string | null;
+  limits: LimitWindow[];
+};
+
+export type BridgeStatus = {
+  installed: boolean;
+  age_secs: number | null;
+  payload_path: string;
 };
 
 export type RateLimitState = {

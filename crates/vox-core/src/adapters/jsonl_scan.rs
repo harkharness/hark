@@ -277,6 +277,7 @@ mod tests {
                 since: None,
                 group: SpendGroup::Session,
                 source: SpendSource::Jsonl,
+                workspace: None,
             })
             .unwrap();
         assert_eq!(agg.len(), 1);

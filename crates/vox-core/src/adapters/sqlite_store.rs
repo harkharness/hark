@@ -112,25 +112,33 @@ impl SqliteStore {
         Ok(())
     }
 
-    /// (input+cache_read+cache_created, context_window) of the newest live
-    /// non-sidechain row of a session: the weight the next turn drags.
+    /// The newest live non-sidechain turn of a session, split into the parts
+    /// that occupy the context window (what the next turn drags along).
     pub fn last_context_weight(
         &self,
         session_id: &str,
-    ) -> anyhow::Result<Option<(u64, Option<u64>)>> {
+    ) -> anyhow::Result<Option<crate::ports::ContextWeight>> {
         let row = self
             .conn
             .query_row(
-                "SELECT input_tokens + cache_read_tokens + cache_created_tokens, context_window
+                "SELECT input_tokens, output_tokens, cache_read_tokens,
+                        cache_created_tokens, context_window
                  FROM spend
                  WHERE session_id = ?1 AND source = 'live' AND is_sidechain = 0
                  ORDER BY ts DESC, id DESC LIMIT 1",
                 params![session_id],
                 |r| {
-                    Ok((
-                        r.get::<_, i64>(0)? as u64,
-                        r.get::<_, Option<i64>>(1)?.map(|w| w as u64),
-                    ))
+                    let input = r.get::<_, i64>(0)? as u64;
+                    let cache_read = r.get::<_, i64>(2)? as u64;
+                    let cache_created = r.get::<_, i64>(3)? as u64;
+                    Ok(crate::ports::ContextWeight {
+                        input,
+                        output: r.get::<_, i64>(1)? as u64,
+                        cache_read,
+                        cache_created,
+                        total: input + cache_read + cache_created,
+                        context_window: r.get::<_, Option<i64>>(4)?.map(|w| w as u64),
+                    })
                 },
             )
             .optional()?;
@@ -219,6 +227,8 @@ impl crate::ports::SpendLedger for SqliteStore {
             SpendGroup::Day => "substr(ts, 1, 10)",
             SpendGroup::Session => "COALESCE(session_id, '—')",
         };
+        // ?3 = project root: the row's workspace must equal it or sit under
+        // it (a trailing slash keeps sibling directories out).
         let sql = format!(
             "SELECT {group} AS k,
                     COALESCE(SUM(cost_usd), 0.0),
@@ -228,12 +238,16 @@ impl crate::ports::SpendLedger for SqliteStore {
                     COUNT(DISTINCT CASE WHEN is_error = 1 THEN ts END)
              FROM spend
              WHERE source = ?1 AND (?2 IS NULL OR ts >= ?2)
+               AND (?3 IS NULL OR workspace = ?3 OR workspace LIKE ?3 || '/%')
              GROUP BY k
              ORDER BY 2 DESC, 5 DESC"
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt
-            .query_map(params![query.source.as_str(), query.since], Self::row_to_agg)?
+            .query_map(
+                params![query.source.as_str(), query.since, query.workspace],
+                Self::row_to_agg,
+            )?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
@@ -585,6 +599,7 @@ mod tests {
                 since: None,
                 group: SpendGroup::Kind,
                 source: SpendSource::Live,
+                workspace: None,
             })
             .unwrap();
         let total: f64 = live.iter().map(|a| a.cost_usd).sum();
@@ -597,6 +612,7 @@ mod tests {
                 since: None,
                 group: SpendGroup::Model,
                 source: SpendSource::Jsonl,
+                workspace: None,
             })
             .unwrap();
         assert_eq!(jsonl.len(), 1);
@@ -613,9 +629,116 @@ mod tests {
                 since: Some("2026-08-17T10:30:00Z".into()),
                 group: SpendGroup::Kind,
                 source: SpendSource::Live,
+                workspace: None,
             })
             .unwrap();
         assert_eq!(later.len(), 1);
         assert_eq!(later[0].key, "ask");
+    }
+
+    #[test]
+    fn spend_summary_scopes_to_one_project_by_path_prefix() {
+        use crate::domain::claude_event::TokenUsage;
+        use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
+        use crate::ports::{SpendGroup, SpendLedger, SpendQuery};
+
+        let mut store = SqliteStore::in_memory().unwrap();
+        let row = |workspace: &str, label: &str, cost: f64| SpendRow {
+            ts: "2026-08-17T10:00:00Z".into(),
+            kind: SpendKind::Worker,
+            source: SpendSource::Live,
+            task_id: None,
+            label: Some(label.into()),
+            session_id: Some(format!("s-{label}")),
+            workspace: Some(workspace.into()),
+            model: "claude-sonnet-5".into(),
+            usage: TokenUsage { input: 1, output: 2, cache_read: 3, cache_created: 4 },
+            cost_usd: Some(cost),
+            duration_ms: None,
+            is_error: false,
+            is_sidechain: false,
+            context_window: None,
+            request_id: None,
+            outcome: None,
+        };
+        store
+            .record_spend(&[
+                row("/p/vox", "a", 0.10),
+                // Subdirectories belong to the project (workers run deep).
+                row("/p/vox/crates/core", "b", 0.20),
+                // A sibling whose path merely starts with the same letters.
+                row("/p/vox-docs", "c", 0.40),
+                row("/p/other", "d", 0.80),
+            ])
+            .unwrap();
+
+        let scoped = store
+            .spend_summary(&SpendQuery {
+                since: None,
+                group: SpendGroup::Label,
+                source: SpendSource::Live,
+                workspace: Some("/p/vox".into()),
+            })
+            .unwrap();
+        let labels: Vec<&str> = scoped.iter().map(|a| a.key.as_str()).collect();
+        assert_eq!(labels, vec!["b", "a"], "project + subdirs, costliest first");
+        let total: f64 = scoped.iter().map(|a| a.cost_usd).sum();
+        assert!((total - 0.30).abs() < 1e-9, "siblings must not leak in");
+    }
+
+    #[test]
+    fn context_weight_breaks_the_last_turn_into_its_parts() {
+        use crate::domain::claude_event::TokenUsage;
+        use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
+        use crate::ports::SpendLedger;
+
+        let mut store = SqliteStore::in_memory().unwrap();
+        let row = |ts: &str, usage: TokenUsage, sidechain: bool| SpendRow {
+            ts: ts.into(),
+            kind: SpendKind::Worker,
+            source: SpendSource::Live,
+            task_id: None,
+            label: None,
+            session_id: Some("s-1".into()),
+            workspace: None,
+            model: "claude-sonnet-5".into(),
+            usage,
+            cost_usd: Some(0.01),
+            duration_ms: None,
+            is_error: false,
+            is_sidechain: sidechain,
+            context_window: Some(200_000),
+            request_id: None,
+            outcome: None,
+        };
+        store
+            .record_spend(&[
+                row(
+                    "2026-08-17T10:00:00Z",
+                    TokenUsage { input: 1, output: 1, cache_read: 1, cache_created: 1 },
+                    false,
+                ),
+                row(
+                    "2026-08-17T11:00:00Z",
+                    TokenUsage { input: 500, output: 900, cache_read: 40_000, cache_created: 1_500 },
+                    false,
+                ),
+                // Subagent turns never describe the main window.
+                row(
+                    "2026-08-17T12:00:00Z",
+                    TokenUsage { input: 9, output: 9, cache_read: 9, cache_created: 9 },
+                    true,
+                ),
+            ])
+            .unwrap();
+
+        let weight = store.last_context_weight("s-1").unwrap().unwrap();
+        assert_eq!(weight.input, 500);
+        assert_eq!(weight.cache_read, 40_000);
+        assert_eq!(weight.cache_created, 1_500);
+        assert_eq!(weight.output, 900);
+        assert_eq!(weight.total, 42_000, "occupancy = input + cache read + cache created");
+        assert_eq!(weight.context_window, Some(200_000));
+        assert!(store.last_context_weight("nope").unwrap().is_none());
     }
 }

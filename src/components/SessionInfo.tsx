@@ -1,11 +1,32 @@
 import { useEffect, useState } from "react";
+import { Gauge, Legend, MeterRow, StackedBar, fmtTok, fmtUsd, type Segment } from "./Meter";
 import * as ipc from "../lib/ipc";
+import type { ContextWeight, SpendAgg, StatusLine } from "../types";
 
 type Stats = { title: string | null; size_mb: number; entries: number; last_ts: string | null };
 
+function resetIn(raw?: string | null): string | undefined {
+  if (!raw) return undefined;
+  const ms = /^\d+$/.test(raw) ? Number(raw) * 1000 : Date.parse(raw);
+  if (!Number.isFinite(ms)) return undefined;
+  const mins = Math.round((ms - Date.now()) / 60000);
+  if (mins <= 0) return "reinicia agora";
+  if (mins < 60) return `reinicia em ${mins}min`;
+  const h = Math.floor(mins / 60);
+  return h < 24 ? `reinicia em ${h}h ${mins % 60}min` : `reinicia em ${Math.round(h / 24)}d`;
+}
+
+const limitName = (key: string) =>
+  key === "five_hour"
+    ? "5 horas"
+    : key === "seven_day"
+      ? "semanal"
+      : `semanal · ${key.replace(/^seven_day_?/, "")}`;
+
 /**
- * Scope popover: what am I focused on, how heavy is that session on a
- * resume, and what this window has spent so far. All local, zero tokens.
+ * The costs popover of a project window: the context window of the focused
+ * session drawn like the CLI draws it, this project's measured spend, and
+ * where inside the project it went. Everything local, zero tokens.
  */
 export default function SessionInfo({
   taskTitle,
@@ -18,123 +39,154 @@ export default function SessionInfo({
   taskTitle?: string;
   sessionId?: string;
   projectName?: string;
-  /** Project root path: when set, the ledger summary is FILTERED to this
-   * project (project windows show their slice; the mother shows it all). */
+  /** Project root: scopes the ledger to this project (and below). */
   workspace?: string;
   costs: Record<string, number>;
   onClose: () => void;
 }) {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [weight, setWeight] = useState<ContextWeight | null>(null);
   const [ledger, setLedger] = useState<{ day: number; week: number } | null>(null);
-  const [contextPct, setContextPct] = useState<number | null>(null);
+  const [byTask, setByTask] = useState<SpendAgg[]>([]);
+  const [limits, setLimits] = useState<StatusLine | null>(null);
 
   useEffect(() => {
     if (!sessionId) return;
-    ipc
-      .sessionStats(sessionId)
-      .then(setStats)
-      .catch((err) => setError(String(err)));
-    ipc
-      .sessionContextWeight(sessionId)
-      .then((w) => setContextPct(w.pct))
-      .catch(() => {});
+    ipc.sessionStats(sessionId).then(setStats).catch(() => setStats(null));
+    ipc.sessionContextWeight(sessionId).then(setWeight).catch(() => setWeight(null));
   }, [sessionId]);
 
   useEffect(() => {
-    // Persistent ledger: survives the window closing (unlike `costs`).
-    // With a workspace, group by workspace and keep only this project's
-    // slice (rows record the worker cwd, so prefix-match covers subdirs).
     const day = new Date(Date.now() - 24 * 3600e3).toISOString();
     const week = new Date(Date.now() - 7 * 24 * 3600e3).toISOString();
-    const group = workspace ? "workspace" : "kind";
-    const slice = (aggs: { key: string; cost_usd: number }[]) =>
-      aggs
-        .filter((a) => !workspace || a.key === workspace || a.key.startsWith(`${workspace}/`))
-        .reduce((sum, a) => sum + a.cost_usd, 0);
+    const sum = (aggs: SpendAgg[]) => aggs.reduce((a, b) => a + b.cost_usd, 0);
     Promise.all([
-      ipc.spendSummary(day, group, "live"),
-      ipc.spendSummary(week, group, "live"),
+      ipc.spendSummary(day, "kind", "live", workspace),
+      ipc.spendSummary(week, "kind", "live", workspace),
+      ipc.spendSummary(week, "label", "live", workspace),
     ])
-      .then(([d, w]) => setLedger({ day: slice(d), week: slice(w) }))
+      .then(([d, w, tasks]) => {
+        setLedger({ day: sum(d), week: sum(w) });
+        setByTask(tasks.filter((t) => t.cost_usd > 0).slice(0, 5));
+      })
       .catch(() => {});
+    ipc.subscriptionLimits().then(setLimits).catch(() => setLimits(null));
   }, [workspace]);
 
-  const total = Object.values(costs).reduce((a, b) => a + b, 0);
-  const spent = Object.entries(costs).sort((a, b) => b[1] - a[1]);
+  const windowTotal = Object.values(costs).reduce((a, b) => a + b, 0);
+  const contextSegments: Segment[] = weight
+    ? [
+        { label: "cache lido", value: weight.cache_read, color: "var(--ok)" },
+        { label: "cache escrito", value: weight.cache_created, color: "var(--warn)" },
+        { label: "prompt novo", value: weight.input, color: "var(--accent)" },
+      ]
+    : [];
+  const capacity = weight?.context_window ?? undefined;
 
   return (
     <div className="scope-pop" onMouseLeave={onClose}>
-      <div className="scope-row head">
-        <span>{taskTitle ?? "nenhuma task focada"}</span>
+      <div className="scope-head">
+        <b>{projectName ? `custos · ${projectName}` : "custos"}</b>
+        <span className="hint">{taskTitle ?? "nenhuma task focada"}</span>
       </div>
-      {projectName && (
-        <div className="scope-row">
-          <span>projeto</span>
-          <b>{projectName}</b>
-        </div>
-      )}
-      {stats && (
-        <>
-          {stats.title && stats.title !== taskTitle && (
-            <div className="scope-row">
-              <span>sessão</span>
-              <b>{stats.title.slice(0, 34)}</b>
-            </div>
+
+      {weight && weight.last_total_tokens > 0 && (
+        <section className="scope-block">
+          <div className="scope-block-head">
+            <span>janela de contexto</span>
+            <b>
+              {fmtTok(weight.last_total_tokens)}
+              {capacity ? ` / ${fmtTok(capacity)}` : ""}
+              {weight.pct != null ? ` (${Math.round(weight.pct * 100)}%)` : ""}
+            </b>
+          </div>
+          <StackedBar segments={contextSegments} capacity={capacity} height={9} />
+          <Legend segments={contextSegments} capacity={capacity} free="livre" />
+          {weight.pct != null && weight.pct > 0.7 && (
+            <p className="hint warn">
+              sessão pesada: cada turno recarrega esse contexto. Vale recomeçar leve.
+            </p>
           )}
-          <div className="scope-row">
-            <span>peso do resume</span>
+        </section>
+      )}
+
+      {ledger && (
+        <section className="scope-block">
+          <div className="scope-block-head">
+            <span>gasto medido{projectName ? " neste projeto" : ""}</span>
+            <b>{fmtUsd(ledger.day)}</b>
+          </div>
+          <div className="scope-pair">
+            <span>últimas 24h</span>
+            <b>{fmtUsd(ledger.day)}</b>
+          </div>
+          <div className="scope-pair">
+            <span>últimos 7 dias</span>
+            <b>{fmtUsd(ledger.week)}</b>
+          </div>
+          <div className="scope-pair">
+            <span>nesta janela aberta</span>
+            <b>{fmtUsd(windowTotal)}</b>
+          </div>
+        </section>
+      )}
+
+      {byTask.length > 0 && (
+        <section className="scope-block">
+          <div className="scope-block-head">
+            <span>por task · 7 dias</span>
+          </div>
+          {byTask.map((t) => (
+            <MeterRow
+              key={t.key}
+              name={t.key}
+              value={t.cost_usd}
+              max={byTask[0].cost_usd}
+              detail={fmtUsd(t.cost_usd)}
+              note={`${t.turns} turnos`}
+            />
+          ))}
+        </section>
+      )}
+
+      {limits && limits.limits.length > 0 && (
+        <section className="scope-block">
+          <div className="scope-block-head">
+            <span>limites da assinatura</span>
+          </div>
+          {limits.limits.map((l) => (
+            <Gauge
+              key={l.key}
+              name={limitName(l.key)}
+              used={l.used}
+              caption={resetIn(l.resets_at)}
+            />
+          ))}
+        </section>
+      )}
+
+      {stats && (
+        <section className="scope-block">
+          <div className="scope-block-head">
+            <span>sessão focada</span>
             <b className={stats.size_mb > 2 ? "warn" : ""}>{stats.size_mb.toFixed(1)} MB</b>
           </div>
-          <div className="scope-row">
+          <div className="scope-pair">
             <span>eventos no log</span>
             <b>{stats.entries}</b>
           </div>
           {stats.last_ts && (
-            <div className="scope-row">
+            <div className="scope-pair">
               <span>última atividade</span>
               <b>{stats.last_ts.slice(0, 16).replace("T", " ")}</b>
             </div>
           )}
-        </>
+        </section>
       )}
-      {contextPct != null && (
-        <div className="scope-row">
-          <span>janela de contexto</span>
-          <b className={contextPct > 0.7 ? "warn" : ""}>{Math.round(contextPct * 100)}%</b>
-        </div>
-      )}
-      {error && <div className="scope-row"><span className="warn">{error}</span></div>}
-      {ledger && (
-        <>
-          <div className="scope-row head">
-            <span>{workspace ? "gasto do projeto (ledger)" : "gasto medido (ledger)"}</span>
-          </div>
-          <div className="scope-row">
-            <span>últimas 24h</span>
-            <b>${ledger.day.toFixed(4)}</b>
-          </div>
-          <div className="scope-row">
-            <span>últimos 7 dias</span>
-            <b>${ledger.week.toFixed(4)}</b>
-          </div>
-        </>
-      )}
-      <div className="scope-row head">
-        <span>gasto nesta janela</span>
-        <b>${total.toFixed(4)}</b>
-      </div>
-      {spent.slice(0, 6).map(([label, usd]) => (
-        <div className="scope-row" key={label}>
-          <span>{label.slice(0, 30)}</span>
-          <b>${usd.toFixed(4)}</b>
-        </div>
-      ))}
-      {spent.length === 0 && (
-        <div className="scope-row">
-          <span>nada gasto ainda</span>
-        </div>
-      )}
+
+      <p className="scope-foot">
+        USD medido pelo CLI nos turnos do Vox. Custos completos na janela mãe.
+      </p>
     </div>
   );
 }

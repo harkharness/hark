@@ -15,6 +15,7 @@ pub mod prompt;
 pub mod session_log;
 pub mod snapshot;
 pub mod spend;
+pub mod statusline;
 pub mod task_command;
 pub mod transcript;
 pub mod vad;

@@ -95,23 +95,37 @@ body {
 .topbar .scope.on { color: var(--accent); border-color: var(--accent); }
 .topbar .scope:disabled { opacity: .4; cursor: default; }
 
-/* scope/session stats popover */
+/* costs popover, anchored to the button that opens it */
+.scope-anchor { position: relative; display: inline-flex; }
 .scope-pop {
-  position: fixed; top: 42px; right: 120px; z-index: 12; min-width: 300px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-  padding: 10px; box-shadow: 0 12px 36px rgba(0,0,0,.55); font-size: 12px;
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 14;
+  width: 340px; max-height: 70vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; box-shadow: 0 16px 44px rgba(0,0,0,.6); font-size: 12px;
+  display: grid; gap: 12px;
 }
-.scope-row {
-  display: flex; justify-content: space-between; gap: 14px;
-  padding: 3px 4px; color: var(--dim);
+.scope-head { display: grid; gap: 2px; }
+.scope-head b { color: var(--text); font-size: 13px; }
+.scope-head .hint {
+  color: var(--dim); font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.scope-row b { color: var(--text); font-weight: 600; }
-.scope-row b.warn, .scope-row .warn { color: var(--warn); }
-.scope-row.head {
-  color: var(--accent); border-top: 1px solid var(--border);
-  margin-top: 6px; padding-top: 8px;
+.scope-block { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.scope-pop > .scope-block:first-of-type { padding-top: 0; border-top: none; }
+.scope-block-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
 }
-.scope-pop .scope-row.head:first-child { border-top: none; margin-top: 0; padding-top: 3px; }
+.scope-block-head b { color: var(--text); font-size: 12px; text-transform: none; letter-spacing: 0; }
+.scope-block-head b.warn { color: var(--warn); }
+.scope-pair { display: flex; justify-content: space-between; gap: 12px; color: var(--dim); }
+.scope-pair b { color: var(--text); font-variant-numeric: tabular-nums; }
+.scope-pop .hint { color: var(--dim); font-size: 11px; line-height: 1.5; }
+.scope-pop .hint.warn { color: var(--warn); }
+.scope-foot {
+  color: var(--dim); font-size: 10px; line-height: 1.5;
+  padding-top: 8px; border-top: 1px dashed var(--border);
+}
 
 /* ---- mother window (the voice that orchestrates) ---- */
 .mother {
@@ -223,35 +237,99 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .viewer-md { flex: 1; overflow-y: auto; padding: 14px 16px; }
 
+/* ---- meters: the shared vocabulary of every cost surface ---- */
+.meter-track {
+  width: 100%; display: flex; gap: 1px; border-radius: 999px; overflow: hidden;
+  background: color-mix(in srgb, var(--border) 70%, transparent);
+}
+.meter-fill { height: 100%; transition: width .25s ease; }
+.meter-legend { list-style: none; margin: 8px 0 0; display: grid; gap: 3px; }
+.meter-legend li {
+  display: grid; grid-template-columns: 10px 1fr auto auto; gap: 8px;
+  align-items: center; color: var(--text); font-size: 12px;
+}
+.meter-legend li.muted { color: var(--dim); }
+.meter-legend .dot { width: 8px; height: 8px; border-radius: 2px; }
+.meter-legend .dot.free { background: color-mix(in srgb, var(--border) 90%, transparent); }
+.meter-legend .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meter-legend .val { color: var(--dim); font-variant-numeric: tabular-nums; }
+.meter-legend .share {
+  min-width: 46px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600;
+}
+.meter-row { display: grid; gap: 4px; }
+.meter-row-head {
+  display: flex; align-items: baseline; gap: 8px; font-size: 12px;
+}
+.meter-row-head .name {
+  color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.meter-row-head .caption { color: var(--dim); font-size: 11px; margin-left: auto; }
+.meter-row-head .val {
+  margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.meter-row-head .caption + .val { margin-left: 0; }
+.meter-note { color: var(--dim); font-size: 11px; }
+
 /* ---- costs tab ---- */
 .costs-page { flex: 1; min-height: 0; display: flex; }
 .costs {
-  flex: 1; overflow-y: auto; background: var(--panel);
-  padding: 12px 16px; font-size: 12px;
+  flex: 1; overflow-y: auto; padding: 4px 2px 24px; font-size: 12px;
+  display: flex; flex-direction: column; gap: 12px;
 }
-.costs-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
-.costs-head h3 { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
-.costs-toggles { display: flex; gap: 4px; align-items: center; }
-.costs-toggles .sep { width: 1px; height: 14px; background: var(--border); margin: 0 4px; }
-.costs-toggles button {
+.costs-bar {
+  display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px 18px;
+}
+.costs-hero { display: grid; gap: 2px; }
+.costs-label { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+.costs-money { color: var(--ok); font-size: 28px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.costs-sub { color: var(--dim); font-size: 12px; }
+.costs-sub .ok { color: var(--ok); }
+.costs-sub .warn { color: var(--warn); }
+.costs-toggles { display: flex; gap: 4px; align-items: center; margin-left: auto; }
+.costs-toggles button, .costs-groups button {
   background: none; border: 1px solid var(--border); border-radius: 10px;
-  color: var(--dim); font: inherit; font-size: 11px; padding: 2px 10px; cursor: pointer;
+  color: var(--dim); font: inherit; font-size: 11px; padding: 3px 12px; cursor: pointer;
 }
-.costs-toggles button.on { color: var(--accent); border-color: var(--accent); }
-.costs-total { margin-left: auto; color: var(--dim); }
-.costs-total b { color: var(--ok); font-size: 14px; }
-.costs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.costs-grid section:last-child { grid-column: 1 / 3; }
-.costs h4 { color: var(--dim); font-size: 11px; margin-bottom: 6px; font-weight: 600; }
-.costs table { border-collapse: collapse; width: 100%; }
-.costs td { padding: 3px 8px 3px 0; vertical-align: top; }
-.costs td.k { color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.costs td.n { color: var(--text); white-space: nowrap; }
-.costs td.dim, .costs .dim { color: var(--dim); }
+.costs-toggles button.on, .costs-groups button.on { color: var(--accent); border-color: var(--accent); }
+.costs-cards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px;
+}
+.costs .card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0;
+}
+.costs .card.wide { grid-column: 1 / -1; }
+.costs h4 {
+  color: var(--text); font-size: 12px; font-weight: 600; letter-spacing: .3px;
+}
+.costs-groups { display: flex; gap: 4px; flex-wrap: wrap; }
+.costs-rows { display: grid; gap: 10px; }
+.costs-rows.two { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px 24px; }
+.costs .empty, .costs .hint { color: var(--dim); font-size: 11px; line-height: 1.5; }
+.costs .hint code { color: var(--text); }
+.bridge-offer { display: grid; gap: 8px; color: var(--text); line-height: 1.5; }
+.bridge-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bridge-actions .ok { color: var(--ok); }
+.bridge-actions button {
+  background: none; border: 1px solid var(--border); border-radius: 10px;
+  color: var(--dim); font: inherit; font-size: 11px; padding: 4px 12px; cursor: pointer;
+}
+.bridge-actions button.primary { color: var(--accent); border-color: var(--accent); }
+.bridge-actions button:hover { color: var(--text); }
+.costs-method-toggle {
+  align-self: flex-start; display: flex; align-items: center; gap: 6px;
+  background: none; border: none; color: var(--dim); font: inherit; font-size: 11px;
+  cursor: pointer;
+}
+.costs-method-toggle:hover { color: var(--text); }
 .costs-method {
-  margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border);
-  color: var(--dim); font-size: 11px; line-height: 1.5;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 16px; color: var(--dim); font-size: 11px; line-height: 1.6;
+  display: grid; gap: 6px;
 }
+.costs-method b { color: var(--text); }
 .topbar .scope.ratelimit.allowed_warning { color: var(--warn); border-color: var(--warn); }
 .topbar .scope.ratelimit.rejected { color: var(--err); border-color: var(--err); }
 

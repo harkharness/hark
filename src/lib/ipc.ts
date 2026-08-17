@@ -68,7 +68,26 @@ export const spendSummary = (
   since: string | null,
   group: "kind" | "model" | "label" | "workspace" | "day" | "session",
   source: "live" | "jsonl",
-) => invoke<import("../types").SpendAgg[]>("spend_summary", { since, group, source });
+  /** Project root: scopes every number to that directory and below. */
+  workspace?: string | null,
+) =>
+  invoke<import("../types").SpendAgg[]>("spend_summary", {
+    since,
+    group,
+    source,
+    workspace: workspace ?? null,
+  });
+
+/** Subscription windows (5h/weekly). null until the bridge is installed. */
+export const subscriptionLimits = () =>
+  invoke<import("../types").StatusLine | null>("subscription_limits");
+
+export const statuslineBridgeStatus = () =>
+  invoke<import("../types").BridgeStatus>("statusline_bridge_status");
+/** Edits ~/.claude/settings.json (with a backup) — click only. */
+export const statuslineBridgeInstall = () =>
+  invoke<string | null>("statusline_bridge_install");
+export const statuslineBridgeUninstall = () => invoke("statusline_bridge_uninstall");
 
 export const spendTopSessions = (since: string, limit: number) =>
   invoke<import("../types").SpendAgg[]>("spend_top_sessions", { since, limit });

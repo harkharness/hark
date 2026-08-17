@@ -82,6 +82,7 @@ fn cmd_spend(rest: &[String]) -> i32 {
             since: since.clone(),
             group,
             source: SpendSource::Live,
+            workspace: None,
         })?;
         if live.is_empty() {
             println!("(nenhum turno registrado ainda)");
@@ -106,6 +107,7 @@ fn cmd_spend(rest: &[String]) -> i32 {
             since,
             group: SpendGroup::Model,
             source: SpendSource::Jsonl,
+            workspace: None,
         })? {
             println!(
                 "{:<40} in {:>10} out {:>10} cache_read {:>12} cache_new {:>10}",
