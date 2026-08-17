@@ -149,10 +149,13 @@ export default function App() {
   async function runAsk(question: string, img: string | null) {
     setBusy("perguntando…");
     try {
+      // The focused project scopes the snapshot: clicking a chat or
+      // starting one IS the context selection (no manual picker).
       const reply = await ipc.askText(
         question,
         img ? img.split(",")[1] : null,
         img ? img.slice(5, img.indexOf(";")) : null,
+        activeProject,
       );
       push({
         who: "vox",
@@ -546,16 +549,9 @@ export default function App() {
             board
           </button>
         </nav>
-        <select
-          value={overview?.active ?? "all"}
-          onChange={(e) => {
-            ipc.useContext(e.target.value).then(refresh);
-          }}
-        >
-          {["all", ...(overview?.contexts ?? [])].map((c) => (
-            <option key={c}>{c}</option>
-          ))}
-        </select>
+        <span className="scope" title="escopo atual: segue a task/projeto focado">
+          🗂 {activeProject?.name ?? "todos"}
+        </span>
         <label>
           <input type="checkbox" checked={speak} onChange={(e) => setSpeak(e.target.checked)} />{" "}
           voz
@@ -610,6 +606,7 @@ export default function App() {
                   refresh();
                 })
               }
+              onOpenFile={(file) => setViewer(file)}
             />
           </Panel>
           <PanelResizeHandle className="rhandle" />

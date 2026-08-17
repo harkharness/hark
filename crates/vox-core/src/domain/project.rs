@@ -63,6 +63,17 @@ pub fn remove(projects: Vec<Project>, key: &str) -> Vec<Project> {
         .collect()
 }
 
+/// A project seen as a snapshot scope: sessions whose cwd lives under the
+/// project directory, repos = the directory itself. This is what replaced
+/// the manual kubectl-style context select in the window.
+pub fn as_context(project: &Project) -> crate::domain::context::ContextDef {
+    crate::domain::context::ContextDef {
+        name: project.name.clone(),
+        match_cwd: vec![project.path.clone()],
+        repos: vec![project.path.clone()],
+    }
+}
+
 /// Find a project by (partial, case-insensitive) name.
 pub fn find<'a>(projects: &'a [Project], query: &str) -> Option<&'a Project> {
     let q = query.trim().to_lowercase();
@@ -105,6 +116,17 @@ mod tests {
         let (list, _) = add(list, "other", "/p/other");
         assert_eq!(remove(list.clone(), "other").len(), 1);
         assert_eq!(remove(list, "/p/vox").len(), 1);
+    }
+
+    #[test]
+    fn projects_scope_like_contexts() {
+        let p = Project { name: "vox".into(), path: "/p/vox".into() };
+        let ctx = as_context(&p);
+        assert_eq!(ctx.name, "vox");
+        assert!(ctx.matches(Some("/p/vox")));
+        assert!(ctx.matches(Some("/p/vox/src")));
+        assert!(!ctx.matches(Some("/p/other")));
+        assert_eq!(ctx.repos, vec!["/p/vox".to_string()]);
     }
 
     #[test]

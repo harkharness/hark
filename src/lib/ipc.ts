@@ -20,8 +20,19 @@ export const routeText = (text: string) => invoke<string>("route_text", { text }
 export const speak = (text: string) => invoke("speak", { text });
 export const hearOnce = () => invoke<string>("hear_once");
 
-export const askText = (question: string, imageB64: string | null, mediaType: string | null) =>
-  invoke<Reply>("ask_text", { question, imageB64, mediaType });
+export const askText = (
+  question: string,
+  imageB64: string | null,
+  mediaType: string | null,
+  project?: Project,
+) =>
+  invoke<Reply>("ask_text", {
+    question,
+    imageB64,
+    mediaType,
+    projectName: project?.name ?? null,
+    projectPath: project?.path ?? null,
+  });
 
 export const workerStart = (instruction: string, sessionId: string | null) =>
   invoke<DispatchOutcome>("worker_start", { instruction, sessionId });

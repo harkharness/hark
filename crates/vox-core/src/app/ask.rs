@@ -13,8 +13,13 @@ const JOURNAL_TAIL: usize = 8;
 
 pub struct AskDeps<'a> {
     pub config: &'a Config,
-    /// Context chosen via `vox use` (from global state), if any.
+    /// Context chosen via `vox use` (from global state), if any (CLI legacy).
     pub active_context: Option<String>,
+    /// Registered projects; their names work as one-turn hints in questions.
+    pub projects: Vec<crate::domain::project::Project>,
+    /// Project the UI is focused on right now: clicking a chat, resuming a
+    /// session or starting a new one sets this — the scope follows the work.
+    pub active_project: Option<crate::domain::project::Project>,
     /// Machine-wide dispatched workers (loaded from global state).
     pub workers: Vec<crate::domain::memory::WorkerRecord>,
     pub store: &'a mut dyn SessionStore,
@@ -135,12 +140,26 @@ pub fn snapshot_unfiltered(deps: &mut AskDeps, hours: i64) -> anyhow::Result<Sna
     build_snapshot_with(deps, hours, None)
 }
 
-/// hint in the question > active (vox use) > config default > None ("all").
+/// hint in the question (project or config context) > focused project >
+/// active (vox use, CLI legacy) > config default > None ("all").
 fn resolve_context(deps: &AskDeps, question: Option<&str>) -> Option<ContextDef> {
-    let names = deps.config.context_names();
-    let hinted = question.and_then(|q| context::hint(q, &names));
-    let name = hinted
-        .or_else(|| deps.active_context.clone())
+    use crate::domain::project;
+    let mut names = deps.config.context_names();
+    names.extend(deps.projects.iter().map(|p| p.name.clone()));
+    if let Some(hinted) = question.and_then(|q| context::hint(q, &names)) {
+        if let Some(p) = project::find(&deps.projects, &hinted) {
+            return Some(project::as_context(p));
+        }
+        if let Some(c) = deps.config.context(&hinted) {
+            return Some(c);
+        }
+    }
+    if let Some(p) = &deps.active_project {
+        return Some(project::as_context(p));
+    }
+    let name = deps
+        .active_context
+        .clone()
         .unwrap_or_else(|| deps.config.default_context.clone());
     deps.config.context(&name)
 }

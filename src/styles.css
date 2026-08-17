@@ -55,6 +55,23 @@ body {
 .topbar .tabs button.active { color: var(--accent); border-color: var(--border); background: var(--bg); }
 .topbar .state { margin-left: auto; color: var(--dim); }
 .topbar .state.busy { color: var(--warn); }
+.topbar .scope {
+  color: var(--dim); font-size: 12px; border: 1px solid var(--border);
+  border-radius: 10px; padding: 2px 10px;
+}
+
+/* ---- clickable file tree (sidebar) ---- */
+.filetree { margin: 2px 0 8px; max-height: 40vh; overflow-y: auto; }
+.tree-row {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  color: var(--dim); font: inherit; font-size: 12px; padding: 2px 8px;
+  cursor: pointer; border-radius: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tree-row:hover { background: rgba(255,255,255,.05); color: var(--text); }
+.tree-row.tree-file { color: var(--text); }
+.tree-caret { color: var(--dim); margin-right: 4px; }
+.side-group-add.on { color: var(--accent); border-color: var(--accent); }
 
 /* ---- task sidebar (grouped by project) ---- */
 .sidebar {

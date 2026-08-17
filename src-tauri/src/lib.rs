@@ -60,10 +60,13 @@ fn build_deps<'a>(
     store: &'a mut SqliteStore,
     live: &'a ClaudeAgentsCli,
     runner: &'a dyn AgentRunner,
+    active_project: Option<vox_core::domain::project::Project>,
 ) -> AskDeps<'a> {
     let state = state_file::load(&config.data_dir());
     AskDeps {
         active_context: state.active_context,
+        projects: state.projects,
+        active_project,
         workers: state.workers,
         journal: &VoxDir,
         store,
@@ -304,6 +307,8 @@ fn ask_text(
     question: String,
     image_b64: Option<String>,
     media_type: Option<String>,
+    project_name: Option<String>,
+    project_path: Option<String>,
 ) -> Result<ReplyOut, String> {
     let config = Config::load();
     let mut store =
@@ -316,7 +321,12 @@ fn ask_text(
 
         work_dir: config.data_dir(),
     };
-    let mut deps = build_deps(&config, &mut store, &live, &runner);
+    // The UI's focused project scopes this question (click = context).
+    let active_project = match (project_name, project_path) {
+        (Some(name), Some(path)) => Some(vox_core::domain::project::Project { name, path }),
+        _ => None,
+    };
+    let mut deps = build_deps(&config, &mut store, &live, &runner, active_project);
     let image = match (&media_type, &image_b64) {
         (Some(m), Some(d)) => Some((m.as_str(), d.as_str())),
         _ => None,
@@ -404,7 +414,7 @@ fn worker_start(
         let agents = ClaudeAgentsCli {
             claude_bin: config.claude_bin_resolved(),
         };
-        let mut deps = build_deps(&config, &mut store, &agents, &NoopRunner);
+        let mut deps = build_deps(&config, &mut store, &agents, &NoopRunner, None);
         plan(&mut deps, &instruction, session_id.as_deref()).map_err(|e| e.to_string())?
     };
     let planned = match planned {
@@ -779,7 +789,7 @@ fn dispatch_text(
         let live = ClaudeAgentsCli {
             claude_bin: config.claude_bin_resolved(),
         };
-        let mut deps = build_deps(&config, &mut store, &live, &NoopRunner);
+        let mut deps = build_deps(&config, &mut store, &live, &NoopRunner, None);
         plan(&mut deps, &instruction, session_id.as_deref()).map_err(|e| e.to_string())?
     };
 

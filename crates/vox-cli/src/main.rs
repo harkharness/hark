@@ -95,6 +95,8 @@ fn cmd_ask(question: &str) -> i32 {
         let state = state_file::load(&config.data_dir());
         let mut deps = AskDeps {
             active_context: state.active_context,
+            projects: state.projects,
+            active_project: None,
             workers: state.workers,
             journal: &vox_core::adapters::memory_files::VoxDir,
             store: &mut store,
@@ -156,6 +158,8 @@ fn cmd_prompt(question: &str) -> i32 {
         let state = state_file::load(&config.data_dir());
         let mut deps = AskDeps {
             active_context: state.active_context,
+            projects: state.projects,
+            active_project: None,
             workers: state.workers,
             journal: &vox_core::adapters::memory_files::VoxDir,
             store: &mut store,
@@ -208,6 +212,8 @@ fn cmd_sessions() -> i32 {
         let state = state_file::load(&config.data_dir());
         let mut deps = AskDeps {
             active_context: state.active_context,
+            projects: state.projects,
+            active_project: None,
             workers: state.workers,
             journal: &vox_core::adapters::memory_files::VoxDir,
             store: &mut store,
@@ -261,6 +267,8 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
         let state = state_file::load(&config.data_dir());
         let mut deps = AskDeps {
             active_context: state.active_context,
+            projects: state.projects,
+            active_project: None,
             workers: state.workers,
             journal: &vox_core::adapters::memory_files::VoxDir,
             store: &mut store,
@@ -613,6 +621,8 @@ fn cmd_ask_spoken(question: &str, tts: &impl vox_core::ports::Tts) -> i32 {
         let state = state_file::load(&config.data_dir());
         let mut deps = AskDeps {
             active_context: state.active_context,
+            projects: state.projects,
+            active_project: None,
             workers: state.workers,
             journal: &vox_core::adapters::memory_files::VoxDir,
             store: &mut store,

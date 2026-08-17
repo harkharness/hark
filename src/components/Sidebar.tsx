@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { BoardTask, Project } from "../types";
+import FileTree from "./FileTree";
+import type { BoardTask, OpenFile, Project } from "../types";
 
 const DOT: Record<BoardTask["status"], string> = {
   doing: "◍",
@@ -26,6 +27,7 @@ export default function Sidebar({
   onNewChat,
   onAddProject,
   onRemoveProject,
+  onOpenFile,
 }: {
   projects: Project[];
   tasks: BoardTask[];
@@ -39,11 +41,14 @@ export default function Sidebar({
   onNewChat: (project: Project) => void;
   onAddProject: (path: string) => void;
   onRemoveProject: (project: Project) => void;
+  onOpenFile: (file: OpenFile) => void;
 }) {
   const [menu, setMenu] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [projMenu, setProjMenu] = useState<string | null>(null);
+  /** Projects whose clickable file tree is expanded. */
+  const [treesOpen, setTreesOpen] = useState<Set<string>>(new Set());
 
   const ordered = [...tasks].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
@@ -132,6 +137,20 @@ export default function Sidebar({
                 +
               </button>
               <button
+                className={`side-group-add ${treesOpen.has(p.path) ? "on" : ""}`}
+                title="arquivos do projeto"
+                onClick={() =>
+                  setTreesOpen((old) => {
+                    const next = new Set(old);
+                    if (next.has(p.path)) next.delete(p.path);
+                    else next.add(p.path);
+                    return next;
+                  })
+                }
+              >
+                📁
+              </button>
+              <button
                 className="side-menu-btn"
                 onClick={() => setProjMenu(projMenu === p.path ? null : p.path)}
               >
@@ -151,6 +170,7 @@ export default function Sidebar({
                 </div>
               )}
             </div>
+            {treesOpen.has(p.path) && <FileTree project={p} onOpen={onOpenFile} />}
             {group.length === 0 && <div className="side-empty">sem chats ainda</div>}
             {group.map(item)}
           </section>
