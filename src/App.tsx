@@ -37,7 +37,7 @@ export default function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
-  const [tab, setTab] = useState<"code" | "board">("code");
+  const [tab, setTab] = useState<"code" | "board" | "custos">("code");
   // Read-only thread being viewed (board tab), never executes anything.
   const [reading, setReading] = useState<{
     sessionId: string;
@@ -634,6 +634,15 @@ export default function App() {
           >
             board
           </button>
+          <button
+            className={tab === "custos" ? "active" : ""}
+            onClick={() => {
+              setReading(null);
+              setTab("custos");
+            }}
+          >
+            custos
+          </button>
         </nav>
         <button
           className="scope"
@@ -829,12 +838,13 @@ export default function App() {
             })
           }
         />
+      ) : tab === "board" ? (
+        <Board
+          tasks={board}
+          onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
+        />
       ) : (
-        <div className="boardwrap">
-          <Board
-            tasks={board}
-            onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
-          />
+        <div className="costs-page">
           <CostsPanel />
         </div>
       )}
