@@ -1514,6 +1514,36 @@ fn board_archive(title: String) -> Result<(), String> {
     store.save_board(&tasks).map_err(|e| e.to_string())
 }
 
+/// Open (or focus) the dedicated window of one project — the VSCode-style
+/// "one project, one window" model. The main window stays the orchestrator.
+#[tauri::command]
+fn open_project_window(app: AppHandle, name: String, path: String) -> Result<(), String> {
+    let label: String = format!(
+        "proj-{}",
+        path.chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect::<String>()
+    )
+    .chars()
+    .take(60)
+    .collect();
+    if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+    let url = format!(
+        "index.html?project={}&name={}",
+        urlencoding::encode(&path),
+        urlencoding::encode(&name)
+    );
+    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
+        .title(format!("Vox — {name}"))
+        .inner_size(1280.0, 820.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Answer a pending permission request (live worker first, one-shot channel
 /// as fallback).
 #[tauri::command]
@@ -1585,8 +1615,18 @@ pub fn run() {
             board_rename,
             board_pin,
             board_archive,
+            open_project_window,
             approve
         ])
+        // The mother window commands everything: closing it closes the app
+        // (project windows included). Closing a project window is local.
+        .on_window_event(|window, event| {
+            if window.label() == "main"
+                && matches!(event, tauri::WindowEvent::CloseRequested { .. })
+            {
+                window.app_handle().exit(0);
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running vox");
 }

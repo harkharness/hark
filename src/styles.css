@@ -113,6 +113,59 @@ body {
 }
 .scope-pop .scope-row.head:first-child { border-top: none; margin-top: 0; padding-top: 3px; }
 
+/* ---- mother window (the voice that orchestrates) ---- */
+.mother {
+  height: 100vh; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 18px; background: var(--bg); padding: 24px;
+}
+.mother-orb {
+  width: 150px; height: 150px; border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 30% 30%, rgba(122,162,247,.14), rgba(122,162,247,.03));
+  border: 1px solid var(--border);
+}
+.mother-orb:hover { border-color: var(--accent); }
+.mother-orb .orb { gap: 4px; height: 60px; }
+.mother-orb .orb-bar { width: 5px; height: 10px; }
+.mother-orb .orb.listening .orb-bar,
+.mother-orb .orb.speaking .orb-bar,
+.mother-orb .orb.busy .orb-bar { animation-name: orb-bounce-big; }
+@keyframes orb-bounce-big {
+  0%, 100% { height: 10px; }
+  50% { height: 52px; }
+}
+.mother-status { color: var(--dim); font-size: 13px; }
+.mother-spend { color: var(--ok); }
+.mother-chat {
+  width: min(560px, 92vw); display: flex; flex-direction: column; gap: 6px;
+  min-height: 80px; justify-content: flex-end;
+}
+.mother-msg { font-size: 12px; line-height: 1.5; color: var(--dim); }
+.mother-msg.user { color: var(--text); text-align: right; }
+.mother-msg.vox { color: var(--ok); }
+.mother-input { display: flex; gap: 8px; width: min(560px, 92vw); }
+.mother-input input {
+  flex: 1; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; color: var(--text); font: inherit; padding: 10px 14px;
+  outline: none;
+}
+.mother-input input:focus { border-color: var(--accent); }
+.mother-input .mic {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  color: var(--text); padding: 8px 14px; cursor: pointer;
+}
+.mother-input .mic.recording { border-color: var(--err); color: var(--err); }
+.mother-projects {
+  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+  max-width: min(640px, 92vw);
+}
+.mother-project {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  color: var(--text); font: inherit; font-size: 12px; padding: 8px 14px; cursor: pointer;
+}
+.mother-project:hover { border-color: var(--accent); color: var(--accent); }
+
 /* ---- voice orb (state-driven waveform, no audio analysis) ---- */
 .orb { display: inline-flex; align-items: center; gap: 2px; height: 16px; }
 .orb-bar {

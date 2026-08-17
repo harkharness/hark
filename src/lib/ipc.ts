@@ -100,6 +100,10 @@ export const approve = (requestId: string, allow: boolean) =>
 export const projectAdd = (path: string) => invoke<Project>("project_add", { path });
 export const projectRemove = (key: string) => invoke("project_remove", { key });
 
+/** Open (or focus) a project's own window — the VSCode model. */
+export const openProjectWindow = (name: string, path: string) =>
+  invoke("open_project_window", { name, path });
+
 /** Fuzzy file search inside one project (relative paths). */
 export const projectFiles = (path: string, query: string, limit?: number) =>
   invoke<string[]>("project_files", { path, query, limit });

@@ -33,7 +33,7 @@ import type {
   Project,
 } from "./types";
 
-export default function App() {
+export default function App({ forcedProject }: { forcedProject?: Project }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -182,8 +182,18 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const projects = overview?.projects ?? [];
-  const board = overview?.board ?? [];
+  // A project window sees ONLY its project: sidebar, board, scope.
+  const allProjects = overview?.projects ?? [];
+  const projects = forcedProject
+    ? allProjects.filter((p) => p.path === forcedProject.path).length > 0
+      ? allProjects.filter((p) => p.path === forcedProject.path)
+      : [forcedProject]
+    : allProjects;
+  const inForced = (workspace?: string | null) =>
+    !!workspace &&
+    !!forcedProject &&
+    (workspace === forcedProject.path || workspace.startsWith(`${forcedProject.path}/`));
+  const board = (overview?.board ?? []).filter((t) => !forcedProject || inForced(t.workspace));
 
   /** Project a board task lives in (by workspace prefix). */
   const projectOf = useCallback(
@@ -197,6 +207,7 @@ export default function App() {
 
   /** Project scoping @mentions / file commands right now. */
   const activeProject =
+    forcedProject ??
     draftChat ??
     (focusedTask ? projectOf(board.find((t) => t.title === focusedTask.title)) : undefined);
 
