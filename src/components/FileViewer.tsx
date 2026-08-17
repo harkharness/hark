@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Eye, Pencil, Save, X } from "lucide-react";
+import { Eye, Pencil, Save } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { highlightFile } from "../lib/highlight";
 import Markdown from "./Markdown";
@@ -15,7 +15,14 @@ const HIGHLIGHT_EDIT_MAX = 120_000;
  * unlocks the source); code opens straight in edit mode. Cmd+S saves; the
  * amber dot marks unsaved manual edits, VSCode-style.
  */
-export default function FileViewer({ file, onClose }: { file: OpenFile; onClose: () => void }) {
+export default function FileViewer({
+  file,
+  onDirty,
+}: {
+  file: OpenFile;
+  /** Reports unsaved-edit state upward (tab dots + LRU protection). */
+  onDirty?: (abs: string, dirty: boolean) => void;
+}) {
   const [content, setContent] = useState("");
   const [truncated, setTruncated] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -25,6 +32,11 @@ export default function FileViewer({ file, onClose }: { file: OpenFile; onClose:
 
   const dirty = editing && draft !== content;
   const liveHighlight = draft.length < HIGHLIGHT_EDIT_MAX;
+
+  useEffect(() => {
+    onDirty?.(file.abs, dirty);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, file.abs]);
 
   useEffect(() => {
     setStatus(null);
@@ -93,9 +105,6 @@ export default function FileViewer({ file, onClose }: { file: OpenFile; onClose:
               <Pencil size={13} />
             </button>
           )}
-          <button onClick={onClose} title="fechar">
-            <X size={13} />
-          </button>
         </span>
       </div>
       {editing ? (

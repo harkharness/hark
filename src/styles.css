@@ -73,12 +73,17 @@ body {
   background: var(--bg); color: var(--text); border: 1px solid var(--border);
   border-radius: 4px; padding: 2px 6px; font: inherit;
 }
-.topbar .tabs { display: flex; gap: 4px; }
-.topbar .tabs button {
-  background: transparent; color: var(--dim); border: 1px solid transparent;
-  border-radius: 4px; padding: 3px 10px; font: inherit; cursor: pointer;
+/* pill tabs, Claude Code style */
+.topbar .tabs {
+  display: flex; gap: 2px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 9px; padding: 2px;
 }
-.topbar .tabs button.active { color: var(--accent); border-color: var(--border); background: var(--bg); }
+.topbar .tabs button {
+  background: transparent; color: var(--dim); border: none;
+  border-radius: 7px; padding: 4px 14px; font: inherit; cursor: pointer;
+}
+.topbar .tabs button:hover { color: var(--text); }
+.topbar .tabs button.active { color: var(--text); background: var(--panel); box-shadow: 0 1px 4px rgba(0,0,0,.4); }
 .topbar .state { margin-left: auto; color: var(--dim); }
 .topbar .state.busy { color: var(--warn); }
 .topbar .scope {
@@ -174,10 +179,79 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .topbar .scope.ratelimit.allowed_warning { color: var(--warn); border-color: var(--warn); }
 .topbar .scope.ratelimit.rejected { color: var(--err); border-color: var(--err); }
 
+/* ---- typed window chrome ---- */
+.frame {
+  display: flex; flex-direction: column; height: 100%; min-height: 0;
+  background: var(--panel); border-left: 1px solid var(--border);
+}
+.frame-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-bottom: 1px solid var(--border);
+}
+.frame-title { color: var(--text); font-size: 12px; font-weight: 600; }
+.frame-actions { margin-left: auto; display: flex; gap: 4px; }
+.frame-actions button {
+  background: none; border: none; color: var(--dim); cursor: pointer;
+  padding: 2px 4px; font: inherit;
+}
+.frame-actions button:hover { color: var(--text); }
+.frame-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.expanded-area { flex: 1; min-height: 0; display: flex; }
+.expanded-area .frame { flex: 1; border-left: none; }
+
+/* tab strip shared by Arquivo/Terminal windows */
+.filetabs {
+  display: flex; align-items: center; gap: 2px; padding: 4px 8px 0;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+  overflow-x: auto; flex-shrink: 0;
+}
+.filetab {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--dim); font-size: 11px; padding: 4px 10px; cursor: pointer;
+  border: 1px solid transparent; border-bottom: none;
+  border-radius: 6px 6px 0 0; white-space: nowrap;
+}
+.filetab.on {
+  color: var(--text); background: var(--bg); border-color: var(--border);
+}
+.filetab-close {
+  background: none; border: none; color: var(--dim); cursor: pointer;
+  padding: 0 2px; font: inherit; font-size: 11px;
+}
+.filetab-close:hover { color: var(--err); }
+.filetab.addtab { position: relative; }
+.filetab.addtab button { background: none; border: none; color: var(--dim); cursor: pointer; }
+.filetab.addtab .side-menu { top: 24px; left: 0; right: auto; }
+.fileseditor { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.filetab-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.filetab-body .viewer { border-left: none; }
+
+/* ---- Arquivos window ---- */
+.filespanel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.filespanel-search {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  border-bottom: 1px solid var(--border); color: var(--dim);
+}
+.filespanel-search input {
+  flex: 1; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font: inherit; font-size: 12px;
+  padding: 6px 10px; outline: none;
+}
+.filespanel-search input:focus { border-color: var(--accent); }
+.filespanel-trees { flex: 1; overflow-y: auto; padding: 6px 8px; }
+.filespanel-proj {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  background: none; border: none; color: var(--text); font: inherit;
+  font-size: 12px; padding: 6px 4px; cursor: pointer; text-align: left;
+}
+.filespanel-proj:hover { color: var(--accent); }
+.filespanel .filetree { max-height: none; }
+.filespanel .quickopen-list { padding: 6px; overflow-y: auto; }
+
 /* per-task terminal pane */
 .termpane {
   display: flex; flex-direction: column; height: 100%;
-  background: var(--bg); border-left: 1px solid var(--border);
+  background: var(--bg);
 }
 .term-body {
   flex: 1; overflow: auto; margin: 0; padding: 10px 12px;

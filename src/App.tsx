@@ -10,8 +10,10 @@ import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import Board from "./components/Board";
 import Composer from "./components/Composer";
 import CostsPanel from "./components/CostsPanel";
-import FileViewer from "./components/FileViewer";
+import FilesEditor from "./components/FilesEditor";
+import FilesPanel from "./components/FilesPanel";
 import Modals, { type Pending } from "./components/Modals";
+import PanelFrame from "./components/PanelFrame";
 import QuickOpen from "./components/QuickOpen";
 import Reader from "./components/Reader";
 import SessionInfo from "./components/SessionInfo";
@@ -56,7 +58,16 @@ export default function App() {
   const [liveWorkers, setLiveWorkers] = useState<Record<string, LiveWorker>>({});
   const [focused, setFocused] = useState<string | null>(null);
   const [speak, setSpeak] = useState(true);
-  const [viewer, setViewer] = useState<OpenFile | null>(null);
+  // "Arquivo" window: up to 5 tabs, LRU-evicted, dirty tabs protected.
+  const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
+  const [activeFile, setActiveFile] = useState(0);
+  const [dirtyPaths, setDirtyPaths] = useState<Set<string>>(new Set());
+  const lastFocus = useRef(new Map<string, number>());
+  // "Arquivos" window (project trees + filter).
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [filesInitialProject, setFilesInitialProject] = useState<string | undefined>();
+  /** Typed window taking the whole work area (menu stays). */
+  const [expanded, setExpanded] = useState<"arquivo" | "terminal" | "arquivos" | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
   // Per-thread raw worker feed (the task's "terminal") and window spend.
   const [rawLog, setRawLog] = useState<Record<string, string[]>>({});
@@ -298,6 +309,71 @@ export default function App() {
     }
   }
 
+  /**
+   * Open a file as an editor tab (max 5). Eviction is LRU by last focus
+   * and NEVER touches a tab with unsaved edits.
+   */
+  function openFile(file: OpenFile) {
+    lastFocus.current.set(file.abs, Date.now());
+    setOpenFiles((old) => {
+      const existing = old.findIndex((f) => f.abs === file.abs);
+      if (existing >= 0) {
+        setActiveFile(existing);
+        return old;
+      }
+      if (old.length < 5) {
+        setActiveFile(old.length);
+        return [...old, file];
+      }
+      const evictable = old
+        .map((f, i) => ({ f, i }))
+        .filter(({ f }) => !dirtyPaths.has(f.abs))
+        .sort(
+          (a, b) =>
+            (lastFocus.current.get(a.f.abs) ?? 0) - (lastFocus.current.get(b.f.abs) ?? 0),
+        );
+      const victim = evictable[0];
+      if (!victim) {
+        push({
+          who: "sys",
+          text: "5 abas com edição não salva: salva alguma (Cmd+S) antes de abrir outro arquivo",
+        });
+        return old;
+      }
+      const next = [...old];
+      next[victim.i] = file;
+      setActiveFile(victim.i);
+      return next;
+    });
+  }
+
+  function closeFileTab(index: number) {
+    setOpenFiles((old) => {
+      const closing = old[index];
+      if (closing) {
+        lastFocus.current.delete(closing.abs);
+        setDirtyPaths((d) => {
+          const next = new Set(d);
+          next.delete(closing.abs);
+          return next;
+        });
+      }
+      const next = old.filter((_, i) => i !== index);
+      setActiveFile((a) => Math.max(0, a > index ? a - 1 : Math.min(a, next.length - 1)));
+      return next;
+    });
+  }
+
+  const onFileDirty = useCallback((abs: string, isDirty: boolean) => {
+    setDirtyPaths((old) => {
+      if (old.has(abs) === isDirty) return old;
+      const next = new Set(old);
+      if (isDirty) next.add(abs);
+      else next.delete(abs);
+      return next;
+    });
+  }, []);
+
   /** Open an ABSOLUTE path (from a tool call) in the local editor. */
   function openAbsolutePath(path: string) {
     const project = projects.find((p) => path === p.path || path.startsWith(`${p.path}/`));
@@ -305,7 +381,7 @@ export default function App() {
       push({ who: "sys", text: `${path} está fora dos projetos registrados` });
       return;
     }
-    setViewer({ abs: path, rel: path.slice(project.path.length + 1), project });
+    openFile({ abs: path, rel: path.slice(project.path.length + 1), project });
   }
 
   /** Resolve a spoken/typed file query to a real file and open the viewer. */
@@ -317,7 +393,7 @@ export default function App() {
     for (const project of scope) {
       const hits = await ipc.projectFiles(project.path, query, 1).catch(() => []);
       if (hits.length > 0) {
-        setViewer({ abs: `${project.path}/${hits[0]}`, rel: hits[0], project });
+        openFile({ abs: `${project.path}/${hits[0]}`, rel: hits[0], project });
         setTab("code");
         say(`Abrindo ${hits[0].split("/").pop()}.`);
         return;
@@ -609,6 +685,63 @@ export default function App() {
     return thread === (focusedTask?.title ?? null);
   });
 
+  // Typed windows, shared by the tiled layout and the expanded mode.
+  const frameArquivo = () => (
+    <PanelFrame
+      title="Arquivo"
+      expanded={expanded === "arquivo"}
+      onToggleExpand={() => setExpanded((e) => (e === "arquivo" ? null : "arquivo"))}
+      onClose={() => {
+        setOpenFiles([]);
+        setDirtyPaths(new Set());
+        setExpanded((e) => (e === "arquivo" ? null : e));
+      }}
+    >
+      <FilesEditor
+        files={openFiles}
+        active={activeFile}
+        dirty={dirtyPaths}
+        onActivate={(i) => {
+          setActiveFile(i);
+          const f = openFiles[i];
+          if (f) lastFocus.current.set(f.abs, Date.now());
+        }}
+        onCloseTab={closeFileTab}
+        onDirty={onFileDirty}
+      />
+    </PanelFrame>
+  );
+  const frameTerminal = () => (
+    <PanelFrame
+      title="Terminal"
+      expanded={expanded === "terminal"}
+      onToggleExpand={() => setExpanded((e) => (e === "terminal" ? null : "terminal"))}
+      onClose={() => {
+        setTermOpen(false);
+        setExpanded((e) => (e === "terminal" ? null : e));
+      }}
+    >
+      <TerminalPane rawLog={rawLog} focusedLabel={focusedTask?.title} />
+    </PanelFrame>
+  );
+  const frameArquivos = () => (
+    <PanelFrame
+      title="Arquivos"
+      expanded={expanded === "arquivos"}
+      onToggleExpand={() => setExpanded((e) => (e === "arquivos" ? null : "arquivos"))}
+      onClose={() => {
+        setFilesOpen(false);
+        setExpanded((e) => (e === "arquivos" ? null : e));
+      }}
+    >
+      <FilesPanel
+        projects={projects}
+        initialProject={filesInitialProject}
+        onOpen={openFile}
+      />
+    </PanelFrame>
+  );
+
   const placeholder = draftChat
     ? `primeira mensagem do novo chat em ${draftChat.name}…`
     : focused
@@ -653,9 +786,8 @@ export default function App() {
         </button>
         <button
           className={`scope ${termOpen ? "on" : ""}`}
-          title="terminal da task focada (feed bruto do worker)"
+          title="janela Terminal (feeds brutos dos workers)"
           onClick={() => setTermOpen((t) => !t)}
-          disabled={!focusedTask}
         >
           <SquareTerminal size={12} />
         </button>
@@ -693,7 +825,15 @@ export default function App() {
         </span>
       </div>
 
-      {tab === "code" ? (
+      {tab === "code" && expanded ? (
+        <div className="workarea expanded-area">
+          {expanded === "arquivo"
+            ? frameArquivo()
+            : expanded === "terminal"
+              ? frameTerminal()
+              : frameArquivos()}
+        </div>
+      ) : tab === "code" ? (
         <PanelGroup direction="horizontal" autoSaveId="vox-code" className="workarea">
           <Panel
             ref={sidebarRef}
@@ -738,7 +878,10 @@ export default function App() {
                   refresh();
                 })
               }
-              onOpenFile={(file) => setViewer(file)}
+              onOpenFiles={(p) => {
+                setFilesInitialProject(p.path);
+                setFilesOpen(true);
+              }}
             />
           </Panel>
           <PanelResizeHandle className="rhandle" />
@@ -798,23 +941,27 @@ export default function App() {
               </Composer>
             </div>
           </Panel>
-          {viewer && (
+          {openFiles.length > 0 && (
             <>
               <PanelResizeHandle className="rhandle" />
               <Panel defaultSize={42} minSize={20} className="pane">
-                <FileViewer file={viewer} onClose={() => setViewer(null)} />
+                {frameArquivo()}
               </Panel>
             </>
           )}
-          {termOpen && focusedTask && (
+          {termOpen && (
             <>
               <PanelResizeHandle className="rhandle" />
               <Panel defaultSize={34} minSize={18} className="pane">
-                <TerminalPane
-                  label={focusedTask.title}
-                  lines={rawLog[focusedTask.title] ?? []}
-                  onClose={() => setTermOpen(false)}
-                />
+                {frameTerminal()}
+              </Panel>
+            </>
+          )}
+          {filesOpen && (
+            <>
+              <PanelResizeHandle className="rhandle" />
+              <Panel defaultSize={26} minSize={16} className="pane">
+                {frameArquivos()}
               </Panel>
             </>
           )}
@@ -863,7 +1010,7 @@ export default function App() {
         <QuickOpen
           projects={projects}
           onPick={(file) => {
-            setViewer(file);
+            openFile(file);
             setQuickOpen(false);
             setTab("code");
           }}

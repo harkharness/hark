@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { FolderTree, MoreVertical, Pin, Plus } from "lucide-react";
-import FileTree from "./FileTree";
-import type { BoardTask, OpenFile, Project } from "../types";
+import type { BoardTask, Project } from "../types";
 
 const DOT: Record<BoardTask["status"], string> = {
   doing: "◍",
@@ -28,7 +27,7 @@ export default function Sidebar({
   onNewChat,
   onAddProject,
   onRemoveProject,
-  onOpenFile,
+  onOpenFiles,
 }: {
   projects: Project[];
   tasks: BoardTask[];
@@ -42,14 +41,13 @@ export default function Sidebar({
   onNewChat: (project: Project) => void;
   onAddProject: (path: string) => void;
   onRemoveProject: (project: Project) => void;
-  onOpenFile: (file: OpenFile) => void;
+  /** Opens the "Arquivos" window scoped to this project. */
+  onOpenFiles: (project: Project) => void;
 }) {
   const [menu, setMenu] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [projMenu, setProjMenu] = useState<string | null>(null);
-  /** Projects whose clickable file tree is expanded. */
-  const [treesOpen, setTreesOpen] = useState<Set<string>>(new Set());
 
   // Finished tasks sink to the bottom and vanish after a week (still
   // recoverable by search/voice: "retoma a task do hydrator").
@@ -146,16 +144,9 @@ export default function Sidebar({
                 <Plus size={12} />
               </button>
               <button
-                className={`side-group-add ${treesOpen.has(p.path) ? "on" : ""}`}
-                title="arquivos do projeto"
-                onClick={() =>
-                  setTreesOpen((old) => {
-                    const next = new Set(old);
-                    if (next.has(p.path)) next.delete(p.path);
-                    else next.add(p.path);
-                    return next;
-                  })
-                }
+                className="side-group-add"
+                title="arquivos do projeto (abre a janela Arquivos)"
+                onClick={() => onOpenFiles(p)}
               >
                 <FolderTree size={12} />
               </button>
@@ -179,7 +170,6 @@ export default function Sidebar({
                 </div>
               )}
             </div>
-            {treesOpen.has(p.path) && <FileTree project={p} onOpen={onOpenFile} />}
             {group.length === 0 && <div className="side-empty">sem chats ainda</div>}
             {group.map(item)}
           </section>
