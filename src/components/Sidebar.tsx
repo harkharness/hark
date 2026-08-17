@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FolderTree, MoreVertical, Pin, Plus } from "lucide-react";
 import FileTree from "./FileTree";
 import type { BoardTask, OpenFile, Project } from "../types";
 
@@ -96,7 +97,7 @@ export default function Sidebar({
             <span className={`side-dot ${liveTitles.includes(t.title) ? "live" : ""}`}>
               {DOT[t.status]}
             </span>
-            {t.pinned && <span className="side-pin">📌</span>}
+            {t.pinned && <span className="side-pin"><Pin size={10} /></span>}
             <span className="side-title">{t.title}</span>
           </button>
           <button
@@ -104,7 +105,7 @@ export default function Sidebar({
             onClick={() => setMenu(menu === t.title ? null : t.title)}
             title="ações"
           >
-            ⋮
+            <MoreVertical size={13} />
           </button>
         </>
       )}
@@ -142,7 +143,7 @@ export default function Sidebar({
                 title={`novo chat em ${p.name}`}
                 onClick={() => onNewChat(p)}
               >
-                +
+                <Plus size={12} />
               </button>
               <button
                 className={`side-group-add ${treesOpen.has(p.path) ? "on" : ""}`}
@@ -156,13 +157,13 @@ export default function Sidebar({
                   })
                 }
               >
-                📁
+                <FolderTree size={12} />
               </button>
               <button
                 className="side-menu-btn"
                 onClick={() => setProjMenu(projMenu === p.path ? null : p.path)}
               >
-                ⋮
+                <MoreVertical size={13} />
               </button>
               {projMenu === p.path && (
                 <div className="side-menu">

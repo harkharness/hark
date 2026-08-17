@@ -267,14 +267,24 @@ fn route_text(text: String) -> String {
 }
 
 #[tauri::command]
-fn speak(text: String) {
+fn speak(app: AppHandle, text: String) {
     let config = Config::load();
     std::thread::spawn(move || {
+        // The voice orb follows these events (no audio analysis needed).
+        emit_event(&app, serde_json::json!({ "kind": "speaking", "on": true }));
         let _ = SayTts {
             voice: config.voice,
         }
         .speak(&text);
+        emit_event(&app, serde_json::json!({ "kind": "speaking", "on": false }));
     });
+}
+
+/// Cut any in-flight TTS immediately (Esc in the window).
+#[tauri::command]
+fn speak_stop(app: AppHandle) {
+    let _ = std::process::Command::new("killall").arg("say").status();
+    emit_event(&app, serde_json::json!({ "kind": "speaking", "on": false }));
 }
 
 #[tauri::command(async)]
@@ -1322,6 +1332,7 @@ pub fn run() {
             use_context,
             route_text,
             speak,
+            speak_stop,
             hear_once,
             ask_text,
             dispatch_text,

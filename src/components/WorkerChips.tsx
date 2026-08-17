@@ -1,3 +1,4 @@
+import { Info, Lock, Target, X } from "lucide-react";
 import { directiveLabels } from "../lib/format";
 import type { LiveWorker } from "../types";
 
@@ -30,13 +31,13 @@ export default function WorkerChips({
     <>
       {focusedTaskTitle && !focusedIsLive && (
         <span className="worker-chip focused">
-          🎯 {focusedTaskTitle.slice(0, 28)}
+          <Target size={12} /> {focusedTaskTitle.slice(0, 28)}
           <button
             className="close"
             title="soltar a task (voltar ao modo pergunta)"
             onClick={onReleaseFocusedTask}
           >
-            ×
+            <X size={11} />
           </button>
         </span>
       )}
@@ -48,7 +49,7 @@ export default function WorkerChips({
           title={focused === taskId ? "focado (clique para soltar)" : "clique para focar"}
         >
           <span className="dot" />
-          {w.status === "awaiting" ? "🔐 " : ""}
+          {w.status === "awaiting" && <Lock size={11} />}
           {w.label}
           {directiveLabels(w.directives).length > 0 && (
             <span className="chip-mode">{directiveLabels(w.directives).join(" ")}</span>
@@ -61,7 +62,7 @@ export default function WorkerChips({
               onInfo(taskId);
             }}
           >
-            ℹ
+            <Info size={11} />
           </button>
           <button
             className="close"
@@ -71,7 +72,7 @@ export default function WorkerChips({
               onStop(taskId);
             }}
           >
-            ×
+            <X size={11} />
           </button>
         </span>
       ))}

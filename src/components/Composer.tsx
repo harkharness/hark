@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Mic, SendHorizontal } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import type { Project } from "../types";
 
@@ -196,10 +197,10 @@ export default function Composer({
         />
       </div>
       <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title="falar">
-        🎤
+        <Mic size={15} />
       </button>
-      <button onClick={send} disabled={disabled}>
-        enviar
+      <button onClick={send} disabled={disabled} title="enviar (Enter)">
+        <SendHorizontal size={15} />
       </button>
     </div>
   );

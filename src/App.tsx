@@ -5,6 +5,8 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
+import { FolderOpen, SquareTerminal, Volume2, VolumeX } from "lucide-react";
+import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import Board from "./components/Board";
 import Composer from "./components/Composer";
 import FileViewer from "./components/FileViewer";
@@ -60,11 +62,19 @@ export default function App() {
   const [costs, setCosts] = useState<Record<string, number>>({});
   const [termOpen, setTermOpen] = useState(false);
   const [scopeInfo, setScopeInfo] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  /** Timestamp of the last Esc, for the double-Esc worker abort. */
+  const lastEsc = useRef(0);
 
   const workersRef = useRef(liveWorkers);
   workersRef.current = liveWorkers;
   const focusedTaskRef = useRef(focusedTask);
   focusedTaskRef.current = focusedTask;
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  // stopWorker is declared below (hoisted); the ref keeps the Esc handler fresh.
+  const stopWorkerRef = useRef<(taskId: string) => void>(() => {});
+  stopWorkerRef.current = stopWorker;
   const speakRef = useRef(speak);
   speakRef.current = speak;
   const sidebarRef = useRef<ImperativePanelHandle>(null);
@@ -99,6 +109,7 @@ export default function App() {
     setLiveWorkers,
     pushRaw,
     addCost,
+    onSpeaking: setSpeaking,
     speakRef,
     refresh,
     onWorkerExit: useCallback((taskId: string) => {
@@ -118,7 +129,8 @@ export default function App() {
     }, []),
   });
 
-  // Global shortcuts: Cmd+P quick-open, Cmd+B sidebar collapse.
+  // Global shortcuts: Cmd+P quick-open, Cmd+B sidebar collapse,
+  // Esc cuts the voice, double-Esc aborts the focused worker.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "p") {
@@ -129,6 +141,20 @@ export default function App() {
         e.preventDefault();
         const panel = sidebarRef.current;
         if (panel) panel.isCollapsed() ? panel.expand() : panel.collapse();
+      }
+      if (e.key === "Escape") {
+        ipc.speakStop().catch(() => {});
+        const now = Date.now();
+        if (now - lastEsc.current < 900) {
+          lastEsc.current = 0;
+          const target = focusedRef.current;
+          if (target) {
+            push({ who: "sys", text: "⏹ worker abortado (Esc duplo)", task: labelFor(target) });
+            stopWorkerRef.current(target);
+          }
+        } else {
+          lastEsc.current = now;
+        }
       }
     }
     window.addEventListener("keydown", onKey);
@@ -260,6 +286,16 @@ export default function App() {
       setBusy(null);
       refresh();
     }
+  }
+
+  /** Open an ABSOLUTE path (from a tool call) in the local editor. */
+  function openAbsolutePath(path: string) {
+    const project = projects.find((p) => path === p.path || path.startsWith(`${p.path}/`));
+    if (!project) {
+      push({ who: "sys", text: `${path} está fora dos projetos registrados` });
+      return;
+    }
+    setViewer({ abs: path, rel: path.slice(project.path.length + 1), project });
   }
 
   /** Resolve a spoken/typed file query to a real file and open the viewer. */
@@ -594,7 +630,7 @@ export default function App() {
           title="escopo atual (clique: stats da sessão e gastos)"
           onClick={() => setScopeInfo((s) => !s)}
         >
-          🗂 {activeProject?.name ?? "todos"}
+          <FolderOpen size={12} /> {activeProject?.name ?? "todos"}
         </button>
         <button
           className={`scope ${termOpen ? "on" : ""}`}
@@ -602,14 +638,28 @@ export default function App() {
           onClick={() => setTermOpen((t) => !t)}
           disabled={!focusedTask}
         >
-          {">_"}
+          <SquareTerminal size={12} />
         </button>
-        <label>
-          <input type="checkbox" checked={speak} onChange={(e) => setSpeak(e.target.checked)} />{" "}
-          voz
-        </label>
+        <button
+          className={`scope ${speak ? "on" : ""}`}
+          title={speak ? "voz ligada (Esc corta a fala)" : "voz desligada"}
+          onClick={() => setSpeak((s) => !s)}
+        >
+          {speak ? <Volume2 size={12} /> : <VolumeX size={12} />}
+        </button>
+        <VoiceOrb
+          mode={
+            (recording
+              ? "listening"
+              : speaking
+                ? "speaking"
+                : busy
+                  ? "busy"
+                  : "idle") as OrbMode
+          }
+        />
         <span className={`state ${busy ? "busy" : ""}`}>
-          {busy ?? (recording ? "🎤 gravando…" : "pronto")}
+          {busy ?? (recording ? "ouvindo…" : "pronto")}
         </span>
       </div>
 
@@ -668,6 +718,7 @@ export default function App() {
                 messages={visibleMessages}
                 directivesFor={directivesFor}
                 onAnswerPermission={answerPermission}
+                onOpenPath={openAbsolutePath}
               />
               <Composer
                 disabled={!!busy}

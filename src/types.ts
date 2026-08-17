@@ -23,6 +23,7 @@ export type VoxEvent =
     }
   | { kind: "worker_exit"; task_id: string }
   | { kind: "session_started"; task_id: string; session_id: string }
+  | { kind: "speaking"; on: boolean }
   | { kind: "status"; text: string }
   | { kind: "error"; text: string };
 

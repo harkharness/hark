@@ -82,6 +82,40 @@ body {
 }
 .scope-pop .scope-row.head:first-child { border-top: none; margin-top: 0; padding-top: 3px; }
 
+/* ---- voice orb (state-driven waveform, no audio analysis) ---- */
+.orb { display: inline-flex; align-items: center; gap: 2px; height: 16px; }
+.orb-bar {
+  width: 3px; height: 4px; border-radius: 2px; background: var(--dim);
+  opacity: .35; transition: background .2s;
+}
+.orb.listening .orb-bar { background: var(--err); opacity: 1; animation: orb-bounce .5s infinite ease-in-out; }
+.orb.speaking .orb-bar { background: var(--accent); opacity: 1; animation: orb-bounce .8s infinite ease-in-out; }
+.orb.busy .orb-bar { background: var(--warn); opacity: .9; animation: orb-bounce 1.4s infinite ease-in-out; }
+@keyframes orb-bounce {
+  0%, 100% { height: 4px; }
+  50% { height: 14px; }
+}
+
+/* icon alignment inside small buttons/labels */
+button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
+  vertical-align: -2px;
+}
+
+/* clickable tool-call paths open the local editor */
+.toolcall button.path.clickable {
+  background: none; border: none; font: inherit; cursor: pointer;
+  text-align: left; padding: 0; text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.toolcall button.path.clickable:hover { color: var(--accent); }
+
+/* unsaved manual edit marker (VSCode-style dot) */
+.viewer-dirty {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--warn);
+  flex-shrink: 0;
+}
+.viewer-md { flex: 1; overflow-y: auto; padding: 14px 16px; }
+
 /* per-task terminal pane */
 .termpane {
   display: flex; flex-direction: column; height: 100%;

@@ -14,7 +14,16 @@ function fence(lang: string, body: string): string {
  * multi-line shell blocks, edits as diffs, everything else as indented JSON.
  * Never the escaped one-liner JSON the CLI emits.
  */
-export default function ToolCall({ name, input }: { name: string; input: string }) {
+export default function ToolCall({
+  name,
+  input,
+  onOpenPath,
+}: {
+  name: string;
+  input: string;
+  /** When set, file paths become clickable and open the local viewer. */
+  onOpenPath?: (path: string) => void;
+}) {
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(input);
@@ -29,6 +38,15 @@ export default function ToolCall({ name, input }: { name: string; input: string 
 
   const str = (key: string): string | undefined =>
     typeof parsed[key] === "string" ? (parsed[key] as string) : undefined;
+
+  const pathLine = (path: string) =>
+    onOpenPath && path ? (
+      <button className="path clickable" title="abrir no editor" onClick={() => onOpenPath(path)}>
+        {shortPath(path)}
+      </button>
+    ) : (
+      <div className="path">{shortPath(path)}</div>
+    );
 
   const body = (() => {
     switch (name) {
@@ -47,7 +65,7 @@ export default function ToolCall({ name, input }: { name: string; input: string 
         const content = str("content");
         return (
           <>
-            <div className="path">{shortPath(path)}</div>
+            {pathLine(path)}
             {content && <Markdown>{fence("", content.slice(0, 1500))}</Markdown>}
           </>
         );
@@ -64,7 +82,7 @@ export default function ToolCall({ name, input }: { name: string; input: string 
           .join("\n");
         return (
           <>
-            <div className="path">{shortPath(path)}</div>
+            {pathLine(path)}
             <Markdown>{fence("diff", `${before}\n${after}`)}</Markdown>
           </>
         );

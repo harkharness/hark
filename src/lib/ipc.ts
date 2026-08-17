@@ -18,6 +18,7 @@ export const overview = () => invoke<Overview>("overview");
 export const useContext = (name: string) => invoke("use_context", { name });
 export const routeText = (text: string) => invoke<string>("route_text", { text });
 export const speak = (text: string) => invoke("speak", { text });
+export const speakStop = () => invoke("speak_stop");
 export const hearOnce = () => invoke<string>("hear_once");
 
 export const askText = (

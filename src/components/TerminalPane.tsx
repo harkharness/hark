@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { X } from "lucide-react";
 
 /**
  * The task's own "terminal": the raw worker feed (tool payloads, results,
@@ -25,7 +26,9 @@ export default function TerminalPane({
         <span className="viewer-proj">terminal ·</span>
         <span className="viewer-path">{label}</span>
         <span className="viewer-actions">
-          <button onClick={onClose}>×</button>
+          <button onClick={onClose} title="fechar">
+            <X size={13} />
+          </button>
         </span>
       </div>
       <pre className="term-body">

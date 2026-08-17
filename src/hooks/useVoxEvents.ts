@@ -18,6 +18,8 @@ type Handlers = {
   pushRaw: (label: string, line: string) => void;
   /** Window-accumulated spend, per thread label. */
   addCost: (label: string, usd: number) => void;
+  /** TTS started/stopped (drives the voice orb). */
+  onSpeaking: (on: boolean) => void;
   speakRef: React.RefObject<boolean>;
   refresh: () => void;
 };
@@ -91,6 +93,8 @@ export function useVoxEvents(h: Handlers) {
       } else if (ev.kind === "session_started") {
         h.onSessionStarted(ev.task_id, ev.session_id);
         h.refresh();
+      } else if (ev.kind === "speaking") {
+        h.onSpeaking(ev.on);
       } else if (ev.kind === "status") {
         h.push({ who: "sys", text: ev.text });
       }

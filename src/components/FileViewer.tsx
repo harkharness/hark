@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
+import { Eye, Pencil, Save, X } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { highlightFile } from "../lib/highlight";
+import Markdown from "./Markdown";
 import type { OpenFile } from "../types";
 
+const isMarkdown = (rel: string) => /\.(md|markdown)$/i.test(rel);
+
 /**
- * Local file viewer/editor in a side panel. Reading and small line edits
- * happen HERE, on disk, with zero tokens: the whole point is not paying a
- * model to cat a file.
+ * Local file panel, zero tokens both ways. Markdown opens RENDERED (edit
+ * unlocks the source); code opens straight in edit mode. Cmd+S saves; the
+ * amber dot marks unsaved manual edits, VSCode-style.
  */
 export default function FileViewer({ file, onClose }: { file: OpenFile; onClose: () => void }) {
   const [content, setContent] = useState("");
@@ -15,26 +19,30 @@ export default function FileViewer({ file, onClose }: { file: OpenFile; onClose:
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<string | null>(null);
 
+  const dirty = editing && draft !== content;
+
   useEffect(() => {
-    setEditing(false);
     setStatus(null);
     ipc
       .fileRead(file.abs)
       .then((out) => {
         setContent(out.content);
+        setDraft(out.content);
         setTruncated(out.truncated);
+        // Markdown is for reading first; everything else is for editing.
+        setEditing(!isMarkdown(file.rel) && !out.truncated);
       })
       .catch((err) => {
         setContent("");
+        setEditing(false);
         setStatus(`erro: ${err}`);
       });
-  }, [file.abs]);
+  }, [file.abs, file.rel]);
 
   async function save() {
     try {
       await ipc.fileSave(file.abs, draft);
       setContent(draft);
-      setEditing(false);
       setStatus("salvo ✓");
       window.setTimeout(() => setStatus(null), 2500);
     } catch (err) {
@@ -49,13 +57,24 @@ export default function FileViewer({ file, onClose }: { file: OpenFile; onClose:
         <span className="viewer-path" title={file.abs}>
           {file.rel}
         </span>
+        {dirty && <span className="viewer-dirty" title="edições não salvas (Cmd+S)" />}
         {truncated && <span className="viewer-badge">truncado</span>}
         {status && <span className="viewer-status">{status}</span>}
         <span className="viewer-actions">
           {editing ? (
             <>
-              <button onClick={save}>salvar</button>
-              <button onClick={() => setEditing(false)}>cancelar</button>
+              <button onClick={save} disabled={!dirty} title="salvar (Cmd+S)">
+                <Save size={13} />
+              </button>
+              <button
+                onClick={() => {
+                  setDraft(content);
+                  setEditing(false);
+                }}
+                title="voltar à visualização"
+              >
+                <Eye size={13} />
+              </button>
             </>
           ) : (
             <button
@@ -66,10 +85,12 @@ export default function FileViewer({ file, onClose }: { file: OpenFile; onClose:
               disabled={truncated}
               title={truncated ? "arquivo grande demais para editar aqui" : "editar localmente"}
             >
-              editar
+              <Pencil size={13} />
             </button>
           )}
-          <button onClick={onClose}>×</button>
+          <button onClick={onClose} title="fechar">
+            <X size={13} />
+          </button>
         </span>
       </div>
       {editing ? (
@@ -82,10 +103,14 @@ export default function FileViewer({ file, onClose }: { file: OpenFile; onClose:
               e.preventDefault();
               save();
             }
-            if (e.key === "Escape") setEditing(false);
+            if (e.key === "Escape") e.stopPropagation();
           }}
           spellCheck={false}
         />
+      ) : isMarkdown(file.rel) ? (
+        <div className="viewer-md">
+          <Markdown>{content}</Markdown>
+        </div>
       ) : (
         <pre className="viewer-code">
           <code dangerouslySetInnerHTML={{ __html: highlightFile(file.rel, content) }} />
