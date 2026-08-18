@@ -26,9 +26,15 @@ export default function Hud() {
   const stageRef = useRef(stage);
   stageRef.current = stage;
   const timer = useRef<number>(0);
+  // ONE run at a time, whatever fires it (mount, StrictMode's double
+  // mount in dev, hotkey re-shows). The UI stage is a label, not a lock:
+  // its initial value IS "listening", so guarding on it let two captures
+  // start in parallel — two transcriptions, two plans, two voices.
+  const busyRef = useRef(false);
 
   const hide = useCallback(() => {
     window.clearTimeout(timer.current);
+    busyRef.current = false;
     setStage({ s: "listening" });
     ipc.hudHide().catch(() => {});
   }, []);
@@ -100,7 +106,8 @@ export default function Hud() {
   );
 
   const start = useCallback(async () => {
-    if (stageRef.current.s !== "listening" && stageRef.current.s !== "note") return;
+    if (busyRef.current) return;
+    busyRef.current = true;
     setStage({ s: "listening" });
     let text = "";
     try {
@@ -147,7 +154,15 @@ export default function Hud() {
   useEffect(() => {
     start();
     const un = listen<VoxEvent>("vox", (e) => {
-      if (e.payload.kind === "hud_listen") start();
+      if (e.payload.kind !== "hud_listen") return;
+      // Hotkey while a note/answer still lingers: the user wants to talk
+      // again — drop the leftover and re-arm.
+      const s = stageRef.current.s;
+      if (s === "note" || s === "answer") {
+        window.clearTimeout(timer.current);
+        busyRef.current = false;
+      }
+      start();
     });
     return () => {
       un.then((f) => f());
