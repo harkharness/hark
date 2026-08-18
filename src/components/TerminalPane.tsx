@@ -1,98 +1,101 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
+import ShellTerminal, { disposeShell } from "./ShellTerminal";
 
 /**
- * The "Terminal" window body: one tab per task feed (raw worker events).
- * `+` opens any other thread that has produced output. Read-only; closing
- * a tab never stops the worker — the feed keeps accumulating underneath.
+ * The "Terminal" window: REAL shells (one PTY per tab, the user's own
+ * $SHELL in the project directory), plus a read-only "feed" tab with the
+ * raw worker events of the focused task. `+` opens more shells. Closing a
+ * shell tab kills that shell; closing the pane hides it, shells survive.
  */
 export default function TerminalPane({
   rawLog,
   focusedLabel,
+  shells,
+  active,
+  cwd,
+  onAddShell,
+  onCloseShell,
+  onActivate,
 }: {
   rawLog: Record<string, string[]>;
   focusedLabel?: string;
+  /** Shell tab ids, owned by App (survive pane close/reopen). */
+  shells: string[];
+  /** Active tab: a shell id or "feed". */
+  active: string;
+  cwd?: string;
+  onAddShell: () => void;
+  onCloseShell: (id: string) => void;
+  onActivate: (id: string) => void;
 }) {
-  const [tabs, setTabs] = useState<string[]>(focusedLabel ? [focusedLabel] : []);
-  const [active, setActive] = useState(0);
-  const [picking, setPicking] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const [feedThread, setFeedThread] = useState<string | undefined>(focusedLabel);
 
-  // Following the focused thread: a new focus opens/activates its tab.
   useEffect(() => {
-    if (!focusedLabel) return;
-    setTabs((old) => (old.includes(focusedLabel) ? old : [...old, focusedLabel]));
-    setActive((_) => {
-      const idx = tabs.indexOf(focusedLabel);
-      return idx >= 0 ? idx : tabs.length;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (focusedLabel) setFeedThread(focusedLabel);
   }, [focusedLabel]);
 
-  const current = tabs[active];
-  const lines = current ? (rawLog[current] ?? []) : [];
+  const lines = feedThread ? (rawLog[feedThread] ?? []) : [];
   useEffect(() => {
-    endRef.current?.scrollIntoView();
-  }, [lines]);
-
-  const available = Object.keys(rawLog).filter((l) => !tabs.includes(l));
+    if (active === "feed") endRef.current?.scrollIntoView();
+  }, [lines, active]);
 
   return (
     <div className="termpane">
       <div className="filetabs">
-        {tabs.map((label, i) => (
+        {shells.map((id, i) => (
           <span
-            key={label}
-            className={`filetab ${i === active ? "on" : ""}`}
-            title={label}
-            onClick={() => setActive(i)}
+            key={id}
+            className={`filetab ${active === id ? "on" : ""}`}
+            onClick={() => onActivate(id)}
           >
-            {label.slice(0, 18)}
+            zsh {i + 1}
             <button
               className="filetab-close"
-              title="fechar aba (task segue rodando)"
+              title="fechar este shell"
               onClick={(e) => {
                 e.stopPropagation();
-                setTabs((old) => old.filter((_, j) => j !== i));
-                setActive((a) => Math.max(0, a > i ? a - 1 : Math.min(a, tabs.length - 2)));
+                disposeShell(id);
+                onCloseShell(id);
               }}
             >
               ×
             </button>
           </span>
         ))}
-        {available.length > 0 && (
-          <span className="filetab addtab">
-            <button title="abrir feed de outra task" onClick={() => setPicking((p) => !p)}>
-              <Plus size={12} />
-            </button>
-            {picking && (
-              <div className="side-menu">
-                {available.map((label) => (
-                  <button
-                    key={label}
-                    onClick={() => {
-                      setTabs((old) => [...old, label]);
-                      setActive(tabs.length);
-                      setPicking(false);
-                    }}
-                  >
-                    {label.slice(0, 30)}
-                  </button>
-                ))}
-              </div>
-            )}
-          </span>
-        )}
+        <span className="filetab addtab">
+          <button title="novo shell" onClick={onAddShell}>
+            <Plus size={12} />
+          </button>
+        </span>
+        <span
+          className={`filetab feedtab ${active === "feed" ? "on" : ""}`}
+          title="eventos brutos do worker da task focada"
+          onClick={() => onActivate("feed")}
+        >
+          feed
+        </span>
       </div>
-      <pre className="term-body">
-        {tabs.length === 0
-          ? "(foca uma task pra acompanhar o feed dela)"
-          : lines.length === 0
-            ? "(sem eventos ainda nesta thread)"
-            : lines.join("\n")}
-        <div ref={endRef} />
-      </pre>
+
+      {/* Shells stay mounted (hidden) so switching tabs never loses the
+          screen; the PTY lives on the Rust side either way. */}
+      {shells.map((id) => (
+        <div key={id} className="term-slot" style={{ display: active === id ? "flex" : "none" }}>
+          <ShellTerminal id={id} cwd={cwd} onExit={() => onCloseShell(id)} />
+        </div>
+      ))}
+
+      {active === "feed" && (
+        <pre className="term-body">
+          {!feedThread
+            ? "(foca uma task pra acompanhar o feed dela)"
+            : lines.length === 0
+              ? "(sem eventos ainda nesta thread)"
+              : lines.join("\n")}
+          <div ref={endRef} />
+        </pre>
+      )}
     </div>
   );
 }

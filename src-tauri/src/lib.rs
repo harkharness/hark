@@ -1,5 +1,7 @@
 //! Tauri driver: the desktop window over the same vox-core used by the CLI.
 
+mod terminal;
+
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{mpsc, Mutex, OnceLock};
@@ -1924,6 +1926,7 @@ fn approve(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(terminal::Terminals::default())
         .manage(Pending(Mutex::new(HashMap::new())))
         .manage(LiveWorkers(Mutex::new(HashMap::new())))
         .manage(WorkerPermissions(Mutex::new(HashMap::new())))
@@ -1975,6 +1978,10 @@ pub fn run() {
             board_rename,
             board_pin,
             board_archive,
+            terminal::term_open,
+            terminal::term_write,
+            terminal::term_resize,
+            terminal::term_close,
             session_candidates,
             project_sessions,
             task_from_session,

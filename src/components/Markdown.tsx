@@ -1,6 +1,8 @@
+import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { Copy, Play, SquareTerminal } from "lucide-react";
 import bash from "highlight.js/lib/languages/bash";
 import json from "highlight.js/lib/languages/json";
 import yaml from "highlight.js/lib/languages/yaml";
@@ -13,13 +15,72 @@ import sql from "highlight.js/lib/languages/sql";
 // Only the grammars this workflow actually shows, to keep the bundle small.
 const languages = { bash, json, yaml, rust, typescript, python, diff, sql };
 
-/** Assistant prose rendered like a real markdown document. */
-export default function Markdown({ children }: { children: string }) {
+/** Plain text of a rendered code block (highlight spans flattened). */
+function textOf(node: ReactNode): string {
+  if (node == null) return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (typeof node === "object" && "props" in node) {
+    return textOf((node as { props: { children?: ReactNode } }).props.children);
+  }
+  return "";
+}
+
+/**
+ * Assistant prose rendered like a real markdown document. Shell code
+ * blocks grow action buttons: run in the terminal, insert without
+ * running, copy — the Claude Code flow.
+ */
+export default function Markdown({
+  children,
+  onRun,
+}: {
+  children: string;
+  /** Send a command to the in-app terminal (execute=false just types it). */
+  onRun?: (cmd: string, execute: boolean) => void;
+}) {
   return (
     <div className="md">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeHighlight, { languages, detect: false }]]}
+        components={{
+          pre(props) {
+            const child = props.children as {
+              props?: { className?: string; children?: ReactNode };
+            } | null;
+            const lang = child?.props?.className ?? "";
+            const isShell = /language-(bash|sh|shell|zsh|console)/.test(lang);
+            if (!isShell) return <pre {...props} />;
+            const cmd = textOf(child?.props?.children ?? null).trim();
+            return (
+              <div className="codeblock">
+                <pre {...props} />
+                <div className="code-actions">
+                  {onRun && (
+                    <>
+                      <button title="executar no terminal" onClick={() => onRun(cmd, true)}>
+                        <Play size={12} />
+                      </button>
+                      <button
+                        title="inserir no terminal (sem executar)"
+                        onClick={() => onRun(cmd, false)}
+                      >
+                        <SquareTerminal size={12} />
+                      </button>
+                    </>
+                  )}
+                  <button
+                    title="copiar"
+                    onClick={() => navigator.clipboard.writeText(cmd).catch(() => {})}
+                  >
+                    <Copy size={12} />
+                  </button>
+                </div>
+              </div>
+            );
+          },
+        }}
       >
         {children}
       </ReactMarkdown>

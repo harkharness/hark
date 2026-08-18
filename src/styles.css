@@ -448,6 +448,26 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   background: var(--code-bg);
   white-space: pre-wrap; word-break: break-all;
 }
+/* Real PTY tabs: each shell keeps its xterm mounted (hidden when not
+   active) so switching tabs never redraws from scratch. */
+.term-slot { flex: 1; min-height: 0; display: flex; padding: 4px 6px 6px; }
+.shellterm { flex: 1; min-width: 0; min-height: 0; }
+.shellterm .xterm { height: 100%; }
+.filetab.feedtab { margin-left: auto; opacity: .75; }
+
+/* Shell code blocks in the chat: run / insert / copy on hover. */
+.codeblock { position: relative; }
+.codeblock .code-actions {
+  position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
+  opacity: 0; transition: opacity .12s ease;
+}
+.codeblock:hover .code-actions { opacity: 1; }
+.codeblock .code-actions button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 22px; border-radius: 5px; cursor: pointer;
+  background: var(--panel); color: var(--dim); border: 1px solid var(--border);
+}
+.codeblock .code-actions button:hover { color: var(--accent); border-color: var(--accent); }
 
 /* ---- clickable file tree (sidebar) ---- */
 .filetree { margin: 2px 0 8px; max-height: 40vh; overflow-y: auto; }

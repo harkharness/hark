@@ -172,3 +172,11 @@ export const fileRead = (path: string) =>
   invoke<{ content: string; truncated: boolean }>("file_read", { path });
 export const fileSave = (path: string, content: string) =>
   invoke("file_save", { path, content });
+
+/* ---- real terminals (PTY per tab) ---- */
+export const termOpen = (id: string, cwd?: string, cols?: number, rows?: number) =>
+  invoke("term_open", { id, cwd: cwd ?? null, cols: cols ?? null, rows: rows ?? null });
+export const termWrite = (id: string, data: string) => invoke("term_write", { id, data });
+export const termResize = (id: string, cols: number, rows: number) =>
+  invoke("term_resize", { id, cols, rows });
+export const termClose = (id: string) => invoke("term_close", { id });

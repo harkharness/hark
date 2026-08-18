@@ -85,6 +85,10 @@ export default function App({
   const [rawLog, setRawLog] = useState<Record<string, string[]>>({});
   const [costs, setCosts] = useState<Record<string, number>>({});
   const [termOpen, setTermOpen] = useState(false);
+  // Real shell tabs (PTY ids). Owned here so hiding the pane keeps them.
+  const [shells, setShells] = useState<string[]>([]);
+  const [termTab, setTermTab] = useState<string>("feed");
+  const shellSeq = useRef(1);
   const [scopeInfo, setScopeInfo] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [rateLimit, setRateLimit] = useState<import("./types").RateLimitState | null>(null);
@@ -620,6 +624,33 @@ export default function App({
     runAsk(text, img);
   }
 
+  function addShell(): string {
+    const id = `sh-${shellSeq.current++}-${Date.now() % 1e6}`;
+    setShells((old) => [...old, id]);
+    setTermTab(id);
+    return id;
+  }
+
+  function closeShell(id: string) {
+    setShells((old) => old.filter((s) => s !== id));
+    setTermTab((t) => (t === id ? "feed" : t));
+  }
+
+  /**
+   * The ▶ / >_ buttons on command blocks in the chat: open the Terminal
+   * window and drop the command into a real shell — running it (execute)
+   * or just leaving it typed for the user to review and hit Enter.
+   */
+  function runInTerminal(cmd: string, execute: boolean) {
+    setTermOpen(true);
+    const existing = shells.includes(termTab) ? termTab : shells[0];
+    const target = existing ?? addShell();
+    if (existing) setTermTab(existing);
+    const payload = cmd.replace(/\s+$/, "") + (execute ? "\r" : "");
+    // A fresh shell needs a beat to spawn and print its prompt.
+    setTimeout(() => ipc.termWrite(target, payload).catch(() => {}), existing ? 120 : 700);
+  }
+
   async function stopWorker(taskId: string) {
     await ipc.workerStop(taskId).catch(() => {});
     setLiveWorkers((old) => {
@@ -852,7 +883,16 @@ export default function App({
         setExpanded((e) => (e === "terminal" ? null : e));
       }}
     >
-      <TerminalPane rawLog={rawLog} focusedLabel={focusedTask?.title} />
+      <TerminalPane
+        rawLog={rawLog}
+        focusedLabel={focusedTask?.title}
+        shells={shells}
+        active={termTab}
+        cwd={forcedProject?.path}
+        onAddShell={addShell}
+        onCloseShell={closeShell}
+        onActivate={setTermTab}
+      />
     </PanelFrame>
   );
   const frameArquivos = () => (
@@ -1031,6 +1071,7 @@ export default function App({
                 directivesFor={directivesFor}
                 onAnswerPermission={answerPermission}
                 onOpenPath={openAbsolutePath}
+                onRunCommand={runInTerminal}
               />
               <Composer
                 disabled={!!busy}

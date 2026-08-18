@@ -14,11 +14,14 @@ export default function Transcript({
   directivesFor,
   onAnswerPermission,
   onOpenPath,
+  onRunCommand,
 }: {
   messages: Msg[];
   directivesFor: (taskLabel?: string) => Directives | undefined;
   onAnswerPermission: (requestId: string, allow: boolean) => void;
   onOpenPath: (path: string) => void;
+  /** ▶ on shell blocks: send the command to the in-app terminal. */
+  onRunCommand?: (cmd: string, execute: boolean) => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -66,11 +69,11 @@ export default function Transcript({
               {m.who === "vox" ? (
                 <>
                   <div className="fala">
-                    <Markdown>{m.text}</Markdown>
+                    <Markdown onRun={onRunCommand}>{m.text}</Markdown>
                   </div>
                   {m.detalhes && (
                     <div className="detalhes">
-                      <Markdown>{m.detalhes}</Markdown>
+                      <Markdown onRun={onRunCommand}>{m.detalhes}</Markdown>
                     </div>
                   )}
                   {m.itens && m.itens.length > 0 && (
