@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Mic } from "lucide-react";
+import { ExternalLink, Lock, Mic } from "lucide-react";
 import Board from "./components/Board";
 import CostsPanel from "./components/CostsPanel";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
@@ -31,6 +31,12 @@ export default function Mother() {
   const [tab, setTab] = useState<MotherTab>("voz");
   // Sessions matching a recovery request, waiting for the user to pick one.
   const [picks, setPicks] = useState<{ query: string; candidates: SessionHit[] } | null>(null);
+  // What the voice did and where: the command-center feed.
+  const [actions, setActions] = useState<
+    { utterance: string; target?: string | null; status?: string; ts: number }[]
+  >([]);
+  // Spend today per workspace (feeds the project cards).
+  const [spendByWs, setSpendByWs] = useState<Record<string, number>>({});
   const speakRef = useRef(true);
   // The global hotkey/Esc handlers must see fresh state.
   const micRef = useRef<() => void>(() => {});
@@ -49,6 +55,12 @@ export default function Mother() {
     ipc
       .spendSummary(day, "kind", "live")
       .then((aggs) => setSpentToday(aggs.reduce((a, b) => a + b.cost_usd, 0)))
+      .catch(() => {});
+    ipc
+      .spendSummary(day, "workspace", "live")
+      .then((aggs) =>
+        setSpendByWs(Object.fromEntries(aggs.map((a) => [a.key, a.cost_usd]))),
+      )
       .catch(() => {});
   }, []);
   useEffect(refresh, [refresh]);
@@ -86,6 +98,11 @@ export default function Mother() {
     onSpeaking: setSpeaking,
     onRateLimit: setRateLimit,
     announce: true,
+    onVoiceAction: useCallback(
+      (utterance: string, target?: string | null, status?: string) =>
+        setActions((old) => [...old, { utterance, target, status, ts: Date.now() }].slice(-8)),
+      [],
+    ),
     onHotkeyMic: useCallback(() => {
       setTab("voz");
       micRef.current();
@@ -246,9 +263,41 @@ export default function Mother() {
     return true;
   }
 
+  /** Newest permission still undecided (any window's worker). */
+  const pendingPerm = [...messages]
+    .reverse()
+    .find((m) => m.who === "permission" && !m.decision);
+
+  async function answerPermission(requestId: string, allow: boolean) {
+    setMessages((old) =>
+      old.map((m) =>
+        m.who === "permission" && m.requestId === requestId
+          ? { ...m, decision: allow ? "allow" : "deny" }
+          : m,
+      ),
+    );
+    await ipc.approve(requestId, allow).catch(() => {});
+  }
+
   async function submit(text: string) {
     if (!text.trim() || busy) return;
     setInput("");
+    // A pending permission + a short verdict = the answer, spoken or typed.
+    if (pendingPerm?.who === "permission") {
+      const t = text.trim().toLowerCase();
+      if (t.split(/\s+/).length <= 4) {
+        if (/^(sim|pode|permitir|permite|permito|autoriza|aprova|libera|vai)\b/.test(t)) {
+          await answerPermission(pendingPerm.requestId, true);
+          say("Permitido.");
+          return;
+        }
+        if (/^(n[ãa]o|nega|negar|bloqueia|cancela)\b/.test(t)) {
+          await answerPermission(pendingPerm.requestId, false);
+          say("Negado.");
+          return;
+        }
+      }
+    }
     if (await runCommand(text)) return;
     push({ who: "user", text });
     setBusy("perguntando…");
@@ -326,6 +375,30 @@ export default function Mother() {
             )}
           </div>
 
+          {(actions.length > 0 || pendingPerm) && (
+            <div className="mother-feed">
+              {actions.slice(-4).map((a) => (
+                <div key={a.ts} className="mother-action">
+                  <Mic size={13} className="mother-action-icon" />
+                  <span className="mother-action-text">“{a.utterance}”</span>
+                  <span className="mother-action-target">
+                    → {a.target ?? "vox"} · {a.status ?? "ok"}
+                  </span>
+                </div>
+              ))}
+              {pendingPerm?.who === "permission" && (
+                <div className="mother-action perm">
+                  <Lock size={13} className="mother-action-icon" />
+                  <span className="mother-action-text">
+                    {pendingPerm.tool} pede permissão
+                    {pendingPerm.task ? ` em ${pendingPerm.task.slice(0, 26)}` : ""}
+                  </span>
+                  <span className="mother-action-target">fale “pode” ou “nega”</span>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="mother-chat">
             {recent.map((m, i) => (
               <div key={i} className={`mother-msg ${m.who}`}>
@@ -372,11 +445,33 @@ export default function Mother() {
           </div>
 
           <div className="mother-projects">
-            {(overview?.projects ?? []).map((p) => (
-              <button key={p.path} className="mother-project" onClick={() => openProject(p)}>
-                <ExternalLink size={12} /> {p.name}
-              </button>
-            ))}
+            {(overview?.projects ?? []).map((p) => {
+              const live = (overview?.workers ?? []).filter(
+                (w) =>
+                  w.status === "running" &&
+                  (w.workspace === p.path || w.workspace.startsWith(`${p.path}/`)),
+              ).length;
+              const spent = Object.entries(spendByWs)
+                .filter(([ws]) => ws === p.path || ws.startsWith(`${p.path}/`))
+                .reduce((a, [, v]) => a + v, 0);
+              return (
+                <button
+                  key={p.path}
+                  className="mother-proj-card"
+                  onClick={() => openProject(p)}
+                  title={p.path}
+                >
+                  <span className="mother-proj-name">
+                    <ExternalLink size={12} /> {p.name}
+                  </span>
+                  <span className="mother-proj-meta">
+                    {live > 0 && <span className="live-dot">◍ {live}</span>}
+                    {spent > 0 && ` $${spent.toFixed(2)} hoje`}
+                    {live === 0 && spent === 0 && "quieto"}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </>
       )}

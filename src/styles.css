@@ -1088,3 +1088,33 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .hud-wave span:nth-child(4) { height: 16px; animation-delay: .45s; }
 .hud-wave span:nth-child(5) { height: 8px; animation-delay: .6s; }
 @keyframes hud-bounce { 0%,100% { transform: scaleY(.5); } 50% { transform: scaleY(1); } }
+
+/* ---- mother = command center: what the voice did, and where ---- */
+.mother-feed {
+  width: min(560px, 92vw); display: flex; flex-direction: column; gap: 6px;
+}
+.mother-action {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 8px 12px; font-size: 12px;
+}
+.mother-action.perm { border-color: var(--warn); }
+.mother-action-icon { color: var(--dim); flex: 0 0 auto; }
+.mother-action.perm .mother-action-icon { color: var(--warn); }
+.mother-action-text {
+  color: var(--text); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mother-action-target { margin-left: auto; color: var(--dim); font-size: 10px; flex: 0 0 auto; }
+.mother-action.perm .mother-action-target { color: var(--warn); }
+
+.mother-proj-card {
+  display: flex; flex-direction: column; gap: 4px; text-align: left;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  color: var(--text); font: inherit; font-size: 12px; padding: 10px 14px;
+  cursor: pointer; min-width: 150px;
+}
+.mother-proj-card:hover { border-color: var(--accent); }
+.mother-proj-name { display: inline-flex; align-items: center; gap: 6px; }
+.mother-proj-meta { color: var(--dim); font-size: 10px; }
+.mother-proj-meta .live-dot { color: var(--ok); }

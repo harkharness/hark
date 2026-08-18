@@ -28,6 +28,8 @@ type Handlers = {
   onMainTab?: (tab: string) => void;
   /** The global board asked this project window to open a task's chat. */
   onFocusTask?: (title: string, sessionId?: string | null) => void;
+  /** The voice HUD executed something (the mother records the feed). */
+  onVoiceAction?: (utterance: string, target?: string | null, status?: string) => void;
   /**
    * Whether THIS window announces events out loud (turn done, permission
    * asked). Exactly one window may announce — the mother — otherwise every
@@ -131,6 +133,9 @@ export function useVoxEvents(h: Handlers) {
         h.onMainTab?.(ev.tab);
       } else if (ev.kind === "focus_task") {
         h.onFocusTask?.(ev.title, ev.session_id);
+      } else if (ev.kind === "voice_action") {
+        h.onVoiceAction?.(ev.utterance, ev.target, ev.status);
+        h.refresh();
       } else if (ev.kind === "rate_limit") {
         h.onRateLimit({
           status: ev.status,
