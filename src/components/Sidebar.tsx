@@ -9,6 +9,22 @@ const DOT: Record<BoardTask["status"], string> = {
   done: "●",
 };
 
+/** Accent/case-insensitive haystack ("migração" matches "migracao"). */
+const fold = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+
+/** Every typed word must appear in the chat's title or last prompt. */
+function chatMatches(chat: SessionHit, query: string): boolean {
+  const hay = fold(`${chat.title} ${chat.last_prompt ?? ""}`);
+  return fold(query)
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((term) => hay.includes(term));
+}
+
 /**
  * Chats grouped by project, like a session sidebar. Clicking a task loads
  * its context into the chat; each project header can spawn a fresh chat;
@@ -54,8 +70,9 @@ export default function Sidebar({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [projMenu, setProjMenu] = useState<string | null>(null);
-  // Projects whose FULL history is expanded (default: the recent slice).
-  const [histAll, setHistAll] = useState<Set<string>>(new Set());
+  // The chat search open right now: which project and what was typed.
+  // Empty query = the 5 most recent; typing digs through the whole index.
+  const [search, setSearch] = useState<{ path: string; q: string } | null>(null);
 
   // Finished tasks sink to the bottom and vanish after a week (still
   // recoverable by search/voice: "retoma a task do hydrator").
@@ -139,12 +156,18 @@ export default function Sidebar({
       {projects.map((p) => {
         const group = ordered.filter((t) => inProject(t, p));
         // Full Claude Code history of this project (chats not yet on the
-        // board). Recent slice by default; one click shows everything.
+        // board), reachable through the search box — like `claude --resume`,
+        // but typed. Empty query shows the 5 most recent.
         const projChats = chats.filter(
           (c) => c.cwd && (c.cwd === p.path || c.cwd.startsWith(`${p.path}/`)),
         );
-        const RECENT = 12;
-        const shown = histAll.has(p.path) ? projChats : projChats.slice(0, RECENT);
+        const query = search?.path === p.path ? search.q : null;
+        const matches =
+          query === null
+            ? []
+            : query.trim() === ""
+              ? projChats.slice(0, 5)
+              : projChats.filter((c) => chatMatches(c, query)).slice(0, 8);
         return (
           <section key={p.path} className="side-group">
             <div className="side-group-head">
@@ -191,40 +214,48 @@ export default function Sidebar({
             {group.map(item)}
 
             {projChats.length > 0 && (
-              <>
-                <div className="side-hist-head">
-                  histórico · {projChats.length} chat{projChats.length === 1 ? "" : "s"}
-                </div>
-                {shown.map((c) => (
-                  <button
-                    key={c.session_id}
-                    className="side-chat"
-                    title={c.last_prompt ?? c.title}
-                    onClick={() => onOpenChat?.(c)}
-                  >
-                    <span className="side-title">{c.title}</span>
-                    <span className="side-chat-ts">
-                      {c.last_ts ? c.last_ts.slice(5, 10).replace("-", "/") : ""}
-                    </span>
-                  </button>
-                ))}
-                {projChats.length > RECENT && (
-                  <button
-                    className="side-more"
-                    onClick={() =>
-                      setHistAll((old) => {
-                        const next = new Set(old);
-                        next.has(p.path) ? next.delete(p.path) : next.add(p.path);
-                        return next;
-                      })
+              <div className="side-search">
+                <input
+                  placeholder={`buscar nos ${projChats.length} chats…`}
+                  value={query ?? ""}
+                  onFocus={() => setSearch({ path: p.path, q: query ?? "" })}
+                  // Rows use onMouseDown (fires before blur), so closing
+                  // here never eats the click.
+                  onBlur={() => setSearch(null)}
+                  onChange={(e) => setSearch({ path: p.path, q: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") (e.target as HTMLInputElement).blur();
+                    if (e.key === "Enter" && matches[0]) {
+                      onOpenChat?.(matches[0]);
+                      (e.target as HTMLInputElement).blur();
                     }
-                  >
-                    {histAll.has(p.path)
-                      ? "mostrar menos"
-                      : `mostrar todos (${projChats.length})`}
-                  </button>
+                  }}
+                />
+                {query !== null && (
+                  <div className="side-search-drop">
+                    {matches.length === 0 && (
+                      <div className="side-empty">nenhum chat bate com isso</div>
+                    )}
+                    {matches.map((c) => (
+                      <button
+                        key={c.session_id}
+                        className="side-chat"
+                        title={c.last_prompt ?? c.title}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          onOpenChat?.(c);
+                          setSearch(null);
+                        }}
+                      >
+                        <span className="side-title">{c.title}</span>
+                        <span className="side-chat-ts">
+                          {c.last_ts ? c.last_ts.slice(5, 10).replace("-", "/") : ""}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </>
+              </div>
             )}
           </section>
         );
