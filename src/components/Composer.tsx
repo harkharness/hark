@@ -36,6 +36,7 @@ export default function Composer({
   onMic,
   onAnswerPermission,
   children,
+  trailing,
 }: {
   disabled: boolean;
   recording: boolean;
@@ -48,6 +49,9 @@ export default function Composer({
   onMic: () => void;
   onAnswerPermission: (requestId: string, allow: boolean, always?: boolean) => void;
   children?: React.ReactNode;
+  /** Window controls docked at the right of the control row (costs,
+   *  board, terminal, volume…) — the topbar is gone. */
+  trailing?: React.ReactNode;
 }) {
   const [text, setText] = useState("");
   const [images, setImages] = useState<Attachment[]>([]);
@@ -59,7 +63,8 @@ export default function Composer({
     const el = areaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.35))}px`;
+    // Input-sized at rest; grows to FIVE lines max, then scrolls inside.
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }
 
   /** "@quer" right before the caret means the autocomplete is active. */
@@ -240,6 +245,7 @@ export default function Composer({
       </div>
       <div className="inputbar-row">
         <div className="inputbar-chips">{children}</div>
+        {trailing}
         <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title="falar">
           <Mic size={15} />
         </button>

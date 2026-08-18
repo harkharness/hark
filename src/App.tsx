@@ -5,7 +5,7 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
-import { PanelLeft, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
+import { PanelLeft, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import Board from "./components/Board";
 import Composer, { toImagePair, type Attachment } from "./components/Composer";
@@ -34,13 +34,7 @@ import type {
   SessionHit,
 } from "./types";
 
-type RailItem = "arquivo" | "terminal" | "arquivos";
-
-const RAIL_TITLE: Record<RailItem, string> = {
-  arquivo: "Arquivo",
-  terminal: "Terminal",
-  arquivos: "Arquivos",
-};
+type RailItem = "arquivo" | "terminal" | "arquivos" | "board";
 
 export default function App({
   forcedProject,
@@ -59,8 +53,6 @@ export default function App({
   // The global Esc handler must see the live value (no stale closure).
   const recordingRef = useRef(false);
   const [pending, setPending] = useState<Pending>(null);
-  // Costs are global and live on the mother window; here only code|board.
-  const [tab, setTab] = useState<"code" | "board">("code");
   // Read-only thread being viewed (board tab), never executes anything.
   const [reading, setReading] = useState<{
     sessionId: string;
@@ -87,7 +79,7 @@ export default function App({
   // "Arquivos" window (project trees + filter).
   const [filesInitialProject, setFilesInitialProject] = useState<string | undefined>();
   /** Typed window taking the whole work area (menu stays). */
-  const [expanded, setExpanded] = useState<"arquivo" | "terminal" | "arquivos" | null>(null);
+  const [expanded, setExpanded] = useState<RailItem | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
   // Standing "sempre permitir" rules: task label → tools auto-approved.
   // Window-scoped by design: closing the window forgets every rule.
@@ -509,7 +501,6 @@ export default function App({
       const hits = await ipc.projectFiles(project.path, query, 1).catch(() => []);
       if (hits.length > 0) {
         openFile({ abs: `${project.path}/${hits[0]}`, rel: hits[0], project });
-        setTab("code");
         say(`Abrindo ${hits[0].split("/").pop()}.`);
         return;
       }
@@ -555,7 +546,6 @@ export default function App({
     if (cmd) {
       push({ who: "user", text });
       if (cmd.kind === "open" && cmd.session_id) {
-        setTab("board");
         setReading({ sessionId: cmd.session_id, title: cmd.title });
         say(`Abrindo ${cmd.title}.`);
       } else if (cmd.kind === "switch") {
@@ -604,7 +594,7 @@ export default function App({
         }
       } else if (cmd.kind === "open_hq") {
         if (cmd.tab === "board") {
-          setTab("board");
+          ensureRail("board");
           say("Quadro na tela.");
         } else {
           // Costs are global: they live on the mother window.
@@ -961,7 +951,7 @@ export default function App({
    * board cards and the global board of the mother window.
    */
   async function openTaskByTitle(title: string, sessionId?: string, note?: string) {
-    setTab("code");
+    setReading(null);
     let session = sessionId;
     if (!session) {
       const hit = await ipc.findSession(title).catch(() => null);
@@ -1095,6 +1085,23 @@ export default function App({
       />
     </PanelFrame>
   );
+  const frameBoard = (slot?: { collapsed: boolean }) => (
+    <PanelFrame
+      title="Board"
+      expanded={expanded === "board"}
+      collapsed={slot?.collapsed ?? false}
+      onToggleExpand={() => setExpanded((e) => (e === "board" ? null : "board"))}
+      onToggleCollapse={slot ? () => toggleRailCollapse("board") : undefined}
+      dragProps={slot ? railDragProps("board") : undefined}
+      onClose={() => removeRail("board")}
+    >
+      <Board
+        tasks={board}
+        onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
+        onOpen={openTaskFromSidebar}
+      />
+    </PanelFrame>
+  );
   const frameArquivos = (slot?: { collapsed: boolean }) => (
     <PanelFrame
       title="Arquivos"
@@ -1121,80 +1128,60 @@ export default function App({
         ? `→ ${focusedTask.title} (mensagem retoma a task; perguntas vão pro vox)`
         : 'pergunte ("pendências de hoje?"), mande trabalho, @arquivo, Cmd+P abre arquivos';
 
-  return (
-    <div className="app">
-      <div className="topbar">
-        <span className="title">VOX</span>
-        <button
-          className={`scope ${sidebarOpen ? "" : "on"}`}
-          title={sidebarOpen ? "esconder a lista de chats (Cmd+B)" : "mostrar a lista de chats (Cmd+B)"}
-          onClick={() => {
-            const panel = sidebarRef.current;
-            if (panel) panel.isCollapsed() ? panel.expand() : panel.collapse();
-          }}
+  /** Window controls docked on the composer row — no topbar, no wasted strip. */
+  const trailingControls = (
+    <>
+      {rateLimit && rateLimit.status !== "allowed" && (
+        <span
+          className={`scope ratelimit ${rateLimit.status}`}
+          title={`janela ${rateLimit.limit_kind ?? "?"} · status ${rateLimit.status}`}
         >
-          <PanelLeft size={12} />
-        </button>
-        <nav className="tabs">
-          <button className={tab === "code" ? "active" : ""} onClick={() => setTab("code")}>
-            code
-          </button>
-          <button
-            className={tab === "board" ? "active" : ""}
-            onClick={() => {
-              setTab("board");
-              refresh();
-            }}
-          >
-            board
-          </button>
-        </nav>
-        <div className="scope-anchor">
-          <button
-            className={`scope ${scopeInfo ? "on" : ""}`}
-            title="custos deste projeto e peso da sessão focada"
-            onClick={() => setScopeInfo((s) => !s)}
-          >
-            <Wallet size={12} /> custos
-          </button>
-          {scopeInfo && (
-            <SessionInfo
-              taskTitle={focusedTask?.title}
-              sessionId={focusedTask?.sessionId || undefined}
-              projectName={activeProject?.name}
-              workspace={forcedProject?.path}
-              costs={costs}
-              onClose={() => setScopeInfo(false)}
-            />
-          )}
-        </div>
+          ⏳ {rateLimit.status === "allowed_warning" ? "quase no limite" : "limite atingido"}
+        </span>
+      )}
+      <div className="scope-anchor">
         <button
-          className={`scope ${railHas("terminal") ? "on" : ""}`}
-          title="Terminal (shells reais + feed do worker)"
-          onClick={() =>
-            railHas("terminal") ? removeRail("terminal") : ensureRail("terminal")
-          }
+          className={`scope ${scopeInfo ? "on" : ""}`}
+          title="custos deste projeto e peso da sessão focada"
+          onClick={() => setScopeInfo((s) => !s)}
         >
-          <SquareTerminal size={12} />
+          <Wallet size={13} />
         </button>
-        <button
-          className={`scope ${speak ? "on" : ""}`}
-          title={speak ? "voz ligada (Esc corta a fala)" : "voz desligada"}
-          onClick={() => setSpeak((s) => !s)}
-        >
-          {speak ? <Volume2 size={12} /> : <VolumeX size={12} />}
-        </button>
-        {rateLimit && (
-          <span
-            className={`scope ratelimit ${rateLimit.status}`}
-            title={`janela ${rateLimit.limit_kind ?? "?"} · status ${rateLimit.status}`}
-          >
-            ⏳ {rateLimit.status === "allowed" ? "ok" : rateLimit.status === "allowed_warning" ? "quase no limite" : "limite atingido"}
-            {rateLimit.resets_at
-              ? ` · reseta ${new Date(rateLimit.resets_at * 1000).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
-              : ""}
-          </span>
+        {scopeInfo && (
+          <SessionInfo
+            taskTitle={focusedTask?.title}
+            sessionId={focusedTask?.sessionId || undefined}
+            projectName={activeProject?.name}
+            workspace={forcedProject?.path}
+            costs={costs}
+            onClose={() => setScopeInfo(false)}
+          />
         )}
+      </div>
+      <button
+        className={`scope ${railHas("board") ? "on" : ""}`}
+        title="board do projeto (painel no trilho)"
+        onClick={() => (railHas("board") ? removeRail("board") : ensureRail("board"))}
+      >
+        <SquareKanban size={13} />
+      </button>
+      <button
+        className={`scope ${railHas("terminal") ? "on" : ""}`}
+        title="Terminal (shells reais + feed do worker)"
+        onClick={() =>
+          railHas("terminal") ? removeRail("terminal") : ensureRail("terminal")
+        }
+      >
+        <SquareTerminal size={13} />
+      </button>
+      <button
+        className={`scope ${speak ? "on" : ""}`}
+        title={speak ? "voz ligada (Esc corta a fala)" : "voz desligada"}
+        onClick={() => setSpeak((s) => !s)}
+      >
+        {speak ? <Volume2 size={13} /> : <VolumeX size={13} />}
+      </button>
+      <span className="composer-orb" title={busy ?? (recording ? "ouvindo…" : "pronto")}>
         <VoiceOrb
           mode={
             (recording
@@ -1206,20 +1193,36 @@ export default function App({
                   : "idle") as OrbMode
           }
         />
-        <span className={`state ${busy ? "busy" : ""}`}>
-          {busy ?? (recording ? "ouvindo…" : "pronto")}
-        </span>
-      </div>
+      </span>
+    </>
+  );
 
-      {tab === "code" && expanded ? (
+  return (
+    <div className="app">
+      {/* Sidebar toggle floats where the topbar used to be — the topbar
+          itself is gone: that strip was pure wasted height. */}
+      <button
+        className={`side-toggle-float ${sidebarOpen ? "" : "closed"}`}
+        title={sidebarOpen ? "esconder a lista (Cmd+B)" : "mostrar a lista (Cmd+B)"}
+        onClick={() => {
+          const panel = sidebarRef.current;
+          if (panel) panel.isCollapsed() ? panel.expand() : panel.collapse();
+        }}
+      >
+        <PanelLeft size={14} />
+      </button>
+
+      {expanded ? (
         <div className="workarea expanded-area">
           {expanded === "arquivo"
             ? frameArquivo()
             : expanded === "terminal"
               ? frameTerminal()
-              : frameArquivos()}
+              : expanded === "board"
+                ? frameBoard()
+                : frameArquivos()}
         </div>
-      ) : tab === "code" ? (
+      ) : (
         <PanelGroup direction="horizontal" autoSaveId="vox-code" className="workarea">
           <Panel
             ref={sidebarRef}
@@ -1280,13 +1283,34 @@ export default function App({
           <PanelResizeHandle className="rhandle" />
           <Panel minSize={30} className="pane">
             <div className="maincol">
-              <Transcript
-                messages={visibleMessages}
-                directivesFor={directivesFor}
-                onAnswerPermission={answerPermission}
-                onOpenPath={openAbsolutePath}
-                onRunCommand={runInTerminal}
-              />
+              {reading ? (
+                <Reader
+                  sessionId={reading.sessionId}
+                  title={reading.title}
+                  onClose={() => setReading(null)}
+                  onResume={
+                    reading.resume &&
+                    (() => {
+                      const { title, note } = reading.resume!;
+                      setReading(null);
+                      setPending({
+                        kind: "resume-task",
+                        title,
+                        sessionId: reading.sessionId,
+                        instruction: `Continua a tarefa: ${title}.${note ? ` Contexto: ${note}.` : ""}`,
+                      });
+                    })
+                  }
+                />
+              ) : (
+                <Transcript
+                  messages={visibleMessages}
+                  directivesFor={directivesFor}
+                  onAnswerPermission={answerPermission}
+                  onOpenPath={openAbsolutePath}
+                  onRunCommand={runInTerminal}
+                />
+              )}
               <Composer
                 disabled={!!busy}
                 recording={recording}
@@ -1299,6 +1323,7 @@ export default function App({
                 onSubmit={submit}
                 onMic={onMic}
                 onAnswerPermission={answerPermission}
+                trailing={trailingControls}
               >
                 <ModeSelect
                   value={currentMode}
@@ -1327,7 +1352,6 @@ export default function App({
                       (w) => w.task_id === taskId,
                     )?.session_id;
                     if (session) {
-                      setTab("board");
                       setReading({ sessionId: session, title: labelFor(taskId) });
                     } else {
                       setPending({ kind: "task-summary", taskId });
@@ -1354,7 +1378,9 @@ export default function App({
                         ? frameArquivo(slot)
                         : slot.id === "terminal"
                           ? frameTerminal(slot)
-                          : frameArquivos(slot)}
+                          : slot.id === "board"
+                            ? frameBoard(slot)
+                            : frameArquivos(slot)}
                     </div>
                   ))}
                 </div>
@@ -1362,31 +1388,6 @@ export default function App({
             </>
           )}
         </PanelGroup>
-      ) : reading ? (
-        <Reader
-          sessionId={reading.sessionId}
-          title={reading.title}
-          onClose={() => setReading(null)}
-          onResume={
-            reading.resume &&
-            (() => {
-              const { title, note } = reading.resume!;
-              setReading(null);
-              setPending({
-                kind: "resume-task",
-                title,
-                sessionId: reading.sessionId,
-                instruction: `Continua a tarefa: ${title}.${note ? ` Contexto: ${note}.` : ""}`,
-              });
-            })
-          }
-        />
-      ) : (
-        <Board
-          tasks={board}
-          onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
-          onOpen={openTaskFromSidebar}
-        />
       )}
 
       {quickOpen && (
@@ -1395,7 +1396,6 @@ export default function App({
           onPick={(file) => {
             openFile(file);
             setQuickOpen(false);
-            setTab("code");
           }}
           onClose={() => setQuickOpen(false)}
         />
@@ -1408,7 +1408,7 @@ export default function App({
         liveWorkers={liveWorkers}
         messages={messages}
         onDispatch={(instruction, sessionId, taskTitle) => {
-          setTab("code");
+          setReading(null);
           const title = taskTitle ?? focusedTask?.title;
           if (title) reactivateIfDone(title);
           runDispatch(instruction, sessionId);
