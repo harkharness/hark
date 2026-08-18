@@ -196,6 +196,17 @@ export default function Composer({
 
   useEffect(autoGrow, [text]);
 
+  // First paint happens before the panels settle their widths, so the
+  // placeholder wraps and the measured height sticks too tall. Re-measure
+  // whenever the box actually changes size (mount, sidebar/rail toggles).
+  useEffect(() => {
+    const el = areaRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(autoGrow);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Claude Code layout: one rounded box (thumbnails + text), controls on
   // a slim row underneath. Starts input-sized; grows as you type.
   return (
