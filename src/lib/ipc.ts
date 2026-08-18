@@ -37,8 +37,11 @@ export const askText = (
     projectPath: project?.path ?? null,
   });
 
-export const workerStart = (instruction: string, sessionId: string | null) =>
-  invoke<DispatchOutcome>("worker_start", { instruction, sessionId });
+export const workerStart = (
+  instruction: string,
+  sessionId: string | null,
+  mode?: string,
+) => invoke<DispatchOutcome>("worker_start", { instruction, sessionId, mode: mode ?? null });
 
 export const workerSend = (
   taskId: string,
@@ -50,8 +53,8 @@ export const workerSend = (
 export const workerStop = (taskId: string) => invoke("worker_stop", { taskId });
 
 /** Brand-new Claude Code session inside a project directory. */
-export const chatStart = (projectPath: string, instruction: string) =>
-  invoke<DispatchOutcome>("chat_start", { projectPath, instruction });
+export const chatStart = (projectPath: string, instruction: string, mode?: string) =>
+  invoke<DispatchOutcome>("chat_start", { projectPath, instruction, mode: mode ?? null });
 
 export const readTranscript = (sessionId: string, limit?: number) =>
   invoke<{ session_title: string | null; entries: TranscriptEntry[] }>("read_transcript", {
@@ -180,3 +183,7 @@ export const termWrite = (id: string, data: string) => invoke("term_write", { id
 export const termResize = (id: string, cols: number, rows: number) =>
   invoke("term_resize", { id, cols, rows });
 export const termClose = (id: string) => invoke("term_close", { id });
+
+/** Switch a live worker's permission mode (restarts it, sends no text). */
+export const workerSetMode = (taskId: string, mode: string) =>
+  invoke<Directives>("worker_set_mode", { taskId, mode });

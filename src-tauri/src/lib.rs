@@ -98,6 +98,8 @@ struct Overview {
     board: Vec<vox_core::domain::board::Task>,
     projects: Vec<vox_core::domain::project::Project>,
     theme: String,
+    /// Config default permission mode for new workers ("" = CLI default).
+    default_mode: String,
 }
 
 /// The editable project list. First run seeds it from what the machine
@@ -155,6 +157,7 @@ fn overview() -> Overview {
         board,
         projects: load_projects(&config),
         theme: config.theme,
+        default_mode: config.worker_mode,
     }
 }
 
@@ -443,6 +446,7 @@ fn worker_start(
     perms: State<'_, WorkerPermissions>,
     instruction: String,
     session_id: Option<String>,
+    mode: Option<String>,
 ) -> Result<DispatchOut, String> {
     let config = Config::load();
     let planned = {
@@ -499,7 +503,12 @@ fn worker_start(
         WorkerStatus::Running,
     );
 
-    let directives = vox_core::domain::directives::parse(&instruction);
+    // Mode precedence: spoken directive > window selector > config default.
+    let mut directives = vox_core::domain::directives::parse(&instruction);
+    directives.mode = directives
+        .mode
+        .or_else(|| mode.as_deref().and_then(vox_core::domain::directives::Mode::from_flag))
+        .or_else(|| config.default_worker_mode());
     let spawn = vox_core::adapters::worker::WorkerSpawn {
         limits: config.spawn_limits(),
         claude_bin: config.claude_bin_resolved(),
@@ -761,6 +770,7 @@ fn chat_start(
     live: State<'_, LiveWorkers>,
     project_path: String,
     instruction: String,
+    mode: Option<String>,
 ) -> Result<DispatchOut, String> {
     let config = Config::load();
     let root = std::path::PathBuf::from(vox_core::config::expand_home(&project_path));
@@ -770,7 +780,12 @@ fn chat_start(
     let task_id = format!("n-{}", Utc::now().format("%m%d%H%M%S"));
     update_registry_and_board(&config, &task_id, &root, None, &instruction, WorkerStatus::Running);
 
-    let directives = vox_core::domain::directives::parse(&instruction);
+    // Mode precedence: spoken directive > window selector > config default.
+    let mut directives = vox_core::domain::directives::parse(&instruction);
+    directives.mode = directives
+        .mode
+        .or_else(|| mode.as_deref().and_then(vox_core::domain::directives::Mode::from_flag))
+        .or_else(|| config.default_worker_mode());
     let spawn = vox_core::adapters::worker::WorkerSpawn {
         limits: config.spawn_limits(),
         claude_bin: config.claude_bin_resolved(),
@@ -883,6 +898,45 @@ fn describe(d: &vox_core::domain::directives::Directives) -> String {
     .join(" · ")
 }
 
+/// Switch a live worker's permission mode WITHOUT sending a message: the
+/// UI selector. Flags are per-process, so this restarts the worker on the
+/// same session (context re-cached, no text reaches the model).
+#[tauri::command]
+fn worker_set_mode(
+    app: AppHandle,
+    live: State<'_, LiveWorkers>,
+    task_id: String,
+    mode: String,
+) -> Result<vox_core::domain::directives::Directives, String> {
+    let Some(mode) = vox_core::domain::directives::Mode::from_flag(&mode) else {
+        return Err(format!("modo desconhecido: {mode}"));
+    };
+    let handle = live
+        .0
+        .lock()
+        .unwrap()
+        .get(&task_id)
+        .cloned()
+        .ok_or("worker não está mais ativo")?;
+    let mut next = handle.spawn.directives.clone();
+    if next.mode == Some(mode) {
+        return Ok(next);
+    }
+    next.mode = Some(mode);
+    emit_event(
+        &app,
+        serde_json::json!({ "kind": "status",
+            "text": format!("reabrindo a thread com {}", describe(&next)) }),
+    );
+    handle.worker.shutdown();
+    let spawn = vox_core::adapters::worker::WorkerSpawn {
+        directives: next.clone(),
+        ..handle.spawn.clone()
+    };
+    start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
+    Ok(next)
+}
+
 /// End the conversation: EOF + kill, board moves to waiting.
 #[tauri::command]
 fn worker_stop(live: State<'_, LiveWorkers>, task_id: String) -> Result<(), String> {
@@ -975,7 +1029,12 @@ fn dispatch_text(
         cwd: planned.workspace_root.clone(),
         session_id: planned.session.session_id.clone(),
         instruction: instruction.clone(),
-        directives: vox_core::domain::directives::parse(&instruction),
+        directives: {
+            // The one-shot path honors the config default mode too.
+            let mut d = vox_core::domain::directives::parse(&instruction);
+            d.mode = d.mode.or_else(|| config.default_worker_mode());
+            d
+        },
     };
     let label = worker_board_title(Some(&planned.session.session_id), &instruction);
     let result = vox_core::adapters::worker::run(
@@ -1959,6 +2018,7 @@ pub fn run() {
             dispatch_text,
             worker_start,
             worker_send,
+            worker_set_mode,
             worker_stop,
             chat_start,
             project_add,

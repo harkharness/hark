@@ -26,6 +26,18 @@ impl Mode {
         }
     }
 
+    /// Inverse of `as_flag`, for config files and the UI mode selector.
+    pub fn from_flag(flag: &str) -> Option<Self> {
+        match flag {
+            "manual" => Some(Mode::Manual),
+            "acceptEdits" => Some(Mode::AcceptEdits),
+            "plan" => Some(Mode::Plan),
+            "auto" => Some(Mode::Auto),
+            "bypass" | "bypassPermissions" => Some(Mode::Bypass),
+            _ => None,
+        }
+    }
+
     /// Short label for the footer.
     pub fn label(self) -> &'static str {
         match self {
@@ -126,6 +138,18 @@ pub fn parse(utterance: &str) -> Directives {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mode_round_trips_through_its_flag() {
+        // Config files and the UI selector speak in flag strings; every
+        // mode must come back from its own flag, and junk must not parse.
+        for mode in [Mode::Manual, Mode::AcceptEdits, Mode::Plan, Mode::Auto, Mode::Bypass] {
+            assert_eq!(Mode::from_flag(mode.as_flag()), Some(mode));
+        }
+        assert_eq!(Mode::from_flag("bypass"), Some(Mode::Bypass)); // short form
+        assert_eq!(Mode::from_flag(""), None);
+        assert_eq!(Mode::from_flag("turbo"), None);
+    }
 
     #[test]
     fn detects_permission_modes() {

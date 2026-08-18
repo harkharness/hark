@@ -12,6 +12,7 @@ import Composer from "./components/Composer";
 import FilesEditor from "./components/FilesEditor";
 import FilesPanel from "./components/FilesPanel";
 import Modals, { type Pending } from "./components/Modals";
+import ModeSelect from "./components/ModeSelect";
 import PanelFrame from "./components/PanelFrame";
 import QuickOpen from "./components/QuickOpen";
 import Reader from "./components/Reader";
@@ -84,6 +85,8 @@ export default function App({
   // Standing "sempre permitir" rules: task label → tools auto-approved.
   // Window-scoped by design: closing the window forgets every rule.
   const allowAlways = useRef<Map<string, Set<string>>>(new Map());
+  // Mode chosen on the selector for NEW tasks (null = config default).
+  const [modeDefault, setModeDefault] = useState<string | null>(null);
   // Per-thread raw worker feed (the task's "terminal") and window spend.
   const [rawLog, setRawLog] = useState<Record<string, string[]>>({});
   const [costs, setCosts] = useState<Record<string, number>>({});
@@ -336,7 +339,7 @@ export default function App({
     setBusy("despachando…");
     push({ who: "sys", text: `dispatch: ${instruction}` });
     try {
-      const out = await ipc.workerStart(instruction, sessionId ?? null);
+      const out = await ipc.workerStart(instruction, sessionId ?? null, modeDefault ?? undefined);
       if (out.status === "started") {
         const label =
           focusedTask && sessionId === focusedTask.sessionId
@@ -374,7 +377,7 @@ export default function App({
     setBusy("abrindo sessão nova…");
     push({ who: "sys", text: `novo chat em ${project.name}` });
     try {
-      const out = await ipc.chatStart(project.path, instruction);
+      const out = await ipc.chatStart(project.path, instruction, modeDefault ?? undefined);
       if (out.status === "started") {
         const label = instruction.split(/\s+/).slice(0, 5).join(" ");
         push({ who: "user", text: instruction, task: label });
@@ -675,6 +678,33 @@ export default function App({
     }
     push({ who: "user", text, image: img ?? undefined });
     runAsk(text, img);
+  }
+
+  /** Mode the pill shows: the focused live task's, else the window/config default. */
+  const currentMode =
+    (focused ? liveWorkers[focused]?.directives.mode : undefined) ??
+    modeDefault ??
+    (overview?.default_mode || "manual");
+
+  /**
+   * Selector change: a focused live worker switches mode NOW (process
+   * restart on the same session — flags are per-process, no text is
+   * sent); with nothing focused it becomes this window's default.
+   */
+  function selectMode(flag: string) {
+    if (focused && liveWorkers[focused]) {
+      ipc
+        .workerSetMode(focused, flag)
+        .then((directives) =>
+          setLiveWorkers((old) =>
+            old[focused] ? { ...old, [focused]: { ...old[focused], directives } } : old,
+          ),
+        )
+        .catch((err) => push({ who: "sys", text: `modo: ${err}` }));
+      return;
+    }
+    setModeDefault(flag);
+    push({ who: "sys", text: `novas tasks desta janela nascem no modo ${flag}` });
   }
 
   function addShell(): string {
@@ -1167,6 +1197,11 @@ export default function App({
                 onMic={onMic}
                 onAnswerPermission={answerPermission}
               >
+                <ModeSelect
+                  value={currentMode}
+                  appliesTo={focused ? labelFor(focused) : undefined}
+                  onSelect={selectMode}
+                />
                 <WorkerChips
                   liveWorkers={liveWorkers}
                   focused={focused}

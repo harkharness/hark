@@ -691,6 +691,34 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   font-weight: 600;
 }
 .perm-actions .always:hover { background: rgba(224,175,104,.12); }
+
+/* Permission-mode pill in the composer's control row. */
+.mode-anchor { position: relative; display: inline-flex; flex: 0 0 auto; }
+.mode-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--bg); color: var(--dim); border: 1px solid var(--border);
+  border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 12px;
+  cursor: pointer; white-space: nowrap;
+}
+.mode-pill:hover { color: var(--text); border-color: var(--accent); }
+.mode-menu {
+  position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 15;
+  width: 280px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.45);
+}
+.mode-menu-head {
+  color: var(--dim); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .07em; padding: 4px 8px 6px;
+}
+.mode-menu button {
+  display: flex; flex-direction: column; gap: 2px; width: 100%;
+  background: none; border: none; border-radius: 6px; padding: 6px 8px;
+  font: inherit; text-align: left; cursor: pointer; color: var(--text);
+}
+.mode-menu button:hover { background: rgba(255,255,255,.05); }
+.mode-menu button.on { background: rgba(122,162,247,.12); }
+.mode-menu button b { font-size: 12.5px; }
+.mode-menu button span { color: var(--dim); font-size: 11px; }
 .perm-actions button {
   border: none; border-radius: 6px; padding: 6px 16px; font: inherit;
   font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 6px;

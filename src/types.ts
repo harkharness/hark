@@ -175,6 +175,8 @@ export type Overview = {
   projects: Project[];
   /** Code color scheme from config.toml ("vox" | "dracula" | custom). */
   theme: string;
+  /** Config default permission mode for new workers ("" = CLI default). */
+  default_mode: string;
 };
 
 /** One aggregated bucket of the persistent spend ledger. */

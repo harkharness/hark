@@ -55,6 +55,10 @@ pub struct Config {
     pub worker_budget_usd: f64,
     /// Optional turn ceiling per worker process (`--max-turns`); 0 = off.
     pub worker_max_turns: u32,
+    /// Default permission mode of new workers when the instruction names
+    /// none ("manual" | "acceptEdits" | "plan" | "auto" | "bypass").
+    /// Empty = the CLI's own default (ask for everything).
+    pub worker_mode: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -92,11 +96,17 @@ impl Default for Config {
             hotkey: "cmd+shift+space".into(),
             worker_budget_usd: 2.0,
             worker_max_turns: 0,
+            worker_mode: String::new(),
         }
     }
 }
 
 impl Config {
+    /// Configured default permission mode (None = CLI default).
+    pub fn default_worker_mode(&self) -> Option<crate::domain::directives::Mode> {
+        crate::domain::directives::Mode::from_flag(&self.worker_mode)
+    }
+
     /// Hard caps applied to every worker spawn.
     pub fn spawn_limits(&self) -> crate::adapters::worker::SpawnLimits {
         crate::adapters::worker::SpawnLimits {
