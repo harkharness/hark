@@ -23,6 +23,8 @@ export type VoxEvent =
   | {
       kind: "worker_turn";
       task_id: string;
+      /** Human name of the task (session title), for announcements. */
+      label?: string;
       text: string;
       cost_usd?: number;
       model?: string;
@@ -48,6 +50,8 @@ export type VoxEvent =
 export type PermissionAsk = {
   request_id: string;
   task_id: string;
+  /** Human name of the task asking. */
+  label?: string;
   tool_name: string;
   input: string;
 };

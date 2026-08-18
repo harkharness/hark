@@ -76,6 +76,7 @@ export default function Mother() {
     onSessionStarted: () => {},
     onSpeaking: setSpeaking,
     onRateLimit: setRateLimit,
+    announce: true,
     onHotkeyMic: useCallback(() => {
       setTab("voz");
       micRef.current();

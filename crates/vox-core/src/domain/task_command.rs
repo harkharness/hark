@@ -101,6 +101,24 @@ const HQ_VERBS: &[(&str, &str)] = &[
     ("mostra os custos", "custos"), ("abre custos", "custos"),
 ];
 
+/// Words that point at the focused thing instead of naming another one
+/// ("renomeia ESSE CHAT para…"). Stripping them all leaves an empty query,
+/// which the shell resolves to whatever is focused.
+const SELF_WORDS: &[&str] = &[
+    "essa", "esse", "esta", "este", "dessa", "desse", "desta", "deste",
+    "atual", "chat", "sessão", "sessao", "conversa", "chamada", "aqui",
+];
+
+fn clean_rename_target(raw: &str) -> String {
+    raw.split_whitespace()
+        .filter(|w| {
+            let w = w.to_lowercase();
+            !SELF_WORDS.contains(&w.as_str()) && !FILLER.contains(&w.as_str())
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Recovering a session someone remembers having. The word "sessão"/"chat"
 /// is mandatory: without it the sentence is work, not a lookup.
 const FIND_SESSION_VERBS: &[&str] = &[
@@ -228,13 +246,17 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
     }
     if let Some(verb) = RENAME_VERBS.iter().find(|v| lower.contains(**v)) {
         let rest = after(verb)?;
-        // "<query> para <novo titulo>"
-        let (query, title) = rest.to_lowercase().rfind(" para ").map(|i| {
+        let rest_lower = rest.to_lowercase();
+        // "<query> para <novo>" — or just "para <novo>" / "esse chat para
+        // <novo>": an empty query means "the focused one" (shell fills it).
+        let (query, title) = if rest_lower.starts_with("para ") {
+            (String::new(), rest["para ".len()..].trim().to_string())
+        } else {
+            let i = rest_lower.rfind(" para ")?;
             (rest[..i].to_string(), rest[i + " para ".len()..].trim().to_string())
-        })?;
-        let query = clean_query(&query);
-        return (!query.is_empty() && !title.is_empty())
-            .then_some(TaskCommand::Rename { query, title });
+        };
+        let query = clean_rename_target(&query);
+        return (!title.is_empty()).then_some(TaskCommand::Rename { query, title });
     }
     for (verbs, build) in [
         (OPEN_VERBS, TaskCommand::Open as fn(String) -> TaskCommand),
@@ -317,6 +339,40 @@ mod tests {
             Some(TaskCommand::Switch {
                 query: "webhook".into(),
                 instruction: None
+            })
+        );
+    }
+
+    #[test]
+    fn renames_the_focused_chat_without_naming_it() {
+        // "this chat", "this task" or nothing at all: an empty query means
+        // "whatever is focused right now" — the shell fills it in.
+        assert_eq!(
+            parse("renomeia esse chat para Migração dos alertas"),
+            Some(TaskCommand::Rename {
+                query: "".into(),
+                title: "Migração dos alertas".into()
+            })
+        );
+        assert_eq!(
+            parse("renomeia essa task para Decom Carteira"),
+            Some(TaskCommand::Rename {
+                query: "".into(),
+                title: "Decom Carteira".into()
+            })
+        );
+        assert_eq!(
+            parse("renomeia para Alertas do cluster"),
+            Some(TaskCommand::Rename {
+                query: "".into(),
+                title: "Alertas do cluster".into()
+            })
+        );
+        assert_eq!(
+            parse("muda o título dessa sessão para Alertas do cluster"),
+            Some(TaskCommand::Rename {
+                query: "".into(),
+                title: "Alertas do cluster".into()
             })
         );
     }

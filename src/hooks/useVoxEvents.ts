@@ -28,6 +28,12 @@ type Handlers = {
   onMainTab?: (tab: string) => void;
   /** The global board asked this project window to open a task's chat. */
   onFocusTask?: (title: string, sessionId?: string | null) => void;
+  /**
+   * Whether THIS window announces events out loud (turn done, permission
+   * asked). Exactly one window may announce — the mother — otherwise every
+   * open window speaks the same news and the voice stutters in chorus.
+   */
+  announce?: boolean;
   speakRef: React.RefObject<boolean>;
   refresh: () => void;
 };
@@ -92,12 +98,14 @@ export function useVoxEvents(h: Handlers) {
             ? { ...old, [ev.task_id]: { ...old[ev.task_id], status: "turn_done" } }
             : old,
         );
-        if (h.speakRef.current)
+        if (h.announce && h.speakRef.current) {
+          const spoken = ev.label ?? label;
           ipc.speak(
             ev.is_error
-              ? `A task ${label} falhou, olha a tela.`
-              : `Task ${label} terminou o turno.`,
+              ? `A task ${spoken} falhou, olha a tela.`
+              : `Task ${spoken} terminou o turno.`,
           ).catch(() => {});
+        }
         h.refresh();
       } else if (ev.kind === "worker_exit") {
         h.push({
@@ -146,8 +154,10 @@ export function useVoxEvents(h: Handlers) {
           ? { ...old, [ask.task_id]: { ...old[ask.task_id], status: "awaiting" } }
           : old,
       );
-      if (h.speakRef.current)
-        ipc.speak(`${ask.tool_name} pede permissão.`).catch(() => {});
+      if (h.announce && h.speakRef.current)
+        ipc.speak(
+          `${ask.tool_name} pede permissão${ask.label ? ` em ${ask.label}` : ""}.`,
+        ).catch(() => {});
     });
 
     return () => {

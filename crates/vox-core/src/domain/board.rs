@@ -74,7 +74,17 @@ pub fn apply_updates(
                 }
             }
         };
-        match tasks.iter_mut().find(|t| same_task(&t.title, &update.titulo)) {
+        // A task already linked to this session IS this task, whatever it
+        // is called now — matching by title first would fork a renamed
+        // card into a duplicate on the next update from the same session.
+        let position = sid
+            .and_then(|s| {
+                tasks
+                    .iter()
+                    .position(|t| t.session_ids.iter().any(|i| i == s))
+            })
+            .or_else(|| tasks.iter().position(|t| same_task(&t.title, &update.titulo)));
+        match position.map(|i| &mut tasks[i]) {
             Some(task) => {
                 task.status = update.status;
                 task.updated_at = now.to_string();
@@ -230,6 +240,37 @@ mod tests {
             None, // no caller session: the model's reference must be used
         );
         assert_eq!(tasks[0].session_ids, vec!["sess-from-model"]);
+    }
+
+    #[test]
+    fn a_rename_survives_later_updates_from_the_same_session() {
+        // The user renamed the card; the next turn of the same session
+        // upserts under the session-derived title. Matching by linked
+        // session must win over title similarity — otherwise every rename
+        // gets shadowed by a duplicate card.
+        let existing = apply_updates(
+            Vec::new(),
+            &[update("Alertas do cluster migração e correções", TaskStatus::Doing)],
+            "2026-08-17T10:00:00Z",
+            Some("/home/dev/proj"),
+            Some("sess-alerts"),
+        );
+        let renamed = rename(
+            existing,
+            "Alertas do cluster migração e correções",
+            "Decom Carteira",
+            "2026-08-17T11:00:00Z",
+        );
+        let tasks = apply_updates(
+            renamed,
+            &[update("Alertas do cluster migração e correções", TaskStatus::Doing)],
+            "2026-08-17T12:00:00Z",
+            Some("/home/dev/proj"),
+            Some("sess-alerts"),
+        );
+        assert_eq!(tasks.len(), 1, "must update the renamed card, not fork it");
+        assert_eq!(tasks[0].title, "Decom Carteira");
+        assert_eq!(tasks[0].updated_at, "2026-08-17T12:00:00Z");
     }
 
     #[test]

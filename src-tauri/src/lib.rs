@@ -538,7 +538,13 @@ fn start_worker(
     let task2 = task_id.to_string();
     let workspace = spawn.cwd.clone();
     let is_new_session = spawn.session_id.is_empty();
-    let board_title: String = spawn.instruction.chars().take(60).collect();
+    // The human name of this work: the session's title for resumes, the
+    // instruction for brand-new sessions. Travels inside events so any
+    // window (the mother above all) can speak about it by name.
+    let board_title = worker_board_title(
+        (!spawn.session_id.is_empty()).then_some(spawn.session_id.as_str()),
+        &spawn.instruction,
+    );
     let mut current_session = spawn.session_id.clone();
     std::thread::spawn(move || {
         use std::io::{BufRead, BufReader};
@@ -609,6 +615,7 @@ fn start_worker(
                         serde_json::json!({
                             "request_id": request_id,
                             "task_id": task2,
+                            "label": board_title,
                             "tool_name": tool_name,
                             "input": input,
                         }),
@@ -654,6 +661,7 @@ fn start_worker(
                     emit_event(
                         &app2,
                         serde_json::json!({ "kind": "worker_turn", "task_id": task2,
+                            "label": board_title,
                             "text": turn.raw, "cost_usd": turn.cost_usd, "model": turn.model, "is_error": turn.is_error,
                             "usage": { "input": usage.input, "output": usage.output,
                                        "cache_read": usage.cache_read, "cache_created": usage.cache_created },
@@ -967,6 +975,7 @@ fn dispatch_text(
         instruction: instruction.clone(),
         directives: vox_core::domain::directives::parse(&instruction),
     };
+    let label = worker_board_title(Some(&planned.session.session_id), &instruction);
     let result = vox_core::adapters::worker::run(
         &spawn,
         &mut |_running| {},
@@ -980,6 +989,7 @@ fn dispatch_text(
                 serde_json::json!({
                     "request_id": request_id,
                     "task_id": task_id,
+                    "label": label,
                     "tool_name": tool,
                     "input": input,
                 }),
@@ -1278,8 +1288,9 @@ fn read_transcript(session_id: String, limit: Option<usize>) -> Result<Transcrip
 fn find_session(query: String) -> Result<Option<serde_json::Value>, String> {
     use vox_core::ports::SessionStore;
     let config = Config::load();
-    let store =
+    let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let _ = vox_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
     let terms = vox_core::domain::dispatch::significant_terms(&query);
     let hits = store.search_sessions(&terms, 1).map_err(|e| e.to_string())?;
     Ok(hits.first().map(|s| {
@@ -1327,8 +1338,12 @@ fn session_label(summary: &vox_core::domain::snapshot::SessionSummary) -> String
 fn session_hits(query: &str, limit: usize) -> Result<Vec<SessionHit>, String> {
     use vox_core::ports::SessionStore;
     let config = Config::load();
-    let store =
+    let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    // The index only used to move when `ask` ran, so sessions opened since
+    // the last question were invisible here. Incremental (mtime + byte
+    // offset), so this is milliseconds when nothing changed.
+    let _ = vox_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
     let terms = vox_core::domain::dispatch::significant_terms(query);
     let hits = store
         .search_sessions(&terms, limit)
@@ -1360,6 +1375,7 @@ fn task_from_session(session_id: String) -> Result<serde_json::Value, String> {
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let _ = vox_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
     let summary = session_summary(&store, &session_id)
         .ok_or_else(|| format!("sessão {session_id} não está no índice"))?;
     let title = session_label(&summary);
@@ -1575,7 +1591,10 @@ fn evaluate(
 /// Local board command spoken by the user ("mostra o log da X"). Resolves the
 /// task by term overlap and performs the action; no LLM, no tokens.
 #[tauri::command]
-fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
+fn task_command(
+    text: String,
+    focused: Option<String>,
+) -> Result<Option<serde_json::Value>, String> {
     use vox_core::domain::task_command::TaskCommand;
     let Some(command) = vox_core::domain::task_command::parse(&text) else {
         // Fallback: "abre <nome>" without the word "projeto" ("ok, então
@@ -1653,6 +1672,19 @@ fn task_command(text: String) -> Result<Option<serde_json::Value>, String> {
     let query = match &command {
         TaskCommand::Open(q) | TaskCommand::Pin(q) | TaskCommand::Archive(q) => q,
         TaskCommand::Switch { query, .. } => query,
+        // "renomeia (esse chat) para X": an empty query means whatever the
+        // window has focused right now.
+        TaskCommand::Rename { query, .. } if query.is_empty() => {
+            match focused.as_deref().filter(|f| !f.is_empty()) {
+                Some(f) => f,
+                None => {
+                    return Ok(Some(serde_json::json!({
+                        "kind": "not_found",
+                        "query": "nenhuma task focada pra renomear",
+                    })))
+                }
+            }
+        }
         TaskCommand::Rename { query, .. } => query,
         TaskCommand::OpenFile { .. }
         | TaskCommand::AddProject { .. }

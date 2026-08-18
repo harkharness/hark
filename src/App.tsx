@@ -453,7 +453,7 @@ export default function App({
 
     // Local commands first ("abre o arquivo X", "vai pra task Y", "novo
     // chat no projeto Z"): zero tokens, resolved on this machine.
-    const cmd = await ipc.taskCommand(text).catch(() => null);
+    const cmd = await ipc.taskCommand(text, focusedTask?.title).catch(() => null);
     if (cmd) {
       push({ who: "user", text });
       if (cmd.kind === "open" && cmd.session_id) {

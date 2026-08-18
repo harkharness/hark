@@ -118,8 +118,10 @@ export const sessionStats = (sessionId: string) =>
     { sessionId },
   );
 
-export const taskCommand = (text: string) =>
-  invoke<TaskCommandResult | null>("task_command", { text });
+/** Local spoken commands. `focused` names the task the window has open,
+ *  so "renomeia esse chat para X" knows what "esse" is. */
+export const taskCommand = (text: string, focused?: string) =>
+  invoke<TaskCommandResult | null>("task_command", { text, focused: focused ?? null });
 
 export const evaluate = (message: string, focusedTask: string, focusedSession: string) =>
   invoke<GateOut>("evaluate", { message, focusedTask, focusedSession });
