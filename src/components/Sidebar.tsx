@@ -211,9 +211,6 @@ export default function Sidebar({
               </button>
               {projMenu === p.path && (
                 <div className="side-menu">
-                  <button onClick={() => { setProjMenu(null); onNewChat(p); }}>
-                    Novo chat aqui
-                  </button>
                   <button
                     className="danger"
                     onClick={() => { setProjMenu(null); onRemoveProject(p); }}
