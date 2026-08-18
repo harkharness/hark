@@ -940,10 +940,14 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   margin-bottom: 10px; color: var(--col);
 }
 .kanban .count { opacity: .6; font-weight: 400; }
-/* Drop target: the column lights up in its own color BEFORE the release. */
+/* Drop target: the column lights up in its own color BEFORE the release.
+   Ring via box-shadow (a wider border would shift layout). */
 .kanban .column.over {
-  background: color-mix(in srgb, var(--col) 14%, var(--panel));
+  background: color-mix(in srgb, var(--col) 20%, var(--panel));
   border-color: var(--col);
+  box-shadow:
+    0 0 0 1px var(--col),
+    inset 0 0 32px color-mix(in srgb, var(--col) 14%, transparent);
 }
 .kanban .column.over h3 { opacity: 1; }
 .kanban .card {

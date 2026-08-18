@@ -40,14 +40,12 @@ export default function Board({
             className={`column ${status}${over === status ? " over" : ""}`}
             onDragOver={(e) => {
               e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
               if (over !== status) setOver(status);
             }}
-            onDragLeave={(e) => {
-              // Crossing a child fires dragleave too: only clear when the
-              // pointer really left this column.
-              if (!e.currentTarget.contains(e.relatedTarget as Node | null))
-                setOver((o) => (o === status ? null : o));
-            }}
+            // No dragleave: WKWebView reports relatedTarget as null there,
+            // so any child-crossing would kill the highlight. Moving to a
+            // sibling column re-targets it; drop/dragEnd clear it.
             onDrop={(e) => {
               setOver(null);
               setDragging(null);
