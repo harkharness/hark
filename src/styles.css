@@ -1,5 +1,8 @@
 :root {
   --bg: #0b0e12;
+  /* One step below --bg: the sidebar rail sits UNDER the chat page, like
+     the Claude Code app — depth comes from tone, not from borders. */
+  --bg-deep: #07090d;
   --panel: #11151b;
   /* Hairlines, not fences: translucent borders melt into the background
      instead of gridding the window. --border-strong is the rare divider
@@ -510,7 +513,11 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 
 /* ---- task sidebar (grouped by project) ---- */
 .sidebar {
-  background: transparent;
+  /* Darker than the chat page: reads as the layer underneath. The inset
+     shadow on the right edge is the chat "resting on top" of the rail. */
+  background: var(--bg-deep);
+  border-right: 1px solid var(--border);
+  box-shadow: inset -12px 0 16px -14px rgba(0, 0, 0, .9);
   overflow-y: auto;
   padding: 10px 8px;
   height: 100%;
