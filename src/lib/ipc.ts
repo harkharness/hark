@@ -66,6 +66,10 @@ export const sessionCandidates = (query: string, limit?: number) =>
     limit: limit ?? null,
   });
 
+/** Every Claude Code session of one project (local index, zero tokens). */
+export const projectSessions = (path: string) =>
+  invoke<import("../types").SessionHit[]>("project_sessions", { path });
+
 /** Bind a recovered session to a board task named after the SESSION. */
 export const taskFromSession = (sessionId: string) =>
   invoke<{ title: string; workspace?: string | null; session_id: string }>(

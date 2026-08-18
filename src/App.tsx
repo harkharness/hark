@@ -43,6 +43,8 @@ export default function App({
 }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
+  // Every Claude Code session of this project (index), newest first.
+  const [chats, setChats] = useState<SessionHit[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   // The global Esc handler must see the live value (no stale closure).
@@ -124,6 +126,12 @@ export default function App({
         document.documentElement.dataset.theme = o.theme;
       })
       .catch(() => {});
+    // Full Claude Code history of this project (local index): the sidebar
+    // shows every chat, not only the ones the board already knows.
+    if (forcedProject) {
+      ipc.projectSessions(forcedProject.path).then(setChats).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const say = useCallback((text: string) => {
     if (speakRef.current) ipc.speak(text).catch(() => {});
@@ -972,9 +980,14 @@ export default function App({
             <Sidebar
               projects={projects}
               tasks={board}
+              chats={chats.filter(
+                (c) =>
+                  !(overview?.board ?? []).some((t) => t.session_ids.includes(c.session_id)),
+              )}
               activeTitle={focusedTask?.title}
               liveTitles={Object.values(liveWorkers).map((w) => w.label)}
               onOpen={openTaskFromSidebar}
+              onOpenChat={recoverSession}
               onRename={(t, newTitle) =>
                 ipc.boardRename(t.title, newTitle).then(refresh)
               }

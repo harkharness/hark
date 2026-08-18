@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FolderTree, MoreVertical, Pin, Plus } from "lucide-react";
-import type { BoardTask, Project } from "../types";
+import type { BoardTask, Project, SessionHit } from "../types";
 
 const DOT: Record<BoardTask["status"], string> = {
   doing: "◍",
@@ -17,9 +17,11 @@ const DOT: Record<BoardTask["status"], string> = {
 export default function Sidebar({
   projects,
   tasks,
+  chats = [],
   activeTitle,
   liveTitles,
   onOpen,
+  onOpenChat,
   onRename,
   onPin,
   onArchive,
@@ -31,9 +33,13 @@ export default function Sidebar({
 }: {
   projects: Project[];
   tasks: BoardTask[];
+  /** Claude Code history of the project (index), minus adopted sessions. */
+  chats?: SessionHit[];
   activeTitle?: string;
   liveTitles: string[];
   onOpen: (task: BoardTask) => void;
+  /** Click on a history chat: adopt it as a task and open it. */
+  onOpenChat?: (chat: SessionHit) => void;
   onRename: (task: BoardTask, title: string) => void;
   onPin: (task: BoardTask) => void;
   onArchive: (task: BoardTask) => void;
@@ -48,6 +54,8 @@ export default function Sidebar({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [projMenu, setProjMenu] = useState<string | null>(null);
+  // Projects whose FULL history is expanded (default: the recent slice).
+  const [histAll, setHistAll] = useState<Set<string>>(new Set());
 
   // Finished tasks sink to the bottom and vanish after a week (still
   // recoverable by search/voice: "retoma a task do hydrator").
@@ -130,6 +138,13 @@ export default function Sidebar({
     <nav className="sidebar" onMouseLeave={() => { setMenu(null); setProjMenu(null); }}>
       {projects.map((p) => {
         const group = ordered.filter((t) => inProject(t, p));
+        // Full Claude Code history of this project (chats not yet on the
+        // board). Recent slice by default; one click shows everything.
+        const projChats = chats.filter(
+          (c) => c.cwd && (c.cwd === p.path || c.cwd.startsWith(`${p.path}/`)),
+        );
+        const RECENT = 12;
+        const shown = histAll.has(p.path) ? projChats : projChats.slice(0, RECENT);
         return (
           <section key={p.path} className="side-group">
             <div className="side-group-head">
@@ -170,8 +185,47 @@ export default function Sidebar({
                 </div>
               )}
             </div>
-            {group.length === 0 && <div className="side-empty">sem chats ainda</div>}
+            {group.length === 0 && projChats.length === 0 && (
+              <div className="side-empty">sem chats ainda</div>
+            )}
             {group.map(item)}
+
+            {projChats.length > 0 && (
+              <>
+                <div className="side-hist-head">
+                  histórico · {projChats.length} chat{projChats.length === 1 ? "" : "s"}
+                </div>
+                {shown.map((c) => (
+                  <button
+                    key={c.session_id}
+                    className="side-chat"
+                    title={c.last_prompt ?? c.title}
+                    onClick={() => onOpenChat?.(c)}
+                  >
+                    <span className="side-title">{c.title}</span>
+                    <span className="side-chat-ts">
+                      {c.last_ts ? c.last_ts.slice(5, 10).replace("-", "/") : ""}
+                    </span>
+                  </button>
+                ))}
+                {projChats.length > RECENT && (
+                  <button
+                    className="side-more"
+                    onClick={() =>
+                      setHistAll((old) => {
+                        const next = new Set(old);
+                        next.has(p.path) ? next.delete(p.path) : next.add(p.path);
+                        return next;
+                      })
+                    }
+                  >
+                    {histAll.has(p.path)
+                      ? "mostrar menos"
+                      : `mostrar todos (${projChats.length})`}
+                  </button>
+                )}
+              </>
+            )}
           </section>
         );
       })}

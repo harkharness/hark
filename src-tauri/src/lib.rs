@@ -1366,6 +1366,35 @@ fn session_candidates(query: String, limit: Option<usize>) -> Result<Vec<Session
     session_hits(&query, limit.unwrap_or(6))
 }
 
+/// Every Claude Code session of one project, newest first, straight from
+/// the local index. This is what lets the sidebar show the full history —
+/// the board stays the layer of intent on top of it. Zero tokens.
+#[tauri::command(async)]
+fn project_sessions(path: String) -> Result<Vec<SessionHit>, String> {
+    use vox_core::ports::SessionStore;
+    let config = Config::load();
+    let mut store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let _ = vox_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
+    let root = vox_core::config::expand_home(&path);
+    let all = store.sessions_since("0").map_err(|e| e.to_string())?;
+    Ok(all
+        .into_iter()
+        .filter(|s| {
+            s.cwd
+                .as_deref()
+                .is_some_and(|c| c == root || c.starts_with(&format!("{root}/")))
+        })
+        .map(|s| SessionHit {
+            title: session_label(&s),
+            session_id: s.session_id,
+            cwd: s.cwd,
+            last_ts: s.last_ts,
+            last_prompt: s.last_prompt.map(|p| p.chars().take(120).collect()),
+        })
+        .collect())
+}
+
 /// Turn a recovered session into a board task named after the SESSION —
 /// never after the sentence that found it — and bind the two, so the chat
 /// and the card are the same thing from here on.
@@ -1947,6 +1976,7 @@ pub fn run() {
             board_pin,
             board_archive,
             session_candidates,
+            project_sessions,
             task_from_session,
             open_project_window,
             focus_main,
