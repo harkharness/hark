@@ -13,7 +13,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 vox-core = { path = "../crates/vox-core" }
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }

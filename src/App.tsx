@@ -162,6 +162,23 @@ export default function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Tell the voice layer what this window is looking at: an unaddressed
+  // spoken sentence lands HERE while this window is the focused one.
+  useEffect(() => {
+    const report = () =>
+      ipc
+        .setActiveContext({
+          project_path: forcedProject?.path ?? null,
+          project_name: forcedProject?.name ?? null,
+          task_title: focusedTask?.title ?? null,
+          session_id: focusedTask?.sessionId || null,
+        })
+        .catch(() => {});
+    report();
+    window.addEventListener("focus", report);
+    return () => window.removeEventListener("focus", report);
+  }, [focusedTask, forcedProject]);
+
   useVoxEvents({
     labelFor,
     push,

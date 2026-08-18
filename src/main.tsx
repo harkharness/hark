@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import Hud from "./Hud";
 import Mother from "./Mother";
 import "./styles.css";
 
@@ -15,9 +16,14 @@ const projectName = params.get("name");
 const taskTitle = params.get("task");
 const taskSession = params.get("session");
 
+// The frameless voice HUD paints on a transparent window.
+if (params.get("hud")) document.documentElement.classList.add("hud-window");
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    {projectPath ? (
+    {params.get("hud") ? (
+      <Hud />
+    ) : projectPath ? (
       <App
         forcedProject={{ name: projectName ?? projectPath, path: projectPath }}
         initialTask={

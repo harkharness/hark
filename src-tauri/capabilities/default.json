@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Mother window + per-project windows",
-  "windows": ["main", "proj-*"],
+  "windows": ["main", "proj-*", "hud"],
   "permissions": ["core:default"]
 }

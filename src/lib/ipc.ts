@@ -187,3 +187,30 @@ export const termClose = (id: string) => invoke("term_close", { id });
 /** Switch a live worker's permission mode (restarts it, sends no text). */
 export const workerSetMode = (taskId: string, mode: string) =>
   invoke<Directives>("worker_set_mode", { taskId, mode });
+
+/* ---- global voice (HUD) ---- */
+export const planUtterance = (text: string) =>
+  invoke<import("../types").VoicePlan>("plan_utterance", { text });
+export const voiceExecute = (plan: {
+  instruction: string;
+  session_id?: string | null;
+  workspace?: string | null;
+  project_name?: string | null;
+  task_title?: string | null;
+  new_task: boolean;
+}) =>
+  invoke("voice_execute", {
+    instruction: plan.instruction,
+    sessionId: plan.session_id ?? null,
+    workspace: plan.workspace ?? null,
+    projectName: plan.project_name ?? null,
+    taskTitle: plan.task_title ?? null,
+    newTask: plan.new_task,
+  });
+export const setActiveContext = (ctx: {
+  project_path?: string | null;
+  project_name?: string | null;
+  task_title?: string | null;
+  session_id?: string | null;
+}) => invoke("set_active_context", { ctx });
+export const hudHide = () => invoke("hud_hide");

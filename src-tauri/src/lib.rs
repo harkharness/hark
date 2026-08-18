@@ -1,6 +1,7 @@
 //! Tauri driver: the desktop window over the same vox-core used by the CLI.
 
 mod terminal;
+mod voice;
 
 use serde::Serialize;
 use std::collections::HashMap;
@@ -1986,6 +1987,7 @@ fn approve(
 pub fn run() {
     tauri::Builder::default()
         .manage(terminal::Terminals::default())
+        .manage(voice::ActiveContext::default())
         .manage(Pending(Mutex::new(HashMap::new())))
         .manage(LiveWorkers(Mutex::new(HashMap::new())))
         .manage(WorkerPermissions(Mutex::new(HashMap::new())))
@@ -2038,6 +2040,11 @@ pub fn run() {
             board_rename,
             board_pin,
             board_archive,
+            voice::set_active_context,
+            voice::plan_utterance,
+            voice::voice_execute,
+            voice::hud_show,
+            voice::hud_hide,
             terminal::term_open,
             terminal::term_write,
             terminal::term_resize,
@@ -2059,11 +2066,9 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        if let Some(main) = app.get_webview_window("main") {
-                            let _ = main.show();
-                            let _ = main.set_focus();
-                        }
-                        let _ = app.emit_to("main", "vox", serde_json::json!({ "kind": "hotkey_mic" }));
+                        // Voice is global: the hotkey opens the floating HUD
+                        // over whatever is on screen, never a specific window.
+                        voice::show_hud(app);
                     }
                 })
                 .build(),

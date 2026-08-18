@@ -1,5 +1,6 @@
 //! Pure domain logic. Nothing in this module performs I/O.
 
+pub mod address;
 pub mod answer;
 pub mod board;
 pub mod claude_event;

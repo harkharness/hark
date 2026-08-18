@@ -44,6 +44,8 @@ export type VoxEvent =
   | { kind: "hotkey_mic" }
   | { kind: "main_tab"; tab: string }
   | { kind: "focus_task"; title: string; session_id?: string | null }
+  | { kind: "hud_listen" }
+  | { kind: "voice_action"; utterance: string; target?: string | null; status?: string }
   | { kind: "status"; text: string }
   | { kind: "error"; text: string };
 
@@ -240,3 +242,18 @@ export type OpenFile = {
   rel: string;
   project: Project;
 };
+
+/** Where a spoken utterance will land (shown on the HUD before running). */
+export type VoicePlan =
+  | { kind: "command"; command: TaskCommandResult }
+  | {
+      kind: "work";
+      instruction: string;
+      task_title?: string | null;
+      session_id?: string | null;
+      workspace?: string | null;
+      project_name?: string | null;
+      new_task: boolean;
+    }
+  | { kind: "question"; question: string }
+  | { kind: "no_target"; instruction: string };

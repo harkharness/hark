@@ -53,6 +53,15 @@ export default function Mother() {
   }, []);
   useEffect(refresh, [refresh]);
 
+  // The mother focused = no active task context: unaddressed speech has
+  // no default target and the planner falls back to search/ask.
+  useEffect(() => {
+    const clear = () => ipc.setActiveContext({}).catch(() => {});
+    clear();
+    window.addEventListener("focus", clear);
+    return () => window.removeEventListener("focus", clear);
+  }, []);
+
   // Esc anywhere in this window: recording → cut the capture (transcribe
   // what was said); otherwise → cut the voice.
   useEffect(() => {
