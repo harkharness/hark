@@ -745,16 +745,26 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .worker.Done { border-color: var(--ok); }
 .worker.Failed { border-color: var(--err); }
 
+/* Claude Code layout: full-width textarea on top, slim control row under. */
 .inputbar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 14px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 8px;
   background: var(--panel);
   border-top: 1px solid var(--border);
-  align-items: flex-end;
 }
-.composer { position: relative; flex: 1; min-width: 200px; }
+.inputbar-row {
+  display: flex; align-items: center; gap: 8px; min-height: 30px;
+}
+.inputbar-chips {
+  flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px;
+  align-items: center;
+}
+.inputbar-row > button {
+  flex: 0 0 auto; padding: 6px 12px;
+}
+.composer { position: relative; width: 100%; }
 .composer textarea {
   width: 100%;
   background: var(--bg);

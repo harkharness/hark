@@ -50,7 +50,7 @@ export default function Composer({
     const el = areaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.35))}px`;
   }
 
   /** "@quer" right before the caret means the autocomplete is active. */
@@ -157,9 +157,10 @@ export default function Composer({
 
   useEffect(autoGrow, [text]);
 
+  // Claude Code layout: the textarea owns the full width; chips and the
+  // mic/send controls live on a slim row underneath.
   return (
     <div className="inputbar">
-      {children}
       {image && (
         <span className="thumb">
           <img src={image} alt="attachment" />
@@ -184,7 +185,7 @@ export default function Composer({
         )}
         <textarea
           ref={areaRef}
-          rows={1}
+          rows={2}
           placeholder={placeholder}
           value={text}
           onChange={(e) => {
@@ -196,12 +197,15 @@ export default function Composer({
           disabled={disabled}
         />
       </div>
-      <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title="falar">
-        <Mic size={15} />
-      </button>
-      <button onClick={send} disabled={disabled} title="enviar (Enter)">
-        <SendHorizontal size={15} />
-      </button>
+      <div className="inputbar-row">
+        <div className="inputbar-chips">{children}</div>
+        <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title="falar">
+          <Mic size={15} />
+        </button>
+        <button onClick={send} disabled={disabled} title="enviar (Enter)">
+          <SendHorizontal size={15} />
+        </button>
+      </div>
     </div>
   );
 }

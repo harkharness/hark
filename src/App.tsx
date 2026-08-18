@@ -806,8 +806,16 @@ export default function App({
     await focusTask(title, session, note);
   }
 
-  const openTaskFromSidebar = (t: BoardTask) =>
-    openTaskByTitle(t.title, t.session_ids.at(-1), t.note);
+  /** Sidebar click: open the task — or release it when already focused
+   *  (the chip that used to do this was redundant with the sidebar). */
+  const openTaskFromSidebar = (t: BoardTask) => {
+    if (focusedTask?.title === t.title) {
+      setFocusedTask(null);
+      setFocused(null);
+      return Promise.resolve();
+    }
+    return openTaskByTitle(t.title, t.session_ids.at(-1), t.note);
+  };
 
   /**
    * Recover an existing session: it becomes a board task named after the
@@ -1089,7 +1097,6 @@ export default function App({
                 <WorkerChips
                   liveWorkers={liveWorkers}
                   focused={focused}
-                  focusedTaskTitle={focusedTask?.title}
                   onToggleFocus={(taskId) => {
                     if (focused === taskId) {
                       setFocused(null);
@@ -1104,7 +1111,6 @@ export default function App({
                       loadedTasks.current.add(label);
                     }
                   }}
-                  onReleaseFocusedTask={() => setFocusedTask(null)}
                   onInfo={(taskId) => {
                     const session = overview?.workers.find(
                       (w) => w.task_id === taskId,

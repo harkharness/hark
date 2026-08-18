@@ -1,46 +1,27 @@
-import { Info, Lock, Target, X } from "lucide-react";
+import { Info, Lock, X } from "lucide-react";
 import { directiveLabels } from "../lib/format";
 import type { LiveWorker } from "../types";
 
 /**
- * One chip per live worker plus the focused-task chip. Clicking a chip
- * swaps the visible thread; ℹ shows a summary; × ends the worker.
+ * One chip per LIVE worker (status, directives, stop). The focused task
+ * needs no chip: the sidebar already highlights it — clicking the active
+ * item there again releases the focus.
  */
 export default function WorkerChips({
   liveWorkers,
   focused,
-  focusedTaskTitle,
   onToggleFocus,
-  onReleaseFocusedTask,
   onInfo,
   onStop,
 }: {
   liveWorkers: Record<string, LiveWorker>;
   focused: string | null;
-  focusedTaskTitle?: string;
   onToggleFocus: (taskId: string) => void;
-  onReleaseFocusedTask: () => void;
   onInfo: (taskId: string) => void;
   onStop: (taskId: string) => void;
 }) {
-  const focusedIsLive =
-    !!focusedTaskTitle &&
-    Object.values(liveWorkers).some((w) => w.label === focusedTaskTitle);
-
   return (
     <>
-      {focusedTaskTitle && !focusedIsLive && (
-        <span className="worker-chip focused">
-          <Target size={12} /> {focusedTaskTitle.slice(0, 28)}
-          <button
-            className="close"
-            title="soltar a task (voltar ao modo pergunta)"
-            onClick={onReleaseFocusedTask}
-          >
-            <X size={11} />
-          </button>
-        </span>
-      )}
       {Object.entries(liveWorkers).map(([taskId, w]) => (
         <span
           key={taskId}
