@@ -34,6 +34,11 @@ type Handlers = {
    * open window speaks the same news and the voice stutters in chorus.
    */
   announce?: boolean;
+  /**
+   * Standing "sempre permitir" rules: return true to auto-approve this
+   * ask without interrupting anyone (the card lands already decided).
+   */
+  autoAllow?: (ask: PermissionAsk) => boolean;
   speakRef: React.RefObject<boolean>;
   refresh: () => void;
 };
@@ -141,14 +146,31 @@ export function useVoxEvents(h: Handlers) {
     // modal: other workers must keep streaming while one waits.
     const un2 = listen<PermissionAsk>("vox-permission", (e) => {
       const ask = e.payload;
+      const thread = h.labelFor(ask.task_id);
+      // A standing "sempre permitir" rule answers on the spot: the card
+      // shows up already decided and nobody is interrupted.
+      if (h.autoAllow?.(ask)) {
+        h.push({
+          who: "permission",
+          requestId: ask.request_id,
+          tool: ask.tool_name,
+          input: ask.input,
+          decision: "allow",
+          auto: true,
+          task: thread,
+        });
+        h.pushRaw(thread, `${ts()} 🔐 ${ask.tool_name} auto-permitido (regra da task)`);
+        ipc.approve(ask.request_id, true).catch(() => {});
+        return;
+      }
       h.push({
         who: "permission",
         requestId: ask.request_id,
         tool: ask.tool_name,
         input: ask.input,
-        task: h.labelFor(ask.task_id),
+        task: thread,
       });
-      h.pushRaw(h.labelFor(ask.task_id), `${ts()} 🔐 ${ask.tool_name} aguardando decisão`);
+      h.pushRaw(thread, `${ts()} 🔐 ${ask.tool_name} aguardando decisão`);
       h.setLiveWorkers((old) =>
         old[ask.task_id]
           ? { ...old, [ask.task_id]: { ...old[ask.task_id], status: "awaiting" } }

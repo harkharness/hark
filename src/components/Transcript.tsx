@@ -18,7 +18,7 @@ export default function Transcript({
 }: {
   messages: Msg[];
   directivesFor: (taskLabel?: string) => Directives | undefined;
-  onAnswerPermission: (requestId: string, allow: boolean) => void;
+  onAnswerPermission: (requestId: string, allow: boolean, always?: boolean) => void;
   onOpenPath: (path: string) => void;
   /** ▶ on shell blocks: send the command to the in-app terminal. */
   onRunCommand?: (cmd: string, execute: boolean) => void;
@@ -40,22 +40,40 @@ export default function Transcript({
             <ToolOutput content={m.content} isError={m.error} />
           ) : m.who === "permission" ? (
             <div className={`permission ${m.decision ?? "waiting"}`}>
-              <div className="perm-head">
-                <Lock size={12} /> {m.tool} pede permissão
-                {m.task && <span className="tasktag">{m.task.slice(0, 24)}</span>}
+              <div className="perm-title">
+                <Lock size={13} /> Permitir que{" "}
+                <b>{m.task ? m.task.slice(0, 32) : "o worker"}</b> execute{" "}
+                <b>{m.tool}</b>?
               </div>
               <ToolCall name={m.tool} input={m.input} onOpenPath={onOpenPath} />
               {m.decision ? (
                 <div className={`perm-done ${m.decision}`}>
-                  {m.decision === "allow" ? "✓ permitido" : "✗ negado"}
+                  {m.decision === "allow"
+                    ? m.auto
+                      ? "✓ permitido automaticamente (regra da task)"
+                      : "✓ permitido"
+                    : "✗ negado"}
                 </div>
               ) : (
                 <div className="perm-actions">
-                  <button className="deny" onClick={() => onAnswerPermission(m.requestId, false)}>
-                    negar <kbd>n</kbd>
+                  <button
+                    className="deny"
+                    onClick={() => onAnswerPermission(m.requestId, false)}
+                  >
+                    Negar <kbd>n</kbd>
                   </button>
-                  <button className="allow" onClick={() => onAnswerPermission(m.requestId, true)}>
-                    permitir <kbd>y</kbd>
+                  <button
+                    className="always"
+                    title={`nunca mais perguntar por ${m.tool} nesta task (até fechar a janela)`}
+                    onClick={() => onAnswerPermission(m.requestId, true, true)}
+                  >
+                    Sempre permitir <kbd>a</kbd>
+                  </button>
+                  <button
+                    className="allow"
+                    onClick={() => onAnswerPermission(m.requestId, true)}
+                  >
+                    Permitir uma vez <kbd>y</kbd>
                   </button>
                 </div>
               )}

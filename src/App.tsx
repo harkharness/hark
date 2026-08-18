@@ -81,6 +81,9 @@ export default function App({
   /** Typed window taking the whole work area (menu stays). */
   const [expanded, setExpanded] = useState<"arquivo" | "terminal" | "arquivos" | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
+  // Standing "sempre permitir" rules: task label → tools auto-approved.
+  // Window-scoped by design: closing the window forgets every rule.
+  const allowAlways = useRef<Map<string, Set<string>>>(new Map());
   // Per-thread raw worker feed (the task's "terminal") and window spend.
   const [rawLog, setRawLog] = useState<Record<string, string[]>>({});
   const [costs, setCosts] = useState<Record<string, number>>({});
@@ -165,6 +168,13 @@ export default function App({
     addCost,
     onSpeaking: setSpeaking,
     onRateLimit: setRateLimit,
+    autoAllow: useCallback(
+      (ask: import("./types").PermissionAsk) => {
+        const label = workersRef.current[ask.task_id]?.label ?? ask.label ?? ask.task_id;
+        return allowAlways.current.get(label)?.has(ask.tool_name) ?? false;
+      },
+      [],
+    ),
     speakRef,
     refresh,
     onWorkerExit: useCallback((taskId: string) => {
@@ -199,6 +209,24 @@ export default function App({
         e.preventDefault();
         const panel = sidebarRef.current;
         if (panel) panel.isCollapsed() ? panel.expand() : panel.collapse();
+      }
+      // Permission pending and not typing anywhere: y / n / a decide it
+      // from wherever the focus is — no mouse trip required.
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        !!target?.isContentEditable;
+      if (!typing && !e.metaKey && !e.ctrlKey && pendingPermRef.current?.who === "permission") {
+        if (e.key === "y" || e.key === "n" || e.key === "a") {
+          e.preventDefault();
+          answerPermissionRef.current(
+            pendingPermRef.current.requestId,
+            e.key !== "n",
+            e.key === "a",
+          );
+          return;
+        }
       }
       if (e.key === "Escape") {
         // Recording? Esc means "parei de falar": cut the capture and let
@@ -463,6 +491,31 @@ export default function App({
   async function submit(text: string, img: string | null) {
     if (!text.trim() || busy) return;
 
+    // A permission waiting + a short spoken verdict = the answer. "sempre
+    // pode" / "sempre permite" also records the standing rule.
+    if (pendingPermission?.who === "permission") {
+      const t = text.trim().toLowerCase();
+      if (t.split(/\s+/).length <= 4) {
+        const always = t.startsWith("sempre ");
+        const core = always ? t.slice("sempre ".length) : t;
+        const allowRe =
+          /^(sim|pode|permitir|permite|permito|autoriza|autorizar|aprova|aprovar|libera|liberar|vai)\b/;
+        const denyRe = /^(n[ãa]o|nega|negar|bloqueia|bloquear|cancela|cancelar)\b/;
+        if (allowRe.test(core)) {
+          push({ who: "user", text, task: pendingPermission.task });
+          await answerPermission(pendingPermission.requestId, true, always);
+          say(always ? "Permitido, e não pergunto mais nesta task." : "Permitido.");
+          return;
+        }
+        if (denyRe.test(core)) {
+          push({ who: "user", text, task: pendingPermission.task });
+          await answerPermission(pendingPermission.requestId, false);
+          say("Negado.");
+          return;
+        }
+      }
+    }
+
     // Local commands first ("abre o arquivo X", "vai pra task Y", "novo
     // chat no projeto Z"): zero tokens, resolved on this machine.
     const cmd = await ipc.taskCommand(text, focusedTask?.title).catch(() => null);
@@ -677,8 +730,24 @@ export default function App({
     }
   }
 
-  /** Answer an inline permission card and mark it decided in place. */
-  async function answerPermission(requestId: string, allow: boolean) {
+  /**
+   * Answer an inline permission card and mark it decided in place.
+   * `always` records a standing rule: this tool, this task, no more asks
+   * (window-scoped — it dies with the window, never touches settings).
+   */
+  async function answerPermission(requestId: string, allow: boolean, always = false) {
+    const card = messages.find((m) => m.who === "permission" && m.requestId === requestId);
+    if (always && allow && card?.who === "permission") {
+      const key = card.task ?? "";
+      const set = allowAlways.current.get(key) ?? new Set<string>();
+      set.add(card.tool);
+      allowAlways.current.set(key, set);
+      push({
+        who: "sys",
+        text: `sempre permitir ${card.tool} nesta task (vale até fechar a janela)`,
+        task: card.task,
+      });
+    }
     setMessages((old) =>
       old.map((m) =>
         m.who === "permission" && m.requestId === requestId
@@ -697,6 +766,10 @@ export default function App({
   const pendingPermission = [...messages]
     .reverse()
     .find((m) => m.who === "permission" && !m.decision);
+  const pendingPermRef = useRef<typeof pendingPermission>(undefined);
+  pendingPermRef.current = pendingPermission;
+  const answerPermissionRef = useRef(answerPermission);
+  answerPermissionRef.current = answerPermission;
 
   /** A finished task that receives work again comes back to "doing". */
   async function reactivateIfDone(title: string) {

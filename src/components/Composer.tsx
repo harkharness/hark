@@ -37,7 +37,7 @@ export default function Composer({
   pendingPermissionId?: string;
   onSubmit: (text: string, image: string | null) => void;
   onMic: () => void;
-  onAnswerPermission: (requestId: string, allow: boolean) => void;
+  onAnswerPermission: (requestId: string, allow: boolean, always?: boolean) => void;
   children?: React.ReactNode;
 }) {
   const [text, setText] = useState("");
@@ -143,10 +143,10 @@ export default function Composer({
         return;
       }
     }
-    // Empty input + pending permission: y/n decide it, like a terminal.
-    if (!text && pendingPermissionId && (e.key === "y" || e.key === "n")) {
+    // Empty input + pending permission: y/n/a decide it, like a terminal.
+    if (!text && pendingPermissionId && (e.key === "y" || e.key === "n" || e.key === "a")) {
       e.preventDefault();
-      onAnswerPermission(pendingPermissionId, e.key === "y");
+      onAnswerPermission(pendingPermissionId, e.key !== "n", e.key === "a");
       return;
     }
     if (e.key === "Enter" && !e.shiftKey) {

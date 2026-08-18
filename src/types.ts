@@ -76,6 +76,8 @@ export type Msg =
       tool: string;
       input: string;
       decision?: "allow" | "deny";
+      /** Decided by a standing "sempre permitir" rule, not a click. */
+      auto?: boolean;
       task?: string;
     }
   | { who: "sys"; text: string; task?: string };
