@@ -5,7 +5,7 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
-import { PanelLeft, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
+import { PanelLeft, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import Board from "./components/Board";
 import Composer, { toImagePair, type Attachment } from "./components/Composer";
@@ -1159,13 +1159,6 @@ export default function App({
         )}
       </div>
       <button
-        className={`scope ${railHas("board") ? "on" : ""}`}
-        title="board do projeto (painel no trilho)"
-        onClick={() => (railHas("board") ? removeRail("board") : ensureRail("board"))}
-      >
-        <SquareKanban size={13} />
-      </button>
-      <button
         className={`scope ${railHas("terminal") ? "on" : ""}`}
         title="Terminal (shells reais + feed do worker)"
         onClick={() =>
@@ -1245,6 +1238,10 @@ export default function App({
               liveTitles={Object.values(liveWorkers).map((w) => w.label)}
               onOpen={openTaskFromSidebar}
               onOpenChat={recoverSession}
+              boardOpen={railHas("board")}
+              onToggleBoard={() =>
+                railHas("board") ? removeRail("board") : ensureRail("board")
+              }
               onRename={(t, newTitle) =>
                 ipc.boardRename(t.title, newTitle).then(refresh)
               }

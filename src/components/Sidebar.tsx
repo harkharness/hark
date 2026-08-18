@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderTree, MoreVertical, Pin, Plus } from "lucide-react";
+import { FolderTree, MoreVertical, Pin, Plus, SquareKanban } from "lucide-react";
 import type { BoardTask, Project, SessionHit } from "../types";
 
 const DOT: Record<BoardTask["status"], string> = {
@@ -38,6 +38,8 @@ export default function Sidebar({
   liveTitles,
   onOpen,
   onOpenChat,
+  boardOpen,
+  onToggleBoard,
   onRename,
   onPin,
   onArchive,
@@ -56,6 +58,10 @@ export default function Sidebar({
   onOpen: (task: BoardTask) => void;
   /** Click on a history chat: adopt it as a task and open it. */
   onOpenChat?: (chat: SessionHit) => void;
+  /** The board panel is open in the rail (highlights the shortcut). */
+  boardOpen?: boolean;
+  /** Toggle the board panel — the prominent spot the topbar tab had. */
+  onToggleBoard?: () => void;
   onRename: (task: BoardTask, title: string) => void;
   onPin: (task: BoardTask) => void;
   onArchive: (task: BoardTask) => void;
@@ -153,6 +159,15 @@ export default function Sidebar({
 
   return (
     <nav className="sidebar" onMouseLeave={() => { setMenu(null); setProjMenu(null); }}>
+      {onToggleBoard && (
+        <button
+          className={`side-board ${boardOpen ? "on" : ""}`}
+          onClick={onToggleBoard}
+          title="board do projeto (abre como painel ao lado do chat)"
+        >
+          <SquareKanban size={13} /> Board
+        </button>
+      )}
       {projects.map((p) => {
         const group = ordered.filter((t) => inProject(t, p));
         // Full Claude Code history of this project (chats not yet on the

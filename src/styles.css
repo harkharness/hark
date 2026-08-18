@@ -1225,3 +1225,13 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .inputbar-row .scope-pop {
   top: auto; bottom: calc(100% + 10px); left: auto; right: 0;
 }
+
+/* Board shortcut at the top of the sidebar (the old topbar tab's home). */
+.side-board {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font: inherit; font-size: 12.5px; padding: 7px 10px;
+  cursor: pointer; margin-bottom: 12px;
+}
+.side-board:hover { border-color: var(--accent); color: var(--accent); }
+.side-board.on { color: var(--accent); border-color: var(--accent); background: rgba(122,162,247,.08); }
