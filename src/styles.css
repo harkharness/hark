@@ -20,8 +20,24 @@
   --hl-meta: #7dcfff;
   --hl-del: #f7768e;
   --hl-add: #9ece6a;
-  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  /* Two voices, one system: sans for the chrome (what the app says),
+     mono for code surfaces (what the machine says). All-mono was the
+     biggest source of the "raw prototype" look. */
+  --font-ui: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  font-family: var(--font-ui);
   font-size: 13px;
+}
+
+/* Machine surfaces stay mono: code, terminals, tool payloads, paths and
+   the file editor (overlay + textarea MUST share exact metrics). */
+pre, code, kbd,
+.term-body, .shellterm, .toolcall, .toolcall pre,
+.viewer-code, .viewer-editwrap textarea,
+.mention-pop, .quickopen input, .quickopen-list button,
+.viewer-path, .side-chat-ts, .card-meta, .cost,
+.reader-meta, .entry-ts, .scope-pair b, .costs-money {
+  font-family: var(--font-mono);
 }
 
 /* Built-in alternative scheme. */
