@@ -839,21 +839,42 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .inputbar-row > button {
   flex: 0 0 auto; padding: 6px 12px;
 }
-.composer { position: relative; width: 100%; }
+/* One rounded box: thumbnails on top, text underneath, accent on focus. */
+.composer {
+  position: relative; width: 100%;
+  background: var(--panel); border: 1px solid var(--border-strong);
+  border-radius: 14px;
+}
+.composer:focus-within { border-color: var(--accent); }
+.composer-thumbs { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 12px 0; }
+.composer-thumbs .thumb { position: relative; }
+.composer-thumbs img {
+  height: 54px; border-radius: 8px; border: 1px solid var(--border); display: block;
+}
+.composer-thumbs .thumb i {
+  position: absolute; left: 4px; bottom: 4px; font-style: normal; font-size: 9px;
+  background: rgba(0,0,0,.65); color: var(--text); border-radius: 4px; padding: 0 4px;
+  font-family: var(--font-mono);
+}
+.composer-thumbs .thumb button {
+  position: absolute; top: -6px; right: -6px; width: 16px; height: 16px;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  border-radius: 50%; background: var(--err); color: #180a0d; border: none; cursor: pointer;
+}
 .composer textarea {
   width: 100%;
-  background: var(--panel);
-  border: 1px solid var(--border-strong);
+  background: transparent;
+  border: none;
   border-radius: 14px;
   color: var(--text);
-  padding: 11px 14px;
+  padding: 10px 14px;
   font: inherit;
   outline: none;
   resize: none;
   line-height: 1.5;
-  max-height: 180px;
+  min-height: 38px;
 }
-.composer textarea:focus { border-color: var(--accent); }
+
 
 /* @mention dropdown, anchored above the textarea */
 .mention-pop {
@@ -1156,3 +1177,10 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .mother-proj-name { display: inline-flex; align-items: center; gap: 6px; }
 .mother-proj-meta { color: var(--dim); font-size: 10px; }
 .mother-proj-meta .live-dot { color: var(--ok); }
+
+/* Window tabs live in the frame header now — one bar per panel. */
+.frame-tabs {
+  display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0;
+  overflow-x: auto; margin: -4px 0;
+}
+.frame-tabs .filetab { flex: 0 0 auto; }

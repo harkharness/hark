@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Mic, SendHorizontal } from "lucide-react";
+import { Mic, SendHorizontal, X } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import type { Project } from "../types";
 
@@ -11,10 +11,19 @@ type Mention = {
   sel: number;
 };
 
+/** A pasted screenshot: thumbnail on top, "[image N]" reference in prose. */
+export type Attachment = { dataUrl: string };
+
+/** data URL → (media_type, base64) pair the backend expects. */
+export function toImagePair(a: Attachment): [string, string] {
+  return [a.dataUrl.slice(5, a.dataUrl.indexOf(";")), a.dataUrl.split(",")[1]];
+}
+
 /**
  * The input bar: a real text editor for a voice-first app. Enter sends,
- * Shift+Enter breaks the line, Cmd+V pastes screenshots, and typing "@"
- * opens a fuzzy file autocomplete over the project files (local, free).
+ * Shift+Enter breaks the line, Cmd+V pastes screenshots (thumbnails above
+ * the text, "[image N]" written into it — no more "no primeiro print"),
+ * and "@" opens a fuzzy file autocomplete (local, free).
  */
 export default function Composer({
   disabled,
@@ -35,13 +44,13 @@ export default function Composer({
   /** Project the thread lives in; scopes @mentions (falls back to all). */
   activeProject?: Project;
   pendingPermissionId?: string;
-  onSubmit: (text: string, image: string | null) => void;
+  onSubmit: (text: string, images: Attachment[]) => void;
   onMic: () => void;
   onAnswerPermission: (requestId: string, allow: boolean, always?: boolean) => void;
   children?: React.ReactNode;
 }) {
   const [text, setText] = useState("");
-  const [image, setImage] = useState<string | null>(null);
+  const [images, setImages] = useState<Attachment[]>([]);
   const [mention, setMention] = useState<Mention | null>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const debounceRef = useRef<number>(0);
@@ -104,22 +113,47 @@ export default function Composer({
   function send() {
     if (!text.trim() || disabled) return;
     const t = text;
-    const img = image;
+    const imgs = images;
     setText("");
-    setImage(null);
+    setImages([]);
     setMention(null);
     requestAnimationFrame(autoGrow);
-    onSubmit(t, img);
+    onSubmit(t, imgs);
   }
 
+  /** Paste a screenshot: thumbnail up top, "[image N]" written at caret. */
   function onPaste(e: React.ClipboardEvent) {
     const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
     if (!item) return;
     const file = item.getAsFile();
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setImage(reader.result as string);
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setImages((old) => {
+        const ref = `[image ${old.length + 1}]`;
+        const el = areaRef.current;
+        const caret = el?.selectionStart ?? text.length;
+        setText((t) => {
+          const glueL = t.slice(0, caret).match(/\s$|^$/) ? "" : " ";
+          return `${t.slice(0, caret)}${glueL}${ref} ${t.slice(caret)}`;
+        });
+        return [...old, { dataUrl }];
+      });
+    };
     reader.readAsDataURL(file);
+  }
+
+  /** Removing a thumb renumbers the remaining references in the text. */
+  function removeImage(index: number) {
+    setImages((old) => old.filter((_, i) => i !== index));
+    setText((t) => {
+      let out = t.replace(new RegExp(`\\[image ${index + 1}\\] ?`, "g"), "");
+      for (let n = index + 2; n <= images.length; n++) {
+        out = out.replace(new RegExp(`\\[image ${n}\\]`, "g"), `[image ${n - 1}]`);
+      }
+      return out;
+    });
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -157,17 +191,11 @@ export default function Composer({
 
   useEffect(autoGrow, [text]);
 
-  // Claude Code layout: the textarea owns the full width; chips and the
-  // mic/send controls live on a slim row underneath.
+  // Claude Code layout: one rounded box (thumbnails + text), controls on
+  // a slim row underneath. Starts input-sized; grows as you type.
   return (
     <div className="inputbar">
-      {image && (
-        <span className="thumb">
-          <img src={image} alt="attachment" />
-          <button onClick={() => setImage(null)}>×</button>
-        </span>
-      )}
-      <div className="composer">
+      <div className={`composer ${images.length > 0 ? "with-thumbs" : ""}`}>
         {mention && (
           <div className="mention-pop">
             {mention.hits.map((hit, i) => (
@@ -183,9 +211,22 @@ export default function Composer({
             ))}
           </div>
         )}
+        {images.length > 0 && (
+          <div className="composer-thumbs">
+            {images.map((img, i) => (
+              <span key={i} className="thumb" title={`[image ${i + 1}]`}>
+                <img src={img.dataUrl} alt={`image ${i + 1}`} />
+                <i>{i + 1}</i>
+                <button onClick={() => removeImage(i)} title="remover">
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <textarea
           ref={areaRef}
-          rows={2}
+          rows={1}
           placeholder={placeholder}
           value={text}
           onChange={(e) => {

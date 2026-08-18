@@ -148,7 +148,7 @@ export default function Hud() {
     } else if (plan.kind === "question") {
       setStage({ s: "asking", text });
       try {
-        const reply = await ipc.askText(plan.question, null, null);
+        const reply = await ipc.askText(plan.question);
         setStage({ s: "answer", text: reply.fala });
         record(
           "vox",

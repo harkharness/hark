@@ -37,14 +37,14 @@ pub fn ask(
     deps: &mut AskDeps,
     on_event: &mut dyn FnMut(&ClaudeEvent),
 ) -> anyhow::Result<TurnResult> {
-    ask_with_image(question, None, deps, on_event)
+    ask_with_image(question, &[], deps, on_event)
 }
 
-/// `ask` with an optional pasted image (media type + base64).
+/// `ask` with any pasted screenshots (media type + base64, in order).
 /// The model is routed per question (explicit request > heuristic > default).
 pub fn ask_with_image(
     question: &str,
-    image: Option<(&str, &str)>,
+    images: &[(String, String)],
     deps: &mut AskDeps,
     on_event: &mut dyn FnMut(&ClaudeEvent),
 ) -> anyhow::Result<TurnResult> {
@@ -52,7 +52,7 @@ pub fn ask_with_image(
 
     // THE THREE LAYERS: local (zero tokens) > mini-format (light model,
     // minimal context) > full snapshot. Images always take the full path.
-    let plan = if image.is_some() {
+    let plan = if !images.is_empty() {
         crate::domain::answer::AnswerPlan::FullAsk
     } else {
         let board = deps.store.board().unwrap_or_default();
@@ -89,7 +89,7 @@ pub fn ask_with_image(
     };
     let request = crate::ports::TurnRequest {
         prompt: &prompt,
-        image,
+        images,
         model: &model,
     };
     let mut turn_session: Option<String> = None;

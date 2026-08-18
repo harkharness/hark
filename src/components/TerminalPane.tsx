@@ -2,6 +2,58 @@ import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import ShellTerminal, { disposeShell } from "./ShellTerminal";
 
+/** The Terminal window's tab strip — lives in the PanelFrame header. */
+export function TerminalTabs({
+  shells,
+  active,
+  onActivate,
+  onAddShell,
+  onCloseShell,
+}: {
+  shells: string[];
+  active: string;
+  onActivate: (id: string) => void;
+  onAddShell: () => void;
+  onCloseShell: (id: string) => void;
+}) {
+  return (
+    <>
+      {shells.map((id, i) => (
+        <span
+          key={id}
+          className={`filetab ${active === id ? "on" : ""}`}
+          onClick={() => onActivate(id)}
+        >
+          zsh {i + 1}
+          <button
+            className="filetab-close"
+            title="fechar este shell"
+            onClick={(e) => {
+              e.stopPropagation();
+              disposeShell(id);
+              onCloseShell(id);
+            }}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <span className="filetab addtab">
+        <button title="novo shell" onClick={onAddShell}>
+          <Plus size={12} />
+        </button>
+      </span>
+      <span
+        className={`filetab feedtab ${active === "feed" ? "on" : ""}`}
+        title="eventos brutos do worker da task focada"
+        onClick={() => onActivate("feed")}
+      >
+        feed
+      </span>
+    </>
+  );
+}
+
 /**
  * The "Terminal" window: REAL shells (one PTY per tab, the user's own
  * $SHELL in the project directory), plus a read-only "feed" tab with the
@@ -43,41 +95,6 @@ export default function TerminalPane({
 
   return (
     <div className="termpane">
-      <div className="filetabs">
-        {shells.map((id, i) => (
-          <span
-            key={id}
-            className={`filetab ${active === id ? "on" : ""}`}
-            onClick={() => onActivate(id)}
-          >
-            zsh {i + 1}
-            <button
-              className="filetab-close"
-              title="fechar este shell"
-              onClick={(e) => {
-                e.stopPropagation();
-                disposeShell(id);
-                onCloseShell(id);
-              }}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        <span className="filetab addtab">
-          <button title="novo shell" onClick={onAddShell}>
-            <Plus size={12} />
-          </button>
-        </span>
-        <span
-          className={`filetab feedtab ${active === "feed" ? "on" : ""}`}
-          title="eventos brutos do worker da task focada"
-          onClick={() => onActivate("feed")}
-        >
-          feed
-        </span>
-      </div>
-
       {/* Shells stay mounted (hidden) so switching tabs never loses the
           screen; the PTY lives on the Rust side either way. */}
       {shells.map((id) => (

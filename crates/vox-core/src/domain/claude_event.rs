@@ -152,11 +152,12 @@ fn parse_tool_result(v: &Value) -> Option<ClaudeEvent> {
     })
 }
 
-/// Build a stream-json user message line, optionally carrying one image
-/// block (media type + base64 data) before the text.
-pub fn user_message(text: &str, image: Option<(&str, &str)>) -> String {
+/// Build a stream-json user message line. Pasted screenshots become
+/// ordered image blocks (media type + base64) before the text, so
+/// "[image N]" in the prose refers to the N-th one.
+pub fn user_message(text: &str, images: &[(String, String)]) -> String {
     let mut content = Vec::new();
-    if let Some((media_type, data)) = image {
+    for (media_type, data) in images {
         content.push(serde_json::json!({
             "type": "image",
             "source": { "type": "base64", "media_type": media_type, "data": data }
@@ -374,22 +375,27 @@ mod tests {
     }
 
     #[test]
-    fn builds_user_message_with_optional_image() {
+    fn builds_user_message_with_any_number_of_images() {
         let plain: serde_json::Value =
-            serde_json::from_str(&user_message("oi", None)).unwrap();
+            serde_json::from_str(&user_message("oi", &[])).unwrap();
         assert_eq!(plain["type"], "user");
         assert_eq!(plain["message"]["content"][0]["type"], "text");
         assert_eq!(plain["message"]["content"][0]["text"], "oi");
 
-        let img: serde_json::Value = serde_json::from_str(&user_message(
-            "qual a cor?",
-            Some(("image/png", "aGVsbG8=")),
-        ))
-        .unwrap();
-        assert_eq!(img["message"]["content"][0]["type"], "image");
-        assert_eq!(img["message"]["content"][0]["source"]["media_type"], "image/png");
-        assert_eq!(img["message"]["content"][0]["source"]["data"], "aGVsbG8=");
-        assert_eq!(img["message"]["content"][1]["type"], "text");
+        // Several pasted screenshots become ordered blocks before the
+        // text, so "[image 2]" in the prose points at the second one.
+        let imgs = vec![
+            ("image/png".to_string(), "aGVsbG8=".to_string()),
+            ("image/jpeg".to_string(), "d29ybGQ=".to_string()),
+        ];
+        let msg: serde_json::Value =
+            serde_json::from_str(&user_message("compara [image 1] com [image 2]", &imgs))
+                .unwrap();
+        assert_eq!(msg["message"]["content"][0]["type"], "image");
+        assert_eq!(msg["message"]["content"][0]["source"]["media_type"], "image/png");
+        assert_eq!(msg["message"]["content"][1]["type"], "image");
+        assert_eq!(msg["message"]["content"][1]["source"]["data"], "d29ybGQ=");
+        assert_eq!(msg["message"]["content"][2]["type"], "text");
     }
 
     #[test]

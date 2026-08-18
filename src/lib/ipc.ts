@@ -23,16 +23,15 @@ export const hearOnce = () => invoke<string>("hear_once");
 /** Esc while recording: cut the capture and transcribe what was said. */
 export const hearStop = () => invoke("hear_stop");
 
+/** Ask with any pasted screenshots as ordered (media, base64) pairs. */
 export const askText = (
   question: string,
-  imageB64: string | null,
-  mediaType: string | null,
+  images: [string, string][] = [],
   project?: Project,
 ) =>
   invoke<Reply>("ask_text", {
     question,
-    imageB64,
-    mediaType,
+    images: images.length > 0 ? images : null,
     projectName: project?.name ?? null,
     projectPath: project?.path ?? null,
   });
@@ -46,9 +45,8 @@ export const workerStart = (
 export const workerSend = (
   taskId: string,
   text: string,
-  imageB64: string | null = null,
-  mediaType: string | null = null,
-) => invoke<Directives>("worker_send", { taskId, text, imageB64, mediaType });
+  images: [string, string][] = [],
+) => invoke<Directives>("worker_send", { taskId, text, images: images.length > 0 ? images : null });
 
 export const workerStop = (taskId: string) => invoke("worker_stop", { taskId });
 

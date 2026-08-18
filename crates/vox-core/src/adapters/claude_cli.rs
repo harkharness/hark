@@ -52,7 +52,7 @@ impl AgentRunner for ClaudeCli {
             .spawn()?;
 
         let mut stdin = child.stdin.take().expect("piped stdin");
-        stdin.write_all(user_message(request.prompt, request.image).as_bytes())?;
+        stdin.write_all(user_message(request.prompt, request.images).as_bytes())?;
         stdin.write_all(b"\n")?;
         stdin.flush()?;
         drop(stdin); // one-shot turn: EOF ends the conversation after the result

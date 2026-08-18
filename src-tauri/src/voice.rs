@@ -206,7 +206,6 @@ pub fn voice_execute(
                     task_id.clone(),
                     instruction.clone(),
                     None,
-                    None,
                 )?;
                 serde_json::json!({ "status": "sent", "task_id": task_id })
             }

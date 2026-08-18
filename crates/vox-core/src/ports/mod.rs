@@ -8,8 +8,8 @@ use crate::domain::snapshot::SessionSummary;
 /// One fast-mode turn to run.
 pub struct TurnRequest<'a> {
     pub prompt: &'a str,
-    /// Optional (media_type, base64) attachment.
-    pub image: Option<(&'a str, &'a str)>,
+    /// Pasted screenshots: ordered (media_type, base64) blocks.
+    pub images: &'a [(String, String)],
     /// Model alias chosen by the router or the user.
     pub model: &'a str,
 }

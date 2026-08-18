@@ -124,7 +124,9 @@ export default function Transcript({
               ) : (
                 <>
                   <div>{m.text}</div>
-                  {m.image && <img className="paste" src={m.image} alt="pasted" />}
+                  {m.images?.map((src, j) => (
+                    <img key={j} className="paste" src={src} alt={`image `} />
+                  ))}
                 </>
               )}
             </div>

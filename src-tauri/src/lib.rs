@@ -344,8 +344,7 @@ struct ReplyOut {
 fn ask_text(
     app: AppHandle,
     question: String,
-    image_b64: Option<String>,
-    media_type: Option<String>,
+    images: Option<Vec<(String, String)>>,
     project_name: Option<String>,
     project_path: Option<String>,
 ) -> Result<ReplyOut, String> {
@@ -366,11 +365,8 @@ fn ask_text(
         _ => None,
     };
     let mut deps = build_deps(&config, &mut store, &live, &runner, active_project);
-    let image = match (&media_type, &image_b64) {
-        (Some(m), Some(d)) => Some((m.as_str(), d.as_str())),
-        _ => None,
-    };
-    let result = ask_with_image(&question, image, &mut deps, &mut |event| {
+    let images = images.unwrap_or_default();
+    let result = ask_with_image(&question, &images, &mut deps, &mut |event| {
         if let ClaudeEvent::ToolUse { name, input } = event {
             if name != "StructuredOutput" {
                 emit_event(
@@ -835,8 +831,7 @@ fn worker_send(
     live: State<'_, LiveWorkers>,
     task_id: String,
     text: String,
-    image_b64: Option<String>,
-    media_type: Option<String>,
+    images: Option<Vec<(String, String)>>,
 ) -> Result<vox_core::domain::directives::Directives, String> {
     let handle = live
         .0
@@ -859,13 +854,9 @@ fn worker_send(
     }
 
     if next == handle.spawn.directives {
-        let image = match (&media_type, &image_b64) {
-            (Some(m), Some(d)) => Some((m.as_str(), d.as_str())),
-            _ => None,
-        };
         handle
             .worker
-            .send_text(&text, image)
+            .send_text(&text, &images.unwrap_or_default())
             .map_err(|e| e.to_string())?;
         return Ok(next);
     }
@@ -1627,7 +1618,7 @@ fn evaluate(
     let prompt = gate::build_prompt(&message, &ctx);
     stdin
         .write_all(
-            vox_core::domain::claude_event::user_message(&prompt, None).as_bytes(),
+            vox_core::domain::claude_event::user_message(&prompt, &[]).as_bytes(),
         )
         .and_then(|_| stdin.write_all(b"\n"))
         .map_err(|e| e.to_string())?;

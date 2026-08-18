@@ -114,7 +114,7 @@ impl PersistentWorker {
             .spawn()?;
 
         let mut stdin = child.stdin.take().expect("piped stdin");
-        stdin.write_all(user_message(&spawn.instruction, None).as_bytes())?;
+        stdin.write_all(user_message(&spawn.instruction, &[]).as_bytes())?;
         stdin.write_all(b"\n")?;
         stdin.flush()?;
         let stdout = child.stdout.take().expect("piped stdout");
@@ -137,9 +137,9 @@ impl PersistentWorker {
         Ok(())
     }
 
-    /// Follow-up user message (with optional pasted image).
-    pub fn send_text(&self, text: &str, image: Option<(&str, &str)>) -> anyhow::Result<()> {
-        self.write_line(&user_message(text, image))
+    /// Follow-up user message (with any pasted screenshots).
+    pub fn send_text(&self, text: &str, images: &[(String, String)]) -> anyhow::Result<()> {
+        self.write_line(&user_message(text, images))
     }
 
     /// Answer a pending permission request.

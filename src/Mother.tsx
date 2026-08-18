@@ -312,7 +312,7 @@ export default function Mother() {
     push({ who: "user", text });
     setBusy("perguntando…");
     try {
-      const reply = await ipc.askText(text, null, null);
+      const reply = await ipc.askText(text);
       push({ who: "vox", text: reply.fala, cost: reply.cost_usd, model: reply.model });
       setActions((old) =>
         [

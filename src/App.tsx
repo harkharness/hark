@@ -5,11 +5,11 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
-import { SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
+import { PanelLeft, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import Board from "./components/Board";
-import Composer from "./components/Composer";
-import FilesEditor from "./components/FilesEditor";
+import Composer, { toImagePair, type Attachment } from "./components/Composer";
+import FilesEditor, { FileTabs } from "./components/FilesEditor";
 import FilesPanel from "./components/FilesPanel";
 import Modals, { type Pending } from "./components/Modals";
 import ModeSelect from "./components/ModeSelect";
@@ -18,7 +18,7 @@ import QuickOpen from "./components/QuickOpen";
 import Reader from "./components/Reader";
 import SessionInfo from "./components/SessionInfo";
 import Sidebar from "./components/Sidebar";
-import TerminalPane from "./components/TerminalPane";
+import TerminalPane, { TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import WorkerChips from "./components/WorkerChips";
 import { useVoxEvents } from "./hooks/useVoxEvents";
@@ -96,6 +96,8 @@ export default function App({
   const [termTab, setTermTab] = useState<string>("feed");
   const shellSeq = useRef(1);
   const [scopeInfo, setScopeInfo] = useState(false);
+  // Mirrors the sidebar panel's collapsed state (topbar toggle icon).
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [speaking, setSpeaking] = useState(false);
   const [rateLimit, setRateLimit] = useState<import("./types").RateLimitState | null>(null);
   /** Timestamp of the last Esc, for the double-Esc worker abort. */
@@ -310,17 +312,12 @@ export default function App({
     [],
   );
 
-  async function runAsk(question: string, img: string | null) {
+  async function runAsk(question: string, images: Attachment[]) {
     setBusy("perguntando…");
     try {
       // The focused project scopes the snapshot: clicking a chat or
       // starting one IS the context selection (no manual picker).
-      const reply = await ipc.askText(
-        question,
-        img ? img.split(",")[1] : null,
-        img ? img.slice(5, img.indexOf(";")) : null,
-        activeProject,
-      );
+      const reply = await ipc.askText(question, images.map(toImagePair), activeProject);
       push({
         who: "vox",
         text: reply.fala,
@@ -508,7 +505,7 @@ export default function App({
   const QUESTION_START =
     /^(quais|qual|como|o que|onde|quando|por que|porque|quem|quanto|lista|resumo|status)\b/i;
 
-  async function submit(text: string, img: string | null) {
+  async function submit(text: string, images: Attachment[]) {
     if (!text.trim() || busy) return;
 
     // A permission waiting + a short spoken verdict = the answer. "sempre
@@ -559,7 +556,7 @@ export default function App({
         await focusTask(cmd.title, session, cmd.note);
         say(`Na task ${cmd.title}.`);
         if (cmd.instruction) {
-          await sendToFocusedTaskWith(cmd.title, session, cmd.instruction, null);
+          await sendToFocusedTaskWith(cmd.title, session, cmd.instruction);
         }
       } else if (cmd.kind === "open_file") {
         await openFileByQuery(cmd.query, cmd.project);
@@ -629,14 +626,9 @@ export default function App({
 
     // Explicit questions always go to ask, focused or not.
     if (!isQuestion && focused) {
-      push({ who: "user", text, image: img ?? undefined, task: focused && labelFor(focused) });
+      push({ who: "user", text, images: images.map((i) => i.dataUrl), task: focused && labelFor(focused) });
       await ipc
-        .workerSend(
-          focused,
-          text,
-          img ? img.split(",")[1] : null,
-          img ? img.slice(5, img.indexOf(";")) : null,
-        )
+        .workerSend(focused, text, images.map(toImagePair))
         .then((directives) =>
           setLiveWorkers((old) =>
             old[focused] ? { ...old, [focused]: { ...old[focused], directives } } : old,
@@ -662,7 +654,7 @@ export default function App({
         });
         if (gate.acao === "meta_vox" || gate.acao === "pergunta") {
           push({ who: "user", text });
-          runAsk(text, img);
+          runAsk(text, images);
           return;
         }
         if (gate.acao === "trocar_task" && gate.task_alvo) {
@@ -684,7 +676,7 @@ export default function App({
           return;
         }
       }
-      await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text, img);
+      await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text, images);
       return;
     }
     const route = await ipc.routeText(text);
@@ -693,8 +685,8 @@ export default function App({
       setPending({ kind: "confirm-dispatch", instruction: text });
       return;
     }
-    push({ who: "user", text, image: img ?? undefined });
-    runAsk(text, img);
+    push({ who: "user", text, images: images.map((i) => i.dataUrl) });
+    runAsk(text, images);
   }
 
   /** Mode the pill shows: the focused live task's, else the window/config default. */
@@ -768,7 +760,7 @@ export default function App({
     recordingRef.current = true;
     try {
       const text = await ipc.hearOnce();
-      if (text) await submit(text, null);
+      if (text) await submit(text, []);
     } catch (err) {
       push({ who: "sys", text: `mic: ${err}` });
     } finally {
@@ -872,19 +864,14 @@ export default function App({
     title: string,
     sessionId: string,
     text: string,
-    img: string | null,
+    images: Attachment[] = [],
   ) {
     await reactivateIfDone(title);
     const liveEntry = Object.entries(liveWorkers).find(([, w]) => w.label === title);
-    push({ who: "user", text, image: img ?? undefined, task: title });
+    push({ who: "user", text, images: images.map((i) => i.dataUrl), task: title });
     if (liveEntry) {
       await ipc
-        .workerSend(
-          liveEntry[0],
-          text,
-          img ? img.split(",")[1] : null,
-          img ? img.slice(5, img.indexOf(";")) : null,
-        )
+        .workerSend(liveEntry[0], text, images.map(toImagePair))
         .then((directives) =>
           setLiveWorkers((old) => ({
             ...old,
@@ -979,6 +966,19 @@ export default function App({
   const frameArquivo = () => (
     <PanelFrame
       title="Arquivo"
+      tabs={
+        <FileTabs
+          files={openFiles}
+          active={activeFile}
+          dirty={dirtyPaths}
+          onActivate={(i) => {
+            setActiveFile(i);
+            const f = openFiles[i];
+            if (f) lastFocus.current.set(f.abs, Date.now());
+          }}
+          onCloseTab={closeFileTab}
+        />
+      }
       expanded={expanded === "arquivo"}
       onToggleExpand={() => setExpanded((e) => (e === "arquivo" ? null : "arquivo"))}
       onClose={() => {
@@ -987,23 +987,21 @@ export default function App({
         setExpanded((e) => (e === "arquivo" ? null : e));
       }}
     >
-      <FilesEditor
-        files={openFiles}
-        active={activeFile}
-        dirty={dirtyPaths}
-        onActivate={(i) => {
-          setActiveFile(i);
-          const f = openFiles[i];
-          if (f) lastFocus.current.set(f.abs, Date.now());
-        }}
-        onCloseTab={closeFileTab}
-        onDirty={onFileDirty}
-      />
+      <FilesEditor files={openFiles} active={activeFile} onDirty={onFileDirty} />
     </PanelFrame>
   );
   const frameTerminal = () => (
     <PanelFrame
       title="Terminal"
+      tabs={
+        <TerminalTabs
+          shells={shells}
+          active={termTab}
+          onActivate={setTermTab}
+          onAddShell={addShell}
+          onCloseShell={closeShell}
+        />
+      }
       expanded={expanded === "terminal"}
       onToggleExpand={() => setExpanded((e) => (e === "terminal" ? null : "terminal"))}
       onClose={() => {
@@ -1053,6 +1051,16 @@ export default function App({
     <div className="app">
       <div className="topbar">
         <span className="title">VOX</span>
+        <button
+          className={`scope ${sidebarOpen ? "" : "on"}`}
+          title={sidebarOpen ? "esconder a lista de chats (Cmd+B)" : "mostrar a lista de chats (Cmd+B)"}
+          onClick={() => {
+            const panel = sidebarRef.current;
+            if (panel) panel.isCollapsed() ? panel.expand() : panel.collapse();
+          }}
+        >
+          <PanelLeft size={12} />
+        </button>
         <nav className="tabs">
           <button className={tab === "code" ? "active" : ""} onClick={() => setTab("code")}>
             code
@@ -1144,6 +1152,8 @@ export default function App({
             minSize={10}
             maxSize={34}
             className="pane"
+            onCollapse={() => setSidebarOpen(false)}
+            onExpand={() => setSidebarOpen(true)}
           >
             <Sidebar
               projects={projects}

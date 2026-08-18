@@ -59,7 +59,7 @@ export type PermissionAsk = {
 };
 
 export type Msg =
-  | { who: "user"; text: string; image?: string; task?: string }
+  | { who: "user"; text: string; images?: string[]; task?: string }
   | {
       who: "vox";
       text: string;
