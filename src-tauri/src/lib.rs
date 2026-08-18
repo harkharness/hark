@@ -1884,6 +1884,9 @@ fn open_project_window(
     tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
         .title(format!("Vox — {name}"))
         .inner_size(1280.0, 820.0)
+        // wry's native drop target swallows DOM dragover/drop; without this
+        // the board's HTML5 card drag never lands (we take no file drops).
+        .disable_drag_drop_handler()
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
