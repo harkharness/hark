@@ -34,6 +34,14 @@ import type {
   SessionHit,
 } from "./types";
 
+type RailItem = "arquivo" | "terminal" | "arquivos";
+
+const RAIL_TITLE: Record<RailItem, string> = {
+  arquivo: "Arquivo",
+  terminal: "Terminal",
+  arquivos: "Arquivos",
+};
+
 export default function App({
   forcedProject,
   initialTask,
@@ -77,7 +85,6 @@ export default function App({
   const [dirtyPaths, setDirtyPaths] = useState<Set<string>>(new Set());
   const lastFocus = useRef(new Map<string, number>());
   // "Arquivos" window (project trees + filter).
-  const [filesOpen, setFilesOpen] = useState(false);
   const [filesInitialProject, setFilesInitialProject] = useState<string | undefined>();
   /** Typed window taking the whole work area (menu stays). */
   const [expanded, setExpanded] = useState<"arquivo" | "terminal" | "arquivos" | null>(null);
@@ -90,7 +97,14 @@ export default function App({
   // Per-thread raw worker feed (the task's "terminal") and window spend.
   const [rawLog, setRawLog] = useState<Record<string, string[]>>({});
   const [costs, setCosts] = useState<Record<string, number>>({});
-  const [termOpen, setTermOpen] = useState(false);
+  /**
+   * THE RAIL: chat is the anchor; every typed window lives stacked on the
+   * right, collapsible to its title bar, draggable to reorder. Opening a
+   * third expanded panel collapses the oldest — nothing ever dies, it
+   * shrinks. Order in the array = order on screen.
+   */
+  const [rail, setRail] = useState<{ id: RailItem; collapsed: boolean }[]>([]);
+  const dragRail = useRef<RailItem | null>(null);
   // Real shell tabs (PTY ids). Owned here so hiding the pane keeps them.
   const [shells, setShells] = useState<string[]>([]);
   const [termTab, setTermTab] = useState<string>("feed");
@@ -413,6 +427,7 @@ export default function App({
    * and NEVER touches a tab with unsaved edits.
    */
   function openFile(file: OpenFile) {
+    ensureRail("arquivo");
     lastFocus.current.set(file.abs, Date.now());
     setOpenFiles((old) => {
       const existing = old.findIndex((f) => f.abs === file.abs);
@@ -459,6 +474,7 @@ export default function App({
       }
       const next = old.filter((_, i) => i !== index);
       setActiveFile((a) => Math.max(0, a > index ? a - 1 : Math.min(a, next.length - 1)));
+      if (next.length === 0) removeRail("arquivo");
       return next;
     });
   }
@@ -716,6 +732,51 @@ export default function App({
     push({ who: "sys", text: `novas tasks desta janela nascem no modo ${flag}` });
   }
 
+  const railHas = (id: RailItem) => rail.some((s) => s.id === id);
+
+  /** Open (or re-expand) a rail panel; a 3rd expanded one collapses the
+   *  oldest other expanded panel instead of killing anything. */
+  function ensureRail(id: RailItem) {
+    setRail((old) => {
+      let next = old.some((s) => s.id === id)
+        ? old.map((s) => (s.id === id ? { ...s, collapsed: false } : s))
+        : [...old, { id, collapsed: false }];
+      const expanded = next.filter((s) => !s.collapsed);
+      if (expanded.length > 2) {
+        const victim = expanded.find((s) => s.id !== id);
+        if (victim) {
+          next = next.map((s) => (s.id === victim.id ? { ...s, collapsed: true } : s));
+        }
+      }
+      return next;
+    });
+  }
+
+  function removeRail(id: RailItem) {
+    setRail((old) => old.filter((s) => s.id !== id));
+    setExpanded((e) => (e === id ? null : e));
+  }
+
+  function toggleRailCollapse(id: RailItem) {
+    setRail((old) =>
+      old.map((s) => (s.id === id ? { ...s, collapsed: !s.collapsed } : s)),
+    );
+  }
+
+  /** Drop the dragged panel at the target's position. */
+  function dropRail(target: RailItem) {
+    const from = dragRail.current;
+    dragRail.current = null;
+    if (!from || from === target) return;
+    setRail((old) => {
+      const moving = old.find((s) => s.id === from);
+      if (!moving) return old;
+      const without = old.filter((s) => s.id !== from);
+      const at = without.findIndex((s) => s.id === target);
+      return [...without.slice(0, at), moving, ...without.slice(at)];
+    });
+  }
+
   function addShell(): string {
     const id = `sh-${shellSeq.current++}-${Date.now() % 1e6}`;
     setShells((old) => [...old, id]);
@@ -734,7 +795,7 @@ export default function App({
    * or just leaving it typed for the user to review and hit Enter.
    */
   function runInTerminal(cmd: string, execute: boolean) {
-    setTermOpen(true);
+    ensureRail("terminal");
     const existing = shells.includes(termTab) ? termTab : shells[0];
     const target = existing ?? addShell();
     if (existing) setTermTab(existing);
@@ -963,7 +1024,17 @@ export default function App({
   });
 
   // Typed windows, shared by the tiled layout and the expanded mode.
-  const frameArquivo = () => (
+  /** Drag-to-reorder wiring for a rail panel's header. */
+  const railDragProps = (id: RailItem): React.HTMLAttributes<HTMLDivElement> => ({
+    draggable: true,
+    onDragStart: () => {
+      dragRail.current = id;
+    },
+    onDragOver: (e) => e.preventDefault(),
+    onDrop: () => dropRail(id),
+  });
+
+  const frameArquivo = (slot?: { collapsed: boolean }) => (
     <PanelFrame
       title="Arquivo"
       tabs={
@@ -980,17 +1051,20 @@ export default function App({
         />
       }
       expanded={expanded === "arquivo"}
+      collapsed={slot?.collapsed ?? false}
       onToggleExpand={() => setExpanded((e) => (e === "arquivo" ? null : "arquivo"))}
+      onToggleCollapse={slot ? () => toggleRailCollapse("arquivo") : undefined}
+      dragProps={slot ? railDragProps("arquivo") : undefined}
       onClose={() => {
         setOpenFiles([]);
         setDirtyPaths(new Set());
-        setExpanded((e) => (e === "arquivo" ? null : e));
+        removeRail("arquivo");
       }}
     >
       <FilesEditor files={openFiles} active={activeFile} onDirty={onFileDirty} />
     </PanelFrame>
   );
-  const frameTerminal = () => (
+  const frameTerminal = (slot?: { collapsed: boolean }) => (
     <PanelFrame
       title="Terminal"
       tabs={
@@ -1003,11 +1077,11 @@ export default function App({
         />
       }
       expanded={expanded === "terminal"}
+      collapsed={slot?.collapsed ?? false}
       onToggleExpand={() => setExpanded((e) => (e === "terminal" ? null : "terminal"))}
-      onClose={() => {
-        setTermOpen(false);
-        setExpanded((e) => (e === "terminal" ? null : e));
-      }}
+      onToggleCollapse={slot ? () => toggleRailCollapse("terminal") : undefined}
+      dragProps={slot ? railDragProps("terminal") : undefined}
+      onClose={() => removeRail("terminal")}
     >
       <TerminalPane
         rawLog={rawLog}
@@ -1021,15 +1095,15 @@ export default function App({
       />
     </PanelFrame>
   );
-  const frameArquivos = () => (
+  const frameArquivos = (slot?: { collapsed: boolean }) => (
     <PanelFrame
       title="Arquivos"
       expanded={expanded === "arquivos"}
+      collapsed={slot?.collapsed ?? false}
       onToggleExpand={() => setExpanded((e) => (e === "arquivos" ? null : "arquivos"))}
-      onClose={() => {
-        setFilesOpen(false);
-        setExpanded((e) => (e === "arquivos" ? null : e));
-      }}
+      onToggleCollapse={slot ? () => toggleRailCollapse("arquivos") : undefined}
+      dragProps={slot ? railDragProps("arquivos") : undefined}
+      onClose={() => removeRail("arquivos")}
     >
       <FilesPanel
         projects={projects}
@@ -1095,9 +1169,11 @@ export default function App({
           )}
         </div>
         <button
-          className={`scope ${termOpen ? "on" : ""}`}
-          title="janela Terminal (feeds brutos dos workers)"
-          onClick={() => setTermOpen((t) => !t)}
+          className={`scope ${railHas("terminal") ? "on" : ""}`}
+          title="Terminal (shells reais + feed do worker)"
+          onClick={() =>
+            railHas("terminal") ? removeRail("terminal") : ensureRail("terminal")
+          }
         >
           <SquareTerminal size={12} />
         </button>
@@ -1197,7 +1273,7 @@ export default function App({
               }
               onOpenFiles={(p) => {
                 setFilesInitialProject(p.path);
-                setFilesOpen(true);
+                ensureRail("arquivos");
               }}
             />
           </Panel>
@@ -1262,27 +1338,26 @@ export default function App({
               </Composer>
             </div>
           </Panel>
-          {openFiles.length > 0 && (
+          {rail.length > 0 && (
             <>
               <PanelResizeHandle className="rhandle" />
               <Panel defaultSize={42} minSize={20} className="pane">
-                {frameArquivo()}
-              </Panel>
-            </>
-          )}
-          {termOpen && (
-            <>
-              <PanelResizeHandle className="rhandle" />
-              <Panel defaultSize={34} minSize={18} className="pane">
-                {frameTerminal()}
-              </Panel>
-            </>
-          )}
-          {filesOpen && (
-            <>
-              <PanelResizeHandle className="rhandle" />
-              <Panel defaultSize={26} minSize={16} className="pane">
-                {frameArquivos()}
+                {/* The rail: panels stack vertically; expanded ones split
+                    the height, collapsed ones cost a title bar. */}
+                <div className="rail">
+                  {rail.map((slot) => (
+                    <div
+                      key={slot.id}
+                      className={`rail-slot ${slot.collapsed ? "collapsed" : ""}`}
+                    >
+                      {slot.id === "arquivo"
+                        ? frameArquivo(slot)
+                        : slot.id === "terminal"
+                          ? frameTerminal(slot)
+                          : frameArquivos(slot)}
+                    </div>
+                  ))}
+                </div>
               </Panel>
             </>
           )}
