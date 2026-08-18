@@ -204,6 +204,8 @@ body {
 .mother-msg { font-size: 12px; line-height: 1.5; color: var(--dim); }
 .mother-msg.user { color: var(--text); text-align: right; }
 .mother-msg.vox { color: var(--ok); }
+.mother-msg.sys { color: var(--warn); }
+.mother-workers { color: var(--accent); }
 .mother-input { display: flex; gap: 8px; width: min(560px, 92vw); }
 .mother-input input {
   flex: 1; background: var(--panel); border: 1px solid var(--border);

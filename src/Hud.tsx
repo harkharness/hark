@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { CircleQuestionMark, FolderPlus, Mic, Target } from "lucide-react";
 import * as ipc from "./lib/ipc";
 import type { VoicePlan, VoxEvent } from "./types";
@@ -39,6 +39,17 @@ export default function Hud() {
     ipc.hudHide().catch(() => {});
   }, []);
 
+  /** What the user said this round — feeds the mother's action log. */
+  const lastText = useRef("");
+  const record = useCallback((target: string, status: string) => {
+    emit("vox", {
+      kind: "voice_action",
+      utterance: lastText.current,
+      target,
+      status,
+    }).catch(() => {});
+  }, []);
+
   const finish = useCallback(
     (text: string, tone: "ok" | "warn", ms: number) => {
       setStage({ s: "note", text, tone });
@@ -69,8 +80,10 @@ export default function Hud() {
         await ipc.openProjectWindow(cmd.title, cmd.path).catch(() => {});
         if (cmd.instruction) {
           await ipc.chatStart(cmd.path, cmd.instruction).catch(() => {});
+          record(cmd.title, "chat iniciado");
           finish(`→ ${cmd.title} · chat iniciado`, "ok", 1400);
         } else {
+          record(cmd.title, "aberto");
           finish(`→ ${cmd.title} · aberto`, "ok", 1200);
         }
       } else if (cmd.kind === "open_hq") {
@@ -88,6 +101,7 @@ export default function Hud() {
           await ipc
             .openProjectWindow(name, task.workspace, task.title, first.session_id)
             .catch(() => {});
+          record(task.title, "retomada");
           finish(`→ ${task.title} · retomada`, "ok", 1500);
         } else {
           finish("sessão sem projeto registrado", "warn", 2600);
@@ -120,6 +134,7 @@ export default function Hud() {
       hide();
       return;
     }
+    lastText.current = text;
     setStage({ s: "thinking", text });
     let plan: VoicePlan;
     try {
@@ -135,6 +150,10 @@ export default function Hud() {
       try {
         const reply = await ipc.askText(plan.question, null, null);
         setStage({ s: "answer", text: reply.fala });
+        record(
+          "vox",
+          `respondido em voz${reply.cost_usd ? ` · $${reply.cost_usd.toFixed(2)}` : ""}`,
+        );
         ipc.speak(reply.fala).catch(() => {});
         window.clearTimeout(timer.current);
         timer.current = window.setTimeout(hide, 6000);

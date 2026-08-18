@@ -30,6 +30,8 @@ type Handlers = {
   onFocusTask?: (title: string, sessionId?: string | null) => void;
   /** The voice HUD executed something (the mother records the feed). */
   onVoiceAction?: (utterance: string, target?: string | null, status?: string) => void;
+  /** A worker finished a turn (the mother updates its feed row). */
+  onWorkerTurn?: (label: string, isError: boolean) => void;
   /**
    * Whether THIS window announces events out loud (turn done, permission
    * asked). Exactly one window may announce — the mother — otherwise every
@@ -105,6 +107,7 @@ export function useVoxEvents(h: Handlers) {
             ? { ...old, [ev.task_id]: { ...old[ev.task_id], status: "turn_done" } }
             : old,
         );
+        h.onWorkerTurn?.(ev.label ?? label, ev.is_error);
         if (h.announce && h.speakRef.current) {
           const spoken = ev.label ?? label;
           ipc.speak(

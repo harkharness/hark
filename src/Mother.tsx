@@ -103,6 +103,16 @@ export default function Mother() {
         setActions((old) => [...old, { utterance, target, status, ts: Date.now() }].slice(-8)),
       [],
     ),
+    // A finished turn flips the feed row of its task: dispatched → done.
+    onWorkerTurn: useCallback((label: string, isError: boolean) => {
+      setActions((old) =>
+        old.map((a) =>
+          a.target === label && a.status === "despachado"
+            ? { ...a, status: isError ? "✗ falhou" : "✓ concluído" }
+            : a,
+        ),
+      );
+    }, []),
     onHotkeyMic: useCallback(() => {
       setTab("voz");
       micRef.current();
@@ -304,6 +314,17 @@ export default function Mother() {
     try {
       const reply = await ipc.askText(text, null, null);
       push({ who: "vox", text: reply.fala, cost: reply.cost_usd, model: reply.model });
+      setActions((old) =>
+        [
+          ...old,
+          {
+            utterance: text,
+            target: "vox",
+            status: `respondido em voz${reply.cost_usd ? ` · $${reply.cost_usd.toFixed(2)}` : ""}`,
+            ts: Date.now(),
+          },
+        ].slice(-8),
+      );
       say(reply.fala);
     } catch (err) {
       push({ who: "sys", text: `erro: ${err}` });
@@ -330,7 +351,12 @@ export default function Mother() {
   micRef.current = onMic;
 
   const mode: OrbMode = recording ? "listening" : speaking ? "speaking" : busy ? "busy" : "idle";
-  const recent = messages.filter((m) => !("task" in m) || !m.task).slice(-4);
+  const liveWorkers = (overview?.workers ?? []).filter((w) => w.status === "running").length;
+  // The last spoken reply stays readable; system errors too. Raw echo of
+  // every message died with the feed (the feed IS the record now).
+  const lastReply = [...messages].reverse().find((m) => m.who === "vox");
+  const lastUser = [...messages].reverse().find((m) => m.who === "user");
+  const lastMsg = messages.at(-1);
 
   return (
     <div className={tab === "voz" ? "mother" : "mother mother-wide"}>
@@ -367,6 +393,13 @@ export default function Mother() {
             {spentToday != null && (
               <span className="mother-spend"> · hoje ${spentToday.toFixed(2)}</span>
             )}
+            {liveWorkers > 0 && (
+              <span className="mother-workers">
+                {" "}
+                · {liveWorkers} worker{liveWorkers === 1 ? "" : "s"} ativo
+                {liveWorkers === 1 ? "" : "s"}
+              </span>
+            )}
             {rateLimit && rateLimit.status !== "allowed" && (
               <span className="warn">
                 {" "}
@@ -399,13 +432,17 @@ export default function Mother() {
             </div>
           )}
 
-          <div className="mother-chat">
-            {recent.map((m, i) => (
-              <div key={i} className={`mother-msg ${m.who}`}>
-                {"text" in m ? m.text : ""}
-              </div>
-            ))}
-          </div>
+          {(lastReply || lastMsg?.who === "sys" || lastUser) && (
+            <div className="mother-chat">
+              {lastUser && "text" in lastUser && (
+                <div className="mother-msg user">{lastUser.text}</div>
+              )}
+              {lastReply && "text" in lastReply && (
+                <div className="mother-msg vox">{lastReply.text}</div>
+              )}
+              {lastMsg?.who === "sys" && <div className="mother-msg sys">{lastMsg.text}</div>}
+            </div>
+          )}
 
           {picks && (
             <div className="mother-picks">
