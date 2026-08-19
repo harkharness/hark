@@ -76,6 +76,21 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
 
     // 1. Local commands win (open project, recover session, rename…).
     if let Some(command) = super::task_command(text.clone(), ctx.task_title.clone())? {
+        // Compaction is not local: it is "/compact" delivered to the chat
+        // on screen — the normal Work pipeline, confirm chip included.
+        if command.get("kind").and_then(|k| k.as_str()) == Some("compact") {
+            if ctx.session_id.is_some() {
+                return Ok(VoicePlan::Work {
+                    instruction: "/compact".into(),
+                    task_title: ctx.task_title.clone(),
+                    session_id: ctx.session_id.clone(),
+                    workspace: ctx.project_path.clone(),
+                    project_name: ctx.project_name.clone(),
+                    new_task: false,
+                });
+            }
+            return Ok(VoicePlan::NoTarget { instruction: text });
+        }
         return Ok(VoicePlan::Command { command });
     }
 

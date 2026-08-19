@@ -151,7 +151,11 @@ export type TaskCommandResult =
   | { kind: "open_project"; title: string; path: string; instruction?: string | null }
   | { kind: "open_hq"; tab: "board" | "custos" }
   | { kind: "session_candidates"; query: string; candidates: SessionHit[] }
-  | { kind: "not_found"; query: string };
+  | { kind: "not_found"; query: string }
+  /** "compacta o contexto": deliver "/compact" to the focused session. */
+  | { kind: "compact" }
+  /** "muda o modo pra X": switch the focused worker's permission mode. */
+  | { kind: "set_mode"; mode: string };
 
 /** One indexed session offered when recovering work by topic. */
 export type SessionHit = {

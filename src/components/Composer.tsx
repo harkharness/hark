@@ -11,6 +11,17 @@ type Mention = {
   sel: number;
 };
 
+type SlashHit = { name: string; desc?: string };
+type Slash = { hits: SlashHit[]; sel: number };
+
+/** Commands Vox resolves itself; everything else in the palette is the
+ *  CLI's own list (from the session's init event) sent verbatim. */
+const NATIVE_SLASH: SlashHit[] = [
+  { name: "modo", desc: "modo de permissão: manual · edições · plano · auto · ignorar" },
+  { name: "rename", desc: "renomeia o chat focado" },
+  { name: "board", desc: "abre/fecha o quadro" },
+];
+
 /** A pasted screenshot: thumbnail on top, "[image N]" reference in prose. */
 export type Attachment = { dataUrl: string };
 
@@ -56,8 +67,11 @@ export default function Composer({
   const [text, setText] = useState("");
   const [images, setImages] = useState<Attachment[]>([]);
   const [mention, setMention] = useState<Mention | null>(null);
+  const [slash, setSlash] = useState<Slash | null>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const debounceRef = useRef<number>(0);
+  /** CLI slash list, fetched once per composer (cheap local lookup). */
+  const cliSlash = useRef<string[] | null>(null);
 
   function autoGrow() {
     const el = areaRef.current;
@@ -93,6 +107,40 @@ export default function Composer({
     }, 120);
   }
 
+  /** The palette is live while the text is just "/name" (no args yet). */
+  async function detectSlash(value: string) {
+    const match = value.match(/^\/([\w:-]*)$/);
+    if (!match) {
+      setSlash(null);
+      return;
+    }
+    if (!cliSlash.current) {
+      cliSlash.current = await ipc
+        .slashCommands(activeProject?.path)
+        .catch(() => [] as string[]);
+    }
+    const q = match[1].toLowerCase();
+    const taken = new Set(NATIVE_SLASH.map((c) => c.name));
+    const cli = (cliSlash.current ?? [])
+      .filter((n) => !taken.has(n) && n.toLowerCase().includes(q))
+      .sort(
+        (a, b) =>
+          Number(b.toLowerCase().startsWith(q)) - Number(a.toLowerCase().startsWith(q)) ||
+          a.localeCompare(b),
+      );
+    const hits = [
+      ...NATIVE_SLASH.filter((c) => c.name.startsWith(q)),
+      ...cli.map((name) => ({ name })),
+    ].slice(0, 10);
+    setSlash(hits.length > 0 ? { hits, sel: 0 } : null);
+  }
+
+  function pickSlash(hit: SlashHit) {
+    setText(`/${hit.name} `);
+    setSlash(null);
+    requestAnimationFrame(() => areaRef.current?.focus());
+  }
+
   function pickMention(hit: { project: Project; rel: string }) {
     if (!mention) return;
     // Inside the thread's own project a relative path is enough (the
@@ -122,6 +170,7 @@ export default function Composer({
     setText("");
     setImages([]);
     setMention(null);
+    setSlash(null);
     requestAnimationFrame(autoGrow);
     onSubmit(t, imgs);
   }
@@ -162,6 +211,26 @@ export default function Composer({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (slash) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const delta = e.key === "ArrowDown" ? 1 : -1;
+        setSlash({
+          ...slash,
+          sel: (slash.sel + delta + slash.hits.length) % slash.hits.length,
+        });
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        pickSlash(slash.hits[slash.sel]);
+        return;
+      }
+      if (e.key === "Escape") {
+        setSlash(null);
+        return;
+      }
+    }
     if (mention) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -212,6 +281,21 @@ export default function Composer({
   return (
     <div className="inputbar">
       <div className={`composer ${images.length > 0 ? "with-thumbs" : ""}`}>
+        {slash && (
+          <div className="mention-pop slash-pop">
+            {slash.hits.map((hit, i) => (
+              <button
+                key={hit.name}
+                className={i === slash.sel ? "sel" : ""}
+                onMouseEnter={() => setSlash({ ...slash, sel: i })}
+                onClick={() => pickSlash(hit)}
+              >
+                <span className="slash-name">/{hit.name}</span>
+                <span className="slash-desc">{hit.desc ?? "comando do Claude Code"}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {mention && (
           <div className="mention-pop">
             {mention.hits.map((hit, i) => (
@@ -248,6 +332,7 @@ export default function Composer({
           onChange={(e) => {
             setText(e.target.value);
             detectMention(e.target.value, e.target.selectionStart ?? e.target.value.length);
+            detectSlash(e.target.value);
           }}
           onPaste={onPaste}
           onKeyDown={onKeyDown}

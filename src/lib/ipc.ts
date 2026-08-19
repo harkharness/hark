@@ -131,6 +131,10 @@ export const taskCommand = (text: string, focused?: string) =>
 export const evaluate = (message: string, focusedTask: string, focusedSession: string) =>
   invoke<GateOut>("evaluate", { message, focusedTask, focusedSession });
 
+/** Slash commands the workspace's sessions accept (from the CLI's init). */
+export const slashCommands = (workspace?: string) =>
+  invoke<string[]>("slash_commands", { workspace: workspace ?? null });
+
 export const boardMove = (title: string, status: string) =>
   invoke("board_move", { title, status });
 export const boardRename = (title: string, newTitle: string) =>

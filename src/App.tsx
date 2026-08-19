@@ -512,6 +512,37 @@ export default function App({
   const QUESTION_START =
     /^(quais|qual|como|o que|onde|quando|por que|porque|quem|quanto|lista|resumo|status)\b/i;
 
+  /** "/modo <palavra>" → CLI --permission-mode flag. */
+  const MODE_WORDS: Record<string, string> = {
+    manual: "manual",
+    "edições": "acceptEdits",
+    edicoes: "acceptEdits",
+    plano: "plan",
+    plan: "plan",
+    auto: "auto",
+    "automático": "auto",
+    automatico: "auto",
+    ignorar: "bypassPermissions",
+    bypass: "bypassPermissions",
+  };
+
+  /** Deliver a "/comando" verbatim to the focused chat's session, skipping
+   *  the evaluator (typed slash = explicit intent, nothing to gate). */
+  async function sendSlash(text: string) {
+    if (focused) {
+      push({ who: "user", text, task: labelFor(focused) });
+      await ipc
+        .workerSend(focused, text, [])
+        .catch((err) => push({ who: "sys", text: `worker: ${err}` }));
+      return;
+    }
+    if (focusedTask) {
+      await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text);
+      return;
+    }
+    push({ who: "sys", text: "comandos / precisam de um chat focado" });
+  }
+
   async function submit(text: string, images: Attachment[]) {
     if (!text.trim() || busy) return;
 
@@ -537,6 +568,32 @@ export default function App({
           say("Negado.");
           return;
         }
+      }
+    }
+
+    // "/" = explicit command: NEVER the evaluator/gate. Vox-native ones
+    // run here; anything else is delivered verbatim to the focused session
+    // (the CLI expands its own slash commands — /compact, customs, plugins).
+    if (text.startsWith("/")) {
+      const [name = "", ...restWords] = text.slice(1).trim().split(/\s+/);
+      const args = restWords.join(" ");
+      if (name === "modo") {
+        const flag = MODE_WORDS[args.toLowerCase()];
+        push({ who: "user", text });
+        if (flag) selectMode(flag);
+        else push({ who: "sys", text: "modos: manual · edições · plano · auto · ignorar" });
+        return;
+      }
+      if (name === "board") {
+        railHas("board") ? removeRail("board") : ensureRail("board");
+        return;
+      }
+      if (name === "rename" && args) {
+        // Reuse the spoken path: "renomeia para X" renames the focused chat.
+        text = `renomeia para ${args}`;
+      } else {
+        await sendSlash(text);
+        return;
       }
     }
 
@@ -613,6 +670,13 @@ export default function App({
           setPending({ kind: "pick-session", query: cmd.query, candidates: cmd.candidates });
           say(`Achei ${cmd.candidates.length} sessões. Qual delas?`);
         }
+      } else if (cmd.kind === "compact") {
+        // Spoken "compacta o contexto": /compact on the focused session.
+        await sendSlash("/compact");
+        say("Compactando o contexto.");
+      } else if (cmd.kind === "set_mode") {
+        selectMode(cmd.mode);
+        say("Modo trocado.");
       } else if (cmd.kind === "not_found") {
         push({ who: "sys", text: `nada bate com "${cmd.query}"` });
         say("Não achei isso no quadro.");

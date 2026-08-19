@@ -559,8 +559,16 @@ fn start_worker(
         let config = Config::load();
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             match vox_core::domain::claude_event::parse(&line) {
-                ClaudeEvent::SessionStarted(session_id) => {
+                ClaudeEvent::SessionStarted { session_id, slash_commands } => {
                     current_session = session_id.clone();
+                    // The init event names the session's slash commands:
+                    // remember them per workspace for the "/" palette.
+                    if !slash_commands.is_empty() {
+                        let reg = app2.state::<SlashRegistry>();
+                        let mut map = reg.0.lock().unwrap();
+                        map.insert(workspace.display().to_string(), slash_commands.clone());
+                        map.insert(String::new(), slash_commands);
+                    }
                     if !is_new_session {
                         continue;
                     }
@@ -1670,6 +1678,29 @@ fn evaluate(
     })
 }
 
+/// Slash commands accepted by each workspace's sessions, as announced by
+/// the CLI's init event (key "" = the most recent list seen anywhere).
+#[derive(Default)]
+struct SlashRegistry(Mutex<HashMap<String, Vec<String>>>);
+
+/// Universal built-ins shown before any worker has run in this workspace.
+const SLASH_FALLBACK: &[&str] =
+    &["compact", "context", "usage", "model", "rename", "clear", "review", "init"];
+
+#[tauri::command]
+fn slash_commands(
+    state: State<'_, SlashRegistry>,
+    workspace: Option<String>,
+) -> Result<Vec<String>, String> {
+    let map = state.inner().0.lock().unwrap();
+    Ok(workspace
+        .as_deref()
+        .and_then(|w| map.get(w))
+        .or_else(|| map.get(""))
+        .cloned()
+        .unwrap_or_else(|| SLASH_FALLBACK.iter().map(|s| s.to_string()).collect()))
+}
+
 /// Local board command spoken by the user ("mostra o log da X"). Resolves the
 /// task by term overlap and performs the action; no LLM, no tokens.
 #[tauri::command]
@@ -1741,6 +1772,14 @@ fn task_command(
         TaskCommand::OpenHq { tab } => {
             return Ok(Some(serde_json::json!({ "kind": "open_hq", "tab": tab })));
         }
+        // Both resolve on the window that owns the focused chat: compaction
+        // is "/compact" sent to its session, mode goes to worker_set_mode.
+        TaskCommand::Compact => {
+            return Ok(Some(serde_json::json!({ "kind": "compact" })));
+        }
+        TaskCommand::SetMode { mode } => {
+            return Ok(Some(serde_json::json!({ "kind": "set_mode", "mode": mode })));
+        }
         TaskCommand::FindSession { query } => {
             // Every session on this machine is already indexed: recovering
             // one is a local lookup, never an agent digging through logs.
@@ -1773,7 +1812,9 @@ fn task_command(
         | TaskCommand::NewChat { .. }
         | TaskCommand::OpenProject { .. }
         | TaskCommand::OpenHq { .. }
-        | TaskCommand::FindSession { .. } => {
+        | TaskCommand::FindSession { .. }
+        | TaskCommand::Compact
+        | TaskCommand::SetMode { .. } => {
             unreachable!("handled above")
         }
     };
@@ -1814,7 +1855,9 @@ fn task_command(
             | TaskCommand::NewChat { .. }
             | TaskCommand::OpenProject { .. }
             | TaskCommand::OpenHq { .. }
-            | TaskCommand::FindSession { .. } => unreachable!("handled above"),
+            | TaskCommand::FindSession { .. }
+            | TaskCommand::Compact
+            | TaskCommand::SetMode { .. } => unreachable!("handled above"),
         }
     })
 }
@@ -1982,6 +2025,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(terminal::Terminals::default())
         .manage(voice::ActiveContext::default())
+        .manage(SlashRegistry::default())
         .manage(Pending(Mutex::new(HashMap::new())))
         .manage(LiveWorkers(Mutex::new(HashMap::new())))
         .manage(WorkerPermissions(Mutex::new(HashMap::new())))
@@ -2029,6 +2073,7 @@ pub fn run() {
             spend_top_sessions,
             session_context_weight,
             task_command,
+            slash_commands,
             evaluate,
             board_move,
             board_rename,

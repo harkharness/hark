@@ -40,6 +40,10 @@ pub enum TaskCommand {
     /// already knows every session on this machine, so this must never
     /// cost a token — and never spawn an agent to go digging.
     FindSession { query: String },
+    /// Compact the focused session's context (delivered as "/compact").
+    Compact,
+    /// Switch the focused worker's permission mode (CLI flag value).
+    SetMode { mode: String },
 }
 
 /// Words that only glue the sentence together and never name a task.
@@ -135,6 +139,35 @@ const FIND_SESSION_VERBS: &[&str] = &[
     "abre a sessão", "abre a sessao", "abrir a sessão",
 ];
 
+/// Compaction of the FOCUSED chat's context. The object words (contexto/
+/// sessão/chat) are mandatory: "compactar os arquivos" is real work.
+const COMPACT_VERBS: &[&str] = &[
+    "compacta o contexto", "compacta a sessão", "compacta a sessao",
+    "compacta o chat", "compacta a conversa", "compacta esse chat",
+    "compactação do contexto", "compactacao do contexto",
+    "faz a compactação", "faz a compactacao",
+];
+
+/// Mid-session permission-mode switch ("muda o modo pra automático").
+/// A bare mode word without one of these verbs is a SPAWN directive
+/// (directives.rs), never a command.
+const SET_MODE_VERBS: &[&str] = &[
+    "muda o modo", "troca o modo", "coloca no modo", "muda pro modo",
+    "troca pro modo", "altera o modo", "modo de permissão", "modo de permissao",
+];
+
+/// (needle in the words after the verb, CLI --permission-mode value).
+/// Bypass only via words that say "permission" out loud.
+const SET_MODE_TARGETS: &[(&str, &str)] = &[
+    ("ignora", "bypassPermissions"),
+    ("bypass", "bypassPermissions"),
+    ("sem trava", "bypassPermissions"),
+    ("edi", "acceptEdits"),
+    ("plan", "plan"),
+    ("manual", "manual"),
+    ("auto", "auto"),
+];
+
 /// Leading words that only point at the topic ("aberto de", "sobre a").
 const TOPIC_FILLER: &[&str] = &[
     "aberto", "aberta", "sobre", "que", "com", "falando", "focado", "focada",
@@ -226,6 +259,16 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
     }
     if let Some((_, tab)) = HQ_VERBS.iter().find(|(v, _)| lower.contains(*v)) {
         return Some(TaskCommand::OpenHq { tab: (*tab).to_string() });
+    }
+    if COMPACT_VERBS.iter().any(|v| lower.contains(v)) {
+        return Some(TaskCommand::Compact);
+    }
+    if let Some(verb) = SET_MODE_VERBS.iter().find(|v| lower.contains(**v)) {
+        let rest = after(verb)?.to_lowercase();
+        return SET_MODE_TARGETS
+            .iter()
+            .find(|(needle, _)| rest.contains(needle))
+            .map(|(_, mode)| TaskCommand::SetMode { mode: (*mode).to_string() });
     }
     if let Some(verb) = FIND_SESSION_VERBS.iter().find(|v| lower.contains(**v)) {
         let query = clean_topic(&after(verb)?);
@@ -593,5 +636,33 @@ mod tests {
         assert_eq!(parse("cria uma nova rota no gateway"), None);
         // "nova task" without a named project is real work for the gate.
         assert_eq!(parse("nova task adiciona logs no serviço"), None);
+    }
+
+    #[test]
+    fn compacts_the_context_of_the_focused_chat() {
+        assert_eq!(parse("compacta o contexto"), Some(TaskCommand::Compact));
+        assert_eq!(parse("por favor compacta a sessão"), Some(TaskCommand::Compact));
+        assert_eq!(parse("compacta o chat"), Some(TaskCommand::Compact));
+        assert_eq!(parse("faz a compactação do contexto"), Some(TaskCommand::Compact));
+    }
+
+    #[test]
+    fn switches_the_permission_mode_by_voice() {
+        let mode = |m: &str| Some(TaskCommand::SetMode { mode: m.into() });
+        assert_eq!(parse("muda o modo pra automático"), mode("auto"));
+        assert_eq!(parse("coloca no modo manual"), mode("manual"));
+        assert_eq!(parse("troca o modo pra plano"), mode("plan"));
+        assert_eq!(parse("muda o modo pra aceitar edições"), mode("acceptEdits"));
+        assert_eq!(parse("muda o modo pra ignorar permissões"), mode("bypassPermissions"));
+    }
+
+    #[test]
+    fn mode_and_compact_words_inside_real_work_fall_through() {
+        // "modo automático" without a switching verb is a spawn directive,
+        // not a command; "compactar arquivos" is real work.
+        assert_eq!(parse("roda os testes em modo automático"), None);
+        assert_eq!(parse("compactar os arquivos da pasta dist"), None);
+        // A switching verb with no recognizable mode has nothing to do.
+        assert_eq!(parse("muda o modo"), None);
     }
 }

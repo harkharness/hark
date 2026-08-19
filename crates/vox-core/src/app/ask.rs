@@ -94,8 +94,8 @@ pub fn ask_with_image(
     };
     let mut turn_session: Option<String> = None;
     let result = deps.runner.ask(&request, &mut |event| {
-        if let ClaudeEvent::SessionStarted(id) = event {
-            turn_session = Some(id.clone());
+        if let ClaudeEvent::SessionStarted { session_id, .. } = event {
+            turn_session = Some(session_id.clone());
         }
         on_event(event);
     })?;

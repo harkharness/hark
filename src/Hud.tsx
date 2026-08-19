@@ -106,6 +106,9 @@ export default function Hud() {
         } else {
           finish("sessão sem projeto registrado", "warn", 2600);
         }
+      } else if (cmd.kind === "set_mode") {
+        // Mode switching needs a window's focused worker; the HUD has none.
+        finish("troca de modo é na janela do chat — seletor ou /modo", "warn", 2600);
       } else if (cmd.kind === "not_found") {
         finish(`nada bate com "${cmd.query}"`, "warn", 2600);
       } else {

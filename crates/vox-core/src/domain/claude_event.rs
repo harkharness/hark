@@ -82,8 +82,13 @@ pub enum ClaudeEvent {
         input: String,
     },
     /// The CLI announced which session this process writes to. Essential
-    /// for brand-new sessions, whose id only exists after spawn.
-    SessionStarted(String),
+    /// for brand-new sessions, whose id only exists after spawn. It also
+    /// names every slash command the session accepts — the "/" palette's
+    /// source of truth, no directory scanning.
+    SessionStarted {
+        session_id: String,
+        slash_commands: Vec<String>,
+    },
     /// Subscription window status (five_hour/seven_day), one per turn.
     RateLimit(RateLimitInfo),
     /// Anything else (thinking estimates, partial deltas we don't use yet).
@@ -114,7 +119,19 @@ pub fn parse(line: &str) -> ClaudeEvent {
             .and_then(Value::as_str)
             .filter(|s| *s == "init")
             .and_then(|_| v.get("session_id").and_then(Value::as_str))
-            .map(|s| ClaudeEvent::SessionStarted(s.to_string()))
+            .map(|s| ClaudeEvent::SessionStarted {
+                session_id: s.to_string(),
+                slash_commands: v
+                    .get("slash_commands")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            })
             .unwrap_or(ClaudeEvent::Ignored),
         Some("rate_limit_event") => parse_rate_limit(&v).unwrap_or(ClaudeEvent::Ignored),
         _ => ClaudeEvent::Ignored,
@@ -487,12 +504,27 @@ mod tests {
     fn init_with_session_id_reports_the_session() {
         assert_eq!(
             parse(r#"{"type":"system","subtype":"init","session_id":"abc-123","cwd":"/p"}"#),
-            ClaudeEvent::SessionStarted("abc-123".into())
+            ClaudeEvent::SessionStarted { session_id: "abc-123".into(), slash_commands: vec![] }
         );
         // Other system subtypes stay ignored.
         assert_eq!(
             parse(r#"{"type":"system","subtype":"hook","session_id":"abc"}"#),
             ClaudeEvent::Ignored
+        );
+    }
+
+    #[test]
+    fn init_carries_the_sessions_slash_commands() {
+        // The CLI announces which slash commands this session accepts;
+        // they feed the "/" palette without any directory scanning.
+        assert_eq!(
+            parse(
+                r#"{"type":"system","subtype":"init","session_id":"abc","slash_commands":["compact","usage","design"]}"#
+            ),
+            ClaudeEvent::SessionStarted {
+                session_id: "abc".into(),
+                slash_commands: vec!["compact".into(), "usage".into(), "design".into()],
+            }
         );
     }
 
