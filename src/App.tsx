@@ -256,6 +256,19 @@ export default function App({
           return;
         }
       }
+      // Dispatch confirm open: Enter fires it, Esc cancels — from
+      // anywhere (the textarea handles its own keys).
+      if (!typing && pendingRef.current?.kind === "confirm-dispatch") {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          confirmDispatchRef.current();
+          return;
+        }
+        if (e.key === "Escape") {
+          setPending(null);
+          return;
+        }
+      }
       if (e.key === "Escape") {
         // Recording? Esc means "parei de falar": cut the capture and let
         // the transcription of what was said proceed. Nothing else.
@@ -546,28 +559,22 @@ export default function App({
   async function submit(text: string, images: Attachment[]) {
     if (!text.trim() || busy) return;
 
-    // A permission waiting + a short spoken verdict = the answer. "sempre
-    // pode" / "sempre permite" also records the standing rule.
+    // A permission waiting + a clean typed verdict = the answer. ONE
+    // grammar decides (domain::verdict) — "sempre pode" records the
+    // standing rule, "assim que der" is NOT a yes.
     if (pendingPermission?.who === "permission") {
-      const t = text.trim().toLowerCase();
-      if (t.split(/\s+/).length <= 4) {
-        const always = t.startsWith("sempre ");
-        const core = always ? t.slice("sempre ".length) : t;
-        const allowRe =
-          /^(sim|pode|permitir|permite|permito|autoriza|autorizar|aprova|aprovar|libera|liberar|vai)\b/;
-        const denyRe = /^(n[ãa]o|nega|negar|bloqueia|bloquear|cancela|cancelar)\b/;
-        if (allowRe.test(core)) {
-          push({ who: "user", text, task: pendingPermission.task });
-          await answerPermission(pendingPermission.requestId, true, always);
-          say(always ? "Permitido, e não pergunto mais nesta task." : "Permitido.");
-          return;
-        }
-        if (denyRe.test(core)) {
-          push({ who: "user", text, task: pendingPermission.task });
-          await answerPermission(pendingPermission.requestId, false);
-          say("Negado.");
-          return;
-        }
+      const verdict = await ipc.interpretVerdict(text).catch(() => null);
+      if (verdict?.kind === "confirm") {
+        push({ who: "user", text, task: pendingPermission.task });
+        await answerPermission(pendingPermission.requestId, true, verdict.always);
+        say(verdict.always ? "Permitido, e não pergunto mais nesta task." : "Permitido.");
+        return;
+      }
+      if (verdict?.kind === "deny") {
+        push({ who: "user", text, task: pendingPermission.task });
+        await answerPermission(pendingPermission.requestId, false);
+        say("Negado.");
+        return;
       }
     }
 
@@ -740,13 +747,14 @@ export default function App({
           return;
         }
         if (gate.needs_confirmation) {
+          // The modal announces itself out loud and listens for the
+          // verdict (the voice loop above) — no extra say() here.
           setPending({
             kind: "confirm-dispatch",
             instruction: text,
             sessionId: focusedTask.sessionId,
             warning: gate.aviso ?? gate.motivo,
           });
-          say("Preciso de confirmação antes de executar.");
           return;
         }
       }
@@ -873,19 +881,11 @@ export default function App({
     refresh();
   }
 
+  /** ONE voice surface: every mic button opens the global HUD. It knows
+   *  this window is focused (the ledger) — speech lands here anyway, and
+   *  the confirm chip + candidates come along for free. */
   async function onMic() {
-    if (recording || busy) return;
-    setRecording(true);
-    recordingRef.current = true;
-    try {
-      const text = await ipc.hearOnce();
-      if (text) await submit(text, []);
-    } catch (err) {
-      push({ who: "sys", text: `mic: ${err}` });
-    } finally {
-      setRecording(false);
-      recordingRef.current = false;
-    }
+    await ipc.hudShow().catch((err) => push({ who: "sys", text: `voz: ${err}` }));
   }
 
   /**
@@ -928,6 +928,120 @@ export default function App({
   pendingPermRef.current = pendingPermission;
   const answerPermissionRef = useRef(answerPermission);
   answerPermissionRef.current = answerPermission;
+  const pendingRef = useRef<Pending>(null);
+  pendingRef.current = pending;
+
+  /** Confirm the open dispatch modal (Enter, voice, or the button). */
+  function confirmPendingDispatch() {
+    const p = pendingRef.current;
+    if (p?.kind !== "confirm-dispatch") return;
+    setPending(null);
+    if (focusedTask) reactivateIfDone(focusedTask.title);
+    runDispatch(p.instruction, p.sessionId);
+  }
+  const confirmDispatchRef = useRef(confirmPendingDispatch);
+  confirmDispatchRef.current = confirmPendingDispatch;
+
+  // Voice-answerable modals (FASE 6): the app SPEAKS what it needs and
+  // hears the verdict — "sim", "não", "a segunda", or a full rephrase
+  // that REPLACES the message. Buttons and keys stay alive throughout.
+  useEffect(() => {
+    const p = pending;
+    if (
+      !p ||
+      (p.kind !== "confirm-dispatch" &&
+        p.kind !== "pick-session" &&
+        p.kind !== "pick-task" &&
+        p.kind !== "choice")
+    ) {
+      return;
+    }
+    let dead = false;
+    let capturing = false;
+    (async () => {
+      const labels =
+        p.kind === "confirm-dispatch"
+          ? []
+          : p.candidates.map((c) => ("title" in c && c.title ? c.title : ""));
+      const announce =
+        p.kind === "confirm-dispatch"
+          ? `Mostrei sua mensagem na tela${
+              p.sessionId && focusedTask ? ` para ${focusedTask.title}` : ""
+            }. Você confirma?`
+          : `Achei ${labels.length} opções. Qual delas?`;
+      // HARD RULE: never arm the mic while speaking — whisper would
+      // transcribe our own voice (speak resolves when `say` exits).
+      await ipc.speak(announce).catch(() => {});
+      if (dead) return;
+      await new Promise((r) => setTimeout(r, 150));
+      for (let round = 0; round < 4 && !dead; round++) {
+        let heard = "";
+        try {
+          capturing = true;
+          heard = (await ipc.hearOnce("modal")).trim();
+        } catch {
+          return; // mic busy (HUD took it) or absent: keys/click remain
+        } finally {
+          capturing = false;
+        }
+        if (dead || !heard) return;
+        const verdict = await ipc.interpretVerdict(heard, labels).catch(() => null);
+        const cur = pendingRef.current;
+        if (!verdict || dead || !cur || cur.kind !== p.kind) return;
+        if (verdict.kind === "unknown") continue;
+        if (verdict.kind === "deny") {
+          setPending(null);
+          say("Cancelado.");
+          return;
+        }
+        if (cur.kind === "confirm-dispatch") {
+          if (verdict.kind === "confirm") {
+            push({ who: "user", text: heard });
+            confirmDispatchRef.current();
+            say("Despachando.");
+            return;
+          }
+          if (verdict.kind === "instruction") {
+            // The user rephrased (STT got words wrong): swap the message
+            // and ask again — the textarea shows the new text.
+            setPending({ ...cur, instruction: verdict.text });
+            await ipc.speak("Troquei. Confirma?").catch(() => {});
+            continue;
+          }
+        } else if (verdict.kind === "pick") {
+          if (cur.kind === "pick-session") {
+            const hit = cur.candidates[verdict.index];
+            if (!hit) continue;
+            setPending(null);
+            recoverSession(hit);
+            return;
+          }
+          if (cur.kind === "pick-task") {
+            const cand = cur.candidates[verdict.index];
+            if (!cand) continue;
+            setPending(null);
+            openTaskByTitle(cand.title, cand.session_id ?? undefined);
+            return;
+          }
+          if (cur.kind === "choice") {
+            const cand = cur.candidates[verdict.index];
+            if (!cand) continue;
+            setPending(null);
+            runDispatch(cur.instruction, cand.session_id);
+            return;
+          }
+        }
+      }
+    })();
+    return () => {
+      dead = true;
+      // Cut only OUR orphan capture — never a capture the HUD owns.
+      if (capturing) ipc.hearStop().catch(() => {});
+    };
+    // Re-arm on modal KIND changes only: edits to the same modal (voice
+    // rephrase, typing in the textarea) must not restart the announce.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending?.kind]);
 
   /** A finished task that receives work again comes back to "doing". */
   async function reactivateIfDone(title: string) {

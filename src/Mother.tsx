@@ -31,6 +31,11 @@ export default function Mother() {
   const [tab, setTab] = useState<MotherTab>("voz");
   // Sessions matching a recovery request, waiting for the user to pick one.
   const [picks, setPicks] = useState<{ query: string; candidates: SessionHit[] } | null>(null);
+  // A typed work instruction planned and waiting for the user's confirm.
+  const [pendingPlan, setPendingPlan] = useState<{
+    text: string;
+    plan: Extract<import("./types").VoicePlan, { kind: "work" }>;
+  } | null>(null);
   // What the voice did and where: the command-center feed.
   const [actions, setActions] = useState<
     { utterance: string; target?: string | null; status?: string; ts: number }[]
@@ -316,23 +321,52 @@ export default function Mother() {
   async function submit(text: string) {
     if (!text.trim() || busy) return;
     setInput("");
-    // A pending permission + a short verdict = the answer, spoken or typed.
+    // A pending permission + a clean typed verdict = the answer. ONE
+    // grammar (domain::verdict) — "assim que der" is NOT a yes.
     if (pendingPerm?.who === "permission") {
-      const t = text.trim().toLowerCase();
-      if (t.split(/\s+/).length <= 4) {
-        if (/^(sim|pode|permitir|permite|permito|autoriza|aprova|libera|vai)\b/.test(t)) {
-          await answerPermission(pendingPerm.requestId, true);
-          say("Permitido.");
-          return;
-        }
-        if (/^(n[ãa]o|nega|negar|bloqueia|cancela)\b/.test(t)) {
-          await answerPermission(pendingPerm.requestId, false);
-          say("Negado.");
-          return;
-        }
+      const verdict = await ipc.interpretVerdict(text).catch(() => null);
+      if (verdict?.kind === "confirm") {
+        await answerPermission(pendingPerm.requestId, true);
+        say("Permitido.");
+        return;
+      }
+      if (verdict?.kind === "deny") {
+        await answerPermission(pendingPerm.requestId, false);
+        say("Negado.");
+        return;
       }
     }
     if (await runCommand(text)) return;
+    // ACTION verbs never fall into the ask pipeline (the 19/08 incident:
+    // "roda essa verificação de DNS" burned tokens on a refusal). Plan
+    // the destination and confirm — same machinery as the HUD.
+    const route = await ipc.routeText(text).catch(() => "ask");
+    if (route === "dispatch") {
+      push({ who: "user", text });
+      const plan = await ipc.planUtterance(text).catch(() => null);
+      if (plan?.kind === "work") {
+        const target = plan.task_title ?? plan.project_name ?? "novo chat";
+        setPendingPlan({ text, plan });
+        say(`Para ${target}. Confirma?`);
+        return;
+      }
+      if (plan?.kind === "candidates") {
+        setTab("voz");
+        setPicks({
+          query: text,
+          candidates: plan.options.map((o) => ({
+            session_id: o.session_id ?? "",
+            title: o.title,
+            cwd: o.workspace,
+          })),
+        });
+        say(`Achei ${plan.options.length} destinos. Qual deles?`);
+        return;
+      }
+      push({ who: "sys", text: "sem alvo — fale \"na task X\" ou abra a janela do projeto" });
+      say("Não achei o alvo pra esse trabalho.");
+      return;
+    }
     push({ who: "user", text });
     setBusy("perguntando…");
     try {
@@ -358,19 +392,9 @@ export default function Mother() {
     }
   }
 
+  /** ONE voice surface: the mother's mic/orb opens the global HUD too. */
   async function onMic() {
-    if (recording || busy) return;
-    setRecording(true);
-    recordingRef.current = true;
-    try {
-      const text = await ipc.hearOnce();
-      if (text) await submit(text);
-    } catch (err) {
-      push({ who: "sys", text: `mic: ${err}` });
-    } finally {
-      setRecording(false);
-      recordingRef.current = false;
-    }
+    await ipc.hudShow().catch((err) => push({ who: "sys", text: `voz: ${err}` }));
   }
   micRef.current = onMic;
 
@@ -465,6 +489,40 @@ export default function Mother() {
                 <div className="mother-msg vox">{lastReply.text}</div>
               )}
               {lastMsg?.who === "sys" && <div className="mother-msg sys">{lastMsg.text}</div>}
+            </div>
+          )}
+
+          {pendingPlan && (
+            <div className="mother-plan">
+              <div className="mother-picks-head">
+                despachar para{" "}
+                <b>
+                  {pendingPlan.plan.task_title ??
+                    `novo chat em ${pendingPlan.plan.project_name ?? "?"}`}
+                </b>
+                ?
+              </div>
+              <pre>{pendingPlan.plan.instruction}</pre>
+              <div className="row">
+                <button className="plain" onClick={() => setPendingPlan(null)}>
+                  cancelar
+                </button>
+                <button
+                  className="allow"
+                  onClick={async () => {
+                    const { plan } = pendingPlan;
+                    setPendingPlan(null);
+                    try {
+                      await ipc.voiceExecute(plan);
+                      say("Despachado.");
+                    } catch (err) {
+                      push({ who: "sys", text: `despacho: ${err}` });
+                    }
+                  }}
+                >
+                  confirmar
+                </button>
+              </div>
             </div>
           )}
 

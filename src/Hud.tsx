@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
-import { CircleQuestionMark, FolderPlus, Mic, Target } from "lucide-react";
+import { CircleQuestionMark, FolderPlus, Mic, ShieldCheck, Target } from "lucide-react";
 import * as ipc from "./lib/ipc";
 import type { VoiceCandidate, VoicePlan, VoxEvent } from "./types";
 
@@ -17,12 +17,14 @@ type Stage =
   | { s: "answer"; text: string };
 
 const CONFIRM_MS = 1600;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * The floating voice HUD: one global ear over every window. It shows the
- * transcription, then WHERE the sentence will land — Enter confirms now,
- * Esc cancels, silence confirms after a beat. Windows are views; this is
- * the command surface.
+ * transcription, then WHERE the sentence will land. Two speeds: the chat
+ * on screen executes after a silent beat; anything search-resolved SPEAKS
+ * the destination and waits for a spoken yes/no/rephrase. Windows are
+ * views; this is the command surface.
  */
 export default function Hud() {
   const [stage, setStage] = useState<Stage>({ s: "listening" });
@@ -30,10 +32,11 @@ export default function Hud() {
   stageRef.current = stage;
   const timer = useRef<number>(0);
   // ONE run at a time, whatever fires it (mount, StrictMode's double
-  // mount in dev, hotkey re-shows). The UI stage is a label, not a lock:
-  // its initial value IS "listening", so guarding on it let two captures
-  // start in parallel — two transcriptions, two plans, two voices.
+  // mount in dev, hotkey re-shows). The UI stage is a label, not a lock.
   const busyRef = useRef(false);
+  // Esc during a verdict listen: abort the round, not just the capture.
+  const cancelRef = useRef(false);
+  const verdictListening = useRef(false);
 
   const hide = useCallback(() => {
     window.clearTimeout(timer.current);
@@ -76,122 +79,154 @@ export default function Hud() {
     [finish],
   );
 
+  /**
+   * Hear ONE verdict utterance. Never armed while the app speaks (callers
+   * await ipc.speak first — whisper would transcribe our own voice), takes
+   * the mic over if another surface holds it, retries once on noise.
+   */
+  const listenVerdict = useCallback(
+    async (labels: string[]): Promise<ipc.VerdictOut | null> => {
+      verdictListening.current = true;
+      try {
+        for (let round = 0; round < 2; round++) {
+          let heard = "";
+          try {
+            heard = (await ipc.hearOnce("hud")).trim();
+          } catch (err) {
+            if (String(err).includes("mic_busy")) {
+              await ipc.hearStop().catch(() => {});
+              await sleep(180);
+              continue;
+            }
+            return null;
+          }
+          if (cancelRef.current || !heard) return null;
+          const verdict = await ipc.interpretVerdict(heard, labels).catch(() => null);
+          if (!verdict) return null;
+          if (verdict.kind !== "unknown") return verdict;
+          // Noise: one silent retry, then the keys/click take over.
+        }
+        return null;
+      } finally {
+        verdictListening.current = false;
+      }
+    },
+    [],
+  );
+
   /** Front the chat a pick landed on — or dispatch into it when the
    *  sentence carried work. The 19/08 bug was ending on focusMain(). */
-  const pickCandidate = useCallback(
-    async (instruction: string, cand: VoiceCandidate) => {
-      if (instruction) {
-        await execute({
-          kind: "work",
-          instruction,
-          task_title: cand.title,
-          session_id: cand.session_id,
-          workspace: cand.workspace,
-          project_name: cand.project_name,
-          new_task: false,
-          confidence: "high",
-        });
-        return;
-      }
-      // No work to send: opening IS the action. Resolve the owning
-      // project (adopts the session as a board task when needed).
-      let ws = cand.workspace ?? null;
-      let title = cand.title;
-      if (!ws && cand.session_id) {
-        const task = await ipc.taskFromSession(cand.session_id).catch(() => null);
-        ws = task?.workspace ?? null;
-        title = task?.title ?? title;
-      }
-      if (!ws) {
-        finish("sessão sem projeto registrado", "warn", 2600);
-        return;
-      }
-      const name = cand.project_name ?? ws.split("/").filter(Boolean).pop() ?? "projeto";
-      await ipc
-        .openProjectWindow(name, ws, title, cand.session_id ?? undefined)
-        .catch(() => {});
-      record(title, "aberta");
-      finish(`→ ${title} · aberta`, "ok", 1400);
-    },
-    [execute, finish, record],
-  );
+  async function pickCandidate(instruction: string, cand: VoiceCandidate) {
+    if (instruction) {
+      await execute({
+        kind: "work",
+        instruction,
+        task_title: cand.title,
+        session_id: cand.session_id,
+        workspace: cand.workspace,
+        project_name: cand.project_name,
+        new_task: false,
+        confidence: "high",
+      });
+      return;
+    }
+    // No work to send: opening IS the action. Resolve the owning
+    // project (adopts the session as a board task when needed).
+    let ws = cand.workspace ?? null;
+    let title = cand.title;
+    if (!ws && cand.session_id) {
+      const task = await ipc.taskFromSession(cand.session_id).catch(() => null);
+      ws = task?.workspace ?? null;
+      title = task?.title ?? title;
+    }
+    if (!ws) {
+      finish("sessão sem projeto registrado", "warn", 2600);
+      return;
+    }
+    const name = cand.project_name ?? ws.split("/").filter(Boolean).pop() ?? "projeto";
+    await ipc
+      .openProjectWindow(name, ws, title, cand.session_id ?? undefined)
+      .catch(() => {});
+    record(title, "aberta");
+    finish(`→ ${title} · aberta`, "ok", 1400);
+  }
+
+  /** Show options, ask out loud, hear the pick ("a primeira", the name,
+   *  "não", or a whole new sentence). Digits/click stay alive as fallback. */
+  async function offerCandidates(text: string, instruction: string, options: VoiceCandidate[]) {
+    setStage({ s: "candidates", text, instruction, options });
+    await ipc.speak(`Achei ${options.length}. Qual delas?`).catch(() => {});
+    await sleep(150);
+    const verdict = await listenVerdict(options.map((o) => o.title));
+    if (cancelRef.current || !verdict) return; // keys/click still live
+    if (verdict.kind === "pick") {
+      const cand = options[verdict.index];
+      if (cand) await pickCandidate(instruction, cand);
+    } else if (verdict.kind === "deny") {
+      hide();
+    } else if (verdict.kind === "instruction") {
+      await handle(verdict.text);
+    }
+  }
 
   /** Local commands the HUD can run itself (zero tokens). */
-  const runCommand = useCallback(
-    async (cmd: import("./types").TaskCommandResult) => {
-      if (cmd.kind === "open_project" || cmd.kind === "new_chat") {
-        await ipc.openProjectWindow(cmd.title, cmd.path).catch(() => {});
-        if (cmd.instruction) {
-          await ipc.chatStart(cmd.path, cmd.instruction).catch(() => {});
-          record(cmd.title, "chat iniciado");
-          finish(`→ ${cmd.title} · chat iniciado`, "ok", 1400);
-        } else {
-          record(cmd.title, "aberto");
-          finish(`→ ${cmd.title} · aberto`, "ok", 1200);
-        }
-      } else if (cmd.kind === "open_hq") {
-        await ipc.focusMain(cmd.tab).catch(() => {});
-        finish(`→ ${cmd.tab} na janela mãe`, "ok", 1100);
-      } else if (cmd.kind === "open" || cmd.kind === "switch") {
-        // Going (back) to a chat fronts ITS project window — never the
-        // mother (the old catch-all fronted the wrong window).
-        await pickCandidate("", { title: cmd.title, session_id: cmd.session_id });
-      } else if (cmd.kind === "task_candidates") {
-        setStage({
-          s: "candidates",
-          text: lastText.current,
-          instruction: "",
-          options: cmd.candidates.map((c) => ({
-            title: c.title,
-            session_id: c.session_id,
-            workspace: c.workspace,
-          })),
-        });
-      } else if (cmd.kind === "session_candidates") {
-        if (cmd.candidates.length === 0) {
-          finish(`nenhuma sessão sobre "${cmd.query}"`, "warn", 2600);
-          return;
-        }
-        setStage({
-          s: "candidates",
-          text: lastText.current,
-          instruction: "",
-          options: cmd.candidates.map((c) => ({
-            title: c.title,
-            session_id: c.session_id,
-            workspace: c.cwd,
-          })),
-        });
-      } else if (cmd.kind === "set_mode") {
-        // Mode switching needs a window's focused worker; the HUD has none.
-        finish("troca de modo é na janela do chat — seletor ou /modo", "warn", 2600);
-      } else if (cmd.kind === "not_found") {
-        finish(`nada bate com "${cmd.query}"`, "warn", 2600);
+  async function runCommand(cmd: import("./types").TaskCommandResult) {
+    if (cmd.kind === "open_project" || cmd.kind === "new_chat") {
+      await ipc.openProjectWindow(cmd.title, cmd.path).catch(() => {});
+      if (cmd.instruction) {
+        await ipc.chatStart(cmd.path, cmd.instruction).catch(() => {});
+        record(cmd.title, "chat iniciado");
+        finish(`→ ${cmd.title} · chat iniciado`, "ok", 1400);
       } else {
-        // Board bookkeeping (rename/pin/archive) resolves on the backend;
-        // just acknowledge.
-        const title = "title" in cmd ? cmd.title : "";
-        finish(`✓ ${cmd.kind}${title ? ` · ${title}` : ""}`, "ok", 1400);
+        record(cmd.title, "aberto");
+        finish(`→ ${cmd.title} · aberto`, "ok", 1200);
       }
-    },
-    [finish, pickCandidate, record],
-  );
+    } else if (cmd.kind === "open_hq") {
+      await ipc.focusMain(cmd.tab).catch(() => {});
+      finish(`→ ${cmd.tab} na janela mãe`, "ok", 1100);
+    } else if (cmd.kind === "open" || cmd.kind === "switch") {
+      // Going (back) to a chat fronts ITS project window — never the
+      // mother (the old catch-all fronted the wrong window).
+      await pickCandidate("", { title: cmd.title, session_id: cmd.session_id });
+    } else if (cmd.kind === "task_candidates") {
+      await offerCandidates(
+        lastText.current,
+        "",
+        cmd.candidates.map((c) => ({
+          title: c.title,
+          session_id: c.session_id,
+          workspace: c.workspace,
+        })),
+      );
+    } else if (cmd.kind === "session_candidates") {
+      if (cmd.candidates.length === 0) {
+        finish(`nenhuma sessão sobre "${cmd.query}"`, "warn", 2600);
+        return;
+      }
+      await offerCandidates(
+        lastText.current,
+        "",
+        cmd.candidates.map((c) => ({
+          title: c.title,
+          session_id: c.session_id,
+          workspace: c.cwd,
+        })),
+      );
+    } else if (cmd.kind === "set_mode") {
+      // Mode switching needs a window's focused worker; the HUD has none.
+      finish("troca de modo é na janela do chat — seletor ou /modo", "warn", 2600);
+    } else if (cmd.kind === "not_found") {
+      finish(`nada bate com "${cmd.query}"`, "warn", 2600);
+    } else {
+      // Board bookkeeping (rename/pin/archive) resolves on the backend;
+      // just acknowledge.
+      const title = "title" in cmd ? cmd.title : "";
+      finish(`✓ ${cmd.kind}${title ? ` · ${title}` : ""}`, "ok", 1400);
+    }
+  }
 
-  const start = useCallback(async () => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setStage({ s: "listening" });
-    let text = "";
-    try {
-      text = (await ipc.hearOnce()).trim();
-    } catch {
-      hide();
-      return;
-    }
-    if (!text) {
-      hide();
-      return;
-    }
+  /** Route one utterance (fresh capture or a spoken rephrase). */
+  async function handle(text: string) {
     lastText.current = text;
     setStage({ s: "thinking", text });
     let plan: VoicePlan;
@@ -201,7 +236,14 @@ export default function Hud() {
       finish(`não entendi: ${err}`, "warn", 2600);
       return;
     }
-    if (plan.kind === "command") {
+    if (plan.kind === "permission_answer") {
+      // A card was waiting somewhere and the user just said "pode"/"nega".
+      await ipc.approve(plan.request_id, plan.allow).catch(() => {});
+      record(plan.label, plan.allow ? "permitido em voz" : "negado em voz");
+      const said = plan.allow ? "Permitido." : "Negado.";
+      finish(`${plan.allow ? "✓" : "✗"} ${plan.tool} · ${plan.label}`, "ok", 1600);
+      ipc.speak(said).catch(() => {});
+    } else if (plan.kind === "command") {
       await runCommand(plan.command);
     } else if (plan.kind === "question") {
       setStage({ s: "asking", text });
@@ -222,26 +264,71 @@ export default function Hud() {
       setStage({ s: "confirm", text, plan });
       window.clearTimeout(timer.current);
       // Two speeds: the chat on screen (high) executes after a silent
-      // beat; a search-resolved or brand-new target (low) waits for an
-      // explicit Enter — never runs on silence.
+      // beat; a search-resolved or brand-new target (low) is SPOKEN and
+      // waits for a verdict — never runs on silence.
       if (plan.confidence === "high" && !plan.new_task) {
         timer.current = window.setTimeout(() => execute(plan), CONFIRM_MS);
+        return;
       }
+      const target = plan.task_title ?? `novo chat em ${plan.project_name ?? "?"}`;
+      await ipc.speak(`Para ${target}. Confirmo?`).catch(() => {});
+      await sleep(150);
+      const verdict = await listenVerdict([]);
+      if (cancelRef.current || !verdict) return; // Enter/Esc still live
+      if (verdict.kind === "confirm") await execute(plan);
+      else if (verdict.kind === "deny") finish("cancelado", "warn", 1200);
+      else if (verdict.kind === "instruction") await handle(verdict.text);
     } else if (plan.kind === "candidates") {
-      setStage({
-        s: "candidates",
-        text,
-        instruction: plan.instruction,
-        options: plan.options,
-      });
+      await offerCandidates(text, plan.instruction, plan.options);
     } else {
-      finish('sem alvo — fale "na task X" ou "no projeto Y"', "warn", 3000);
+      // No target at all: say so and listen again — dying here was the
+      // old dead-end that sent people hunting with the mouse.
+      await ipc.speak("Não achei o alvo. Fala a task ou o projeto.").catch(() => {});
+      finish('sem alvo — "na task X" ou "no projeto Y"', "warn", 300);
+      await sleep(150);
+      busyRef.current = false;
+      start();
     }
-  }, [execute, finish, hide, runCommand]);
+  }
+
+  async function start() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    cancelRef.current = false;
+    setStage({ s: "listening" });
+    let text = "";
+    try {
+      text = (await ipc.hearOnce("hud")).trim();
+    } catch (err) {
+      // Another surface holds the mic: take over once (cut + retry).
+      if (String(err).includes("mic_busy")) {
+        await ipc.hearStop().catch(() => {});
+        await sleep(180);
+        try {
+          text = (await ipc.hearOnce("hud")).trim();
+        } catch {
+          hide();
+          return;
+        }
+      } else {
+        hide();
+        return;
+      }
+    }
+    if (!text) {
+      hide();
+      return;
+    }
+    await handle(text);
+  }
+  const startRef = useRef(start);
+  startRef.current = start;
+  const pickRef = useRef(pickCandidate);
+  pickRef.current = pickCandidate;
 
   // Every hotkey press re-arms the HUD; the first mount starts by itself.
   useEffect(() => {
-    start();
+    startRef.current();
     const un = listen<VoxEvent>("vox", (e) => {
       if (e.payload.kind !== "hud_listen") return;
       // Hotkey while something lingers (note/answer/candidates/confirm):
@@ -249,36 +336,50 @@ export default function Hud() {
       const s = stageRef.current.s;
       if (s === "note" || s === "answer" || s === "candidates" || s === "confirm") {
         window.clearTimeout(timer.current);
+        cancelRef.current = true;
+        if (verdictListening.current) ipc.hearStop().catch(() => {});
         busyRef.current = false;
       }
-      start();
+      startRef.current();
     });
     return () => {
       un.then((f) => f());
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const st = stageRef.current;
       if (e.key === "Escape") {
-        if (st.s === "listening") ipc.hearStop().catch(() => {});
-        else hide();
+        if (verdictListening.current) {
+          cancelRef.current = true;
+          ipc.hearStop().catch(() => {});
+          hide();
+        } else if (st.s === "listening") {
+          ipc.hearStop().catch(() => {});
+        } else {
+          hide();
+        }
       }
       if (e.key === "Enter" && st.s === "confirm") {
         window.clearTimeout(timer.current);
+        cancelRef.current = true;
+        if (verdictListening.current) ipc.hearStop().catch(() => {});
         execute(st.plan);
       }
       // Digits pick a candidate (1-based on screen).
       if (st.s === "candidates" && /^[1-9]$/.test(e.key)) {
         const cand = st.options[Number(e.key) - 1];
-        if (cand) pickCandidate(st.instruction, cand);
+        if (cand) {
+          cancelRef.current = true;
+          if (verdictListening.current) ipc.hearStop().catch(() => {});
+          pickRef.current(st.instruction, cand);
+        }
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [execute, hide, pickCandidate]);
+  }, [execute, hide]);
 
   const waveform = (
     <span className="hud-wave">
@@ -319,7 +420,7 @@ export default function Hud() {
             <span className="hud-keys">
               {stage.plan.confidence === "high" && !stage.plan.new_task
                 ? "Enter confirma · Esc cancela"
-                : "Enter confirma · Esc cancela · nada roda sozinho"}
+                : 'diga "sim" ou "não" · Enter confirma'}
             </span>
           </div>
           {stage.plan.confidence === "high" && !stage.plan.new_task && (
@@ -332,11 +433,11 @@ export default function Hud() {
           <div className="hud-row">
             <Mic size={14} className="hud-icon" />
             <span className="hud-text">“{stage.text}”</span>
-            <span className="hud-sub">qual delas?</span>
+            <span className="hud-sub">qual delas? fale ou tecle o número</span>
           </div>
           <div className="hud-cands">
             {stage.options.map((o, i) => (
-              <button key={i} onClick={() => pickCandidate(stage.instruction, o)}>
+              <button key={i} onClick={() => pickRef.current(stage.instruction, o)}>
                 <i>{i + 1}</i>
                 <span className="hud-cand-title">{o.title}</span>
                 {o.project_name && <span className="hud-cand-proj">{o.project_name}</span>}
@@ -366,7 +467,10 @@ export default function Hud() {
       )}
       {stage.s === "note" && (
         <div className="hud-row">
-          <span className={`hud-text ${stage.tone}`}>{stage.text}</span>
+          <span className={`hud-text ${stage.tone}`}>
+            {stage.text.startsWith("✓") && <ShieldCheck size={13} className="hud-icon" />}
+            {stage.text}
+          </span>
         </div>
       )}
     </div>

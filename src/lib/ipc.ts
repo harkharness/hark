@@ -19,9 +19,30 @@ export const useContext = (name: string) => invoke("use_context", { name });
 export const routeText = (text: string) => invoke<string>("route_text", { text });
 export const speak = (text: string) => invoke("speak", { text });
 export const speakStop = () => invoke("speak_stop");
-export const hearOnce = () => invoke<string>("hear_once");
+/** One mic, one owner: a busy mic rejects with "mic_busy:<owner>". */
+export const hearOnce = (owner?: string) =>
+  invoke<string>("hear_once", { owner: owner ?? null });
 /** Esc while recording: cut the capture and transcribe what was said. */
 export const hearStop = () => invoke("hear_stop");
+
+/** Spoken verdict on whatever is pending — the domain grammar decides. */
+export type VerdictOut =
+  | { kind: "confirm"; always: boolean }
+  | { kind: "deny" }
+  | { kind: "pick"; index: number }
+  | { kind: "action"; id: string }
+  | { kind: "instruction"; text: string }
+  | { kind: "unknown" };
+export const interpretVerdict = (
+  utterance: string,
+  options?: string[],
+  actions?: [string, string[]][],
+) =>
+  invoke<VerdictOut>("interpret_verdict", {
+    utterance,
+    options: options ?? null,
+    actions: actions ?? null,
+  });
 
 /** Ask with any pasted screenshots as ordered (media, base64) pairs. */
 export const askText = (
@@ -216,3 +237,5 @@ export const setActiveContext = (ctx: {
   session_id?: string | null;
 }) => invoke("set_active_context", { ctx });
 export const hudHide = () => invoke("hud_hide");
+/** Open the global voice HUD — every mic button funnels here now. */
+export const hudShow = () => invoke("hud_show");

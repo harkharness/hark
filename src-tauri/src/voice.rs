@@ -66,6 +66,17 @@ pub enum VoicePlan {
     Question { question: String },
     /// Work with no resolvable destination: the HUD asks for an address.
     NoTarget { instruction: String },
+    /// A clean spoken yes/no while a permission card waits ANYWHERE:
+    /// hotkey + "pode" answers it without touching a window.
+    PermissionAnswer {
+        request_id: String,
+        label: String,
+        tool: String,
+        allow: bool,
+        /// v1 limitation: spoken "sempre" is a plain allow (per-window
+        /// standing rules need the window's own map).
+        always: bool,
+    },
 }
 
 /// One possible destination offered on the HUD.
@@ -168,6 +179,15 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
         .current()
         .cloned()
         .unwrap_or_default();
+
+    // 0. A permission card waiting anywhere + a clean spoken verdict =
+    //    the answer, whatever window it belongs to.
+    let newest_perm = app.state::<super::PermLog>().0.lock().unwrap().last().cloned();
+    if let Some((request_id, label, tool)) = newest_perm {
+        if let Some((allow, always)) = vox_core::domain::verdict::interpret_permission(&text) {
+            return Ok(VoicePlan::PermissionAnswer { request_id, label, tool, allow, always });
+        }
+    }
 
     // 1. Local commands win (open project, recover session, rename…).
     if let Some(command) = super::task_command(text.clone(), ctx.task_title.clone())? {

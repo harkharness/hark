@@ -139,6 +139,16 @@ export function useVoxEvents(h: Handlers) {
       } else if (ev.kind === "voice_action") {
         h.onVoiceAction?.(ev.utterance, ev.target, ev.status);
         h.refresh();
+      } else if (ev.kind === "permission_decided") {
+        // Someone answered (click, keys, voice, the HUD): every window's
+        // copy of the card resolves — no stale "aguardando" anywhere.
+        h.setMessages((old) =>
+          old.map((m) =>
+            m.who === "permission" && m.requestId === ev.request_id && !m.decision
+              ? { ...m, decision: ev.allow ? "allow" : "deny" }
+              : m,
+          ),
+        );
       } else if (ev.kind === "rate_limit") {
         h.onRateLimit({
           status: ev.status,

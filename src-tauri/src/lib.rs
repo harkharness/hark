@@ -25,6 +25,11 @@ use vox_core::ports::{AgentRunner, AudioIn, Stt, Tts};
 /// Permission requests waiting for a click, keyed by request_id.
 struct Pending(Mutex<HashMap<String, mpsc::Sender<PermissionDecision>>>);
 
+/// Every undecided permission ask, newest LAST: (request_id, label, tool).
+/// The HUD's step-0 check answers the newest one by voice from anywhere.
+#[derive(Default)]
+pub(crate) struct PermLog(pub(crate) Mutex<Vec<(String, String, String)>>);
+
 /// A live worker plus everything needed to restart it on the same session.
 struct WorkerHandle {
     worker: std::sync::Arc<vox_core::adapters::worker::PersistentWorker>,
@@ -304,8 +309,31 @@ fn mic_stop_flag() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
         .clone()
 }
 
+/// ONE microphone, one owner at a time. Concurrent hear_once calls used
+/// to record in parallel over a single global stop flag; now the second
+/// caller gets "mic_busy:<owner>" and decides (the HUD takes over with a
+/// hear_stop + retry; modal loops just wait their turn).
+#[derive(Default)]
+struct MicLease(Mutex<Option<String>>);
+
+struct MicGuard<'a>(&'a MicLease);
+impl Drop for MicGuard<'_> {
+    fn drop(&mut self) {
+        *self.0 .0.lock().unwrap() = None;
+    }
+}
+
 #[tauri::command(async)]
-fn hear_once() -> Result<String, String> {
+fn hear_once(lease: State<'_, MicLease>, owner: Option<String>) -> Result<String, String> {
+    let owner = owner.unwrap_or_else(|| "janela".into());
+    {
+        let mut current = lease.0.lock().unwrap();
+        if let Some(holder) = current.as_deref() {
+            return Err(format!("mic_busy:{holder}"));
+        }
+        *current = Some(owner);
+    }
+    let _guard = MicGuard(&lease);
     let config = Config::load();
     let stt = stt(&config).ok_or("whisper model missing (run: vox setup)")?;
     let tts = SayTts {
@@ -322,6 +350,42 @@ fn hear_once() -> Result<String, String> {
     .map_err(|e| e.to_string())?;
     tts.beep(vox_core::ports::Cue::Captured);
     stt.transcribe(&audio).map_err(|e| e.to_string())
+}
+
+/// Spoken verdict on whatever is pending (confirm modal, picker, warning
+/// actions). Pure passthrough to the domain grammar — the ONE place that
+/// decides what "sim", "a segunda" or a rephrase mean.
+#[tauri::command]
+fn interpret_verdict(
+    utterance: String,
+    options: Option<Vec<String>>,
+    actions: Option<Vec<(String, Vec<String>)>>,
+) -> Result<serde_json::Value, String> {
+    use vox_core::domain::verdict::Verdict;
+    let options = options.unwrap_or_default();
+    let option_refs: Vec<&str> = options.iter().map(String::as_str).collect();
+    let actions = actions.unwrap_or_default();
+    let phrase_refs: Vec<Vec<&str>> = actions
+        .iter()
+        .map(|(_, ps)| ps.iter().map(String::as_str).collect())
+        .collect();
+    let action_refs: Vec<(&str, &[&str])> = actions
+        .iter()
+        .zip(&phrase_refs)
+        .map(|((id, _), ps)| (id.as_str(), ps.as_slice()))
+        .collect();
+    Ok(
+        match vox_core::domain::verdict::interpret(&utterance, &option_refs, &action_refs) {
+            Verdict::Confirm { always } => serde_json::json!({ "kind": "confirm", "always": always }),
+            Verdict::Deny => serde_json::json!({ "kind": "deny" }),
+            Verdict::Pick(i) => serde_json::json!({ "kind": "pick", "index": i }),
+            Verdict::Action(id) => serde_json::json!({ "kind": "action", "id": id }),
+            Verdict::Instruction(text) => {
+                serde_json::json!({ "kind": "instruction", "text": text })
+            }
+            Verdict::Unknown => serde_json::json!({ "kind": "unknown" }),
+        },
+    )
 }
 
 /// Esc while the orb is red: cut the capture NOW and transcribe what was
@@ -626,6 +690,11 @@ fn start_worker(
                         .lock()
                         .unwrap()
                         .insert(request_id.clone(), task2.clone());
+                    app2.state::<PermLog>().0.lock().unwrap().push((
+                        request_id.clone(),
+                        board_title.clone(),
+                        tool_name.clone(),
+                    ));
                     let _ = app2.emit(
                         "vox-permission",
                         serde_json::json!({
@@ -1045,6 +1114,11 @@ fn dispatch_text(
             let request_id = format!("{task_id}-{}", Utc::now().format("%H%M%S%f"));
             let (tx, rx) = mpsc::channel();
             pending.0.lock().unwrap().insert(request_id.clone(), tx);
+            app.state::<PermLog>().0.lock().unwrap().push((
+                request_id.clone(),
+                label.to_string(),
+                tool.to_string(),
+            ));
             let _ = app.emit(
                 "vox-permission",
                 serde_json::json!({
@@ -2038,6 +2112,7 @@ fn focus_main(app: AppHandle, tab: Option<String>) -> Result<(), String> {
 /// as fallback).
 #[tauri::command]
 fn approve(
+    app: AppHandle,
     pending: State<'_, Pending>,
     perms: State<'_, WorkerPermissions>,
     live: State<'_, LiveWorkers>,
@@ -2049,6 +2124,21 @@ fn approve(
     } else {
         PermissionDecision::Deny
     };
+    // Every window shows this card: broadcast the outcome so they ALL
+    // resolve, whoever answered (click, voice, the HUD).
+    app.state::<PermLog>()
+        .0
+        .lock()
+        .unwrap()
+        .retain(|(id, _, _)| id != &request_id);
+    let _ = app.emit(
+        "vox",
+        serde_json::json!({
+            "kind": "permission_decided",
+            "request_id": request_id,
+            "allow": allow,
+        }),
+    );
     if let Some(task_id) = perms.0.lock().unwrap().remove(&request_id) {
         if let Some(worker) = live.0.lock().unwrap().get(&task_id) {
             let _ = worker.worker.respond_permission(&request_id, decision);
@@ -2067,6 +2157,8 @@ pub fn run() {
         .manage(voice::ActiveContext::default())
         .manage(SlashRegistry::default())
         .manage(Pending(Mutex::new(HashMap::new())))
+        .manage(PermLog::default())
+        .manage(MicLease::default())
         .manage(LiveWorkers(Mutex::new(HashMap::new())))
         .manage(WorkerPermissions(Mutex::new(HashMap::new())))
         .setup(|app| {
@@ -2114,6 +2206,7 @@ pub fn run() {
             session_context_weight,
             task_command,
             slash_commands,
+            interpret_verdict,
             evaluate,
             board_move,
             board_rename,

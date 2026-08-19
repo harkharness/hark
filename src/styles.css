@@ -923,6 +923,21 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .hud-cand-proj { color: var(--dim); font-size: 11px; flex: 0 0 auto; }
+
+/* Mother: typed work waiting for a confirm (same look as the picks). */
+.mother-plan {
+  background: var(--panel); border: 1px solid var(--border-strong);
+  border-radius: 10px; padding: 10px 12px; margin: 8px 0;
+}
+.mother-plan pre {
+  white-space: pre-wrap; word-break: break-word; font-size: 12.5px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; margin: 8px 0; max-height: 30vh; overflow-y: auto;
+}
+.mother-plan .row { display: flex; gap: 8px; justify-content: flex-end; }
+.modal-hint {
+  margin-right: auto; align-self: center; color: var(--dim); font-size: 11px;
+}
 .inputbar button {
   background: var(--bg); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer;

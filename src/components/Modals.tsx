@@ -110,6 +110,11 @@ export default function Modals({
   }
 
   if (pending.kind === "confirm-dispatch") {
+    const confirm = () => {
+      const { instruction, sessionId } = pending;
+      setPending(null);
+      onDispatch(instruction, sessionId);
+    };
     return (
       <div className="modal-backdrop">
         <div className="modal">
@@ -120,19 +125,28 @@ export default function Modals({
             )}
           </h2>
           {pending.warning && <div className="gate-warning">⚠ {pending.warning}</div>}
-          <pre>{pending.instruction}</pre>
+          {/* EDITABLE: STT gets words wrong; fix them right here (or say
+              the whole thing again — the voice loop swaps this text). */}
+          <textarea
+            className="resume-input"
+            autoFocus
+            value={pending.instruction}
+            onChange={(e) => setPending({ ...pending, instruction: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                confirm();
+              }
+              if (e.key === "Escape") setPending(null);
+            }}
+            rows={5}
+          />
           <div className="row">
+            <span className="modal-hint">diga "sim"/"não" · Enter despacha · Shift+Enter quebra linha</span>
             <button className="plain" onClick={() => setPending(null)}>
               cancelar
             </button>
-            <button
-              className="allow"
-              onClick={() => {
-                const { instruction, sessionId } = pending;
-                setPending(null);
-                onDispatch(instruction, sessionId);
-              }}
-            >
+            <button className="allow" onClick={confirm}>
               confirmar
             </button>
           </div>

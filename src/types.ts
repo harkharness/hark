@@ -45,6 +45,8 @@ export type VoxEvent =
   | { kind: "main_tab"; tab: string }
   | { kind: "focus_task"; title: string; session_id?: string | null }
   | { kind: "hud_listen" }
+  /** A permission was decided somewhere: every window resolves its card. */
+  | { kind: "permission_decided"; request_id: string; allow: boolean }
   | { kind: "voice_action"; utterance: string; target?: string | null; status?: string }
   | { kind: "status"; text: string }
   | { kind: "error"; text: string };
@@ -278,4 +280,13 @@ export type VoicePlan =
     }
   | { kind: "candidates"; instruction: string; options: VoiceCandidate[] }
   | { kind: "question"; question: string }
-  | { kind: "no_target"; instruction: string };
+  | { kind: "no_target"; instruction: string }
+  /** A clean yes/no while a permission card waits anywhere. */
+  | {
+      kind: "permission_answer";
+      request_id: string;
+      label: string;
+      tool: string;
+      allow: boolean;
+      always: boolean;
+    };
