@@ -255,6 +255,13 @@ export type OpenFile = {
   project: Project;
 };
 
+/** A local, deterministic dispatch warning with its offered actions. */
+export type DispatchWarning = {
+  kind: "big_history" | "full_context";
+  text: string;
+  actions: ("compact_first" | "proceed")[];
+};
+
 /** One possible destination offered on the HUD. */
 export type VoiceCandidate = {
   title: string;
@@ -277,6 +284,9 @@ export type VoicePlan =
       /** "high" = silence confirms (chat on screen / unique address);
        *  "low" = search-resolved: an explicit verdict is required. */
       confidence: "high" | "low";
+      /** Local precheck texts: any warning downgrades to explicit verdict
+       *  and offers "compacta antes" / "segue". */
+      warnings: string[];
     }
   | { kind: "candidates"; instruction: string; options: VoiceCandidate[] }
   | { kind: "question"; question: string }

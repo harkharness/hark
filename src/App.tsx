@@ -719,12 +719,14 @@ export default function App({
       return;
     }
     if (!isQuestion && focusedTask) {
-      // THE GATE: before anything expensive runs on the focused session, a
-      // cheap evaluator decides whether this message really belongs there.
+      // THE GATE (mismatch detection, LLM) + local PRECHECKS (size and
+      // context numbers from THIS machine) run together: the gate can no
+      // longer invent cost warnings, the prechecks can't be wrong.
       setBusy("avaliando…");
-      const gate = await ipc
-        .evaluate(text, focusedTask.title, focusedTask.sessionId)
-        .catch(() => null);
+      const [gate, warnings] = await Promise.all([
+        ipc.evaluate(text, focusedTask.title, focusedTask.sessionId).catch(() => null),
+        ipc.dispatchPrechecks(focusedTask.sessionId).catch(() => []),
+      ]);
       setBusy(null);
       if (gate) {
         if (gate.cost_usd) addCost("avaliador", gate.cost_usd);
@@ -746,17 +748,18 @@ export default function App({
           say(`Isso parece ser da task ${gate.task_alvo}.`);
           return;
         }
-        if (gate.needs_confirmation) {
-          // The modal announces itself out loud and listens for the
-          // verdict (the voice loop above) — no extra say() here.
-          setPending({
-            kind: "confirm-dispatch",
-            instruction: text,
-            sessionId: focusedTask.sessionId,
-            warning: gate.aviso ?? gate.motivo,
-          });
-          return;
-        }
+      }
+      if (gate?.needs_confirmation || warnings.length > 0) {
+        // The modal announces itself out loud and listens for the
+        // verdict (the voice loop above) — no extra say() here.
+        setPending({
+          kind: "confirm-dispatch",
+          instruction: text,
+          sessionId: focusedTask.sessionId,
+          warning: gate?.aviso ?? undefined,
+          warnings,
+        });
+        return;
       }
       await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text, images);
       return;
@@ -942,6 +945,44 @@ export default function App({
   const confirmDispatchRef = useRef(confirmPendingDispatch);
   confirmDispatchRef.current = confirmPendingDispatch;
 
+  /** "compactar antes": /compact runs as its own turn, the message queues
+   *  right behind it — the heavy-session warning's remedy, one click/word. */
+  async function dispatchCompactFirst(instruction: string, sessionId?: string) {
+    push({ who: "sys", text: "compactando o contexto antes de despachar…" });
+    const liveEntry =
+      focusedTask && sessionId === focusedTask.sessionId
+        ? Object.entries(liveWorkers).find(([, w]) => w.label === focusedTask.title)
+        : undefined;
+    if (liveEntry) {
+      await ipc.workerSend(liveEntry[0], "/compact", []).catch(() => {});
+      await ipc
+        .workerSend(liveEntry[0], instruction, [])
+        .catch((err) => push({ who: "sys", text: `worker: ${err}` }));
+      return;
+    }
+    // Dead session: the resume opens on "/compact" (a resume inherits the
+    // session's title — the card is never named "/compact"), then the
+    // real work queues on the fresh worker's stdin.
+    const out = await ipc
+      .workerStart("/compact", sessionId ?? null, modeDefault ?? undefined)
+      .catch(() => null);
+    if (out?.status === "started") {
+      const label =
+        focusedTask && sessionId === focusedTask.sessionId
+          ? focusedTask.title
+          : instruction.split(/\s+/).slice(0, 5).join(" ");
+      adoptWorker(out.task_id, label, out.directives, sessionId ?? "");
+      await ipc
+        .workerSend(out.task_id, instruction, [])
+        .catch((err) => push({ who: "sys", text: `worker: ${err}` }));
+      return;
+    }
+    push({ who: "sys", text: "não consegui compactar antes; despachando direto" });
+    runDispatch(instruction, sessionId);
+  }
+  const compactFirstRef = useRef(dispatchCompactFirst);
+  compactFirstRef.current = dispatchCompactFirst;
+
   // Voice-answerable modals (FASE 6): the app SPEAKS what it needs and
   // hears the verdict — "sim", "não", "a segunda", or a full rephrase
   // that REPLACES the message. Buttons and keys stay alive throughout.
@@ -985,10 +1026,31 @@ export default function App({
           capturing = false;
         }
         if (dead || !heard) return;
-        const verdict = await ipc.interpretVerdict(heard, labels).catch(() => null);
+        // Warning actions ("compacta antes") are part of the grammar
+        // whenever the modal shows them.
+        const hasCompact =
+          p.kind === "confirm-dispatch" &&
+          (pendingRef.current?.kind === "confirm-dispatch"
+            ? (pendingRef.current.warnings ?? []).some((w) =>
+                w.actions.includes("compact_first"),
+              )
+            : false);
+        const actions: [string, string[]][] = hasCompact
+          ? [["compact_first", ["compacta antes", "compactar antes", "compacta primeiro"]]]
+          : [];
+        const verdict = await ipc.interpretVerdict(heard, labels, actions).catch(() => null);
         const cur = pendingRef.current;
         if (!verdict || dead || !cur || cur.kind !== p.kind) return;
         if (verdict.kind === "unknown") continue;
+        if (verdict.kind === "action" && verdict.id === "compact_first") {
+          if (cur.kind === "confirm-dispatch") {
+            const { instruction, sessionId } = cur;
+            setPending(null);
+            say("Compactando antes.");
+            compactFirstRef.current(instruction, sessionId);
+          }
+          return;
+        }
         if (verdict.kind === "deny") {
           setPending(null);
           say("Cancelado.");
@@ -1595,6 +1657,7 @@ export default function App({
         onFocusWorker={(taskId) => setFocused(taskId)}
         onPickSession={recoverSession}
         onPickTask={(title, sessionId) => openTaskByTitle(title, sessionId)}
+        onCompactFirst={dispatchCompactFirst}
       />
     </div>
   );

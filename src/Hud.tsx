@@ -85,7 +85,10 @@ export default function Hud() {
    * the mic over if another surface holds it, retries once on noise.
    */
   const listenVerdict = useCallback(
-    async (labels: string[]): Promise<ipc.VerdictOut | null> => {
+    async (
+      labels: string[],
+      actions: [string, string[]][] = [],
+    ): Promise<ipc.VerdictOut | null> => {
       verdictListening.current = true;
       try {
         for (let round = 0; round < 2; round++) {
@@ -101,7 +104,7 @@ export default function Hud() {
             return null;
           }
           if (cancelRef.current || !heard) return null;
-          const verdict = await ipc.interpretVerdict(heard, labels).catch(() => null);
+          const verdict = await ipc.interpretVerdict(heard, labels, actions).catch(() => null);
           if (!verdict) return null;
           if (verdict.kind !== "unknown") return verdict;
           // Noise: one silent retry, then the keys/click take over.
@@ -127,6 +130,7 @@ export default function Hud() {
         project_name: cand.project_name,
         new_task: false,
         confidence: "high",
+        warnings: [],
       });
       return;
     }
@@ -264,19 +268,37 @@ export default function Hud() {
       setStage({ s: "confirm", text, plan });
       window.clearTimeout(timer.current);
       // Two speeds: the chat on screen (high) executes after a silent
-      // beat; a search-resolved or brand-new target (low) is SPOKEN and
-      // waits for a verdict — never runs on silence.
-      if (plan.confidence === "high" && !plan.new_task) {
+      // beat; a search-resolved or brand-new target (low) — or ANY local
+      // warning — is SPOKEN and waits for a verdict, never on silence.
+      const hasWarnings = plan.warnings.length > 0;
+      if (plan.confidence === "high" && !plan.new_task && !hasWarnings) {
         timer.current = window.setTimeout(() => execute(plan), CONFIRM_MS);
         return;
       }
       const target = plan.task_title ?? `novo chat em ${plan.project_name ?? "?"}`;
-      await ipc.speak(`Para ${target}. Confirmo?`).catch(() => {});
+      const prompt = hasWarnings
+        ? `Para ${target}, mas ${plan.warnings[0]}. Sigo, ou compacto antes?`
+        : `Para ${target}. Confirmo?`;
+      await ipc.speak(prompt).catch(() => {});
       await sleep(150);
-      const verdict = await listenVerdict([]);
+      const verdict = await listenVerdict(
+        [],
+        hasWarnings
+          ? [["compact_first", ["compacta antes", "compactar antes", "compacta primeiro"]]]
+          : [],
+      );
       if (cancelRef.current || !verdict) return; // Enter/Esc still live
       if (verdict.kind === "confirm") await execute(plan);
-      else if (verdict.kind === "deny") finish("cancelado", "warn", 1200);
+      else if (verdict.kind === "action" && verdict.id === "compact_first") {
+        const target2 = plan.task_title ?? plan.project_name ?? "novo chat";
+        setStage({ s: "running", text: plan.instruction, target: target2 });
+        try {
+          await ipc.voiceExecute(plan, true);
+          finish(`→ ${target2} · compactado e despachado`, "ok", 1600);
+        } catch (err) {
+          finish(`falhou: ${err}`, "warn", 3200);
+        }
+      } else if (verdict.kind === "deny") finish("cancelado", "warn", 1200);
       else if (verdict.kind === "instruction") await handle(verdict.text);
     } else if (plan.kind === "candidates") {
       await offerCandidates(text, plan.instruction, plan.options);
@@ -418,14 +440,23 @@ export default function Hud() {
                 : ""}
             </span>
             <span className="hud-keys">
-              {stage.plan.confidence === "high" && !stage.plan.new_task
+              {stage.plan.confidence === "high" &&
+              !stage.plan.new_task &&
+              stage.plan.warnings.length === 0
                 ? "Enter confirma · Esc cancela"
                 : 'diga "sim" ou "não" · Enter confirma'}
             </span>
           </div>
-          {stage.plan.confidence === "high" && !stage.plan.new_task && (
-            <div className="hud-progress" style={{ animationDuration: `${CONFIRM_MS}ms` }} />
-          )}
+          {stage.plan.warnings.map((w) => (
+            <div key={w} className="hud-row hud-warning">
+              ⚠ {w} — diga "compacta antes" ou "sim"
+            </div>
+          ))}
+          {stage.plan.confidence === "high" &&
+            !stage.plan.new_task &&
+            stage.plan.warnings.length === 0 && (
+              <div className="hud-progress" style={{ animationDuration: `${CONFIRM_MS}ms` }} />
+            )}
         </>
       )}
       {stage.s === "candidates" && (

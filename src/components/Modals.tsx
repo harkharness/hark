@@ -1,7 +1,15 @@
-import type { LiveWorker, Msg, SessionHit } from "../types";
+import type { DispatchWarning, LiveWorker, Msg, SessionHit } from "../types";
 
 export type Pending =
-  | { kind: "confirm-dispatch"; instruction: string; sessionId?: string; warning?: string }
+  | {
+      kind: "confirm-dispatch";
+      instruction: string;
+      sessionId?: string;
+      /** Gate's mismatch aviso (already filtered for credibility). */
+      warning?: string;
+      /** Local prechecks: true numbers, each with actions. */
+      warnings?: DispatchWarning[];
+    }
   | { kind: "pick-session"; query: string; candidates: SessionHit[] }
   /** Board tasks too close to call: the user picks, never a silent guess. */
   | {
@@ -30,6 +38,7 @@ export default function Modals({
   onFocusWorker,
   onPickSession,
   onPickTask,
+  onCompactFirst,
 }: {
   pending: Pending;
   setPending: (p: Pending) => void;
@@ -42,6 +51,8 @@ export default function Modals({
   onPickSession: (hit: SessionHit) => void;
   /** An ambiguous spoken target resolved by hand. */
   onPickTask: (title: string, sessionId?: string) => void;
+  /** "compactar antes": /compact as its own turn, then the message. */
+  onCompactFirst: (instruction: string, sessionId?: string) => void;
 }) {
   if (!pending) return null;
 
@@ -125,6 +136,25 @@ export default function Modals({
             )}
           </h2>
           {pending.warning && <div className="gate-warning">⚠ {pending.warning}</div>}
+          {/* Local warnings carry ACTIONS, not just anxiety: compact the
+              session first, or proceed as-is (the confirm button). */}
+          {(pending.warnings ?? []).map((w) => (
+            <div key={w.kind} className="gate-warning warn-actions">
+              <span>⚠ {w.text}</span>
+              {w.actions.includes("compact_first") && (
+                <button
+                  className="warn-act"
+                  onClick={() => {
+                    const { instruction, sessionId } = pending;
+                    setPending(null);
+                    onCompactFirst(instruction, sessionId);
+                  }}
+                >
+                  compactar antes
+                </button>
+              )}
+            </div>
+          ))}
           {/* EDITABLE: STT gets words wrong; fix them right here (or say
               the whole thing again — the voice loop swaps this text). */}
           <textarea

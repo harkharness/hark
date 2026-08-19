@@ -55,6 +55,9 @@ pub enum VoicePlan {
         /// (silence confirms); "low" = resolved by search (the HUD must
         /// hear an explicit verdict before executing).
         confidence: String,
+        /// Local precheck texts (heavy history, near-full context): any
+        /// warning downgrades to an explicit verdict + offers actions.
+        warnings: Vec<String>,
     },
     /// The target is ambiguous: real options for the user to pick from,
     /// best first — never a silent guess (the 19/08 incident).
@@ -151,9 +154,22 @@ fn rank_sessions(
     )
 }
 
+/// Local precheck texts for a session-bound plan (zero tokens).
+fn session_warnings(session_id: Option<&str>) -> Vec<String> {
+    session_id
+        .map(|sid| {
+            vox_core::domain::precheck::prechecks(&super::session_facts(sid))
+                .into_iter()
+                .map(|w| w.text)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// A Work plan aimed at one candidate.
 fn work_at(candidate: VoiceCandidate, instruction: String, confidence: &str) -> VoicePlan {
     VoicePlan::Work {
+        warnings: session_warnings(candidate.session_id.as_deref()),
         instruction,
         task_title: Some(candidate.title),
         session_id: candidate.session_id,
@@ -203,6 +219,8 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
                     project_name: ctx.project_name.clone(),
                     new_task: false,
                     confidence: "high".into(),
+                    // Compacting IS the remedy: no warning loop here.
+                    warnings: vec![],
                 });
             }
             return Ok(VoicePlan::NoTarget { instruction: text });
@@ -259,6 +277,7 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
                 new_task: true,
                 // A fresh session is never silent-confirmed.
                 confidence: "low".into(),
+                warnings: vec![],
             },
             None => VoicePlan::NoTarget { instruction: text },
         });
@@ -271,13 +290,15 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
     }
     if let (Some(title), Some(session)) = (&ctx.task_title, &ctx.session_id) {
         return Ok(VoicePlan::Work {
+            warnings: session_warnings(Some(session)),
             instruction: text,
             task_title: Some(title.clone()),
             session_id: Some(session.clone()),
             workspace: ctx.project_path.clone(),
             project_name: ctx.project_name.clone(),
             new_task: false,
-            // The chat on screen: fast path, silence confirms.
+            // The chat on screen: fast path, silence confirms (unless a
+            // warning downgrades it on the HUD side).
             confidence: "high".into(),
         });
     }
@@ -308,7 +329,9 @@ pub fn voice_execute(
     project_name: Option<String>,
     task_title: Option<String>,
     new_task: bool,
+    compact_first: Option<bool>,
 ) -> Result<serde_json::Value, String> {
+    let compact_first = compact_first.unwrap_or(false);
     let out: serde_json::Value = if new_task || session_id.is_none() {
         let ws = workspace.clone().ok_or("nenhum projeto pra abrir o chat")?;
         let started = super::chat_start(app.clone(), app.state(), ws, instruction.clone(), None)?;
@@ -326,6 +349,17 @@ pub fn voice_execute(
         };
         match existing {
             Some(task_id) => {
+                // "compacta antes": /compact runs as its own turn, the
+                // message queues right behind it on the worker's stdin.
+                if compact_first {
+                    super::worker_send(
+                        app.clone(),
+                        app.state(),
+                        task_id.clone(),
+                        "/compact".into(),
+                        None,
+                    )?;
+                }
                 super::worker_send(
                     app.clone(),
                     app.state(),
@@ -336,15 +370,31 @@ pub fn voice_execute(
                 serde_json::json!({ "status": "sent", "task_id": task_id })
             }
             None => {
+                // Resuming: the first message opens the worker (a resume
+                // inherits the session's title, so "/compact" never
+                // becomes a card name), the real work queues after it.
+                let first = if compact_first { "/compact".to_string() } else { instruction.clone() };
                 let started = super::worker_start(
                     app.clone(),
                     app.state(),
                     app.state(),
-                    instruction.clone(),
+                    first,
                     Some(session),
                     None,
                 )?;
-                serde_json::to_value(started).map_err(|e| e.to_string())?
+                let value = serde_json::to_value(started).map_err(|e| e.to_string())?;
+                if compact_first {
+                    if let Some(task_id) = value.get("task_id").and_then(|v| v.as_str()) {
+                        super::worker_send(
+                            app.clone(),
+                            app.state(),
+                            task_id.to_string(),
+                            instruction.clone(),
+                            None,
+                        )?;
+                    }
+                }
+                value
             }
         }
     };

@@ -214,14 +214,18 @@ export const workerSetMode = (taskId: string, mode: string) =>
 /* ---- global voice (HUD) ---- */
 export const planUtterance = (text: string) =>
   invoke<import("../types").VoicePlan>("plan_utterance", { text });
-export const voiceExecute = (plan: {
-  instruction: string;
-  session_id?: string | null;
-  workspace?: string | null;
-  project_name?: string | null;
-  task_title?: string | null;
-  new_task: boolean;
-}) =>
+export const voiceExecute = (
+  plan: {
+    instruction: string;
+    session_id?: string | null;
+    workspace?: string | null;
+    project_name?: string | null;
+    task_title?: string | null;
+    new_task: boolean;
+  },
+  /** "compacta antes": /compact runs as its own turn, then the message. */
+  compactFirst = false,
+) =>
   invoke("voice_execute", {
     instruction: plan.instruction,
     sessionId: plan.session_id ?? null,
@@ -229,7 +233,12 @@ export const voiceExecute = (plan: {
     projectName: plan.project_name ?? null,
     taskTitle: plan.task_title ?? null,
     newTask: plan.new_task,
+    compactFirst,
   });
+
+/** Local dispatch warnings for a session (size, context) — zero tokens. */
+export const dispatchPrechecks = (sessionId: string) =>
+  invoke<import("../types").DispatchWarning[]>("dispatch_prechecks", { sessionId });
 export const setActiveContext = (ctx: {
   project_path?: string | null;
   project_name?: string | null;

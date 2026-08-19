@@ -938,6 +938,18 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .modal-hint {
   margin-right: auto; align-self: center; color: var(--dim); font-size: 11px;
 }
+
+/* Actionable warnings: the fact + its remedy on the same row. */
+.gate-warning.warn-actions {
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+}
+.warn-act {
+  background: none; border: 1px solid var(--warn); color: var(--warn);
+  border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 12px;
+  cursor: pointer; flex: 0 0 auto;
+}
+.warn-act:hover { background: rgba(224,175,104,.12); }
+.hud-warning { color: var(--warn); font-size: 12px; }
 .inputbar button {
   background: var(--bg); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer;

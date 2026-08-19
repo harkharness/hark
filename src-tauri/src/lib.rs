@@ -1614,6 +1614,38 @@ struct GateOut {
     cost_usd: Option<f64>,
 }
 
+/// What this machine knows about a session before dispatching to it.
+pub(crate) fn session_facts(session_id: &str) -> vox_core::domain::precheck::SessionFacts {
+    let mut facts = vox_core::domain::precheck::SessionFacts::default();
+    let config = Config::load();
+    let Ok(store) = SqliteStore::open(&config.data_dir().join("index.db")) else {
+        return facts;
+    };
+    use vox_core::ports::SessionStore;
+    if let Ok(Some(path)) = store.session_path(session_id) {
+        if let Ok(meta) = std::fs::metadata(&path) {
+            facts.size_mb = meta.len() as f64 / 1_048_576.0;
+        }
+    }
+    if let Ok(Some(w)) = store.last_context_weight(session_id) {
+        facts.context_pct = w
+            .context_window
+            .filter(|window| *window > 0)
+            .map(|window| w.total as f64 / window as f64);
+    }
+    facts
+}
+
+/// Local, deterministic dispatch warnings (size, context weight) with
+/// their actions — zero tokens, numbers always true. This replaces the
+/// gate's LLM-authored cost warnings.
+#[tauri::command(async)]
+fn dispatch_prechecks(
+    session_id: String,
+) -> Result<Vec<vox_core::domain::precheck::Warning>, String> {
+    Ok(vox_core::domain::precheck::prechecks(&session_facts(&session_id)))
+}
+
 /// The pre-execution evaluator: one cheap haiku call that decides where a
 /// message goes BEFORE anything expensive runs. Runs with zero tools.
 #[tauri::command(async)]
@@ -1630,20 +1662,15 @@ fn evaluate(
     let store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
 
-    // Real session title + size hint: mismatches and heavy sessions are
-    // exactly what the evaluator must warn about.
+    // Real session title only: mismatch detection is the gate's ONE job.
+    // Cost/size warnings are LOCAL now (dispatch_prechecks) — feeding the
+    // size into the prompt is how "3.8MB" turned into a hallucinated
+    // "MCP caiu" aviso on the confirm modal.
     let mut session_title = None;
-    let mut size_hint = String::new();
     if let Some(sid) = &focused_session {
         if let Ok(Some(path)) = store.session_path(sid) {
             if let Ok(Some((summary, _, _))) = store.file_state(&path) {
                 session_title = summary.title;
-            }
-            if let Ok(meta) = std::fs::metadata(&path) {
-                let mb = meta.len() as f64 / 1_048_576.0;
-                if mb > 2.0 {
-                    size_hint = format!(" [historico de {mb:.1}MB, turno pode ser caro]");
-                }
             }
         }
     }
@@ -1658,7 +1685,7 @@ fn evaluate(
     let ctx = gate::GateContext {
         focused_task,
         focused_session,
-        focused_session_title: session_title.map(|t| format!("{t}{size_hint}")),
+        focused_session_title: session_title,
         board_lines,
         live_workers: state_file::load(&config.data_dir())
             .workers
@@ -1738,9 +1765,13 @@ fn evaluate(
         },
         &turn,
     );
-    let decision = decision_parse
+    let mut decision = decision_parse
         .map_err(|e| format!("gate parse: {e}"))?
         .sanitized();
+    // An aviso citing tools/MCPs or carrying numbers is fabricated by
+    // construction (the gate receives neither) — drop it BEFORE it can
+    // force a confirmation.
+    decision.aviso = vox_core::domain::gate::credible_aviso(decision.aviso.take());
     Ok(GateOut {
         needs_confirmation: decision.needs_confirmation(),
         acao: decision.acao,
@@ -2207,6 +2238,7 @@ pub fn run() {
             task_command,
             slash_commands,
             interpret_verdict,
+            dispatch_prechecks,
             evaluate,
             board_move,
             board_rename,
