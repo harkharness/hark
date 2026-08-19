@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { CircleQuestionMark, FolderPlus, Mic, Target } from "lucide-react";
 import * as ipc from "./lib/ipc";
-import type { VoicePlan, VoxEvent } from "./types";
+import type { VoiceCandidate, VoicePlan, VoxEvent } from "./types";
 
 type Stage =
   | { s: "listening" }
   | { s: "thinking"; text: string }
   | { s: "confirm"; text: string; plan: Extract<VoicePlan, { kind: "work" }> }
+  /** Target too close to call: numbered options, never a silent guess.
+   *  Empty instruction = picking just opens/fronts the chat. */
+  | { s: "candidates"; text: string; instruction: string; options: VoiceCandidate[] }
   | { s: "running"; text: string; target: string }
   | { s: "note"; text: string; tone: "ok" | "warn" }
   | { s: "asking"; text: string }
@@ -73,6 +76,46 @@ export default function Hud() {
     [finish],
   );
 
+  /** Front the chat a pick landed on — or dispatch into it when the
+   *  sentence carried work. The 19/08 bug was ending on focusMain(). */
+  const pickCandidate = useCallback(
+    async (instruction: string, cand: VoiceCandidate) => {
+      if (instruction) {
+        await execute({
+          kind: "work",
+          instruction,
+          task_title: cand.title,
+          session_id: cand.session_id,
+          workspace: cand.workspace,
+          project_name: cand.project_name,
+          new_task: false,
+          confidence: "high",
+        });
+        return;
+      }
+      // No work to send: opening IS the action. Resolve the owning
+      // project (adopts the session as a board task when needed).
+      let ws = cand.workspace ?? null;
+      let title = cand.title;
+      if (!ws && cand.session_id) {
+        const task = await ipc.taskFromSession(cand.session_id).catch(() => null);
+        ws = task?.workspace ?? null;
+        title = task?.title ?? title;
+      }
+      if (!ws) {
+        finish("sessão sem projeto registrado", "warn", 2600);
+        return;
+      }
+      const name = cand.project_name ?? ws.split("/").filter(Boolean).pop() ?? "projeto";
+      await ipc
+        .openProjectWindow(name, ws, title, cand.session_id ?? undefined)
+        .catch(() => {});
+      record(title, "aberta");
+      finish(`→ ${title} · aberta`, "ok", 1400);
+    },
+    [execute, finish, record],
+  );
+
   /** Local commands the HUD can run itself (zero tokens). */
   const runCommand = useCallback(
     async (cmd: import("./types").TaskCommandResult) => {
@@ -89,37 +132,49 @@ export default function Hud() {
       } else if (cmd.kind === "open_hq") {
         await ipc.focusMain(cmd.tab).catch(() => {});
         finish(`→ ${cmd.tab} na janela mãe`, "ok", 1100);
+      } else if (cmd.kind === "open" || cmd.kind === "switch") {
+        // Going (back) to a chat fronts ITS project window — never the
+        // mother (the old catch-all fronted the wrong window).
+        await pickCandidate("", { title: cmd.title, session_id: cmd.session_id });
+      } else if (cmd.kind === "task_candidates") {
+        setStage({
+          s: "candidates",
+          text: lastText.current,
+          instruction: "",
+          options: cmd.candidates.map((c) => ({
+            title: c.title,
+            session_id: c.session_id,
+            workspace: c.workspace,
+          })),
+        });
       } else if (cmd.kind === "session_candidates") {
-        const first = cmd.candidates[0];
-        if (!first) {
+        if (cmd.candidates.length === 0) {
           finish(`nenhuma sessão sobre "${cmd.query}"`, "warn", 2600);
           return;
         }
-        const task = await ipc.taskFromSession(first.session_id).catch(() => null);
-        if (task?.workspace) {
-          const name = task.workspace.split("/").filter(Boolean).pop() ?? "projeto";
-          await ipc
-            .openProjectWindow(name, task.workspace, task.title, first.session_id)
-            .catch(() => {});
-          record(task.title, "retomada");
-          finish(`→ ${task.title} · retomada`, "ok", 1500);
-        } else {
-          finish("sessão sem projeto registrado", "warn", 2600);
-        }
+        setStage({
+          s: "candidates",
+          text: lastText.current,
+          instruction: "",
+          options: cmd.candidates.map((c) => ({
+            title: c.title,
+            session_id: c.session_id,
+            workspace: c.cwd,
+          })),
+        });
       } else if (cmd.kind === "set_mode") {
         // Mode switching needs a window's focused worker; the HUD has none.
         finish("troca de modo é na janela do chat — seletor ou /modo", "warn", 2600);
       } else if (cmd.kind === "not_found") {
         finish(`nada bate com "${cmd.query}"`, "warn", 2600);
       } else {
-        // Board actions (rename/pin/archive/switch/open) resolve on the
-        // backend already; just acknowledge.
+        // Board bookkeeping (rename/pin/archive) resolves on the backend;
+        // just acknowledge.
         const title = "title" in cmd ? cmd.title : "";
-        await ipc.focusMain().catch(() => {});
         finish(`✓ ${cmd.kind}${title ? ` · ${title}` : ""}`, "ok", 1400);
       }
     },
-    [finish],
+    [finish, pickCandidate, record],
   );
 
   const start = useCallback(async () => {
@@ -166,7 +221,19 @@ export default function Hud() {
     } else if (plan.kind === "work") {
       setStage({ s: "confirm", text, plan });
       window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => execute(plan), CONFIRM_MS);
+      // Two speeds: the chat on screen (high) executes after a silent
+      // beat; a search-resolved or brand-new target (low) waits for an
+      // explicit Enter — never runs on silence.
+      if (plan.confidence === "high" && !plan.new_task) {
+        timer.current = window.setTimeout(() => execute(plan), CONFIRM_MS);
+      }
+    } else if (plan.kind === "candidates") {
+      setStage({
+        s: "candidates",
+        text,
+        instruction: plan.instruction,
+        options: plan.options,
+      });
     } else {
       finish('sem alvo — fale "na task X" ou "no projeto Y"', "warn", 3000);
     }
@@ -177,10 +244,10 @@ export default function Hud() {
     start();
     const un = listen<VoxEvent>("vox", (e) => {
       if (e.payload.kind !== "hud_listen") return;
-      // Hotkey while a note/answer still lingers: the user wants to talk
-      // again — drop the leftover and re-arm.
+      // Hotkey while something lingers (note/answer/candidates/confirm):
+      // the user wants to talk again — drop the leftover and re-arm.
       const s = stageRef.current.s;
-      if (s === "note" || s === "answer") {
+      if (s === "note" || s === "answer" || s === "candidates" || s === "confirm") {
         window.clearTimeout(timer.current);
         busyRef.current = false;
       }
@@ -203,10 +270,15 @@ export default function Hud() {
         window.clearTimeout(timer.current);
         execute(st.plan);
       }
+      // Digits pick a candidate (1-based on screen).
+      if (st.s === "candidates" && /^[1-9]$/.test(e.key)) {
+        const cand = st.options[Number(e.key) - 1];
+        if (cand) pickCandidate(st.instruction, cand);
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [execute, hide]);
+  }, [execute, hide, pickCandidate]);
 
   const waveform = (
     <span className="hud-wave">
@@ -244,9 +316,33 @@ export default function Hud() {
                 ? ` · ${stage.plan.project_name}`
                 : ""}
             </span>
-            <span className="hud-keys">Enter confirma · Esc cancela</span>
+            <span className="hud-keys">
+              {stage.plan.confidence === "high" && !stage.plan.new_task
+                ? "Enter confirma · Esc cancela"
+                : "Enter confirma · Esc cancela · nada roda sozinho"}
+            </span>
           </div>
-          <div className="hud-progress" style={{ animationDuration: `${CONFIRM_MS}ms` }} />
+          {stage.plan.confidence === "high" && !stage.plan.new_task && (
+            <div className="hud-progress" style={{ animationDuration: `${CONFIRM_MS}ms` }} />
+          )}
+        </>
+      )}
+      {stage.s === "candidates" && (
+        <>
+          <div className="hud-row">
+            <Mic size={14} className="hud-icon" />
+            <span className="hud-text">“{stage.text}”</span>
+            <span className="hud-sub">qual delas?</span>
+          </div>
+          <div className="hud-cands">
+            {stage.options.map((o, i) => (
+              <button key={i} onClick={() => pickCandidate(stage.instruction, o)}>
+                <i>{i + 1}</i>
+                <span className="hud-cand-title">{o.title}</span>
+                {o.project_name && <span className="hud-cand-proj">{o.project_name}</span>}
+              </button>
+            ))}
+          </div>
         </>
       )}
       {stage.s === "running" && (

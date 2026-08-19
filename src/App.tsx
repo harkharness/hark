@@ -670,6 +670,10 @@ export default function App({
           setPending({ kind: "pick-session", query: cmd.query, candidates: cmd.candidates });
           say(`Achei ${cmd.candidates.length} sessões. Qual delas?`);
         }
+      } else if (cmd.kind === "task_candidates") {
+        // Too close to call: options on screen, never a silent guess.
+        setPending({ kind: "pick-task", query: cmd.query, candidates: cmd.candidates });
+        say(`Achei ${cmd.candidates.length} tasks. Qual delas?`);
       } else if (cmd.kind === "compact") {
         // Spoken "compacta o contexto": /compact on the focused session.
         await sendSlash("/compact");
@@ -1476,6 +1480,7 @@ export default function App({
         }}
         onFocusWorker={(taskId) => setFocused(taskId)}
         onPickSession={recoverSession}
+        onPickTask={(title, sessionId) => openTaskByTitle(title, sessionId)}
       />
     </div>
   );

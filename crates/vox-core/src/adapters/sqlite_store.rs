@@ -365,9 +365,9 @@ impl SessionStore for SqliteStore {
             return Ok(Vec::new());
         }
         // Small index (a few thousand prompts): LIKE scan is instant and
-        // avoids an FTS5 dependency. Score = prompt-hit frequency plus a
-        // strong title bonus; a session titled after the topic with dozens
-        // of mentions must beat a session that mentions it in passing.
+        // avoids an FTS5 dependency. Score = prompt hits CAPPED at 3 per
+        // term (a chatty session must not out-shout the topic's own) plus
+        // a strong title bonus.
         let mut scored: std::collections::HashMap<String, (i64, Option<String>)> =
             std::collections::HashMap::new();
         for term in terms {
@@ -375,8 +375,8 @@ impl SessionStore for SqliteStore {
             let mut stmt = self.conn.prepare(
                 "SELECT f.path, f.last_ts,
                         (CASE WHEN lower(coalesce(f.title,'')) LIKE ?1 THEN 10 ELSE 0 END)
-                        + (SELECT COUNT(*) FROM prompts p
-                           WHERE p.path = f.path AND lower(p.text) LIKE ?1) AS score
+                        + MIN(3, (SELECT COUNT(*) FROM prompts p
+                                  WHERE p.path = f.path AND lower(p.text) LIKE ?1)) AS score
                  FROM files f",
             )?;
             let rows = stmt
@@ -533,6 +533,34 @@ mod tests {
             )
             .unwrap();
         assert_eq!(hits[0].session_id, "webhook-real", "frequency+title must win");
+    }
+
+    #[test]
+    fn chatty_session_no_longer_dominates_on_frequency() {
+        let mut store = SqliteStore::in_memory().unwrap();
+
+        // 30 passing mentions in a huge chatty session…
+        let mut chatty = summary("chatty", "2026-08-19T10:00:00.000Z");
+        chatty.title = Some("Outro assunto".into());
+        chatty.recent_prompts = (0..30)
+            .map(|i| RecentPrompt {
+                ts: format!("2026-08-19T10:{i:02}:00.000Z"),
+                text: format!("passo {i} e olha o webhook de novo"),
+            })
+            .collect();
+        store.save_file_state("/logs/chatty.jsonl", &chatty, 1, 1).unwrap();
+
+        // …must NOT beat the session TITLED after the topic.
+        let mut titled = summary("titled", "2026-07-01T10:00:00.000Z");
+        titled.title = Some("Webhook decom".into());
+        titled.recent_prompts = vec![RecentPrompt {
+            ts: "2026-07-01T10:00:00.000Z".into(),
+            text: "prepara o decom do webhook".into(),
+        }];
+        store.save_file_state("/logs/titled.jsonl", &titled, 1, 1).unwrap();
+
+        let hits = store.search_sessions(&["webhook".into()], 5).unwrap();
+        assert_eq!(hits[0].session_id, "titled", "title must outrank raw frequency");
     }
 
     #[test]

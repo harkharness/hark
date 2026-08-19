@@ -18,15 +18,19 @@ pub struct ActiveCtx {
     pub session_id: Option<String>,
 }
 
+/// Focus ledger keyed by window label: the spoken word targets the last
+/// PROJECT window the user worked in. The mother/HUD focusing (or a
+/// window closing) never erases that — see domain::focus for the rules.
 #[derive(Default)]
-pub struct ActiveContext(pub Mutex<ActiveCtx>);
+pub struct ActiveContext(pub Mutex<vox_core::domain::focus::FocusLedger<ActiveCtx>>);
 
 #[tauri::command]
 pub fn set_active_context(
+    window: tauri::Window,
     state: tauri::State<'_, ActiveContext>,
     ctx: ActiveCtx,
 ) -> Result<(), String> {
-    *state.0.lock().unwrap() = ctx;
+    state.0.lock().unwrap().report(window.label(), ctx);
     Ok(())
 }
 
@@ -47,11 +51,30 @@ pub enum VoicePlan {
         project_name: Option<String>,
         /// True = fresh session in the project (no task addressed).
         new_task: bool,
+        /// "high" = the chat on screen or a unique explicit address
+        /// (silence confirms); "low" = resolved by search (the HUD must
+        /// hear an explicit verdict before executing).
+        confidence: String,
+    },
+    /// The target is ambiguous: real options for the user to pick from,
+    /// best first — never a silent guess (the 19/08 incident).
+    Candidates {
+        instruction: String,
+        options: Vec<VoiceCandidate>,
     },
     /// A question for the vox ask pipeline (speaks the answer).
     Question { question: String },
     /// Work with no resolvable destination: the HUD asks for an address.
     NoTarget { instruction: String },
+}
+
+/// One possible destination offered on the HUD.
+#[derive(Serialize, Clone)]
+pub struct VoiceCandidate {
+    pub title: String,
+    pub session_id: Option<String>,
+    pub workspace: Option<String>,
+    pub project_name: Option<String>,
 }
 
 /// Name of the registered project owning a path, plus its root.
@@ -66,13 +89,85 @@ fn project_of(config: &Config, path: &str) -> (Option<String>, Option<String>) {
     }
 }
 
+/// A board task as a HUD candidate.
+fn task_candidate(config: &Config, task: &vox_core::domain::board::Task) -> VoiceCandidate {
+    let (project_name, workspace) = task
+        .workspace
+        .as_deref()
+        .map(|w| project_of(config, w))
+        .unwrap_or((None, None));
+    VoiceCandidate {
+        title: task.title.clone(),
+        session_id: task.session_ids.last().cloned(),
+        workspace,
+        project_name,
+    }
+}
+
+/// An indexed session as a HUD candidate.
+fn session_candidate(config: &Config, hit: &super::SessionHit) -> VoiceCandidate {
+    let (project_name, workspace) = hit
+        .cwd
+        .as_deref()
+        .map(|w| project_of(config, w))
+        .unwrap_or((None, None));
+    VoiceCandidate {
+        title: hit.title.clone(),
+        session_id: Some(hit.session_id.clone()),
+        workspace,
+        project_name,
+    }
+}
+
+/// Re-rank raw index hits with the honest matcher (whole words, rare-term
+/// weight, margin rule) — SQL recall, domain precision.
+fn rank_sessions(
+    query: &str,
+    hits: Vec<super::SessionHit>,
+) -> vox_core::domain::matching::Match<super::SessionHit> {
+    vox_core::domain::matching::rank(
+        query,
+        hits,
+        |h| {
+            format!(
+                "{} {} {}",
+                h.title,
+                h.cwd.as_deref().unwrap_or_default(),
+                h.last_prompt.as_deref().unwrap_or_default()
+            )
+        },
+        |h| h.last_ts.clone().unwrap_or_default(),
+    )
+}
+
+/// A Work plan aimed at one candidate.
+fn work_at(candidate: VoiceCandidate, instruction: String, confidence: &str) -> VoicePlan {
+    VoicePlan::Work {
+        instruction,
+        task_title: Some(candidate.title),
+        session_id: candidate.session_id,
+        workspace: candidate.workspace,
+        project_name: candidate.project_name,
+        new_task: false,
+        confidence: confidence.to_string(),
+    }
+}
+
 /// Interpret one utterance GLOBALLY and say where it would land. Never
 /// executes anything; pure planning over local data (index/board), zero
 /// tokens.
 #[tauri::command(async)]
 pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String> {
+    use vox_core::domain::matching::Match;
     let config = Config::load();
-    let ctx = app.state::<ActiveContext>().0.lock().unwrap().clone();
+    let ctx = app
+        .state::<ActiveContext>()
+        .0
+        .lock()
+        .unwrap()
+        .current()
+        .cloned()
+        .unwrap_or_default();
 
     // 1. Local commands win (open project, recover session, rename…).
     if let Some(command) = super::task_command(text.clone(), ctx.task_title.clone())? {
@@ -87,6 +182,7 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
                     workspace: ctx.project_path.clone(),
                     project_name: ctx.project_name.clone(),
                     new_task: false,
+                    confidence: "high".into(),
                 });
             }
             return Ok(VoicePlan::NoTarget { instruction: text });
@@ -98,40 +194,36 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
     let addr = vox_core::domain::address::parse(&text);
     if let Some(task_query) = &addr.task {
         // Board first (titles the user knows), then the whole index.
-        let board_hit = super::with_board(|_, tasks| {
-            Ok(vox_core::domain::board::find(&tasks, task_query))
+        // Ambiguity becomes options on screen, never a silent guess.
+        let ranked = super::with_board(|_, tasks| {
+            Ok(vox_core::domain::board::find_ranked(&tasks, task_query))
         })?;
-        if let Some(task) = board_hit {
-            let (project_name, workspace) = task
-                .workspace
-                .as_deref()
-                .map(|w| project_of(&config, w))
-                .unwrap_or((None, None));
-            return Ok(VoicePlan::Work {
-                instruction: addr.instruction,
-                session_id: task.session_ids.last().cloned(),
-                task_title: Some(task.title),
-                workspace,
-                project_name,
-                new_task: false,
-            });
+        match ranked {
+            Match::Hit(task) => {
+                return Ok(work_at(
+                    task_candidate(&config, &task),
+                    addr.instruction,
+                    "high",
+                ));
+            }
+            Match::Ambiguous(tasks) => {
+                return Ok(VoicePlan::Candidates {
+                    instruction: addr.instruction,
+                    options: tasks.iter().map(|t| task_candidate(&config, t)).collect(),
+                });
+            }
+            Match::None => {}
         }
-        if let Some(hit) = super::session_hits(task_query, 1)?.into_iter().next() {
-            let (project_name, workspace) = hit
-                .cwd
-                .as_deref()
-                .map(|w| project_of(&config, w))
-                .unwrap_or((None, None));
-            return Ok(VoicePlan::Work {
+        return Ok(match rank_sessions(task_query, super::session_hits(task_query, 8)?) {
+            Match::Hit(hit) => {
+                work_at(session_candidate(&config, &hit), addr.instruction, "high")
+            }
+            Match::Ambiguous(hits) => VoicePlan::Candidates {
                 instruction: addr.instruction,
-                session_id: Some(hit.session_id),
-                task_title: Some(hit.title),
-                workspace,
-                project_name,
-                new_task: false,
-            });
-        }
-        return Ok(VoicePlan::NoTarget { instruction: text });
+                options: hits.iter().map(|h| session_candidate(&config, h)).collect(),
+            },
+            Match::None => VoicePlan::NoTarget { instruction: text },
+        });
     }
     if let Some(project_query) = &addr.project {
         let projects = super::load_projects(&config);
@@ -145,6 +237,8 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
                 workspace: Some(p.path.clone()),
                 project_name: Some(p.name.clone()),
                 new_task: true,
+                // A fresh session is never silent-confirmed.
+                confidence: "low".into(),
             },
             None => VoicePlan::NoTarget { instruction: text },
         });
@@ -163,24 +257,21 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
             workspace: ctx.project_path.clone(),
             project_name: ctx.project_name.clone(),
             new_task: false,
+            // The chat on screen: fast path, silence confirms.
+            confidence: "high".into(),
         });
     }
-    if let Some(hit) = super::session_hits(&text, 1)?.into_iter().next() {
-        let (project_name, workspace) = hit
-            .cwd
-            .as_deref()
-            .map(|w| project_of(&config, w))
-            .unwrap_or((None, None));
-        return Ok(VoicePlan::Work {
+    Ok(match rank_sessions(&text, super::session_hits(&text, 8)?) {
+        vox_core::domain::matching::Match::Hit(hit) => {
+            // Search-resolved: executable, but only after a spoken yes.
+            work_at(session_candidate(&config, &hit), text, "low")
+        }
+        vox_core::domain::matching::Match::Ambiguous(hits) => VoicePlan::Candidates {
             instruction: text,
-            session_id: Some(hit.session_id),
-            task_title: Some(hit.title),
-            workspace,
-            project_name,
-            new_task: false,
-        });
-    }
-    Ok(VoicePlan::NoTarget { instruction: text })
+            options: hits.iter().map(|h| session_candidate(&config, h)).collect(),
+        },
+        vox_core::domain::matching::Match::None => VoicePlan::NoTarget { instruction: text },
+    })
 }
 
 /// Execute a confirmed Work plan: live worker gets the message, dead
@@ -238,7 +329,19 @@ pub fn voice_execute(
         }
     };
 
-    // Bring the user to where the work landed.
+    // Bring the user to where the work landed. A plan without a workspace
+    // (board card never linked, bare session hit) still fronts a window:
+    // the index knows the session's cwd.
+    let workspace = workspace.or_else(|| {
+        session_id.as_deref().and_then(|sid| {
+            let config = Config::load();
+            let store = vox_core::adapters::sqlite_store::SqliteStore::open(
+                &config.data_dir().join("index.db"),
+            )
+            .ok()?;
+            super::session_summary(&store, sid)?.cwd
+        })
+    });
     if let Some(ws) = &workspace {
         let name = project_name.clone().unwrap_or_else(|| {
             ws.split('/').rfind(|s| !s.is_empty()).unwrap_or("projeto").to_string()

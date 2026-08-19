@@ -905,6 +905,24 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   color: var(--dim); font-size: 11px; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* HUD candidate picker: numbered rows, digits/click pick one. */
+.hud-cands { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.hud-cands button {
+  display: flex; align-items: baseline; gap: 8px; width: 100%;
+  background: none; border: none; border-radius: 6px; cursor: pointer;
+  color: var(--text); font: inherit; font-size: 12.5px; padding: 4px 8px;
+  text-align: left;
+}
+.hud-cands button:hover { background: rgba(255,255,255,.08); }
+.hud-cands i {
+  font-style: normal; color: var(--accent); font-family: var(--font-mono);
+  font-size: 11px; flex: 0 0 auto;
+}
+.hud-cand-title {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hud-cand-proj { color: var(--dim); font-size: 11px; flex: 0 0 auto; }
 .inputbar button {
   background: var(--bg); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer;

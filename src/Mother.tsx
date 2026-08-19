@@ -65,14 +65,9 @@ export default function Mother() {
   }, []);
   useEffect(refresh, [refresh]);
 
-  // The mother focused = no active task context: unaddressed speech has
-  // no default target and the planner falls back to search/ask.
-  useEffect(() => {
-    const clear = () => ipc.setActiveContext({}).catch(() => {});
-    clear();
-    window.addEventListener("focus", clear);
-    return () => window.removeEventListener("focus", clear);
-  }, []);
+  // The mother NEVER touches the active context: it is a neutral observer.
+  // The focus ledger (Rust) keeps the last PROJECT window as the spoken
+  // default — glancing at the mother must not send work to the global ask.
 
   // Esc anywhere in this window: recording → cut the capture (transcribe
   // what was said); otherwise → cut the voice.
@@ -141,9 +136,20 @@ export default function Mother() {
    */
   async function recoverSession(hit: SessionHit) {
     setPicks(null);
+    // A board candidate may arrive without a session: the index finds it
+    // by title before the task adoption.
+    let sessionId = hit.session_id;
+    if (!sessionId) {
+      const found = await ipc.findSession(hit.title).catch(() => null);
+      if (!found) {
+        push({ who: "sys", text: `sem sessão pra "${hit.title}"` });
+        return;
+      }
+      sessionId = found.session_id;
+    }
     let task: { title: string; workspace?: string | null };
     try {
-      task = await ipc.taskFromSession(hit.session_id);
+      task = await ipc.taskFromSession(sessionId);
     } catch (err) {
       push({ who: "sys", text: `não consegui registrar a sessão: ${err}` });
       return;
@@ -161,7 +167,7 @@ export default function Mother() {
       say(`Criei a task ${task.title}, mas o projeto dela não está registrado.`);
       return;
     }
-    openProject(project, { title: task.title, session: hit.session_id });
+    openProject(project, { title: task.title, session: sessionId });
     say(`Retomando ${task.title} em ${project.name}.`);
   }
 
@@ -260,12 +266,30 @@ export default function Mother() {
         setPicks({ query: cmd.query, candidates: cmd.candidates });
         say(`Achei ${cmd.candidates.length} sessões. Qual delas?`);
       }
+    } else if (cmd.kind === "open" || cmd.kind === "switch") {
+      // Going (back) to a chat opens ITS project window — the mother is
+      // an observer, work never happens here.
+      await recoverSession({ session_id: cmd.session_id ?? "", title: cmd.title });
+    } else if (cmd.kind === "task_candidates") {
+      setTab("voz");
+      setPicks({
+        query: cmd.query,
+        candidates: cmd.candidates.map((c) => ({
+          session_id: c.session_id ?? "",
+          title: c.title,
+          cwd: c.workspace,
+        })),
+      });
+      say(`Achei ${cmd.candidates.length} tasks. Qual delas?`);
+    } else if (cmd.kind === "compact" || cmd.kind === "set_mode") {
+      say("Isso é na janela do chat focado.");
+      push({ who: "sys", text: "compactar/modo agem no chat focado — abre a janela dele" });
     } else if (cmd.kind === "not_found") {
       push({ who: "sys", text: `nada bate com "${cmd.query}"` });
       say("Não achei esse projeto.");
     } else {
-      // Board actions (open/switch/rename/pin/archive) show their result
-      // on the board tab right here.
+      // Board bookkeeping (rename/pin/archive) shows its result on the
+      // board tab right here.
       setTab("board");
       refresh();
       say("Feito. Olha o quadro.");

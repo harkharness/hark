@@ -1362,18 +1362,18 @@ fn find_session(query: String) -> Result<Option<serde_json::Value>, String> {
 }
 
 /// One indexed session offered as a recovery candidate.
-#[derive(Serialize)]
-struct SessionHit {
-    session_id: String,
+#[derive(Serialize, Clone)]
+pub(crate) struct SessionHit {
+    pub(crate) session_id: String,
     /// Never empty: real title, opening prompt, or the id itself.
-    title: String,
-    cwd: Option<String>,
-    last_ts: Option<String>,
-    last_prompt: Option<String>,
+    pub(crate) title: String,
+    pub(crate) cwd: Option<String>,
+    pub(crate) last_ts: Option<String>,
+    pub(crate) last_prompt: Option<String>,
 }
 
 /// The indexed summary of one session (id → path → folded state).
-fn session_summary(
+pub(crate) fn session_summary(
     store: &SqliteStore,
     session_id: &str,
 ) -> Option<vox_core::domain::snapshot::SessionSummary> {
@@ -1790,9 +1790,55 @@ fn task_command(
         }
         _ => {}
     }
+    // Open/Switch are TARGETING: ambiguity becomes candidates on screen,
+    // and a query with no board card falls back to the session index —
+    // never a silent best-guess (the 19/08 incident class).
+    if let TaskCommand::Open(q) | TaskCommand::Switch { query: q, .. } = &command {
+        use vox_core::domain::matching::Match;
+        let ranked =
+            with_board(|_, tasks| Ok(vox_core::domain::board::find_ranked(&tasks, q)))?;
+        return Ok(Some(match ranked {
+            Match::Hit(task) => match &command {
+                TaskCommand::Open(_) => serde_json::json!({
+                    "kind": "open", "title": task.title,
+                    "session_id": task.session_ids.last(),
+                }),
+                _ => {
+                    let instruction = match &command {
+                        TaskCommand::Switch { instruction, .. } => instruction.clone(),
+                        _ => None,
+                    };
+                    serde_json::json!({
+                        "kind": "switch", "title": task.title,
+                        "session_id": task.session_ids.last(),
+                        "note": task.note,
+                        "instruction": instruction,
+                    })
+                }
+            },
+            Match::Ambiguous(tasks) => serde_json::json!({
+                "kind": "task_candidates", "query": q,
+                "candidates": tasks.iter().map(|t| serde_json::json!({
+                    "title": t.title,
+                    "session_id": t.session_ids.last(),
+                    "workspace": t.workspace,
+                })).collect::<Vec<_>>(),
+            }),
+            Match::None => {
+                let hits = session_hits(q, 6)?;
+                if hits.is_empty() {
+                    serde_json::json!({ "kind": "not_found", "query": q })
+                } else {
+                    serde_json::json!({
+                        "kind": "session_candidates", "query": q, "candidates": hits,
+                    })
+                }
+            }
+        }));
+    }
+
     let query = match &command {
-        TaskCommand::Open(q) | TaskCommand::Pin(q) | TaskCommand::Archive(q) => q,
-        TaskCommand::Switch { query, .. } => query,
+        TaskCommand::Pin(q) | TaskCommand::Archive(q) => q,
         // "renomeia (esse chat) para X": an empty query means whatever the
         // window has focused right now.
         TaskCommand::Rename { query, .. } if query.is_empty() => {
@@ -1807,7 +1853,9 @@ fn task_command(
             }
         }
         TaskCommand::Rename { query, .. } => query,
-        TaskCommand::OpenFile { .. }
+        TaskCommand::Open(_)
+        | TaskCommand::Switch { .. }
+        | TaskCommand::OpenFile { .. }
         | TaskCommand::AddProject { .. }
         | TaskCommand::NewChat { .. }
         | TaskCommand::OpenProject { .. }
@@ -1825,16 +1873,6 @@ fn task_command(
         };
         let title = task.title.clone();
         match &command {
-            TaskCommand::Open(_) => Ok(Some(serde_json::json!({
-                "kind": "open", "title": title,
-                "session_id": task.session_ids.last(),
-            }))),
-            TaskCommand::Switch { instruction, .. } => Ok(Some(serde_json::json!({
-                "kind": "switch", "title": title,
-                "session_id": task.session_ids.last(),
-                "note": task.note,
-                "instruction": instruction,
-            }))),
             TaskCommand::Rename { title: new, .. } => {
                 let tasks = vox_core::domain::board::rename(tasks, &title, new, &now_iso());
                 store.save_board(&tasks)?;
@@ -1850,7 +1888,9 @@ fn task_command(
                 store.save_board(&tasks)?;
                 Ok(Some(serde_json::json!({ "kind": "archived", "title": title })))
             }
-            TaskCommand::OpenFile { .. }
+            TaskCommand::Open(_)
+            | TaskCommand::Switch { .. }
+            | TaskCommand::OpenFile { .. }
             | TaskCommand::AddProject { .. }
             | TaskCommand::NewChat { .. }
             | TaskCommand::OpenProject { .. }
@@ -2119,6 +2159,23 @@ pub fn run() {
                 && matches!(event, tauri::WindowEvent::CloseRequested { .. })
             {
                 window.app_handle().exit(0);
+            }
+            // Focus ledger: the OS tells us which PROJECT window the user
+            // is working in; the spoken word follows it. Mother/HUD focus
+            // is a no-op inside the ledger, closing falls back.
+            let label = window.label().to_string();
+            if label.starts_with("proj-") {
+                let app = window.app_handle();
+                let ctx = app.state::<voice::ActiveContext>();
+                match event {
+                    tauri::WindowEvent::Focused(true) => {
+                        ctx.0.lock().unwrap().focused(&label);
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        ctx.0.lock().unwrap().destroyed(&label);
+                    }
+                    _ => {}
+                }
             }
         })
         .run(tauri::generate_context!())

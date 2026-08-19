@@ -58,11 +58,11 @@ fn clean_query(raw: &str) -> String {
     words[start..].join(" ").trim().to_string()
 }
 
-/// Openers that mean "let me read that thread".
+/// Openers that mean "let me read that thread" (the log viewer).
 const OPEN_VERBS: &[&str] = &[
     "mostra o log", "mostra o histórico", "mostra o historico", "mostra a thread",
     "mostra o chat", "abre o log", "abre o histórico", "abre o historico",
-    "abre a thread", "abre o chat", "ler a thread", "lê a thread",
+    "ler a thread", "lê a thread",
 ];
 
 const SWITCH_VERBS: &[&str] = &[
@@ -71,6 +71,8 @@ const SWITCH_VERBS: &[&str] = &[
     // Recovery of finished/hidden tasks: focusing one pulls it back to work.
     "retoma a task", "retomar a task", "retoma a tarefa", "retomar a tarefa",
     "reabre a task", "reabrir a task", "volta pra task", "volta para a task",
+    // "abre o chat de X" = go back to WORK on X, not the read-only log.
+    "abre o chat", "abre a thread", "abra o chat", "abrir o chat",
 ];
 const RENAME_VERBS: &[&str] = &["renomeia", "renomear", "muda o titulo", "muda o título", "renomeie"];
 const PIN_VERBS: &[&str] = &["fixa ", "fixar ", "prende "];
@@ -317,6 +319,23 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn abre_o_chat_means_go_work_there() {
+        // "abre o chat de X" is the user going BACK TO WORK on X — a
+        // switch, not the read-only log viewer (19/08 incident phrasing).
+        assert_eq!(
+            parse("abre o chat de migração de assinaturas"),
+            Some(TaskCommand::Switch {
+                query: "migração de assinaturas".into(),
+                instruction: None
+            })
+        );
+        assert_eq!(
+            parse("abre a thread dos alertas"),
+            Some(TaskCommand::Switch { query: "alertas".into(), instruction: None })
+        );
+    }
 
     #[test]
     fn opens_a_thread_for_reading() {

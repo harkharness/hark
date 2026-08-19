@@ -151,6 +151,12 @@ export type TaskCommandResult =
   | { kind: "open_project"; title: string; path: string; instruction?: string | null }
   | { kind: "open_hq"; tab: "board" | "custos" }
   | { kind: "session_candidates"; query: string; candidates: SessionHit[] }
+  /** Board tasks too close to call: the user picks, never a silent guess. */
+  | {
+      kind: "task_candidates";
+      query: string;
+      candidates: { title: string; session_id?: string | null; workspace?: string | null }[];
+    }
   | { kind: "not_found"; query: string }
   /** "compacta o contexto": deliver "/compact" to the focused session. */
   | { kind: "compact" }
@@ -247,6 +253,14 @@ export type OpenFile = {
   project: Project;
 };
 
+/** One possible destination offered on the HUD. */
+export type VoiceCandidate = {
+  title: string;
+  session_id?: string | null;
+  workspace?: string | null;
+  project_name?: string | null;
+};
+
 /** Where a spoken utterance will land (shown on the HUD before running). */
 export type VoicePlan =
   | { kind: "command"; command: TaskCommandResult }
@@ -258,6 +272,10 @@ export type VoicePlan =
       workspace?: string | null;
       project_name?: string | null;
       new_task: boolean;
+      /** "high" = silence confirms (chat on screen / unique address);
+       *  "low" = search-resolved: an explicit verdict is required. */
+      confidence: "high" | "low";
     }
+  | { kind: "candidates"; instruction: string; options: VoiceCandidate[] }
   | { kind: "question"; question: string }
   | { kind: "no_target"; instruction: string };

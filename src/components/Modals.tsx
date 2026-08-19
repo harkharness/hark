@@ -3,6 +3,12 @@ import type { LiveWorker, Msg, SessionHit } from "../types";
 export type Pending =
   | { kind: "confirm-dispatch"; instruction: string; sessionId?: string; warning?: string }
   | { kind: "pick-session"; query: string; candidates: SessionHit[] }
+  /** Board tasks too close to call: the user picks, never a silent guess. */
+  | {
+      kind: "pick-task";
+      query: string;
+      candidates: { title: string; session_id?: string | null; workspace?: string | null }[];
+    }
   | {
       kind: "choice";
       instruction: string;
@@ -23,6 +29,7 @@ export default function Modals({
   onDispatch,
   onFocusWorker,
   onPickSession,
+  onPickTask,
 }: {
   pending: Pending;
   setPending: (p: Pending) => void;
@@ -33,8 +40,42 @@ export default function Modals({
   onFocusWorker: (taskId: string) => void;
   /** A recovered session becomes a task and opens its chat. */
   onPickSession: (hit: SessionHit) => void;
+  /** An ambiguous spoken target resolved by hand. */
+  onPickTask: (title: string, sessionId?: string) => void;
 }) {
   if (!pending) return null;
+
+  if (pending.kind === "pick-task") {
+    return (
+      <div className="modal-backdrop" onClick={() => setPending(null)}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <h2>Tasks sobre “{pending.query}”</h2>
+          {pending.candidates.map((c) => (
+            <button
+              key={c.title}
+              className="choice"
+              onClick={() => {
+                setPending(null);
+                onPickTask(c.title, c.session_id ?? undefined);
+              }}
+            >
+              <b>{c.title}</b>
+              {c.workspace && (
+                <span className="reader-meta">
+                  {" "}· {c.workspace.split("/").filter(Boolean).pop()}
+                </span>
+              )}
+            </button>
+          ))}
+          <div className="row">
+            <button className="plain" onClick={() => setPending(null)}>
+              cancelar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (pending.kind === "pick-session") {
     return (
