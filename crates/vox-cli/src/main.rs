@@ -657,7 +657,7 @@ fn cmd_hear() -> i32 {
     }
 }
 
-/// The JARVIS loop: hear -> route (ask|dispatch) -> speak.
+/// The voice loop: hear -> route (ask|dispatch) -> speak.
 fn cmd_listen() -> i32 {
     use vox_core::domain::intent::{route, Route};
     use vox_core::ports::{AudioIn, Cue, Stt, Tts};

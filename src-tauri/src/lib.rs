@@ -2265,7 +2265,7 @@ pub fn run() {
             approve
         ])
         // Global hotkey (default cmd+shift+space, config `hotkey`): from
-        // ANY app, focus the mother and open the mic — the JARVIS button.
+        // ANY app, the voice button.
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
