@@ -10,3 +10,7 @@ A: Posso mandar esse ajuste pra sessão do Vox que já está aberta, confirma?
 Q: eu tenho uma sessão aberta já no Claude Code, porque não esta mostrando aqui?
 A: Essa sessão do Vox não está na lista de abertas, só no histórico — provavelmente perdeu a conexão.
 
+## 2026-08-19T13:16:47.878Z
+Q: vox, como está o status da migração de Assinaturas Core?
+A: A última atualização foi uma decisão de não abrir PR, mantendo o host antigo.
+

@@ -145,23 +145,25 @@ pub fn toggle_pin(mut tasks: Vec<Task>, title: &str) -> Vec<Task> {
     tasks
 }
 
-/// Best task matching a spoken query (term overlap on title and note).
+/// Rank tasks against a spoken query: whole words on folded tokens,
+/// rare-term weighting, and Ambiguous when it is too close to call —
+/// substring hits + recency were how "Assinaturas Core" opened a vox card.
+pub fn find_ranked(tasks: &[Task], query: &str) -> crate::domain::matching::Match<Task> {
+    crate::domain::matching::rank(
+        query,
+        tasks.to_vec(),
+        |t| format!("{} {}", t.title, t.note.clone().unwrap_or_default()),
+        |t| t.updated_at.clone(),
+    )
+}
+
+/// Best task matching a spoken query — Hit-only view of `find_ranked`
+/// for callers without a disambiguation surface.
 pub fn find(tasks: &[Task], query: &str) -> Option<Task> {
-    let terms = significant_terms(query);
-    if terms.is_empty() {
-        return None;
+    match find_ranked(tasks, query) {
+        crate::domain::matching::Match::Hit(task) => Some(task),
+        _ => None,
     }
-    tasks
-        .iter()
-        .map(|task| {
-            let haystack = format!("{} {}", task.title, task.note.clone().unwrap_or_default())
-                .to_lowercase();
-            let hits = terms.iter().filter(|t| haystack.contains(t.as_str())).count();
-            (hits, task)
-        })
-        .filter(|(hits, _)| *hits > 0)
-        .max_by_key(|(hits, task)| (*hits, task.updated_at.clone()))
-        .map(|(_, task)| task.clone())
 }
 
 /// Render the board for the prompt/screen: open tasks grouped by status,
@@ -223,6 +225,58 @@ mod tests {
             nota: Some("nota".into()),
             sessao: None,
         }
+    }
+
+    fn card(title: &str, updated_at: &str) -> Task {
+        Task {
+            title: title.into(),
+            status: TaskStatus::Doing,
+            workspace: None,
+            session_ids: vec![],
+            updated_at: updated_at.into(),
+            note: None,
+            pinned: false,
+        }
+    }
+
+    #[test]
+    fn find_ranked_prefers_task_with_more_matched_terms() {
+        let tasks = vec![
+            card("Migração de alertas", "2026-08-19T09:00:00Z"),
+            card("Migração Assinaturas Core serviços", "2026-08-01T09:00:00Z"),
+        ];
+        let hit = match find_ranked(&tasks, "migração dos serviços assinaturas core") {
+            crate::domain::matching::Match::Hit(t) => t.title,
+            other => panic!("expected hit, got {other:?}"),
+        };
+        assert_eq!(hit, "Migração Assinaturas Core serviços");
+    }
+
+    #[test]
+    fn junk_single_term_hit_on_fresh_task_loses() {
+        // The 19/08 incident: the freshest card grabbing one junk term
+        // ("core" inside "vox-core") must NOT win an Assinaturas query.
+        let tasks = vec![card("vox-core targeting refactor", "2026-08-19T12:00:00Z")];
+        assert_eq!(
+            find_ranked(&tasks, "migração dos serviços Assinaturas Core"),
+            crate::domain::matching::Match::None,
+        );
+        assert_eq!(find(&tasks, "migração dos serviços Assinaturas Core"), None);
+    }
+
+    #[test]
+    fn near_tie_returns_ambiguous() {
+        let tasks = vec![
+            card("Migração Assinaturas uat", "2026-08-10T09:00:00Z"),
+            card("Migração Assinaturas prod", "2026-08-18T09:00:00Z"),
+        ];
+        let crate::domain::matching::Match::Ambiguous(list) =
+            find_ranked(&tasks, "migração assinaturas")
+        else {
+            panic!("expected ambiguous");
+        };
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].title, "Migração Assinaturas prod"); // newest first
     }
 
     #[test]

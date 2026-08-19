@@ -28,7 +28,8 @@ pub enum Route {
     Dispatch,
 }
 
-const ACTION_VERBS: &[&str] = &[
+/// Verbs that mean "do work" — shared with address spans and verdicts.
+pub const ACTION_VERBS: &[&str] = &[
     "abre", "abra", "ajusta", "aplica", "atualiza", "commita", "conserta", "continua",
     "corrige", "cria", "crie", "deleta", "deploya", "edita", "executa", "faz", "faça",
     "gera", "implementa", "implemente", "instala", "merge", "mergeia", "migra", "prepara",
@@ -117,16 +118,6 @@ pub fn model_for(utterance: &str, models: &Models) -> String {
     models.standard.clone()
 }
 
-/// Interpret a spoken yes/no confirmation.
-pub fn is_affirmative(utterance: &str) -> bool {
-    let lower = utterance.to_lowercase();
-    ["sim", "pode", "confirmo", "confirma", "vai", "manda", "bora", "yes", "aprova"]
-        .iter()
-        .any(|w| lower.contains(w))
-        && !lower.contains("não")
-        && !lower.contains("nao")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,15 +140,6 @@ mod tests {
         // Parallel dispatch while another worker runs.
         assert_eq!(route("enquanto isso faz a task dos alertas"), Route::Dispatch);
         assert_eq!(route("em paralelo roda a migração de pagamentos"), Route::Dispatch);
-    }
-
-    #[test]
-    fn confirmations_parse_pt_br() {
-        assert!(is_affirmative("sim, pode mandar"));
-        assert!(is_affirmative("confirmo"));
-        assert!(!is_affirmative("não"));
-        assert!(!is_affirmative("não pode"));
-        assert!(!is_affirmative("espera"));
     }
 
     #[test]

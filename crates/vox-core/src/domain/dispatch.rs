@@ -57,7 +57,8 @@ pub fn significant_terms(text: &str) -> Vec<String> {
 }
 
 fn score(terms: &[String], session: &SessionSummary) -> f64 {
-    let haystack = format!(
+    // Whole words on folded tokens: "core" hits "vox-core", never "score".
+    let words: std::collections::HashSet<String> = crate::domain::matching::tokens(&format!(
         "{} {} {}",
         session.title.as_deref().unwrap_or_default(),
         session.cwd.as_deref().unwrap_or_default(),
@@ -67,11 +68,12 @@ fn score(terms: &[String], session: &SessionSummary) -> f64 {
             .map(|p| p.text.as_str())
             .collect::<Vec<_>>()
             .join(" ")
-    )
-    .to_lowercase();
+    ))
+    .into_iter()
+    .collect();
     terms
         .iter()
-        .filter(|t| haystack.contains(t.as_str()))
+        .filter(|t| words.contains(&crate::domain::matching::fold(t)))
         .count() as f64
 }
 
@@ -133,5 +135,18 @@ mod tests {
         let sessions = vec![session("s1", "Webhook v2", "valida o webhook")];
         assert_eq!(resolve_target("cria o cluster kafka", &sessions), Target::None);
         assert_eq!(resolve_target("", &sessions), Target::None);
+    }
+
+    #[test]
+    fn substring_no_longer_matches_inside_words() {
+        // "core" used to hit "score"/"encore" via contains(); words only.
+        let sessions = vec![session("s1", "score keeper encore", "melhora o score do jogo")];
+        assert_eq!(resolve_target("ajusta o core do parser", &sessions), Target::None);
+        // Hyphenated names still split into whole words.
+        let sessions = vec![session("s2", "vox-core refactor", "refatora o vox-core")];
+        assert_eq!(
+            resolve_target("ajusta o core do parser e refactor", &sessions),
+            Target::Chosen("s2".into())
+        );
     }
 }

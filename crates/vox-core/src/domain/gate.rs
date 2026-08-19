@@ -70,6 +70,24 @@ fn scrub(text: &str, max: usize) -> String {
     }
 }
 
+/// The gate receives no numbers and knows no tools: an aviso citing either
+/// is fabricated (the 19/08 "MCP caiu" incident) — drop it. Real cost
+/// warnings come from domain::precheck, computed locally.
+pub fn credible_aviso(aviso: Option<String>) -> Option<String> {
+    let aviso = aviso?.trim().to_string();
+    if aviso.is_empty() {
+        return None;
+    }
+    // Whole tokens, not substrings — "combina" must not trip on "mb".
+    const EXACT: &[&str] = &["mcp", "ccd", "mb", "gb", "caiu"];
+    const PREFIX: &[&str] = &["tool", "token", "ferramenta", "servidor", "offline", "indisponi"];
+    let invented = aviso.chars().any(|c| c.is_ascii_digit())
+        || crate::domain::matching::tokens(&aviso).iter().any(|t| {
+            EXACT.contains(&t.as_str()) || PREFIX.iter().any(|p| t.starts_with(p))
+        });
+    (!invented).then_some(aviso)
+}
+
 /// Everything the evaluator sees besides the message itself.
 #[derive(Debug, Clone, Default)]
 pub struct GateContext {
@@ -92,7 +110,7 @@ pub const GATE_SCHEMA: &str = r#"{
     },
     "confianca": { "type": "number", "description": "0 a 1" },
     "motivo": { "type": "string", "description": "Uma frase curta explicando a decisao" },
-    "aviso": { "type": "string", "description": "UMA frase curta, SOMENTE quando ha risco real: titulo da sessao nao bate com a task, ou historico grande/modelo caro. Nao cite ferramentas, MCPs nem detalhes internos. Vazio quando nao ha risco." },
+    "aviso": { "type": "string", "description": "UMA frase curta, SOMENTE quando o titulo real da sessao nao combina com a task focada. NUNCA invente; NUNCA cite ferramentas, MCPs, arquivos, tamanhos ou numeros. Vazio quando nao ha risco." },
     "task_alvo": { "type": "string", "description": "Titulo da task correta quando acao=trocar_task" }
   },
   "required": ["acao", "confianca", "motivo"]
@@ -169,6 +187,40 @@ mod tests {
         let clean = decision.sanitized();
         assert_eq!(clean.motivo, "reclamação de organização");
         assert_eq!(clean.aviso.as_deref(), Some("histórico grande (49MB) risco de custo"));
+    }
+
+    #[test]
+    fn aviso_citing_mcp_or_tools_is_dropped() {
+        // The 19/08 incident: the gate INVENTED "MCP ccd_session_mgmt caiu".
+        // No tool/MCP claim can survive — Vox has no MCP health check.
+        assert_eq!(credible_aviso(Some("MCP `ccd_session_mgmt` aparentemente caiu".into())), None);
+        assert_eq!(credible_aviso(Some("a ferramenta de sessão está offline".into())), None);
+        assert_eq!(credible_aviso(Some("servidor indisponível".into())), None);
+    }
+
+    #[test]
+    fn aviso_with_fabricated_numbers_is_dropped() {
+        // The gate receives no numbers anymore: any digit is fabricated
+        // (local prechecks carry the real ones).
+        assert_eq!(credible_aviso(Some("histórico de 3.8MB, turnos caros".into())), None);
+        assert_eq!(credible_aviso(Some("contexto de 1M tokens".into())), None);
+        assert_eq!(credible_aviso(None), None);
+        assert_eq!(credible_aviso(Some("  ".into())), None);
+    }
+
+    #[test]
+    fn title_mismatch_aviso_survives() {
+        let aviso = "o título da sessão não combina com a task focada";
+        assert_eq!(credible_aviso(Some(aviso.into())).as_deref(), Some(aviso));
+    }
+
+    #[test]
+    fn schema_no_longer_solicits_cost_warnings() {
+        // Cost warnings are LOCAL now (precheck.rs); the gate only flags
+        // title mismatch and must be told to never invent.
+        assert!(!GATE_SCHEMA.contains("historico grande"));
+        assert!(!GATE_SCHEMA.contains("modelo caro"));
+        assert!(GATE_SCHEMA.contains("NUNCA invente"));
     }
 
     #[test]

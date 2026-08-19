@@ -29,14 +29,33 @@ fn find_marker(lower: &str, markers: &[&str]) -> Option<(usize, usize)> {
         .min_by_key(|(i, _)| *i)
 }
 
-/// Extract the addressed span: from `start` until a comma or the end.
+/// Extract the addressed span: from `start` until a comma, the first
+/// action verb, or the end — spoken sentences rarely carry commas, so
+/// "na task assinaturas core roda os testes" must not swallow the work.
 /// Returns (name, rest_of_sentence_without_the_span).
 fn split_span(text: &str, marker: (usize, usize)) -> (String, String) {
     let (mstart, nstart) = marker;
     let tail = &text[nstart..];
     let (name, after) = match tail.find(',') {
-        Some(i) => (&tail[..i], &tail[i + 1..]),
-        None => (tail, ""),
+        Some(i) => (tail[..i].to_string(), tail[i + 1..].to_string()),
+        None => {
+            let mut name_words: Vec<&str> = Vec::new();
+            let mut rest_words: Vec<&str> = Vec::new();
+            for word in tail.split_whitespace() {
+                let clean = word
+                    .trim_matches(|c: char| !c.is_alphanumeric())
+                    .to_lowercase();
+                let is_verb = crate::domain::intent::ACTION_VERBS.contains(&clean.as_str());
+                // A verb can still OPEN the name ("task roda de conversa"
+                // is rare but possible); it only splits once a name exists.
+                if rest_words.is_empty() && (!is_verb || name_words.is_empty()) {
+                    name_words.push(word);
+                } else {
+                    rest_words.push(word);
+                }
+            }
+            (name_words.join(" "), rest_words.join(" "))
+        }
     };
     let before = &text[..mstart];
     let rest = format!("{} {}", before.trim(), after.trim());
@@ -60,22 +79,12 @@ pub fn parse(utterance: &str) -> Address {
     }
     let lower = text.to_lowercase();
     if let Some(marker) = find_marker(&lower, PROJECT_MARKERS) {
+        // The verb-stop in split_span keeps multi-word project names
+        // whole ("workspace fabrica") and hands the work back untouched.
         let (name, rest) = split_span(&text, marker);
-        // A project name is one or two words; a long span means the
-        // marker swallowed the instruction ("no projeto vox roda os
-        // testes" has no comma) — keep only the first word as the name.
-        let mut words = name.split_whitespace();
-        let head: Vec<&str> = words.by_ref().take(1).collect();
-        let spill: Vec<&str> = words.collect();
-        if !head.is_empty() {
-            project = Some(head.join(" "));
-            let mut rest_full = rest;
-            if !spill.is_empty() {
-                rest_full = format!("{} {}", spill.join(" "), rest_full)
-                    .trim()
-                    .to_string();
-            }
-            text = rest_full;
+        if !name.is_empty() {
+            project = Some(name);
+            text = rest;
         }
     }
 
@@ -133,5 +142,37 @@ mod tests {
         let a = parse("na task migração dos alertas, valida a query no new relic");
         assert_eq!(a.task.as_deref(), Some("migração dos alertas"));
         assert_eq!(a.instruction, "valida a query no new relic");
+    }
+
+    #[test]
+    fn task_name_stops_before_the_verb() {
+        // Spoken sentences rarely carry commas: the first action verb
+        // ends the name ("na task assinaturas core roda os testes").
+        let a = parse("na task assinaturas core roda os testes");
+        assert_eq!(a.task.as_deref(), Some("assinaturas core"));
+        assert_eq!(a.instruction, "roda os testes");
+    }
+
+    #[test]
+    fn comma_still_wins_over_verb() {
+        // With a comma the whole span before it is the name, verbs included.
+        let a = parse("na task roda de conversa, adiciona a pauta");
+        assert_eq!(a.task.as_deref(), Some("roda de conversa"));
+        assert_eq!(a.instruction, "adiciona a pauta");
+    }
+
+    #[test]
+    fn trailing_task_address_unchanged() {
+        let a = parse("corrige o teste na task assinaturas core");
+        assert_eq!(a.task.as_deref(), Some("assinaturas core"));
+        assert_eq!(a.instruction, "corrige o teste");
+    }
+
+    #[test]
+    fn project_span_breaks_on_verb_too() {
+        // Multi-word project names survive when a verb follows.
+        let a = parse("no projeto workspace fabrica roda os testes");
+        assert_eq!(a.project.as_deref(), Some("workspace fabrica"));
+        assert_eq!(a.instruction, "roda os testes");
     }
 }

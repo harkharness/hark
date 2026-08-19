@@ -659,7 +659,7 @@ fn cmd_hear() -> i32 {
 
 /// The JARVIS loop: hear -> route (ask|dispatch) -> speak.
 fn cmd_listen() -> i32 {
-    use vox_core::domain::intent::{is_affirmative, route, Route};
+    use vox_core::domain::intent::{route, Route};
     use vox_core::ports::{AudioIn, Cue, Stt, Tts};
 
     let config = Config::load();
@@ -700,7 +700,11 @@ fn cmd_listen() -> i32 {
             Route::Dispatch => {
                 let _ = tts.speak(&format!("Entendi: {text}. Confirma?"));
                 match hear("🎤 confirma? (sim/não)…") {
-                    Some(answer) if is_affirmative(&answer) => {
+                    // The strict verdict grammar: "assim que der" is not a yes.
+                    Some(answer)
+                        if vox_core::domain::verdict::interpret_permission(&answer)
+                            .is_some_and(|(allow, _)| allow) =>
+                    {
                         let _ = tts.speak("Despachando. Aprovações continuam pelo teclado.");
                         let code = cmd_dispatch(&text, None);
                         let _ = match code {
