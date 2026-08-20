@@ -502,14 +502,50 @@ export default function App({
     });
   }, []);
 
-  /** Open an ABSOLUTE path (from a tool call) in the local editor. */
-  function openAbsolutePath(path: string) {
-    const project = projects.find((p) => path === p.path || path.startsWith(`${p.path}/`));
-    if (!project) {
-      push({ who: "sys", text: `${path} está fora dos projetos registrados` });
+  /** Formats the editor can't render — the OS opens these. */
+  const OS_ONLY = /\.(html?|pdf|png|jpe?g|gif|svg|webp)$/i;
+
+  /**
+   * The single router for every clicked path (markdown links, tool call
+   * chips): resolves relative paths against the project, sends browser
+   * formats to the OS, everything else to the local editor — including
+   * files outside registered projects (e.g. ~/.claude/plans) via a
+   * synthetic root, so a proposed plan opens as rendered markdown.
+   */
+  function openAbsolutePath(raw: string) {
+    let path = raw.trim();
+    if (/^https?:/i.test(path)) {
+      ipc.openExternal(path).catch(() => {});
       return;
     }
-    openFile({ abs: path, rel: path.slice(project.path.length + 1), project });
+    if (!path.startsWith("/") && !path.startsWith("~")) {
+      const base = activeProject?.path;
+      if (!base) {
+        push({ who: "sys", text: `${path}: caminho relativo sem projeto ativo` });
+        return;
+      }
+      path = `${base}/${path.replace(/^\.\//, "")}`;
+    }
+    if (OS_ONLY.test(path)) {
+      ipc.openExternal(path).catch(() => {});
+      return;
+    }
+    // Compare in ~-form so "~/Projects/x" and "/Users/me/Projects/x" meet.
+    const norm = (p: string) => p.replace(/^\/Users\/[^/]+\//, "~/");
+    const np = norm(path);
+    const project = projects.find(
+      (p) => np === norm(p.path) || np.startsWith(`${norm(p.path)}/`),
+    );
+    if (project) {
+      openFile({ abs: path, rel: np.slice(norm(project.path).length + 1), project });
+      return;
+    }
+    const parts = path.split("/");
+    openFile({
+      abs: path,
+      rel: parts[parts.length - 1] ?? path,
+      project: { name: parts[parts.length - 2] ?? "", path: parts.slice(0, -1).join("/") },
+    });
   }
 
   /** Resolve a spoken/typed file query to a real file and open the viewer. */

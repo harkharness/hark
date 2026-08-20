@@ -7,9 +7,92 @@ import type { OpenFile } from "../types";
 import { t } from "../lib/i18n";
 
 const isMarkdown = (rel: string) => /\.(md|markdown)$/i.test(rel);
+const isCsv = (rel: string) => /\.(csv|tsv)$/i.test(rel);
 /** Above this size, live re-highlighting on every keystroke gets slow:
  * fall back to a plain (uncolored) textarea. */
 const HIGHLIGHT_EDIT_MAX = 120_000;
+/** Rows rendered in the CSV table view; the rest stays behind the note. */
+const CSV_MAX_ROWS = 500;
+
+/** Minimal CSV parse: quoted fields, "" escapes, \r\n — no dependencies. */
+function parseCsv(text: string, sep: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else quoted = false;
+      } else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === sep) {
+      row.push(field);
+      field = "";
+    } else if (c === "\n") {
+      row.push(field.replace(/\r$/, ""));
+      rows.push(row);
+      row = [];
+      field = "";
+    } else field += c;
+  }
+  if (field !== "" || row.length > 0) {
+    row.push(field.replace(/\r$/, ""));
+    rows.push(row);
+  }
+  return rows.filter((r) => r.length > 1 || (r[0] ?? "") !== "");
+}
+
+/** Pick the delimiter that splits the first line the most (pt-BR uses ;). */
+function sniffSep(text: string, rel: string): string {
+  if (/\.tsv$/i.test(rel)) return "\t";
+  const first = text.slice(0, text.indexOf("\n") < 0 ? text.length : text.indexOf("\n"));
+  const counts: [string, number][] = [",", ";", "\t"].map((s) => [
+    s,
+    first.split(s).length - 1,
+  ]);
+  counts.sort((a, b) => b[1] - a[1]);
+  return counts[0][1] > 0 ? counts[0][0] : ",";
+}
+
+/** Data first: the table is the reading view, the pencil shows the source. */
+function CsvTable({ text, rel }: { text: string; rel: string }) {
+  const rows = parseCsv(text, sniffSep(text, rel));
+  if (rows.length === 0) return <div className="viewer-note">∅</div>;
+  const [header, ...body] = rows;
+  const shown = body.slice(0, CSV_MAX_ROWS);
+  return (
+    <div className="viewer-csv">
+      <table>
+        <thead>
+          <tr>
+            {header.map((h, i) => (
+              <th key={i}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((r, i) => (
+            <tr key={i}>
+              {header.map((_, j) => (
+                <td key={j} title={r[j]}>
+                  {r[j] ?? ""}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {body.length > shown.length && (
+        <div className="viewer-note">{t("more_lines", { n: body.length - shown.length })}</div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Local file panel, zero tokens both ways. Markdown opens RENDERED (edit
@@ -47,8 +130,8 @@ export default function FileViewer({
         setContent(out.content);
         setDraft(out.content);
         setTruncated(out.truncated);
-        // Markdown is for reading first; everything else is for editing.
-        setEditing(!isMarkdown(file.rel) && !out.truncated);
+        // Markdown and CSV are for reading first; the rest is for editing.
+        setEditing(!isMarkdown(file.rel) && !isCsv(file.rel) && !out.truncated);
       })
       .catch((err) => {
         setContent("");
@@ -143,6 +226,8 @@ export default function FileViewer({
         <div className="viewer-md">
           <Markdown>{content}</Markdown>
         </div>
+      ) : isCsv(file.rel) ? (
+        <CsvTable text={content} rel={file.rel} />
       ) : (
         <pre className="viewer-code">
           <code dangerouslySetInnerHTML={{ __html: highlightFile(file.rel, content) }} />

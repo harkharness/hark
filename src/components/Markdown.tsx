@@ -41,7 +41,7 @@ export default function Markdown({
   children: string;
   /** Send a command to the in-app terminal (execute=false just types it). */
   onRun?: (cmd: string, execute: boolean) => void;
-  /** Open a local file in the app's editor (falls back to the OS). */
+  /** Owns path routing: resolves relative paths, picks editor vs OS. */
   onOpenPath?: (path: string) => void;
 }) {
   return (
@@ -52,8 +52,8 @@ export default function Markdown({
         components={{
           // A link click must NEVER navigate the webview (that reloads the
           // SPA as the mother and loses the chat). URLs open in the OS
-          // browser; file paths open in the editor, or the OS for formats
-          // the editor doesn't render.
+          // browser; file paths go to onOpenPath, which resolves relative
+          // paths and picks editor vs OS app.
           a(props) {
             const href = props.href ?? "";
             return (
@@ -67,8 +67,7 @@ export default function Markdown({
                     return;
                   }
                   const path = decodeURI(href);
-                  const editable = !/\.(html?|pdf|png|jpe?g|gif|svg|webp)$/i.test(path);
-                  if (onOpenPath && editable) onOpenPath(path);
+                  if (onOpenPath) onOpenPath(path);
                   else ipc.openExternal(path).catch(() => {});
                 }}
               />

@@ -167,6 +167,8 @@ const pt = {
   tc_send_file: "arquivo enviado",
   tc_open_editor: "abrir no editor",
   tc_open_os: "abrir no app padrão",
+  tc_plan: "plano proposto",
+  tools_ran: "Executado {n} comandos",
   side_hide: "esconder a lista (Cmd+B)",
   side_show: "mostrar a lista (Cmd+B)",
 
@@ -448,6 +450,8 @@ const en: Record<keyof typeof pt, string> = {
   tc_send_file: "file sent",
   tc_open_editor: "open in editor",
   tc_open_os: "open in default app",
+  tc_plan: "proposed plan",
+  tools_ran: "Ran {n} commands",
   side_hide: "hide the list (Cmd+B)",
   side_show: "show the list (Cmd+B)",
 

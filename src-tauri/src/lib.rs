@@ -210,14 +210,20 @@ fn project_files(path: String, query: String, limit: Option<usize>) -> Vec<Strin
     )
 }
 
-/// Only files inside registered projects are readable/writable from the UI.
+/// Only files inside registered projects — plus ~/.claude (plans, session
+/// logs the user clicks open) — are readable/writable from the UI.
 fn guard_project_path(path: &str) -> Result<std::path::PathBuf, String> {
     let config = Config::load();
     let target = std::path::PathBuf::from(vox_core::config::expand_home(path))
         .canonicalize()
         .map_err(|e| format!("{path}: {e}"))?;
-    let allowed = load_projects(&config).iter().any(|proj| {
-        std::path::PathBuf::from(vox_core::config::expand_home(&proj.path))
+    let projects = load_projects(&config);
+    let roots = projects
+        .iter()
+        .map(|proj| proj.path.clone())
+        .chain(std::iter::once("~/.claude".to_string()));
+    let allowed = roots.into_iter().any(|root| {
+        std::path::PathBuf::from(vox_core::config::expand_home(&root))
             .canonicalize()
             .map(|root| target.starts_with(root))
             .unwrap_or(false)

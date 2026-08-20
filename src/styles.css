@@ -711,7 +711,31 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .toolcall.inline { display: flex; align-items: baseline; gap: 8px; }
 .tool-body { margin-top: 4px; }
+/* A burst of consecutive tool calls collapses into one bordered group. */
+.tool-group {
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  align-self: stretch;
+}
+.tool-group > summary {
+  cursor: pointer; list-style: none; user-select: none; display: flex;
+  align-items: baseline; gap: 8px; color: var(--dim); font-size: 12px;
+}
+.tool-group > summary::before {
+  content: "›"; transition: transform .12s ease; display: inline-block;
+  flex: 0 0 auto;
+}
+.tool-group[open] > summary::before { transform: rotate(90deg); }
+.tool-group > summary::-webkit-details-marker { display: none; }
+.tg-body { margin-top: 6px; display: flex; flex-direction: column; }
+.tg-body > .msg { margin: 0; padding: 4px 0; }
+.tg-body > .msg + .msg { border-top: 1px solid var(--border); }
+.tg-body .toolcall { border-left: none; padding-left: 0; }
 /* SendUserFile: the deliverable as a clickable card, never raw JSON. */
+.tool-deliver { border-left: 2px solid var(--ok); padding: 2px 0 2px 10px; }
+.deliver-head {
+  color: var(--ok); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+}
+.deliver-caption { color: var(--text); font-size: 13px; margin: 3px 0 7px; }
 .tool-files { display: flex; flex-direction: column; gap: 4px; }
 .tool-file {
   display: flex; align-items: baseline; gap: 8px; width: fit-content;
@@ -719,7 +743,14 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   border-radius: 8px; padding: 6px 10px; color: var(--text); font: inherit;
   font-size: 12.5px; cursor: pointer; text-align: left;
 }
-.tool-file:hover { border-color: var(--accent); color: var(--accent); }
+.tool-file:hover { border-color: var(--accent); }
+.tool-file:hover .tool-file-name { color: var(--accent); }
+.tool-file-badge {
+  flex: 0 0 auto; font-size: 9.5px; text-transform: uppercase;
+  letter-spacing: .5px; color: var(--dim); border: 1px solid var(--border);
+  border-radius: 4px; padding: 1px 5px; font-family: var(--font-mono);
+}
+.tool-file-name { font-family: var(--font-mono); }
 .tool-file-dir {
   color: var(--dim); font-size: 10.5px; font-family: var(--font-mono);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1238,6 +1269,21 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   font-size: 12px; line-height: 1.55; white-space: pre; tab-size: 4;
   background: var(--code-bg); color: var(--code-fg);
 }
+/* CSV opens as data: a real table, source one pencil away. */
+.viewer-csv { flex: 1; overflow: auto; padding: 0 0 8px; }
+.viewer-csv table {
+  border-collapse: collapse; font-size: 12px; font-family: var(--font-mono);
+}
+.viewer-csv th, .viewer-csv td {
+  border: 1px solid var(--border); padding: 3px 9px; text-align: left;
+  white-space: nowrap; max-width: 380px; overflow: hidden; text-overflow: ellipsis;
+}
+.viewer-csv th {
+  position: sticky; top: 0; background: var(--panel); color: var(--accent);
+  font-weight: 600;
+}
+.viewer-csv tbody tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+.viewer-note { color: var(--dim); font-size: 11px; padding: 6px 12px; }
 .viewer-edit {
   flex: 1; background: var(--code-bg); border: none; outline: none;
   color: var(--code-fg); font: inherit; font-size: 12px; line-height: 1.55;

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Markdown from "./Markdown";
 import { t } from "../lib/i18n";
 import * as ipc from "../lib/ipc";
@@ -14,6 +15,12 @@ function fence(lang: string, body: string): string {
 /** Formats the editor can't render — the OS opens these. */
 const OS_ONLY = /\.(html?|pdf|png|jpe?g|gif|svg|webp)$/i;
 
+/** Three render shapes: one quiet line, a folded payload, or an
+ *  always-visible card (deliverables — never hidden behind a fold). */
+type Rendered =
+  | { label: string; hint: string; body: ReactNode | null }
+  | { card: ReactNode };
+
 /**
  * A tool call the way Claude Code shows it: ONE quiet summary line
  * (name + hint), body folded behind it — the chat stays readable and the
@@ -28,7 +35,7 @@ export default function ToolCall({
 }: {
   name: string;
   input: string;
-  /** When set, file paths become clickable and open the local viewer. */
+  /** When set, owns ALL path routing (resolve relative, editor vs OS). */
   onOpenPath?: (path: string) => void;
   /** Start expanded (permission cards). */
   defaultOpen?: boolean;
@@ -45,7 +52,7 @@ export default function ToolCall({
     typeof parsed[key] === "string" ? (parsed[key] as string) : undefined;
 
   const openFile = (path: string) => {
-    if (onOpenPath && !OS_ONLY.test(path)) onOpenPath(path);
+    if (onOpenPath) onOpenPath(path);
     else ipc.openExternal(path).catch(() => {});
   };
 
@@ -56,8 +63,25 @@ export default function ToolCall({
       </button>
     ) : null;
 
+  const fileChip = (path: string) => {
+    const base = path.split("/").filter(Boolean).pop() ?? path;
+    const ext = base.includes(".") ? (base.split(".").pop() ?? "").slice(0, 5) : "file";
+    return (
+      <button
+        key={path}
+        className="tool-file"
+        title={OS_ONLY.test(path) ? t("tc_open_os") : t("tc_open_editor")}
+        onClick={() => openFile(path)}
+      >
+        <span className="tool-file-badge">{ext}</span>
+        <span className="tool-file-name">{base}</span>
+        <span className="tool-file-dir">{shortPath(path)}</span>
+      </button>
+    );
+  };
+
   /** summary hint + optional folded body, per tool. */
-  const { label, hint, body } = (() => {
+  const rendered: Rendered = (() => {
     switch (name) {
       case "Bash": {
         const command = str("command") ?? "";
@@ -113,29 +137,34 @@ export default function ToolCall({
           body: null,
         };
       }
+      case "ExitPlanMode": {
+        // "Plano proposto: <arquivo>" — the path opens the markdown viewer;
+        // the plan itself reads as a document, never as escaped JSON.
+        const plan = str("plan") ?? "";
+        const planPath = str("planFilePath") ?? "";
+        return {
+          label: t("tc_plan"),
+          hint: planPath ? shortPath(planPath) : plan.split("\n")[0].slice(0, 90),
+          body: (
+            <>
+              {pathLine(planPath)}
+              {plan && <Markdown onOpenPath={onOpenPath}>{plan}</Markdown>}
+            </>
+          ),
+        };
+      }
       case "SendUserFile": {
-        // The deliverable card, not raw JSON: caption + clickable files.
+        // The deliverable: always visible, caption once, files as cards.
         const files = Array.isArray(parsed["files"])
           ? (parsed["files"] as unknown[]).filter((f): f is string => typeof f === "string")
           : [];
         const caption = str("caption");
         return {
-          label: t("tc_send_file"),
-          hint: caption ?? t("tc_files", { n: files.length }),
-          body: (
-            <div className="tool-files">
-              {caption && <div className="caption">{caption}</div>}
-              {files.map((f) => (
-                <button
-                  key={f}
-                  className="tool-file"
-                  title={OS_ONLY.test(f) ? t("tc_open_os") : t("tc_open_editor")}
-                  onClick={() => openFile(f)}
-                >
-                  📄 {f.split("/").filter(Boolean).pop()}
-                  <span className="tool-file-dir">{shortPath(f)}</span>
-                </button>
-              ))}
+          card: (
+            <div className="tool-deliver">
+              <div className="deliver-head">{t("tc_send_file")}</div>
+              {caption && <div className="deliver-caption">{caption}</div>}
+              <div className="tool-files">{files.map(fileChip)}</div>
             </div>
           ),
         };
@@ -151,6 +180,9 @@ export default function ToolCall({
       }
     }
   })();
+
+  if ("card" in rendered) return <>{rendered.card}</>;
+  const { label, hint, body } = rendered;
 
   // No body = one quiet line; body = folded behind the summary.
   if (!body) {
