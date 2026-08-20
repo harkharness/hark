@@ -2262,6 +2262,56 @@ fn approve(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Native macOS menu: the standard set plus "Settings…" (Cmd+,)
+        // under the app's own submenu — it fronts the MOTHER window with
+        // the settings modal open (machine config lives there).
+        .menu(|handle| {
+            use tauri::menu::{
+                AboutMetadata, MenuBuilder, MenuItemBuilder, SubmenuBuilder,
+            };
+            let label = if Config::load().ui_language == "en" {
+                "Settings…"
+            } else {
+                "Configurações…"
+            };
+            let settings = MenuItemBuilder::with_id("settings", label)
+                .accelerator("Cmd+,")
+                .build(handle)?;
+            let app_menu = SubmenuBuilder::new(handle, "vox")
+                .about(Some(AboutMetadata::default()))
+                .separator()
+                .item(&settings)
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .quit()
+                .build()?;
+            // Clipboard/undo only work through these predefined items.
+            let edit = SubmenuBuilder::new(handle, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+            let window = SubmenuBuilder::new(handle, "Window")
+                .minimize()
+                .separator()
+                .close_window()
+                .build()?;
+            MenuBuilder::new(handle)
+                .items(&[&app_menu, &edit, &window])
+                .build()
+        })
+        .on_menu_event(|app, event| {
+            if event.id() == "settings" {
+                let _ = focus_main(app.clone(), Some("settings".into()));
+            }
+        })
         .manage(terminal::Terminals::default())
         .manage(voice::ActiveContext::default())
         .manage(SlashRegistry::default())
