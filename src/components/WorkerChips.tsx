@@ -1,6 +1,7 @@
 import { Info, Lock, X } from "lucide-react";
 import { directiveLabels } from "../lib/format";
 import type { LiveWorker } from "../types";
+import { t } from "../lib/i18n";
 
 /**
  * One chip per LIVE worker (status, directives, stop). The focused task
@@ -37,7 +38,7 @@ export default function WorkerChips({
           )}
           <button
             className="info"
-            title="resumo da task"
+            title={t("chip_summary")}
             onClick={(e) => {
               e.stopPropagation();
               onInfo(taskId);
@@ -47,7 +48,7 @@ export default function WorkerChips({
           </button>
           <button
             className="close"
-            title="finalizar worker"
+            title={t("chip_stop")}
             onClick={(e) => {
               e.stopPropagation();
               onStop(taskId);

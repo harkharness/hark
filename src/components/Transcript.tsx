@@ -4,6 +4,7 @@ import Markdown from "./Markdown";
 import ToolCall, { ToolOutput } from "./ToolCall";
 import { directiveLabels, shortModel } from "../lib/format";
 import type { Directives, Msg } from "../types";
+import { t } from "../lib/i18n";
 
 /**
  * The visible thread: one task at a time (or the general vox conversation).
@@ -41,8 +42,8 @@ export default function Transcript({
           ) : m.who === "permission" ? (
             <div className={`permission ${m.decision ?? "waiting"}`}>
               <div className="perm-title">
-                <Lock size={13} /> Permitir que{" "}
-                <b>{m.task ? m.task.slice(0, 32) : "o worker"}</b> execute{" "}
+                <Lock size={13} /> {t("perm_allow_q_pre")}{" "}
+                <b>{m.task ? m.task.slice(0, 32) : t("perm_worker")}</b> {t("perm_allow_q_mid")}{" "}
                 <b>{m.tool}</b>?
               </div>
               <ToolCall name={m.tool} input={m.input} onOpenPath={onOpenPath} />
@@ -50,9 +51,9 @@ export default function Transcript({
                 <div className={`perm-done ${m.decision}`}>
                   {m.decision === "allow"
                     ? m.auto
-                      ? "✓ permitido automaticamente (regra da task)"
-                      : "✓ permitido"
-                    : "✗ negado"}
+                      ? t("perm_auto")
+                      : t("perm_allowed")
+                    : t("perm_denied")}
                 </div>
               ) : (
                 <div className="perm-actions">
@@ -60,20 +61,20 @@ export default function Transcript({
                     className="deny"
                     onClick={() => onAnswerPermission(m.requestId, false)}
                   >
-                    Negar <kbd>n</kbd>
+                    {t("perm_deny")} <kbd>n</kbd>
                   </button>
                   <button
                     className="always"
-                    title={`nunca mais perguntar por ${m.tool} nesta task (até fechar a janela)`}
+                    title={t("perm_always_hint", { tool: m.tool })}
                     onClick={() => onAnswerPermission(m.requestId, true, true)}
                   >
-                    Sempre permitir <kbd>a</kbd>
+                    {t("perm_always")} <kbd>a</kbd>
                   </button>
                   <button
                     className="allow"
                     onClick={() => onAnswerPermission(m.requestId, true)}
                   >
-                    Permitir uma vez <kbd>y</kbd>
+                    {t("perm_once")} <kbd>y</kbd>
                   </button>
                 </div>
               )}
@@ -81,7 +82,7 @@ export default function Transcript({
           ) : (
             <div className="bubble">
               <span className="tag">
-                {m.who === "user" ? "você" : "vox"}
+                {m.who === "user" ? t("tag_you") : "vox"}
                 {m.task ? ` → ${m.task.slice(0, 12)}` : ""}
               </span>
               {m.who === "vox" ? (

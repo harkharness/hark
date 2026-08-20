@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Gauge, Legend, MeterRow, StackedBar, fmtTok, fmtUsd, type Segment } from "./Meter";
 import * as ipc from "../lib/ipc";
+import { t } from "../lib/i18n";
 import type { ContextWeight, SpendAgg, StatusLine } from "../types";
 
 type Stats = { title: string | null; size_mb: number; entries: number; last_ts: string | null };
@@ -10,18 +11,18 @@ function resetIn(raw?: string | null): string | undefined {
   const ms = /^\d+$/.test(raw) ? Number(raw) * 1000 : Date.parse(raw);
   if (!Number.isFinite(ms)) return undefined;
   const mins = Math.round((ms - Date.now()) / 60000);
-  if (mins <= 0) return "reinicia agora";
-  if (mins < 60) return `reinicia em ${mins}min`;
+  if (mins <= 0) return t("reset_now");
+  if (mins < 60) return t("reset_min", { m: mins });
   const h = Math.floor(mins / 60);
-  return h < 24 ? `reinicia em ${h}h ${mins % 60}min` : `reinicia em ${Math.round(h / 24)}d`;
+  return h < 24 ? t("reset_h", { h, m: mins % 60 }) : t("reset_d", { d: Math.round(h / 24) });
 }
 
 const limitName = (key: string) =>
   key === "five_hour"
-    ? "5 horas"
+    ? t("lim_5h_short")
     : key === "seven_day"
-      ? "semanal"
-      : `semanal · ${key.replace(/^seven_day_?/, "")}`;
+      ? t("lim_week_short")
+      : t("lim_week_model", { m: key.replace(/^seven_day_?/, "") });
 
 /**
  * The costs popover of a project window: the context window of the focused
@@ -67,7 +68,7 @@ export default function SessionInfo({
     ])
       .then(([d, w, tasks]) => {
         setLedger({ day: sum(d), week: sum(w) });
-        setByTask(tasks.filter((t) => t.cost_usd > 0).slice(0, 5));
+        setByTask(tasks.filter((agg) => agg.cost_usd > 0).slice(0, 5));
       })
       .catch(() => {});
     ipc.subscriptionLimits().then(setLimits).catch(() => setLimits(null));
@@ -76,9 +77,9 @@ export default function SessionInfo({
   const windowTotal = Object.values(costs).reduce((a, b) => a + b, 0);
   const contextSegments: Segment[] = weight
     ? [
-        { label: "cache lido", value: weight.cache_read, color: "var(--ok)" },
-        { label: "cache escrito", value: weight.cache_created, color: "var(--warn)" },
-        { label: "prompt novo", value: weight.input, color: "var(--accent)" },
+        { label: t("seg_cache_read_plain"), value: weight.cache_read, color: "var(--ok)" },
+        { label: t("seg_cache_new"), value: weight.cache_created, color: "var(--warn)" },
+        { label: t("seg_prompt"), value: weight.input, color: "var(--accent)" },
       ]
     : [];
   const capacity = weight?.context_window ?? undefined;
@@ -86,14 +87,14 @@ export default function SessionInfo({
   return (
     <div className="scope-pop" onMouseLeave={onClose}>
       <div className="scope-head">
-        <b>{projectName ? `custos · ${projectName}` : "custos"}</b>
-        <span className="hint">{taskTitle ?? "nenhuma task focada"}</span>
+        <b>{projectName ? `${t("si_costs")} · ${projectName}` : t("si_costs")}</b>
+        <span className="hint">{taskTitle ?? t("si_no_task")}</span>
       </div>
 
       {weight && weight.last_total_tokens > 0 && (
         <section className="scope-block">
           <div className="scope-block-head">
-            <span>janela de contexto</span>
+            <span>{t("si_ctx")}</span>
             <b>
               {fmtTok(weight.last_total_tokens)}
               {capacity ? ` / ${fmtTok(capacity)}` : ""}
@@ -101,11 +102,9 @@ export default function SessionInfo({
             </b>
           </div>
           <StackedBar segments={contextSegments} capacity={capacity} height={9} />
-          <Legend segments={contextSegments} capacity={capacity} free="livre" />
+          <Legend segments={contextSegments} capacity={capacity} free={t("si_free")} />
           {weight.pct != null && weight.pct > 0.7 && (
-            <p className="hint warn">
-              sessão pesada: cada turno recarrega esse contexto. Vale recomeçar leve.
-            </p>
+            <p className="hint warn">{t("si_heavy")}</p>
           )}
         </section>
       )}
@@ -113,19 +112,19 @@ export default function SessionInfo({
       {ledger && (
         <section className="scope-block">
           <div className="scope-block-head">
-            <span>gasto medido{projectName ? " neste projeto" : ""}</span>
+            <span>{t("costs_measured")}{projectName ? ` ${t("costs_in_project")}` : ""}</span>
             <b>{fmtUsd(ledger.day)}</b>
           </div>
           <div className="scope-pair">
-            <span>últimas 24h</span>
+            <span>{t("si_24h")}</span>
             <b>{fmtUsd(ledger.day)}</b>
           </div>
           <div className="scope-pair">
-            <span>últimos 7 dias</span>
+            <span>{t("si_7d")}</span>
             <b>{fmtUsd(ledger.week)}</b>
           </div>
           <div className="scope-pair">
-            <span>nesta janela aberta</span>
+            <span>{t("si_window")}</span>
             <b>{fmtUsd(windowTotal)}</b>
           </div>
         </section>
@@ -134,16 +133,16 @@ export default function SessionInfo({
       {byTask.length > 0 && (
         <section className="scope-block">
           <div className="scope-block-head">
-            <span>por task · 7 dias</span>
+            <span>{t("si_by_task")}</span>
           </div>
-          {byTask.map((t) => (
+          {byTask.map((agg) => (
             <MeterRow
-              key={t.key}
-              name={t.key}
-              value={t.cost_usd}
+              key={agg.key}
+              name={agg.key}
+              value={agg.cost_usd}
               max={byTask[0].cost_usd}
-              detail={fmtUsd(t.cost_usd)}
-              note={`${t.turns} turnos`}
+              detail={fmtUsd(agg.cost_usd)}
+              note={`${agg.turns} ${t("n_turns")}`}
             />
           ))}
         </section>
@@ -152,7 +151,7 @@ export default function SessionInfo({
       {limits && limits.limits.length > 0 && (
         <section className="scope-block">
           <div className="scope-block-head">
-            <span>limites da assinatura</span>
+            <span>{t("c_limits")}</span>
           </div>
           {limits.limits.map((l) => (
             <Gauge
@@ -168,25 +167,23 @@ export default function SessionInfo({
       {stats && (
         <section className="scope-block">
           <div className="scope-block-head">
-            <span>sessão focada</span>
+            <span>{t("si_focused")}</span>
             <b className={stats.size_mb > 2 ? "warn" : ""}>{stats.size_mb.toFixed(1)} MB</b>
           </div>
           <div className="scope-pair">
-            <span>eventos no log</span>
+            <span>{t("si_events")}</span>
             <b>{stats.entries}</b>
           </div>
           {stats.last_ts && (
             <div className="scope-pair">
-              <span>última atividade</span>
+              <span>{t("si_last")}</span>
               <b>{stats.last_ts.slice(0, 16).replace("T", " ")}</b>
             </div>
           )}
         </section>
       )}
 
-      <p className="scope-foot">
-        USD medido pelo CLI nos turnos do Vox. Custos completos na janela mãe.
-      </p>
+      <p className="scope-foot">{t("si_foot")}</p>
     </div>
   );
 }

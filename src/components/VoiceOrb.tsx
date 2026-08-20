@@ -1,3 +1,5 @@
+import { t } from "../lib/i18n";
+
 export type OrbMode = "idle" | "listening" | "speaking" | "busy";
 
 /**
@@ -7,7 +9,7 @@ export type OrbMode = "idle" | "listening" | "speaking" | "busy";
  */
 export default function VoiceOrb({ mode }: { mode: OrbMode }) {
   return (
-    <span className={`orb ${mode}`} title={ORB_TITLE[mode]}>
+    <span className={`orb ${mode}`} title={t(ORB_TITLE[mode])}>
       {[0, 1, 2, 3, 4].map((i) => (
         <span key={i} className="orb-bar" style={{ animationDelay: `${i * 0.12}s` }} />
       ))}
@@ -15,9 +17,9 @@ export default function VoiceOrb({ mode }: { mode: OrbMode }) {
   );
 }
 
-const ORB_TITLE: Record<OrbMode, string> = {
-  idle: "voz parada",
-  listening: "ouvindo você",
-  speaking: "falando (Esc corta)",
-  busy: "processando",
-};
+const ORB_TITLE = {
+  idle: "orb_idle",
+  listening: "orb_listening",
+  speaking: "orb_speaking",
+  busy: "orb_busy",
+} as const;

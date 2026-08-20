@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import ShellTerminal, { disposeShell } from "./ShellTerminal";
+import { t } from "../lib/i18n";
 
 /** The Terminal window's tab strip — lives in the PanelFrame header. */
 export function TerminalTabs({
@@ -27,7 +28,7 @@ export function TerminalTabs({
           zsh {i + 1}
           <button
             className="filetab-close"
-            title="fechar este shell"
+            title={t("term_close_shell")}
             onClick={(e) => {
               e.stopPropagation();
               disposeShell(id);
@@ -39,13 +40,13 @@ export function TerminalTabs({
         </span>
       ))}
       <span className="filetab addtab">
-        <button title="novo shell" onClick={onAddShell}>
+        <button title={t("term_new_shell")} onClick={onAddShell}>
           <Plus size={12} />
         </button>
       </span>
       <span
         className={`filetab feedtab ${active === "feed" ? "on" : ""}`}
-        title="eventos brutos do worker da task focada"
+        title={t("term_feed_hint")}
         onClick={() => onActivate("feed")}
       >
         feed

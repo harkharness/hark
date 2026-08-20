@@ -4,6 +4,7 @@ import * as ipc from "../lib/ipc";
 import { highlightFile } from "../lib/highlight";
 import Markdown from "./Markdown";
 import type { OpenFile } from "../types";
+import { t } from "../lib/i18n";
 
 const isMarkdown = (rel: string) => /\.(md|markdown)$/i.test(rel);
 /** Above this size, live re-highlighting on every keystroke gets slow:
@@ -74,13 +75,13 @@ export default function FileViewer({
         <span className="viewer-path" title={file.abs}>
           {file.rel}
         </span>
-        {dirty && <span className="viewer-dirty" title="edições não salvas (Cmd+S)" />}
+        {dirty && <span className="viewer-dirty" title={t("viewer_dirty")} />}
         {truncated && <span className="viewer-badge">truncado</span>}
         {status && <span className="viewer-status">{status}</span>}
         <span className="viewer-actions">
           {editing ? (
             <>
-              <button onClick={save} disabled={!dirty} title="salvar (Cmd+S)">
+              <button onClick={save} disabled={!dirty} title={t("viewer_save")}>
                 <Save size={13} />
               </button>
               <button
@@ -88,7 +89,7 @@ export default function FileViewer({
                   setDraft(content);
                   setEditing(false);
                 }}
-                title="voltar à visualização"
+                title={t("viewer_back")}
               >
                 <Eye size={13} />
               </button>

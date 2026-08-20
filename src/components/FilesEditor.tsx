@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import FileViewer from "./FileViewer";
 import type { OpenFile } from "../types";
+import { t } from "../lib/i18n";
 
 /**
  * The "Arquivo" window body: up to 5 file tabs. Every tab stays MOUNTED
@@ -34,7 +35,7 @@ export function FileTabs({
           {f.rel.split("/").pop()}
           <button
             className="filetab-close"
-            title={dirty.has(f.abs) ? "tem edição não salva" : "fechar aba"}
+            title={dirty.has(f.abs) ? t("filetab_dirty") : t("filetab_close")}
             onClick={(e) => {
               e.stopPropagation();
               onCloseTab(i);

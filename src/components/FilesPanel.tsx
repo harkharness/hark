@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Search } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import FileTree from "./FileTree";
 import type { OpenFile, Project } from "../types";
+import { t } from "../lib/i18n";
 
 /**
  * The "Arquivos" window: fuzzy filter across every project on top,
@@ -50,7 +51,7 @@ export default function FilesPanel({
       <div className="filespanel-search">
         <Search size={13} />
         <input
-          placeholder="filtrar arquivos em todos os projetos…"
+          placeholder={t("filespanel_ph")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {

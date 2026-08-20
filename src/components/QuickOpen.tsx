@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as ipc from "../lib/ipc";
 import type { OpenFile, Project } from "../types";
+import { t } from "../lib/i18n";
 
 /**
  * Cmd+P: fuzzy file search across every registered project, VSCode-style.
@@ -45,7 +46,7 @@ export default function QuickOpen({
       <div className="quickopen" onClick={(e) => e.stopPropagation()}>
         <input
           autoFocus
-          placeholder="arquivo… (Enter abre, Esc fecha)"
+          placeholder={t("quickopen_ph")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
