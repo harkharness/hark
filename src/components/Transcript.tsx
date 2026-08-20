@@ -148,7 +148,7 @@ export default function Transcript({
     const tools = run.filter(({ m }) => m.who === "tool").length;
     if (tools >= 2) {
       nodes.push(
-        <details key={`group-${run[0].i}`} className="tool-group" open>
+        <details key={`group-${run[0].i}`} className="tool-group">
           <summary>{t("tools_ran", { n: tools })}</summary>
           <div className="tg-body">{run.map(({ m, i }) => renderOne(m, i))}</div>
         </details>,

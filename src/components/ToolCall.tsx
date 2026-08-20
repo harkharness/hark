@@ -138,18 +138,20 @@ export default function ToolCall({
         };
       }
       case "ExitPlanMode": {
-        // "Plano proposto: <arquivo>" — the path opens the markdown viewer;
-        // the plan itself reads as a document, never as escaped JSON.
+        // ONE line: "plano proposto <arquivo>". The full plan lives in the
+        // file — clicking opens the markdown viewer, the chat stays clean.
         const plan = str("plan") ?? "";
         const planPath = str("planFilePath") ?? "";
         return {
-          label: t("tc_plan"),
-          hint: planPath ? shortPath(planPath) : plan.split("\n")[0].slice(0, 90),
-          body: (
-            <>
-              {pathLine(planPath)}
-              {plan && <Markdown onOpenPath={onOpenPath}>{plan}</Markdown>}
-            </>
+          card: (
+            <div className="toolcall inline">
+              <span className="toolname">{t("tc_plan")}</span>
+              {planPath ? (
+                pathLine(planPath)
+              ) : (
+                <span className="tool-hint">{plan.split("\n")[0].slice(0, 90)}</span>
+              )}
+            </div>
           ),
         };
       }
