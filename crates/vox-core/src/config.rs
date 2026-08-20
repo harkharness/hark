@@ -32,8 +32,11 @@ pub struct Config {
     pub default_context: String,
     /// Named focus areas, kubectl-context style.
     pub contexts: BTreeMap<String, ContextTable>,
-    /// STT language (whisper).
+    /// STT language (whisper) — what the mic EXPECTS TO HEAR.
     pub language: String,
+    /// UI language ("pt" | "en") — what the SCREEN shows. Separate on
+    /// purpose: plenty of people speak pt-BR to an English interface.
+    pub ui_language: String,
     /// macOS `say` voice for answers.
     pub voice: String,
     /// Whisper ggml model path; empty means `<data_dir>/models/ggml-small.bin`.
@@ -81,6 +84,7 @@ impl Default for Config {
             default_context: "all".into(),
             contexts: BTreeMap::new(),
             language: "pt".into(),
+            ui_language: "pt".into(),
             voice: "Luciana".into(),
             whisper_model: String::new(),
             vocab: [

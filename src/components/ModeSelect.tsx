@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { ChevronUp } from "lucide-react";
+import { t } from "../lib/i18n";
 
-const MODES: { flag: string; name: string; hint: string }[] = [
-  { flag: "manual", name: "Manual", hint: "sempre perguntar antes de agir" },
-  { flag: "acceptEdits", name: "Aceitar edições", hint: "edições passam direto; o resto pergunta" },
-  { flag: "plan", name: "Planejar", hint: "criar um plano antes de mexer" },
-  { flag: "auto", name: "Automático", hint: "Claude gerencia as decisões de permissão" },
-  { flag: "bypass", name: "Ignorar permissões", hint: "aceita tudo — cuidado" },
-];
+const MODES = [
+  { flag: "manual", name: "mode_manual", hint: "mode_manual_hint" },
+  { flag: "acceptEdits", name: "mode_accept", hint: "mode_accept_hint" },
+  { flag: "plan", name: "mode_plan", hint: "mode_plan_hint" },
+  { flag: "auto", name: "mode_auto", hint: "mode_auto_hint" },
+  { flag: "bypass", name: "mode_bypass", hint: "mode_bypass_hint" },
+] as const;
 
 /**
  * The permission-mode pill (Claude Code's composer selector). With a live
@@ -34,17 +35,17 @@ export default function ModeSelect({
         className="mode-pill"
         title={
           appliesTo
-            ? `modo de permissão da task "${appliesTo}" (troca reinicia o processo)`
-            : "modo de permissão das novas tasks desta janela"
+            ? t("mode_pill_task", { name: appliesTo })
+            : t("mode_pill_window")
         }
         onClick={() => setOpen((o) => !o)}
       >
-        {current.name} <ChevronUp size={11} />
+        {t(current.name)} <ChevronUp size={11} />
       </button>
       {open && (
         <div className="mode-menu" onMouseLeave={() => setOpen(false)}>
           <div className="mode-menu-head">
-            {appliesTo ? `modo · ${appliesTo.slice(0, 26)}` : "modo · novas tasks"}
+            {appliesTo ? t("mode_menu_task", { name: appliesTo.slice(0, 26) }) : t("mode_menu_new")}
           </div>
           {MODES.map((m) => (
             <button
@@ -55,8 +56,8 @@ export default function ModeSelect({
                 onSelect(m.flag);
               }}
             >
-              <b>{m.name}</b>
-              <span>{m.hint}</span>
+              <b>{t(m.name)}</b>
+              <span>{t(m.hint)}</span>
             </button>
           ))}
         </div>

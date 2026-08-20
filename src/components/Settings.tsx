@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, Check, Mic2, Settings2, Wrench, X } from "lucide-react";
 import * as ipc from "../lib/ipc";
+import { t } from "../lib/i18n";
 
 type Section = "geral" | "voz" | "workers" | "avancado";
 
 const MODE_OPTIONS: [string, string][] = [
-  ["", "padrão do CLI (pergunta tudo)"],
-  ["manual", "Manual"],
-  ["acceptEdits", "Aceitar edições"],
-  ["plan", "Planejar"],
-  ["auto", "Automático"],
-  ["bypassPermissions", "Ignorar permissões"],
+  ["", "mode_cli"],
+  ["manual", "mode_manual"],
+  ["acceptEdits", "mode_accept"],
+  ["plan", "mode_plan"],
+  ["auto", "mode_auto"],
+  ["bypassPermissions", "mode_bypass"],
 ];
 
 /**
@@ -137,8 +138,8 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
     if (custom) {
       return (
         <Field
-          label="Modelo padrão"
-          hint="id completo ou alias — Enter salva"
+          label={t("set_model")}
+          hint={t("set_model_custom_hint")}
           keyName={keyName}
           value={value}
           placeholder="claude-sonnet-5"
@@ -148,8 +149,8 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
     return (
       <div className="set-row">
         <div className="set-label">
-          <b>Modelo padrão {saved(keyName)}</b>
-          <span>alias passado ao claude --model</span>
+          <b>{t("set_model")} {saved(keyName)}</b>
+          <span>{t("set_model_hint")}</span>
         </div>
         <select
           value={value}
@@ -163,24 +164,24 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
               {m}
             </option>
           ))}
-          <option value="__custom__">outro…</option>
+          <option value="__custom__">{t("set_model_other")}</option>
         </select>
       </div>
     );
   }
 
   const sections: { id: Section; name: string; icon: React.ReactNode }[] = [
-    { id: "geral", name: "Geral", icon: <Settings2 size={14} /> },
-    { id: "voz", name: "Voz", icon: <Mic2 size={14} /> },
-    { id: "workers", name: "Workers", icon: <Bot size={14} /> },
-    { id: "avancado", name: "Avançado", icon: <Wrench size={14} /> },
+    { id: "geral", name: t("set_general"), icon: <Settings2 size={14} /> },
+    { id: "voz", name: t("set_voice"), icon: <Mic2 size={14} /> },
+    { id: "workers", name: t("set_workers"), icon: <Bot size={14} /> },
+    { id: "avancado", name: t("set_advanced"), icon: <Wrench size={14} /> },
   ];
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal settings" onClick={(e) => e.stopPropagation()}>
         <nav className="set-nav">
-          <h3>Configurações</h3>
+          <h3>{t("set_title")}</h3>
           {sections.map((s) => (
             <button
               key={s.id}
@@ -196,22 +197,22 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
         </nav>
 
         <div className="set-body">
-          <button className="set-close" onClick={onClose} title="fechar (Esc)">
+          <button className="set-close" onClick={onClose} title={t("set_close")}>
             <X size={15} />
           </button>
           {error && <div className="gate-warning">⚠ {error}</div>}
 
           {section === "geral" && (
             <>
-              <h2>Geral</h2>
+              <h2>{t("set_general")}</h2>
               <ModelSelect keyName="model" value={v.model} />
               <Select
-                label="Tema do código"
-                hint="blocos do chat, editor e terminal"
+                label={t("set_theme")}
+                hint={t("set_theme_hint")}
                 keyName="theme"
                 value={v.theme}
                 options={[
-                  ["vox", "Vox (padrão)"],
+                  ["vox", t("set_theme_default")],
                   ["dracula", "Dracula"],
                 ]}
               />
@@ -224,9 +225,19 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
                   {"}"}
                 </pre>
               </div>
+              <Select
+                label={t("set_ui_lang")}
+                hint={t("set_ui_lang_hint")}
+                keyName="ui_language"
+                value={v.ui_language}
+                options={[
+                  ["pt", t("lang_pt")],
+                  ["en", t("lang_en")],
+                ]}
+              />
               <Field
-                label="Atalho global"
-                hint="abre o HUD de voz de qualquer app — aplica na hora"
+                label={t("set_hotkey")}
+                hint={t("set_hotkey_hint")}
                 keyName="hotkey"
                 value={v.hotkey}
                 placeholder="cmd+shift+space"
@@ -236,10 +247,10 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
 
           {section === "voz" && (
             <>
-              <h2>Voz</h2>
+              <h2>{t("set_voice")}</h2>
               <Select
-                label="Voz das respostas"
-                hint="vozes do sistema (say); pt primeiro"
+                label={t("set_tts")}
+                hint={t("set_tts_hint")}
                 keyName="voice"
                 value={v.voice}
                 options={
@@ -249,13 +260,13 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
                 }
               />
               <Select
-                label="Idioma da transcrição"
-                hint="o que o whisper espera ouvir"
+                label={t("set_stt")}
+                hint={t("set_stt_hint")}
                 keyName="language"
                 value={v.language}
                 options={[
-                  ["pt", "Português (Brasil)"],
-                  ["en", "Inglês"],
+                  ["pt", t("lang_pt")],
+                  ["en", t("lang_en")],
                 ]}
               />
             </>
@@ -263,31 +274,31 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
 
           {section === "workers" && (
             <>
-              <h2>Workers</h2>
+              <h2>{t("set_workers")}</h2>
               <Select
-                label="Modo de permissão padrão"
-                hint="novas tasks nascem neste modo (falado > seletor > isto)"
+                label={t("set_mode")}
+                hint={t("set_mode_hint")}
                 keyName="worker_mode"
                 value={v.worker_mode}
-                options={MODE_OPTIONS}
+                options={MODE_OPTIONS.map(([val, k]) => [val, t(k as never)] as [string, string])}
               />
               <Field
-                label="Teto por worker (USD)"
-                hint="--max-budget-usd; 0 desliga — a trava pós-incidente"
+                label={t("set_budget")}
+                hint={t("set_budget_hint")}
                 keyName="worker_budget_usd"
                 value={v.worker_budget_usd}
                 number
               />
               <Field
-                label="Máximo de turnos"
-                hint="0 = sem limite"
+                label={t("set_turns")}
+                hint={t("set_turns_hint")}
                 keyName="worker_max_turns"
                 value={v.worker_max_turns}
                 number
               />
               <Field
-                label="Orçamento do prompt (chars)"
-                hint="tamanho do contexto montado pro ask (~chars/4 tokens)"
+                label={t("set_prompt")}
+                hint={t("set_prompt_hint")}
                 keyName="prompt_budget_chars"
                 value={v.prompt_budget_chars}
                 number
@@ -297,24 +308,24 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
 
           {section === "avancado" && (
             <>
-              <h2>Avançado</h2>
+              <h2>{t("set_advanced")}</h2>
               <Field
-                label="Binário do claude"
-                hint={`resolvido: ${snap.claude_bin_resolved}`}
+                label={t("set_claude")}
+                hint={t("set_claude_hint", { path: snap.claude_bin_resolved })}
                 keyName="claude_bin"
                 value={v.claude_bin}
               />
               <Field
-                label="Modelo do whisper"
-                hint={`em uso: ${snap.whisper_model_resolved} · muda no próximo boot`}
+                label={t("set_whisper")}
+                hint={t("set_whisper_hint", { path: snap.whisper_model_resolved })}
                 keyName="whisper_model"
                 value={v.whisper_model}
                 placeholder="~/.local/share/vox/models/ggml-small.bin"
               />
               <div className="set-row">
                 <div className="set-label">
-                  <b>Dados locais</b>
-                  <span>índice, ledger e modelos ficam aqui — nada sai da máquina</span>
+                  <b>{t("set_data")}</b>
+                  <span>{t("set_data_hint")}</span>
                 </div>
                 <code className="set-ro">{snap.data_dir}</code>
               </div>

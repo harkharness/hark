@@ -7,6 +7,7 @@ import {
 } from "react-resizable-panels";
 import { PanelLeft, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
+import { setLang, t } from "./lib/i18n";
 import Board from "./components/Board";
 import Composer, { toImagePair, type Attachment } from "./components/Composer";
 import FilesEditor, { FileTabs } from "./components/FilesEditor";
@@ -139,6 +140,8 @@ export default function App({
     ipc
       .overview()
       .then((o) => {
+        // Language first: setOverview re-renders with t() already right.
+        setLang(o.ui_language);
         setOverview(o);
         // Code-surface theme (chat blocks, editor, terminal) via CSS vars.
         document.documentElement.dataset.theme = o.theme;
@@ -1282,7 +1285,7 @@ export default function App({
 
   const frameArquivo = (slot?: { collapsed: boolean }) => (
     <PanelFrame
-      title="Arquivo"
+      title={t("frame_file")}
       tabs={
         <FileTabs
           files={openFiles}
@@ -1312,7 +1315,7 @@ export default function App({
   );
   const frameTerminal = (slot?: { collapsed: boolean }) => (
     <PanelFrame
-      title="Terminal"
+      title={t("frame_terminal")}
       tabs={
         <TerminalTabs
           shells={shells}
@@ -1343,7 +1346,7 @@ export default function App({
   );
   const frameBoard = (slot?: { collapsed: boolean }) => (
     <PanelFrame
-      title="Board"
+      title={t("frame_board")}
       expanded={expanded === "board"}
       collapsed={slot?.collapsed ?? false}
       onToggleExpand={() => setExpanded((e) => (e === "board" ? null : "board"))}
@@ -1360,7 +1363,7 @@ export default function App({
   );
   const frameArquivos = (slot?: { collapsed: boolean }) => (
     <PanelFrame
-      title="Arquivos"
+      title={t("frame_files")}
       expanded={expanded === "arquivos"}
       collapsed={slot?.collapsed ?? false}
       onToggleExpand={() => setExpanded((e) => (e === "arquivos" ? null : "arquivos"))}
@@ -1377,12 +1380,12 @@ export default function App({
   );
 
   const placeholder = draftChat
-    ? `primeira mensagem do novo chat em ${draftChat.name}…`
+    ? t("composer_draft", { name: draftChat.name })
     : focused
-      ? `→ ${labelFor(focused)} (perguntas ainda vão pro vox)`
+      ? t("composer_worker", { name: labelFor(focused) })
       : focusedTask
-        ? `→ ${focusedTask.title} (mensagem retoma a task; perguntas vão pro vox)`
-        : 'pergunte ("pendências de hoje?"), mande trabalho, @arquivo, Cmd+P abre arquivos';
+        ? t("composer_task", { name: focusedTask.title })
+        : t("composer_idle");
 
   /** Window controls docked on the composer row — no topbar, no wasted strip. */
   const trailingControls = (
@@ -1398,7 +1401,7 @@ export default function App({
       <div className="scope-anchor">
         <button
           className={`scope ${scopeInfo ? "on" : ""}`}
-          title="custos deste projeto e peso da sessão focada"
+          title={t("costs_btn")}
           onClick={() => setScopeInfo((s) => !s)}
         >
           <Wallet size={13} />
@@ -1416,7 +1419,7 @@ export default function App({
       </div>
       <button
         className={`scope ${railHas("terminal") ? "on" : ""}`}
-        title="Terminal (shells reais + feed do worker)"
+        title={t("terminal_btn")}
         onClick={() =>
           railHas("terminal") ? removeRail("terminal") : ensureRail("terminal")
         }

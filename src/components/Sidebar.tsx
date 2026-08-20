@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { FolderTree, MoreVertical, Pin, Plus, SquareKanban } from "lucide-react";
+import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 
 const DOT: Record<BoardTask["status"], string> = {
@@ -99,19 +100,20 @@ export default function Sidebar({
   );
   const leftovers = ordered.filter((t) => !claimed.has(t.title));
 
-  const item = (t: BoardTask) => (
+  // NOTE: named `task`, not `t` — `t()` is the i18n lookup in scope here.
+  const item = (task: BoardTask) => (
     <div
-      key={t.title}
-      className={`side-item ${t.status} ${activeTitle === t.title ? "active" : ""}`}
+      key={task.title}
+      className={`side-item ${task.status} ${activeTitle === task.title ? "active" : ""}`}
     >
-      {renaming === t.title ? (
+      {renaming === task.title ? (
         <input
           className="side-rename"
           autoFocus
-          defaultValue={t.title}
+          defaultValue={task.title}
           onBlur={(e) => {
-            if (e.target.value.trim() && e.target.value !== t.title) {
-              onRename(t, e.target.value.trim());
+            if (e.target.value.trim() && e.target.value !== task.title) {
+              onRename(task, e.target.value.trim());
             }
             setRenaming(null);
           }}
@@ -122,35 +124,35 @@ export default function Sidebar({
         />
       ) : (
         <>
-          <button className="side-open" onClick={() => onOpen(t)} title="abrir no chat">
-            <span className={`side-dot ${liveTitles.includes(t.title) ? "live" : ""}`}>
-              {DOT[t.status]}
+          <button className="side-open" onClick={() => onOpen(task)} title={t("side_open_chat")}>
+            <span className={`side-dot ${liveTitles.includes(task.title) ? "live" : ""}`}>
+              {DOT[task.status]}
             </span>
-            {t.pinned && <span className="side-pin"><Pin size={10} /></span>}
-            <span className="side-title">{t.title}</span>
+            {task.pinned && <span className="side-pin"><Pin size={10} /></span>}
+            <span className="side-title">{task.title}</span>
           </button>
           <button
             className="side-menu-btn"
-            onClick={() => setMenu(menu === t.title ? null : t.title)}
-            title="ações"
+            onClick={() => setMenu(menu === task.title ? null : task.title)}
+            title={t("side_actions")}
           >
             <MoreVertical size={13} />
           </button>
         </>
       )}
 
-      {menu === t.title && (
+      {menu === task.title && (
         <div className="side-menu">
-          <button onClick={() => { setMenu(null); onOpen(t); }}>Abrir no chat</button>
-          <button onClick={() => { setMenu(null); onResume(t); }}>Retomar</button>
-          <button onClick={() => { setMenu(null); setRenaming(t.title); }}>
-            Mudar o nome
+          <button onClick={() => { setMenu(null); onOpen(task); }}>{t("side_open")}</button>
+          <button onClick={() => { setMenu(null); onResume(task); }}>{t("side_resume")}</button>
+          <button onClick={() => { setMenu(null); setRenaming(task.title); }}>
+            {t("side_rename")}
           </button>
-          <button onClick={() => { setMenu(null); onPin(t); }}>
-            {t.pinned ? "Desafixar" : "Fixar"}
+          <button onClick={() => { setMenu(null); onPin(task); }}>
+            {task.pinned ? t("side_unpin") : t("side_pin")}
           </button>
-          <button className="danger" onClick={() => { setMenu(null); onArchive(t); }}>
-            Arquivar
+          <button className="danger" onClick={() => { setMenu(null); onArchive(task); }}>
+            {t("side_archive")}
           </button>
         </div>
       )}
@@ -163,9 +165,9 @@ export default function Sidebar({
         <button
           className={`side-board ${boardOpen ? "on" : ""}`}
           onClick={onToggleBoard}
-          title="board do projeto (abre como painel ao lado do chat)"
+          title={t("side_board_hint")}
         >
-          <SquareKanban size={13} /> Board
+          <SquareKanban size={13} /> {t("side_board")}
         </button>
       )}
       {projects.map((p) => {
@@ -191,14 +193,14 @@ export default function Sidebar({
               </span>
               <button
                 className="side-group-add"
-                title={`novo chat em ${p.name}`}
+                title={t("side_new_chat", { name: p.name })}
                 onClick={() => onNewChat(p)}
               >
                 <Plus size={12} />
               </button>
               <button
                 className="side-group-add"
-                title="arquivos do projeto (abre a janela Arquivos)"
+                title={t("side_files")}
                 onClick={() => onOpenFiles(p)}
               >
                 <FolderTree size={12} />
@@ -215,20 +217,20 @@ export default function Sidebar({
                     className="danger"
                     onClick={() => { setProjMenu(null); onRemoveProject(p); }}
                   >
-                    Remover da lista
+                    {t("side_remove")}
                   </button>
                 </div>
               )}
             </div>
             {group.length === 0 && projChats.length === 0 && (
-              <div className="side-empty">sem chats ainda</div>
+              <div className="side-empty">{t("side_empty")}</div>
             )}
             {group.map(item)}
 
             {projChats.length > 0 && (
               <div className="side-search">
                 <input
-                  placeholder={`buscar nos ${projChats.length} chats…`}
+                  placeholder={t("side_search", { n: projChats.length })}
                   value={query ?? ""}
                   onFocus={() => setSearch({ path: p.path, q: query ?? "" })}
                   // Rows use onMouseDown (fires before blur), so closing
@@ -246,7 +248,7 @@ export default function Sidebar({
                 {query !== null && (
                   <div className="side-search-drop">
                     {matches.length === 0 && (
-                      <div className="side-empty">nenhum chat bate com isso</div>
+                      <div className="side-empty">{t("side_no_match")}</div>
                     )}
                     {matches.map((c) => (
                       <button
@@ -276,7 +278,7 @@ export default function Sidebar({
       {leftovers.length > 0 && (
         <section className="side-group">
           <div className="side-group-head">
-            <span className="side-group-name">outros</span>
+            <span className="side-group-name">{t("side_others")}</span>
           </div>
           {leftovers.map(item)}
         </section>
@@ -299,7 +301,7 @@ export default function Sidebar({
         />
       ) : (
         <button className="side-add-project" onClick={() => setAdding(true)}>
-          + projeto
+          {t("side_add_project")}
         </button>
       )}
     </nav>

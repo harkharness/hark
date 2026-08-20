@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import type { DispatchWarning, LiveWorker, Msg, SessionHit } from "../types";
 
 export type Pending =
@@ -60,7 +61,7 @@ export default function Modals({
     return (
       <div className="modal-backdrop" onClick={() => setPending(null)}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <h2>Tasks sobre “{pending.query}”</h2>
+          <h2>{t("m_tasks_about", { q: pending.query })}</h2>
           {pending.candidates.map((c) => (
             <button
               key={c.title}
@@ -80,7 +81,7 @@ export default function Modals({
           ))}
           <div className="row">
             <button className="plain" onClick={() => setPending(null)}>
-              cancelar
+              {t("m_cancel")}
             </button>
           </div>
         </div>
@@ -92,7 +93,7 @@ export default function Modals({
     return (
       <div className="modal-backdrop" onClick={() => setPending(null)}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <h2>Sessões sobre “{pending.query}”</h2>
+          <h2>{t("m_sessions_about", { q: pending.query })}</h2>
           {pending.candidates.map((c) => (
             <button
               key={c.session_id}
@@ -112,7 +113,7 @@ export default function Modals({
           ))}
           <div className="row">
             <button className="plain" onClick={() => setPending(null)}>
-              cancelar
+              {t("m_cancel")}
             </button>
           </div>
         </div>
@@ -130,7 +131,7 @@ export default function Modals({
       <div className="modal-backdrop">
         <div className="modal">
           <h2>
-            Despachar tarefa?
+            {t("m_dispatch_q")}
             {pending.sessionId && focusedTaskTitle && (
               <span className="reader-meta"> → {focusedTaskTitle}</span>
             )}
@@ -150,7 +151,7 @@ export default function Modals({
                     onCompactFirst(instruction, sessionId);
                   }}
                 >
-                  compactar antes
+                  {t("m_compact_first")}
                 </button>
               )}
             </div>
@@ -172,12 +173,12 @@ export default function Modals({
             rows={5}
           />
           <div className="row">
-            <span className="modal-hint">diga "sim"/"não" · Enter despacha · Shift+Enter quebra linha</span>
+            <span className="modal-hint">{t("m_dispatch_hint")}</span>
             <button className="plain" onClick={() => setPending(null)}>
-              cancelar
+              {t("m_cancel")}
             </button>
             <button className="allow" onClick={confirm}>
-              confirmar
+              {t("m_confirm")}
             </button>
           </div>
         </div>
@@ -189,7 +190,7 @@ export default function Modals({
     return (
       <div className="modal-backdrop">
         <div className="modal">
-          <h2>Qual sessão?</h2>
+          <h2>{t("m_which_session")}</h2>
           {pending.candidates.map((c) => (
             <button
               key={c.session_id}
@@ -205,7 +206,7 @@ export default function Modals({
           ))}
           <div className="row">
             <button className="plain" onClick={() => setPending(null)}>
-              cancelar
+              {t("m_cancel")}
             </button>
           </div>
         </div>
@@ -217,7 +218,7 @@ export default function Modals({
     return (
       <div className="modal-backdrop">
         <div className="modal">
-          <h2>▶ Retomar: {pending.title}</h2>
+          <h2>{t("m_resume", { t: pending.title })}</h2>
           <textarea
             className="resume-input"
             value={pending.instruction}
@@ -226,7 +227,7 @@ export default function Modals({
           />
           <div className="row">
             <button className="plain" onClick={() => setPending(null)}>
-              cancelar
+              {t("m_cancel")}
             </button>
             <button
               className="allow"
@@ -236,7 +237,7 @@ export default function Modals({
                 onDispatch(instruction, sessionId, title);
               }}
             >
-              despachar
+              {t("m_dispatch")}
             </button>
           </div>
         </div>
@@ -251,7 +252,7 @@ export default function Modals({
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>
           ℹ {worker?.label ?? pending.taskId}
-          {worker && ` · ${worker.status === "running" ? "rodando" : "aguardando você"}`}
+          {worker && ` · ${worker.status === "running" ? t("m_running") : t("m_waiting_you")}`}
         </h2>
         <pre>
           {messages
@@ -271,7 +272,7 @@ export default function Modals({
                   return `vox: ${"text" in m ? m.text : ""}`;
               }
             })
-            .join("\n") || "(sem eventos ainda)"}
+            .join("\n") || t("m_no_events")}
         </pre>
         <div className="row">
           <button
@@ -281,10 +282,10 @@ export default function Modals({
               setPending(null);
             }}
           >
-            focar nela
+            {t("m_focus")}
           </button>
           <button className="plain" onClick={() => setPending(null)}>
-            fechar
+            {t("m_close")}
           </button>
         </div>
       </div>

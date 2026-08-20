@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { CircleQuestionMark, FolderPlus, Mic, ShieldCheck, Target } from "lucide-react";
 import * as ipc from "./lib/ipc";
+import { setLang, t } from "./lib/i18n";
 import type { VoiceCandidate, VoicePlan, VoxEvent } from "./types";
 
 type Stage =
@@ -360,6 +361,8 @@ export default function Hud() {
 
   // Every hotkey press re-arms the HUD; the first mount starts by itself.
   useEffect(() => {
+    // UI language for this window (stage changes repaint with it).
+    ipc.configRead().then((s) => setLang(s.values.ui_language)).catch(() => {});
     startRef.current();
     const un = listen<VoxEvent>("vox", (e) => {
       if (e.payload.kind !== "hud_listen") return;
@@ -424,14 +427,14 @@ export default function Hud() {
       {stage.s === "listening" && (
         <div className="hud-row">
           {waveform}
-          <span className="hud-live">ouvindo… fale (Esc encerra a captura)</span>
+          <span className="hud-live">{t("hud_listening")}</span>
         </div>
       )}
       {stage.s === "thinking" && (
         <div className="hud-row">
           <Mic size={14} className="hud-icon" />
           <span className="hud-text">“{stage.text}”</span>
-          <span className="hud-sub">roteando…</span>
+          <span className="hud-sub">{t("hud_routing")}</span>
         </div>
       )}
       {stage.s === "confirm" && (
@@ -441,10 +444,10 @@ export default function Hud() {
             <span className="hud-text">“{stage.text}”</span>
           </div>
           <div className="hud-row hud-dest">
-            <span className="hud-sub">vai para</span>
+            <span className="hud-sub">{t("hud_goes_to")}</span>
             <span className={`hud-chip ${stage.plan.new_task ? "new" : ""}`}>
               {stage.plan.new_task ? <FolderPlus size={12} /> : <Target size={12} />}
-              {stage.plan.task_title ?? `novo chat em ${stage.plan.project_name ?? "?"}`}
+              {stage.plan.task_title ?? t("hud_new_chat_in", { name: stage.plan.project_name ?? "?" })}
               {stage.plan.project_name && stage.plan.task_title
                 ? ` · ${stage.plan.project_name}`
                 : ""}
@@ -453,13 +456,13 @@ export default function Hud() {
               {stage.plan.confidence === "high" &&
               !stage.plan.new_task &&
               stage.plan.warnings.length === 0
-                ? "Enter confirma · Esc cancela"
-                : 'diga "sim" ou "não" · Enter confirma'}
+                ? t("hud_keys_fast")
+                : t("hud_keys_verdict")}
             </span>
           </div>
           {stage.plan.warnings.map((w) => (
             <div key={w} className="hud-row hud-warning">
-              ⚠ {w} — diga "compacta antes" ou "sim"
+              ⚠ {w} {t("hud_warn_hint")}
             </div>
           ))}
           {stage.plan.confidence === "high" &&
@@ -474,7 +477,7 @@ export default function Hud() {
           <div className="hud-row">
             <Mic size={14} className="hud-icon" />
             <span className="hud-text">“{stage.text}”</span>
-            <span className="hud-sub">qual delas? fale ou tecle o número</span>
+            <span className="hud-sub">{t("hud_which")}</span>
           </div>
           <div className="hud-cands">
             {stage.options.map((o, i) => (
@@ -491,14 +494,14 @@ export default function Hud() {
         <div className="hud-row">
           {waveform}
           <span className="hud-text">→ {stage.target}</span>
-          <span className="hud-sub">despachando…</span>
+          <span className="hud-sub">{t("hud_dispatching")}</span>
         </div>
       )}
       {stage.s === "asking" && (
         <div className="hud-row">
           <CircleQuestionMark size={14} className="hud-icon" />
           <span className="hud-text">“{stage.text}”</span>
-          <span className="hud-sub">perguntando ao vox…</span>
+          <span className="hud-sub">{t("hud_asking")}</span>
         </div>
       )}
       {stage.s === "answer" && (

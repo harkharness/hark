@@ -195,6 +195,8 @@ export type Overview = {
   theme: string;
   /** Config default permission mode for new workers ("" = CLI default). */
   default_mode: string;
+  /** UI language ("pt" | "en") — separate from the spoken one. */
+  ui_language: string;
 };
 
 /** One aggregated bucket of the persistent spend ledger. */

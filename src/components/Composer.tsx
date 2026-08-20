@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, SendHorizontal, X } from "lucide-react";
 import * as ipc from "../lib/ipc";
+import { t } from "../lib/i18n";
 import type { Project } from "../types";
 
 type Mention = {
@@ -342,10 +343,10 @@ export default function Composer({
       <div className="inputbar-row">
         <div className="inputbar-chips">{children}</div>
         {trailing}
-        <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title="falar">
+        <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title={t("speak_btn")}>
           <Mic size={15} />
         </button>
-        <button onClick={send} disabled={disabled} title="enviar (Enter)">
+        <button onClick={send} disabled={disabled} title={t("send_btn")}>
           <SendHorizontal size={15} />
         </button>
       </div>

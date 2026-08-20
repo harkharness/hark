@@ -1,7 +1,14 @@
 import { useState } from "react";
+import { t } from "../lib/i18n";
 import type { BoardTask, Project } from "../types";
 
 const COLUMNS = ["backlog", "doing", "waiting", "done"] as const;
+const COL_LABEL = {
+  backlog: "col_backlog",
+  doing: "col_doing",
+  waiting: "col_waiting",
+  done: "col_done",
+} as const;
 
 /** The kanban tab: read/organize view over the invisible board. */
 export default function Board({
@@ -54,21 +61,22 @@ export default function Board({
             }}
           >
             <h3>
-              {status} <span className="count">{items.length}</span>
+              {t(COL_LABEL[status])} <span className="count">{items.length}</span>
             </h3>
-            {items.map((t) => {
-              const tag = projects ? tagOf(t) : undefined;
+            {/* NOTE: `task`, not `t` — `t()` is the i18n lookup in scope. */}
+            {items.map((task) => {
+              const tag = projects ? tagOf(task) : undefined;
               return (
                 <div
-                  key={t.title}
-                  className={`card${dragging === t.title ? " dragging" : ""}${onOpen ? " clickable" : ""}`}
+                  key={task.title}
+                  className={`card${dragging === task.title ? " dragging" : ""}${onOpen ? " clickable" : ""}`}
                   draggable
-                  title={onOpen ? "abrir o chat desta task" : undefined}
-                  onClick={() => onOpen?.(t)}
+                  title={onOpen ? t("card_open") : undefined}
+                  onClick={() => onOpen?.(task)}
                   onDragStart={(e) => {
-                    e.dataTransfer.setData("text/vox-task", t.title);
+                    e.dataTransfer.setData("text/vox-task", task.title);
                     e.dataTransfer.effectAllowed = "move";
-                    setDragging(t.title);
+                    setDragging(task.title);
                   }}
                   onDragEnd={() => {
                     setDragging(null);
@@ -80,11 +88,12 @@ export default function Board({
                       <span className="card-tag">{tag}</span>
                     </div>
                   )}
-                  <div className="card-title">{t.title}</div>
-                  {t.note && <div className="card-note">{t.note}</div>}
+                  <div className="card-title">{task.title}</div>
+                  {task.note && <div className="card-note">{task.note}</div>}
                   <div className="card-meta">
-                    {t.updated_at.slice(0, 16).replace("T", " ")}
-                    {t.session_ids.length > 0 && ` · ${t.session_ids.length} sessão(ões)`}
+                    {task.updated_at.slice(0, 16).replace("T", " ")}
+                    {task.session_ids.length > 0 &&
+                      ` · ${task.session_ids.length} ${t("card_sessions")}`}
                   </div>
                 </div>
               );

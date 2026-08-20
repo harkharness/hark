@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, Lock, Mic } from "lucide-react";
 import Board from "./components/Board";
+import { setLang, t } from "./lib/i18n";
 import CostsPanel from "./components/CostsPanel";
 import Settings from "./components/Settings";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
@@ -58,6 +59,8 @@ export default function Mother() {
     ipc
       .overview()
       .then((o) => {
+        // Language first: setOverview re-renders with t() already right.
+        setLang(o.ui_language);
         setOverview(o);
         document.documentElement.dataset.theme = o.theme;
       })
@@ -430,17 +433,17 @@ export default function Mother() {
     <div className={tab === "voz" ? "mother" : "mother mother-wide"}>
       <nav className="tabs mother-tabs">
         <button className={tab === "voz" ? "active" : ""} onClick={() => setTab("voz")}>
-          voz
+          {t("tab_voice")}
         </button>
         <button className={tab === "board" ? "active" : ""} onClick={() => setTab("board")}>
-          board
+          {t("tab_board")}
         </button>
         <button className={tab === "custos" ? "active" : ""} onClick={() => setTab("custos")}>
-          custos
+          {t("tab_costs")}
         </button>
         <button
           className="mother-gear"
-          title="configurações (Cmd+,)"
+          title={t("settings_btn")}
           onClick={() => setSettingsOpen(true)}
         >
           <SettingsIcon size={14} />
@@ -523,7 +526,7 @@ export default function Mother() {
           {pendingPlan && (
             <div className="mother-plan">
               <div className="mother-picks-head">
-                despachar para{" "}
+                {t("plan_to")}{" "}
                 <b>
                   {pendingPlan.plan.task_title ??
                     `novo chat em ${pendingPlan.plan.project_name ?? "?"}`}
@@ -533,7 +536,7 @@ export default function Mother() {
               <pre>{pendingPlan.plan.instruction}</pre>
               <div className="row">
                 <button className="plain" onClick={() => setPendingPlan(null)}>
-                  cancelar
+                  {t("m_cancel")}
                 </button>
                 <button
                   className="allow"
@@ -548,7 +551,7 @@ export default function Mother() {
                     }
                   }}
                 >
-                  confirmar
+                  {t("m_confirm")}
                 </button>
               </div>
             </div>
@@ -557,8 +560,8 @@ export default function Mother() {
           {picks && (
             <div className="mother-picks">
               <div className="mother-picks-head">
-                sessões sobre “{picks.query}”
-                <button onClick={() => setPicks(null)}>fechar</button>
+                {t("picks_about", { q: picks.query })}
+                <button onClick={() => setPicks(null)}>{t("m_close")}</button>
               </div>
               {picks.candidates.map((c) => (
                 <button key={c.session_id} onClick={() => recoverSession(c)}>
@@ -574,7 +577,7 @@ export default function Mother() {
 
           <div className="mother-input">
             <input
-              placeholder='fale ou digite… ("abre o projeto vox", "quanto gastei hoje?")'
+              placeholder={t("mother_input")}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -613,8 +616,8 @@ export default function Mother() {
                   </span>
                   <span className="mother-proj-meta">
                     {live > 0 && <span className="live-dot">◍ {live}</span>}
-                    {spent > 0 && ` $${spent.toFixed(2)} hoje`}
-                    {live === 0 && spent === 0 && "quieto"}
+                    {spent > 0 && ` $${spent.toFixed(2)} ${t("proj_today")}`}
+                    {live === 0 && spent === 0 && t("proj_quiet")}
                   </span>
                 </button>
               );
@@ -623,7 +626,7 @@ export default function Mother() {
               <input
                 className="mother-proj-add-input"
                 autoFocus
-                placeholder="~/Projects/…  (Enter registra e abre)"
+                placeholder={t("proj_add_placeholder")}
                 onBlur={() => setAddingProject(false)}
                 onKeyDown={async (e) => {
                   if (e.key === "Escape") setAddingProject(false);
@@ -645,10 +648,10 @@ export default function Mother() {
               <button
                 className="mother-proj-card mother-proj-add"
                 onClick={() => setAddingProject(true)}
-                title='registrar um diretório como projeto (ou fale "novo projeto em …")'
+                title={t("proj_add_title")}
               >
-                <span className="mother-proj-name">+ projeto</span>
-                <span className="mother-proj-meta">registra e abre a janela</span>
+                <span className="mother-proj-name">{t("proj_add")}</span>
+                <span className="mother-proj-meta">{t("proj_add_hint")}</span>
               </button>
             )}
           </div>

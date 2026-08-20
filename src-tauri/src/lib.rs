@@ -106,6 +106,8 @@ struct Overview {
     theme: String,
     /// Config default permission mode for new workers ("" = CLI default).
     default_mode: String,
+    /// UI language ("pt" | "en") — separate from the spoken one.
+    ui_language: String,
 }
 
 /// The editable project list. First run seeds it from what the machine
@@ -163,6 +165,7 @@ fn overview() -> Overview {
         board,
         projects: load_projects(&config),
         theme: config.theme,
+        ui_language: config.ui_language,
         default_mode: config.worker_mode,
     }
 }

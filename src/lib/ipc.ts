@@ -247,6 +247,7 @@ export type ConfigSnapshot = {
     model: string;
     projects_dir: string;
     language: string;
+    ui_language: string;
     voice: string;
     whisper_model: string;
     theme: string;
