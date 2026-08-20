@@ -11,6 +11,7 @@ import typescript from "highlight.js/lib/languages/typescript";
 import python from "highlight.js/lib/languages/python";
 import diff from "highlight.js/lib/languages/diff";
 import sql from "highlight.js/lib/languages/sql";
+import { t } from "../lib/i18n";
 
 // Only the grammars this workflow actually shows, to keep the bundle small.
 const languages = { bash, json, yaml, rust, typescript, python, diff, sql };
@@ -59,11 +60,11 @@ export default function Markdown({
                 <div className="code-actions">
                   {onRun && (
                     <>
-                      <button title="executar no terminal" onClick={() => onRun(cmd, true)}>
+                      <button title={t("code_run")} onClick={() => onRun(cmd, true)}>
                         <Play size={12} />
                       </button>
                       <button
-                        title="inserir no terminal (sem executar)"
+                        title={t("code_insert")}
                         onClick={() => onRun(cmd, false)}
                       >
                         <SquareTerminal size={12} />
@@ -71,7 +72,7 @@ export default function Markdown({
                     </>
                   )}
                   <button
-                    title="copiar"
+                    title={t("code_copy")}
                     onClick={() => navigator.clipboard.writeText(cmd).catch(() => {})}
                   >
                     <Copy size={12} />

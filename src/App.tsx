@@ -1455,7 +1455,7 @@ export default function App({
           itself is gone: that strip was pure wasted height. */}
       <button
         className={`side-toggle-float ${sidebarOpen ? "" : "closed"}`}
-        title={sidebarOpen ? "esconder a lista (Cmd+B)" : "mostrar a lista (Cmd+B)"}
+        title={sidebarOpen ? t("side_hide") : t("side_show")}
         onClick={() => {
           const panel = sidebarRef.current;
           if (panel) panel.isCollapsed() ? panel.expand() : panel.collapse();

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput } from "./ToolCall";
 import type { TranscriptEntry } from "../types";
+import { t } from "../lib/i18n";
 
 /**
  * Read-only view of a past session, loaded from its log file.
@@ -42,24 +43,24 @@ export default function Reader({
     <div className="reader">
       <div className="reader-head">
         <button className="back" onClick={onClose}>
-          ← voltar
+          {t("reader_back")}
         </button>
         <span className="reader-title">{sessionTitle ?? title}</span>
         <span className="reader-meta">
-          {sessionTitle && sessionTitle !== title ? `task: ${title} · ` : ""}
-          somente leitura · {sessionId.slice(0, 8)}
+          {sessionTitle && sessionTitle !== title ? `${t("reader_task")}${title} · ` : ""}
+          {t("reader_readonly")} · {sessionId.slice(0, 8)}
         </span>
         {onResume && (
           <button className="resume" onClick={onResume}>
-            ▶ retomar
+            {t("reader_resume")}
           </button>
         )}
       </div>
       <div className="reader-body">
         {error && <div className="reader-empty">{error}</div>}
-        {!entries && !error && <div className="reader-empty">lendo o histórico…</div>}
+        {!entries && !error && <div className="reader-empty">{t("reader_loading")}</div>}
         {entries?.length === 0 && (
-          <div className="reader-empty">sessão sem conversa registrada</div>
+          <div className="reader-empty">{t("reader_empty")}</div>
         )}
         {entries?.map((e, i) => (
           <div key={i} className={`entry ${e.role}`}>

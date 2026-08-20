@@ -107,9 +107,9 @@ export default function TerminalPane({
       {active === "feed" && (
         <pre className="term-body">
           {!feedThread
-            ? "(foca uma task pra acompanhar o feed dela)"
+            ? t("feed_no_task")
             : lines.length === 0
-              ? "(sem eventos ainda nesta thread)"
+              ? t("feed_empty")
               : lines.join("\n")}
           <div ref={endRef} />
         </pre>

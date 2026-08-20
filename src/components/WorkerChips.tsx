@@ -28,7 +28,7 @@ export default function WorkerChips({
           key={taskId}
           className={`worker-chip ${w.status} ${focused === taskId ? "focused" : ""}`}
           onClick={() => onToggleFocus(taskId)}
-          title={focused === taskId ? "focado (clique para soltar)" : "clique para focar"}
+          title={focused === taskId ? t("chip_focused") : t("chip_focus")}
         >
           <span className="dot" />
           {w.status === "awaiting" && <Lock size={11} />}

@@ -75,7 +75,7 @@ export default function FilesPanel({
               {hit.rel}
             </button>
           ))}
-          {hits.length === 0 && <div className="side-empty">nada encontrado</div>}
+          {hits.length === 0 && <div className="side-empty">{t("nothing_found")}</div>}
         </div>
       ) : (
         <div className="filespanel-trees">

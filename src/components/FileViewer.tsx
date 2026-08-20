@@ -61,7 +61,7 @@ export default function FileViewer({
     try {
       await ipc.fileSave(file.abs, draft);
       setContent(draft);
-      setStatus("salvo ✓");
+      setStatus(t("viewer_saved"));
       window.setTimeout(() => setStatus(null), 2500);
     } catch (err) {
       setStatus(`erro ao salvar: ${err}`);
@@ -101,7 +101,7 @@ export default function FileViewer({
                 setEditing(true);
               }}
               disabled={truncated}
-              title={truncated ? "arquivo grande demais para editar aqui" : "editar localmente"}
+              title={truncated ? t("viewer_too_big") : t("viewer_edit")}
             >
               <Pencil size={13} />
             </button>

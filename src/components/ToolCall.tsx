@@ -1,4 +1,5 @@
 import Markdown from "./Markdown";
+import { t } from "../lib/i18n";
 
 /** Shorten absolute paths to something readable in a narrow pane. */
 function shortPath(path: string): string {
@@ -121,7 +122,7 @@ export function ToolOutput({ content, isError }: { content: string; isError: boo
       <pre>{head}</pre>
       {hidden > 0 && (
         <details>
-          <summary>+{hidden} linhas</summary>
+          <summary>{t("more_lines", { n: hidden })}</summary>
           <pre>{lines.slice(8).join("\n")}</pre>
         </details>
       )}

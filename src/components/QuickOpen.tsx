@@ -71,7 +71,7 @@ export default function QuickOpen({
               {hit.rel}
             </button>
           ))}
-          {hits.length === 0 && <div className="side-empty">nada encontrado</div>}
+          {hits.length === 0 && <div className="side-empty">{t("nothing_found")}</div>}
         </div>
       </div>
     </div>
