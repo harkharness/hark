@@ -163,6 +163,10 @@ const pt = {
   chip_focused: "focado (clique para soltar)",
   chip_focus: "clique para focar",
   nothing_found: "nada encontrado",
+  tc_files: "{n} arquivo(s)",
+  tc_send_file: "arquivo enviado",
+  tc_open_editor: "abrir no editor",
+  tc_open_os: "abrir no app padrão",
   side_hide: "esconder a lista (Cmd+B)",
   side_show: "mostrar a lista (Cmd+B)",
 
@@ -440,6 +444,10 @@ const en: Record<keyof typeof pt, string> = {
   chip_focused: "focused (click to release)",
   chip_focus: "click to focus",
   nothing_found: "nothing found",
+  tc_files: "{n} file(s)",
+  tc_send_file: "file sent",
+  tc_open_editor: "open in editor",
+  tc_open_os: "open in default app",
   side_hide: "hide the list (Cmd+B)",
   side_show: "show the list (Cmd+B)",
 

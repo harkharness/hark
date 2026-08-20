@@ -268,6 +268,9 @@ export const configRead = () => invoke<ConfigSnapshot>("config_read");
 export const configWrite = (patch: Record<string, string | number | boolean>) =>
   invoke("config_write", { patch });
 export const ttsVoices = () => invoke<[string, string][]>("tts_voices");
+
+/** Open a URL/file with the OS (default browser/app) — never in-webview. */
+export const openExternal = (target: string) => invoke("open_external", { target });
 export const setActiveContext = (ctx: {
   project_path?: string | null;
   project_name?: string | null;

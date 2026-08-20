@@ -1686,6 +1686,19 @@ fn tts_voices() -> Result<Vec<(String, String)>, String> {
     Ok(voices)
 }
 
+/// Open a URL or local file with the OS (default browser/app) — NEVER
+/// inside the webview: a click must not navigate the app away (that bug
+/// turned a project window into the mother and lost the chat).
+#[tauri::command]
+fn open_external(target: String) -> Result<(), String> {
+    let target = vox_core::config::expand_home(&target);
+    std::process::Command::new("open")
+        .arg(&target)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// What this machine knows about a session before dispatching to it.
 pub(crate) fn session_facts(session_id: &str) -> vox_core::domain::precheck::SessionFacts {
     let mut facts = vox_core::domain::precheck::SessionFacts::default();
@@ -2370,6 +2383,7 @@ pub fn run() {
             config_read,
             config_write,
             tts_voices,
+            open_external,
             evaluate,
             board_move,
             board_rename,

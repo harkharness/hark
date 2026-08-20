@@ -12,6 +12,7 @@ import python from "highlight.js/lib/languages/python";
 import diff from "highlight.js/lib/languages/diff";
 import sql from "highlight.js/lib/languages/sql";
 import { t } from "../lib/i18n";
+import * as ipc from "../lib/ipc";
 
 // Only the grammars this workflow actually shows, to keep the bundle small.
 const languages = { bash, json, yaml, rust, typescript, python, diff, sql };
@@ -35,10 +36,13 @@ function textOf(node: ReactNode): string {
 export default function Markdown({
   children,
   onRun,
+  onOpenPath,
 }: {
   children: string;
   /** Send a command to the in-app terminal (execute=false just types it). */
   onRun?: (cmd: string, execute: boolean) => void;
+  /** Open a local file in the app's editor (falls back to the OS). */
+  onOpenPath?: (path: string) => void;
 }) {
   return (
     <div className="md">
@@ -46,6 +50,30 @@ export default function Markdown({
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeHighlight, { languages, detect: false }]]}
         components={{
+          // A link click must NEVER navigate the webview (that reloads the
+          // SPA as the mother and loses the chat). URLs open in the OS
+          // browser; file paths open in the editor, or the OS for formats
+          // the editor doesn't render.
+          a(props) {
+            const href = props.href ?? "";
+            return (
+              <a
+                {...props}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (!href) return;
+                  if (/^https?:/i.test(href)) {
+                    ipc.openExternal(href).catch(() => {});
+                    return;
+                  }
+                  const path = decodeURI(href);
+                  const editable = !/\.(html?|pdf|png|jpe?g|gif|svg|webp)$/i.test(path);
+                  if (onOpenPath && editable) onOpenPath(path);
+                  else ipc.openExternal(path).catch(() => {});
+                }}
+              />
+            );
+          },
           pre(props) {
             const child = props.children as {
               props?: { className?: string; children?: ReactNode };

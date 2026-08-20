@@ -46,7 +46,7 @@ export default function Transcript({
                 <b>{m.task ? m.task.slice(0, 32) : t("perm_worker")}</b> {t("perm_allow_q_mid")}{" "}
                 <b>{m.tool}</b>?
               </div>
-              <ToolCall name={m.tool} input={m.input} onOpenPath={onOpenPath} />
+              <ToolCall name={m.tool} input={m.input} onOpenPath={onOpenPath} defaultOpen />
               {m.decision ? (
                 <div className={`perm-done ${m.decision}`}>
                   {m.decision === "allow"
@@ -88,11 +88,11 @@ export default function Transcript({
               {m.who === "vox" ? (
                 <>
                   <div className="fala">
-                    <Markdown onRun={onRunCommand}>{m.text}</Markdown>
+                    <Markdown onRun={onRunCommand} onOpenPath={onOpenPath}>{m.text}</Markdown>
                   </div>
                   {m.detalhes && (
                     <div className="detalhes">
-                      <Markdown onRun={onRunCommand}>{m.detalhes}</Markdown>
+                      <Markdown onRun={onRunCommand} onOpenPath={onOpenPath}>{m.detalhes}</Markdown>
                     </div>
                   )}
                   {m.itens && m.itens.length > 0 && (

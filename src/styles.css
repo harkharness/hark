@@ -694,6 +694,36 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 
 /* ---- tool call / output ---- */
 .toolcall { border-left: 2px solid var(--border); padding: 2px 0 2px 10px; }
+/* Folded tool calls: ONE quiet line, payload one click away (Claude Code). */
+.toolcall.fold > summary {
+  cursor: pointer; list-style: none; display: flex; align-items: baseline;
+  gap: 8px; min-width: 0; user-select: none;
+}
+.toolcall.fold > summary::before {
+  content: "›"; color: var(--dim); flex: 0 0 auto;
+  transition: transform .12s ease; display: inline-block;
+}
+.toolcall.fold[open] > summary::before { transform: rotate(90deg); }
+.toolcall.fold > summary::-webkit-details-marker { display: none; }
+.tool-hint {
+  color: var(--dim); font-size: 12px; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.toolcall.inline { display: flex; align-items: baseline; gap: 8px; }
+.tool-body { margin-top: 4px; }
+/* SendUserFile: the deliverable as a clickable card, never raw JSON. */
+.tool-files { display: flex; flex-direction: column; gap: 4px; }
+.tool-file {
+  display: flex; align-items: baseline; gap: 8px; width: fit-content;
+  max-width: 100%; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 10px; color: var(--text); font: inherit;
+  font-size: 12.5px; cursor: pointer; text-align: left;
+}
+.tool-file:hover { border-color: var(--accent); color: var(--accent); }
+.tool-file-dir {
+  color: var(--dim); font-size: 10.5px; font-family: var(--font-mono);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .toolcall .toolname {
   color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
 }
