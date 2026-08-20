@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, Lock, Mic } from "lucide-react";
 import Board from "./components/Board";
 import CostsPanel from "./components/CostsPanel";
+import Settings from "./components/Settings";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
+import { Settings as SettingsIcon } from "lucide-react";
 import { useVoxEvents } from "./hooks/useVoxEvents";
 import * as ipc from "./lib/ipc";
 import type { BoardTask, Msg, Overview, Project, RateLimitState, SessionHit } from "./types";
@@ -36,6 +38,8 @@ export default function Mother() {
     text: string;
     plan: Extract<import("./types").VoicePlan, { kind: "work" }>;
   } | null>(null);
+  // App-level settings modal (machine config; project config is elsewhere).
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // What the voice did and where: the command-center feed.
   const [actions, setActions] = useState<
     { utterance: string; target?: string | null; status?: string; ts: number }[]
@@ -74,12 +78,20 @@ export default function Mother() {
   // The focus ledger (Rust) keeps the last PROJECT window as the spoken
   // default — glancing at the mother must not send work to the global ask.
 
-  // Esc anywhere in this window: recording → cut the capture (transcribe
-  // what was said); otherwise → cut the voice.
+  // Esc anywhere in this window: settings close first, then recording →
+  // cut the capture, otherwise → cut the voice. Cmd+, opens settings.
+  const settingsOpenRef = useRef(false);
+  settingsOpenRef.current = settingsOpen;
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        setSettingsOpen(true);
+        return;
+      }
       if (e.key !== "Escape") return;
-      if (recordingRef.current) ipc.hearStop().catch(() => {});
+      if (settingsOpenRef.current) setSettingsOpen(false);
+      else if (recordingRef.current) ipc.hearStop().catch(() => {});
       else ipc.speakStop().catch(() => {});
     }
     window.addEventListener("keydown", onKey);
@@ -119,6 +131,8 @@ export default function Mother() {
     }, []),
     onMainTab: useCallback((t: string) => {
       if (t === "board" || t === "custos") setTab(t);
+      // Other windows/HUD redirect here: app settings live on the mother.
+      if (t === "settings") setSettingsOpen(true);
     }, []),
     speakRef,
     refresh,
@@ -286,6 +300,9 @@ export default function Mother() {
         })),
       });
       say(`Achei ${cmd.candidates.length} tasks. Qual delas?`);
+    } else if (cmd.kind === "open_settings") {
+      setSettingsOpen(true);
+      say("Configurações na tela.");
     } else if (cmd.kind === "compact" || cmd.kind === "set_mode") {
       say("Isso é na janela do chat focado.");
       push({ who: "sys", text: "compactar/modo agem no chat focado — abre a janela dele" });
@@ -418,7 +435,15 @@ export default function Mother() {
         <button className={tab === "custos" ? "active" : ""} onClick={() => setTab("custos")}>
           custos
         </button>
+        <button
+          className="mother-gear"
+          title="configurações (Cmd+,)"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <SettingsIcon size={14} />
+        </button>
       </nav>
+      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       {tab === "board" ? (
         <Board

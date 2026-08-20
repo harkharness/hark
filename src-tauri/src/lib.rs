@@ -1614,6 +1614,75 @@ struct GateOut {
     cost_usd: Option<f64>,
 }
 
+/// The user's config as the settings UI sees it: current values + where
+/// the file lives. The file itself stays the source of truth.
+#[tauri::command]
+fn config_read() -> Result<serde_json::Value, String> {
+    let config = Config::load();
+    let path = std::path::PathBuf::from(vox_core::config::expand_home("~"))
+        .join(".config")
+        .join("vox")
+        .join("config.toml");
+    Ok(serde_json::json!({
+        "values": config,
+        "path": path.display().to_string(),
+        "claude_bin_resolved": config.claude_bin_resolved(),
+        "whisper_model_resolved": config.whisper_model_path().display().to_string(),
+        "data_dir": config.data_dir().display().to_string(),
+    }))
+}
+
+/// Write a flat {key: value} patch into config.toml, preserving comments
+/// and unknown keys (vox_core::config::patch_toml). Hot-applies what it
+/// can: a changed hotkey re-registers immediately; every window hears
+/// config_changed and re-reads (theme, mode default, ceilings).
+#[tauri::command]
+fn config_write(app: AppHandle, patch: serde_json::Value) -> Result<(), String> {
+    let dir = std::path::PathBuf::from(vox_core::config::expand_home("~"))
+        .join(".config")
+        .join("vox");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("config.toml");
+    let old_hotkey = Config::load().hotkey;
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let out = vox_core::config::patch_toml(&text, &patch).map_err(|e| e.to_string())?;
+    std::fs::write(&path, out).map_err(|e| e.to_string())?;
+
+    if let Some(new_hotkey) = patch.get("hotkey").and_then(|v| v.as_str()) {
+        if new_hotkey != old_hotkey {
+            use tauri_plugin_global_shortcut::GlobalShortcutExt;
+            let _ = app.global_shortcut().unregister(old_hotkey.as_str());
+            app.global_shortcut()
+                .register(new_hotkey)
+                .map_err(|e| format!("atalho inválido: {e}"))?;
+        }
+    }
+    let _ = app.emit("vox", serde_json::json!({ "kind": "config_changed" }));
+    Ok(())
+}
+
+/// Voices the OS `say` engine offers, pt-* first (the answer voice).
+#[tauri::command(async)]
+fn tts_voices() -> Result<Vec<(String, String)>, String> {
+    let out = std::process::Command::new("/usr/bin/say")
+        .args(["-v", "?"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let mut voices: Vec<(String, String)> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            // "Luciana             pt_BR    # Olá! ..."
+            let lang_at = line.find('_').map(|i| i.saturating_sub(2))?;
+            let name = line[..lang_at].trim();
+            let lang = line[lang_at..].split_whitespace().next()?;
+            (!name.is_empty()).then(|| (name.to_string(), lang.to_string()))
+        })
+        .collect();
+    voices.sort_by_key(|(name, lang)| (!lang.starts_with("pt"), name.clone()));
+    voices.dedup();
+    Ok(voices)
+}
+
 /// What this machine knows about a session before dispatching to it.
 pub(crate) fn session_facts(session_id: &str) -> vox_core::domain::precheck::SessionFacts {
     let mut facts = vox_core::domain::precheck::SessionFacts::default();
@@ -1885,6 +1954,10 @@ fn task_command(
         TaskCommand::SetMode { mode } => {
             return Ok(Some(serde_json::json!({ "kind": "set_mode", "mode": mode })));
         }
+        // App-level settings live on the mother window.
+        TaskCommand::OpenSettings => {
+            return Ok(Some(serde_json::json!({ "kind": "open_settings" })));
+        }
         TaskCommand::FindSession { query } => {
             // Every session on this machine is already indexed: recovering
             // one is a local lookup, never an agent digging through logs.
@@ -1967,7 +2040,8 @@ fn task_command(
         | TaskCommand::OpenHq { .. }
         | TaskCommand::FindSession { .. }
         | TaskCommand::Compact
-        | TaskCommand::SetMode { .. } => {
+        | TaskCommand::SetMode { .. }
+        | TaskCommand::OpenSettings => {
             unreachable!("handled above")
         }
     };
@@ -2002,7 +2076,8 @@ fn task_command(
             | TaskCommand::OpenHq { .. }
             | TaskCommand::FindSession { .. }
             | TaskCommand::Compact
-            | TaskCommand::SetMode { .. } => unreachable!("handled above"),
+            | TaskCommand::SetMode { .. }
+            | TaskCommand::OpenSettings => unreachable!("handled above"),
         }
     })
 }
@@ -2239,6 +2314,9 @@ pub fn run() {
             slash_commands,
             interpret_verdict,
             dispatch_prechecks,
+            config_read,
+            config_write,
+            tts_voices,
             evaluate,
             board_move,
             board_rename,

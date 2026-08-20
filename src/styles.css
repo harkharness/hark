@@ -939,6 +939,76 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   margin-right: auto; align-self: center; color: var(--dim); font-size: 11px;
 }
 
+/* ---- settings: config.toml behind a UI (mother window only) ---- */
+.modal.settings {
+  display: flex; padding: 0; overflow: hidden; text-align: left;
+  width: min(760px, 92vw); max-height: min(560px, 86vh);
+}
+.set-nav {
+  flex: 0 0 190px; background: var(--bg-deep);
+  border-right: 1px solid var(--border);
+  padding: 14px 10px; display: flex; flex-direction: column; gap: 2px;
+}
+.set-nav h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--dim); margin: 0 8px 10px;
+}
+.set-nav button {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: none; border-radius: 7px; cursor: pointer;
+  color: var(--text); font: inherit; font-size: 12.5px; padding: 7px 10px;
+  text-align: left;
+}
+.set-nav button:hover { background: rgba(255,255,255,.05); }
+.set-nav button.on { background: rgba(122,162,247,.12); color: var(--accent); }
+.set-path {
+  margin-top: auto; color: var(--dim); font-size: 10px;
+  font-family: var(--font-mono); padding: 8px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.set-body {
+  position: relative; flex: 1; min-width: 0; overflow-y: auto;
+  padding: 18px 22px;
+}
+.set-body h2 { font-size: 15px; margin: 2px 0 14px; }
+.set-close {
+  position: absolute; top: 10px; right: 10px;
+  background: none; border: none; color: var(--dim); cursor: pointer;
+  padding: 4px; border-radius: 6px;
+}
+.set-close:hover { color: var(--text); background: rgba(255,255,255,.06); }
+.set-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 18px; padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+.set-row:last-child { border-bottom: none; }
+.set-label { min-width: 0; }
+.set-label b { font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.set-label span { display: block; color: var(--dim); font-size: 11.5px; margin-top: 2px; }
+.set-row input, .set-row select {
+  flex: 0 0 220px; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 7px;
+  padding: 6px 9px; font: inherit; font-size: 12.5px;
+}
+.set-row input:focus, .set-row select:focus { outline: none; border-color: var(--accent); }
+.set-saved { color: var(--ok); }
+.set-ro { color: var(--dim); font-size: 11px; word-break: break-all; text-align: right; }
+/* Mini code preview: shows the picked theme's real tokens. */
+.set-preview pre {
+  background: var(--code-bg); color: var(--code-fg);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; font-size: 12px; margin: 8px 0;
+}
+.set-preview .hl-kw { color: var(--hl-keyword); }
+.set-preview .hl-title { color: var(--hl-title); }
+.set-preview .hl-str { color: var(--hl-string); }
+.mother-gear {
+  margin-left: auto; background: none; border: none; color: var(--dim);
+  cursor: pointer; padding: 4px 8px; border-radius: 7px;
+  display: inline-flex; align-items: center;
+}
+.mother-gear:hover { color: var(--text); background: rgba(255,255,255,.06); }
+
 /* Actionable warnings: the fact + its remedy on the same row. */
 .gate-warning.warn-actions {
   display: flex; align-items: center; gap: 10px; justify-content: space-between;

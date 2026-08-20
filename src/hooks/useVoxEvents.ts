@@ -149,6 +149,9 @@ export function useVoxEvents(h: Handlers) {
               : m,
           ),
         );
+      } else if (ev.kind === "config_changed") {
+        // Settings saved somewhere: theme/mode/ceilings re-read via refresh.
+        h.refresh();
       } else if (ev.kind === "rate_limit") {
         h.onRateLimit({
           status: ev.status,

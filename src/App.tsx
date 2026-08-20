@@ -238,6 +238,11 @@ export default function App({
         const panel = sidebarRef.current;
         if (panel) panel.isCollapsed() ? panel.expand() : panel.collapse();
       }
+      // App settings live on the mother: Cmd+, from here redirects.
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        ipc.focusMain("settings").catch(() => {});
+      }
       // Permission pending and not typing anywhere: y / n / a decide it
       // from wherever the focus is — no mouse trip required.
       const target = e.target as HTMLElement | null;
@@ -681,6 +686,10 @@ export default function App({
         // Too close to call: options on screen, never a silent guess.
         setPending({ kind: "pick-task", query: cmd.query, candidates: cmd.candidates });
         say(`Achei ${cmd.candidates.length} tasks. Qual delas?`);
+      } else if (cmd.kind === "open_settings") {
+        // App settings live on the mother window.
+        await ipc.focusMain("settings").catch(() => {});
+        say("Configurações na janela mãe.");
       } else if (cmd.kind === "compact") {
         // Spoken "compacta o contexto": /compact on the focused session.
         await sendSlash("/compact");

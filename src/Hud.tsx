@@ -216,6 +216,9 @@ export default function Hud() {
           workspace: c.cwd,
         })),
       );
+    } else if (cmd.kind === "open_settings") {
+      await ipc.focusMain("settings").catch(() => {});
+      finish("→ configurações na janela mãe", "ok", 1200);
     } else if (cmd.kind === "set_mode") {
       // Mode switching needs a window's focused worker; the HUD has none.
       finish("troca de modo é na janela do chat — seletor ou /modo", "warn", 2600);

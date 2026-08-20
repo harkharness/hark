@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize, Default)]
 #[serde(default)]
 pub struct ContextTable {
     /// cwd prefixes that put a session inside this context (`~` allowed).
@@ -15,7 +15,7 @@ pub struct ContextTable {
     pub repos: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct Config {
     /// Claude binary name or absolute path.
@@ -61,7 +61,7 @@ pub struct Config {
     pub worker_mode: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize, Default)]
 #[serde(default)]
 pub struct ModelsTable {
     pub light: Option<String>,
@@ -208,9 +208,86 @@ pub fn expand_home(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
+/// Apply a flat {key: value} patch to the user's TOML text, preserving
+/// comments, ordering and keys the UI does not know about. Dotted keys
+/// ("models.light") address nested tables, creating them when missing.
+/// The settings UI writes THROUGH this — the file stays the user's own.
+pub fn patch_toml(text: &str, patch: &serde_json::Value) -> anyhow::Result<String> {
+    use toml_edit::{value, DocumentMut, Item, Table};
+    let mut doc: DocumentMut = text.parse()?;
+    let entries = patch
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("patch must be an object"))?;
+    for (key, val) in entries {
+        let item = match val {
+            serde_json::Value::String(s) => value(s.as_str()),
+            serde_json::Value::Bool(b) => value(*b),
+            serde_json::Value::Number(n) if n.is_i64() => value(n.as_i64().unwrap()),
+            serde_json::Value::Number(n) => value(n.as_f64().unwrap_or_default()),
+            other => anyhow::bail!("unsupported patch value for {key}: {other}"),
+        };
+        let mut parts = key.split('.').peekable();
+        let mut node: &mut Item = doc.as_item_mut();
+        while let Some(part) = parts.next() {
+            if parts.peek().is_none() {
+                node[part] = item;
+                break;
+            }
+            if node.get(part).is_none() {
+                node[part] = Item::Table(Table::new());
+            }
+            node = &mut node[part];
+        }
+    }
+    Ok(doc.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn patch_preserves_comments_and_unknown_keys() {
+        let original = "# my precious comment\nmodel = \"sonnet\"\nmystery = true\n";
+        let out = patch_toml(
+            original,
+            &serde_json::json!({ "model": "opus", "voice": "Luciana" }),
+        )
+        .unwrap();
+        assert!(out.contains("# my precious comment"), "comment survives: {out}");
+        assert!(out.contains("mystery = true"), "unknown key survives");
+        assert!(out.contains("model = \"opus\""));
+        assert!(out.contains("voice = \"Luciana\""));
+        // The result must still parse as a valid Config.
+        let parsed: Config = toml::from_str(&out).unwrap();
+        assert_eq!(parsed.model, "opus");
+        assert_eq!(parsed.voice, "Luciana");
+    }
+
+    #[test]
+    fn patch_writes_numbers_with_their_toml_types() {
+        let out = patch_toml(
+            "",
+            &serde_json::json!({ "worker_budget_usd": 2.5, "worker_max_turns": 12 }),
+        )
+        .unwrap();
+        assert!(out.contains("worker_budget_usd = 2.5"), "float stays float: {out}");
+        assert!(out.contains("worker_max_turns = 12"), "int stays int: {out}");
+        let parsed: Config = toml::from_str(&out).unwrap();
+        assert_eq!(parsed.worker_budget_usd, 2.5);
+        assert_eq!(parsed.worker_max_turns, 12);
+    }
+
+    #[test]
+    fn patch_reaches_nested_tables_by_dotted_key() {
+        let out = patch_toml(
+            "model = \"sonnet\"\n",
+            &serde_json::json!({ "models.light": "haiku" }),
+        )
+        .unwrap();
+        let parsed: Config = toml::from_str(&out).unwrap();
+        assert_eq!(parsed.models.light.as_deref(), Some("haiku"));
+    }
 
     #[test]
     fn parses_contexts_from_toml() {

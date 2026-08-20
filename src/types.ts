@@ -47,6 +47,8 @@ export type VoxEvent =
   | { kind: "hud_listen" }
   /** A permission was decided somewhere: every window resolves its card. */
   | { kind: "permission_decided"; request_id: string; allow: boolean }
+  /** config.toml changed via the settings UI: re-read what you show. */
+  | { kind: "config_changed" }
   | { kind: "voice_action"; utterance: string; target?: string | null; status?: string }
   | { kind: "status"; text: string }
   | { kind: "error"; text: string };
@@ -163,7 +165,9 @@ export type TaskCommandResult =
   /** "compacta o contexto": deliver "/compact" to the focused session. */
   | { kind: "compact" }
   /** "muda o modo pra X": switch the focused worker's permission mode. */
-  | { kind: "set_mode"; mode: string };
+  | { kind: "set_mode"; mode: string }
+  /** "abre as configurações": the settings modal on the mother window. */
+  | { kind: "open_settings" };
 
 /** One indexed session offered when recovering work by topic. */
 export type SessionHit = {

@@ -44,6 +44,8 @@ pub enum TaskCommand {
     Compact,
     /// Switch the focused worker's permission mode (CLI flag value).
     SetMode { mode: String },
+    /// Open the settings screen (config.toml behind a UI).
+    OpenSettings,
 }
 
 /// Words that only glue the sentence together and never name a task.
@@ -261,6 +263,17 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
     }
     if let Some((_, tab)) = HQ_VERBS.iter().find(|(v, _)| lower.contains(*v)) {
         return Some(TaskCommand::OpenHq { tab: (*tab).to_string() });
+    }
+    // The settings SCREEN, never work: the noun is mandatory ("configura
+    // o webhook" stays a dispatch).
+    const SETTINGS_NOUNS: &[&str] = &[
+        "configurações", "configuracoes", "as configuraç", "as configurac",
+        "os ajustes", "as preferências", "as preferencias",
+    ];
+    if ["abre", "abra", "abrir", "mostra"].iter().any(|v| lower.contains(v))
+        && SETTINGS_NOUNS.iter().any(|n| lower.contains(n))
+    {
+        return Some(TaskCommand::OpenSettings);
     }
     if COMPACT_VERBS.iter().any(|v| lower.contains(v)) {
         return Some(TaskCommand::Compact);
@@ -655,6 +668,16 @@ mod tests {
         assert_eq!(parse("cria uma nova rota no gateway"), None);
         // "nova task" without a named project is real work for the gate.
         assert_eq!(parse("nova task adiciona logs no serviço"), None);
+    }
+
+    #[test]
+    fn opens_the_settings_by_voice() {
+        assert_eq!(parse("abre as configurações"), Some(TaskCommand::OpenSettings));
+        assert_eq!(parse("abra as configuracoes"), Some(TaskCommand::OpenSettings));
+        assert_eq!(parse("abre os ajustes"), Some(TaskCommand::OpenSettings));
+        assert_eq!(parse("mostra as configurações do vox"), Some(TaskCommand::OpenSettings));
+        // "configura o webhook" is real work, not the settings screen.
+        assert_eq!(parse("configura o webhook novo"), None);
     }
 
     #[test]

@@ -187,7 +187,7 @@ export const openProjectWindow = (
 
 /** Bring the mother window to the front, optionally on a specific tab
  * (board/custos are global and live there). */
-export const focusMain = (tab?: "board" | "custos") =>
+export const focusMain = (tab?: "board" | "custos" | "settings") =>
   invoke("focus_main", { tab: tab ?? null });
 
 /** Fuzzy file search inside one project (relative paths). */
@@ -239,6 +239,34 @@ export const voiceExecute = (
 /** Local dispatch warnings for a session (size, context) — zero tokens. */
 export const dispatchPrechecks = (sessionId: string) =>
   invoke<import("../types").DispatchWarning[]>("dispatch_prechecks", { sessionId });
+
+/** The user's config.toml as the settings UI sees it. */
+export type ConfigSnapshot = {
+  values: {
+    claude_bin: string;
+    model: string;
+    projects_dir: string;
+    language: string;
+    voice: string;
+    whisper_model: string;
+    theme: string;
+    prompt_budget_chars: number;
+    hotkey: string;
+    worker_budget_usd: number;
+    worker_max_turns: number;
+    worker_mode: string;
+    models: { light?: string | null; standard?: string | null; heavy?: string | null; max?: string | null };
+  };
+  path: string;
+  claude_bin_resolved: string;
+  whisper_model_resolved: string;
+  data_dir: string;
+};
+export const configRead = () => invoke<ConfigSnapshot>("config_read");
+/** Surgical patch into config.toml (comments survive); hot-applies. */
+export const configWrite = (patch: Record<string, string | number | boolean>) =>
+  invoke("config_write", { patch });
+export const ttsVoices = () => invoke<[string, string][]>("tts_voices");
 export const setActiveContext = (ctx: {
   project_path?: string | null;
   project_name?: string | null;

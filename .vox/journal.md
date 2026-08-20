@@ -14,3 +14,7 @@ A: Essa sessão do Vox não está na lista de abertas, só no histórico — pro
 Q: vox, como está o status da migração de Assinaturas Core?
 A: A última atualização foi uma decisão de não abrir PR, mantendo o host antigo.
 
+## 2026-08-20T02:15:39.840Z
+Q: porque o comando /desing não funciona no vox? mas funciona no Claude Code?
+A: O Vox só reconhece a lista própria de comandos dele, e /design não está nela.
+
