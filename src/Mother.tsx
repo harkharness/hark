@@ -40,6 +40,8 @@ export default function Mother() {
   } | null>(null);
   // App-level settings modal (machine config; project config is elsewhere).
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // "+ projeto" card flips into a path input.
+  const [addingProject, setAddingProject] = useState(false);
   // What the voice did and where: the command-center feed.
   const [actions, setActions] = useState<
     { utterance: string; target?: string | null; status?: string; ts: number }[]
@@ -256,8 +258,9 @@ export default function Mother() {
       say(cmd.tab === "custos" ? "Custos na tela." : "Quadro na tela.");
     } else if (cmd.kind === "project_added") {
       push({ who: "sys", text: `projeto ${cmd.title} adicionado (${cmd.path})` });
-      say(`Projeto ${cmd.title} adicionado.`);
+      say(`Projeto ${cmd.title} adicionado. Abrindo.`);
       refresh();
+      openProject({ name: cmd.title, path: cmd.path });
     } else if (cmd.kind === "project_error") {
       push({ who: "sys", text: cmd.title });
       say("Não consegui adicionar esse projeto.");
@@ -616,6 +619,38 @@ export default function Mother() {
                 </button>
               );
             })}
+            {addingProject ? (
+              <input
+                className="mother-proj-add-input"
+                autoFocus
+                placeholder="~/Projects/…  (Enter registra e abre)"
+                onBlur={() => setAddingProject(false)}
+                onKeyDown={async (e) => {
+                  if (e.key === "Escape") setAddingProject(false);
+                  if (e.key !== "Enter") return;
+                  const value = (e.target as HTMLInputElement).value.trim();
+                  if (!value) return;
+                  setAddingProject(false);
+                  try {
+                    const entry = await ipc.projectAdd(value);
+                    push({ who: "sys", text: `projeto ${entry.name} adicionado (${entry.path})` });
+                    refresh();
+                    openProject(entry);
+                  } catch (err) {
+                    push({ who: "sys", text: `projeto: ${err}` });
+                  }
+                }}
+              />
+            ) : (
+              <button
+                className="mother-proj-card mother-proj-add"
+                onClick={() => setAddingProject(true)}
+                title='registrar um diretório como projeto (ou fale "novo projeto em …")'
+              >
+                <span className="mother-proj-name">+ projeto</span>
+                <span className="mother-proj-meta">registra e abre a janela</span>
+              </button>
+            )}
           </div>
         </>
       )}

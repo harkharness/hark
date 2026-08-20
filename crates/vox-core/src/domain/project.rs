@@ -30,7 +30,11 @@ pub fn path_from_speech(raw: &str) -> String {
     if trimmed.contains('/') || trimmed.starts_with('~') {
         return trimmed.to_string();
     }
-    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    // "barra" is how a person SAYS the slash — it separates, never names.
+    let tokens: Vec<&str> = trimmed
+        .split_whitespace()
+        .filter(|w| !w.eq_ignore_ascii_case("barra"))
+        .collect();
     match tokens.split_first() {
         Some((first, rest)) if first.eq_ignore_ascii_case("home") => {
             format!("~/{}", rest.join("/").to_lowercase())
@@ -145,6 +149,13 @@ mod tests {
         // Typed paths pass through untouched.
         assert_eq!(path_from_speech("~/Projects/vox"), "~/Projects/vox");
         assert_eq!(path_from_speech("/abs/dir"), "/abs/dir");
+    }
+
+    #[test]
+    fn spoken_barra_is_a_separator_not_a_directory() {
+        // "Projects barra workspace" is how a person SAYS the slash.
+        assert_eq!(path_from_speech("Projects barra workspace"), "~/projects/workspace");
+        assert_eq!(path_from_speech("home barra projects barra vox"), "~/projects/vox");
     }
 
     #[test]

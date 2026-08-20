@@ -637,8 +637,11 @@ export default function App({
         await openFileByQuery(cmd.query, cmd.project);
       } else if (cmd.kind === "project_added") {
         push({ who: "sys", text: `projeto ${cmd.title} adicionado (${cmd.path})` });
-        say(`Projeto ${cmd.title} adicionado.`);
+        say(`Projeto ${cmd.title} adicionado. Abrindo.`);
         refresh();
+        // "abre um novo projeto": registering IS half the intent — the
+        // window is the other half.
+        await ipc.openProjectWindow(cmd.title, cmd.path).catch(() => {});
       } else if (cmd.kind === "project_error") {
         push({ who: "sys", text: cmd.title });
         say("Não consegui adicionar esse projeto.");

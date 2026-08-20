@@ -216,6 +216,13 @@ export default function Hud() {
           workspace: c.cwd,
         })),
       );
+    } else if (cmd.kind === "project_added") {
+      // Registering IS half the intent — the window is the other half.
+      await ipc.openProjectWindow(cmd.title, cmd.path).catch(() => {});
+      record(cmd.title, "projeto registrado");
+      finish(`→ ${cmd.title} · registrado e aberto`, "ok", 1500);
+    } else if (cmd.kind === "project_error") {
+      finish(`projeto: ${cmd.title}`, "warn", 3000);
     } else if (cmd.kind === "open_settings") {
       await ipc.focusMain("settings").catch(() => {});
       finish("→ configurações na janela mãe", "ok", 1200);

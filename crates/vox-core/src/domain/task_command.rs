@@ -85,7 +85,21 @@ const OPEN_FILE_VERBS: &[&str] = &[
 const ADD_PROJECT_VERBS: &[&str] = &[
     "adiciona o projeto", "adiciona projeto", "adicionar o projeto",
     "adiciona o diretório", "adiciona o diretorio", "registra o projeto",
+    // "um novo/cria um projeto EM <path>" registers too — "abre O projeto"
+    // (registered ones) stays OPEN_PROJECT.
+    "novo projeto", "cria um projeto", "criar um projeto", "cria projeto",
+    "abre um projeto", "abra um projeto", "abrir um projeto",
+    "inicia um projeto", "começa um projeto", "comeca um projeto",
 ];
+
+/// Location glue after a new-project verb ("em", "no", "dentro de").
+fn clean_path_lead(raw: &str) -> &str {
+    ["em ", "no ", "na ", "dentro de ", "dentro do "]
+        .iter()
+        .find_map(|lead| raw.strip_prefix(lead))
+        .unwrap_or(raw)
+        .trim()
+}
 /// Unambiguous: these words always mean "open a fresh Claude session".
 const NEW_CHAT_VERBS: &[&str] = &[
     "novo chat", "inicia um chat", "iniciar um chat", "roda um chat",
@@ -228,7 +242,8 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
         });
     }
     if let Some(verb) = ADD_PROJECT_VERBS.iter().find(|v| lower.contains(**v)) {
-        let path = crate::domain::project::path_from_speech(&after(verb)?);
+        let rest = after(verb)?;
+        let path = crate::domain::project::path_from_speech(clean_path_lead(&rest));
         return (!path.is_empty()).then_some(TaskCommand::AddProject { path });
     }
     let chat_verb = NEW_CHAT_VERBS
@@ -668,6 +683,29 @@ mod tests {
         assert_eq!(parse("cria uma nova rota no gateway"), None);
         // "nova task" without a named project is real work for the gate.
         assert_eq!(parse("nova task adiciona logs no serviço"), None);
+    }
+
+    #[test]
+    fn a_new_project_by_voice_registers_the_spoken_path() {
+        // The 19/08 miss: "abra um novo projeto em Projects barra
+        // workspace" fell through to the active context and opened vox.
+        assert_eq!(
+            parse("abra um novo projeto em projects barra workspace"),
+            Some(TaskCommand::AddProject { path: "~/projects/workspace".into() })
+        );
+        assert_eq!(
+            parse("cria um projeto em home projects api"),
+            Some(TaskCommand::AddProject { path: "~/projects/api".into() })
+        );
+        assert_eq!(
+            parse("novo projeto no ~/Projects/tools"),
+            Some(TaskCommand::AddProject { path: "~/Projects/tools".into() })
+        );
+        // "abre o projeto X" keeps meaning the REGISTERED project X.
+        assert_eq!(
+            parse("abre o projeto vox"),
+            Some(TaskCommand::OpenProject { query: "vox".into(), instruction: None })
+        );
     }
 
     #[test]
