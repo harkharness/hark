@@ -37,9 +37,9 @@ mod tests {
     fn contexts() -> Vec<ContextDef> {
         vec![
             ContextDef {
-                name: "fabrica".into(),
-                match_cwd: vec!["/home/dev/workspace-fabrica".into(), "/home/dev/fabrica-".into()],
-                repos: vec!["/home/dev/workspace-fabrica".into()],
+                name: "alpha".into(),
+                match_cwd: vec!["/home/dev/workspace-alpha".into(), "/home/dev/alpha-".into()],
+                repos: vec!["/home/dev/workspace-alpha".into()],
             },
             ContextDef {
                 name: "nu".into(),
@@ -52,9 +52,9 @@ mod tests {
     #[test]
     fn matches_cwd_by_prefix() {
         let ctx = &contexts()[0];
-        assert!(ctx.matches(Some("/home/dev/workspace-fabrica")));
-        assert!(ctx.matches(Some("/home/dev/workspace-fabrica/repositories/fabrica")));
-        assert!(ctx.matches(Some("/home/dev/fabrica-gladius-fix")));
+        assert!(ctx.matches(Some("/home/dev/workspace-alpha")));
+        assert!(ctx.matches(Some("/home/dev/workspace-alpha/repositories/alpha")));
+        assert!(ctx.matches(Some("/home/dev/alpha-gladius-fix")));
         assert!(!ctx.matches(Some("/home/dev/workspace-lab")));
         assert!(!ctx.matches(None));
     }
@@ -67,8 +67,8 @@ mod tests {
             Some("nu".to_string())
         );
         assert_eq!(
-            hint("como está a migração na fabrica?", &names),
-            Some("fabrica".to_string())
+            hint("como está a migração no alpha?", &names),
+            Some("alpha".to_string())
         );
         assert_eq!(hint("o que ficou pendente hoje?", &names), None);
         // Substring inside a larger word must NOT match ("continue" contains "nu"... no: word boundary).

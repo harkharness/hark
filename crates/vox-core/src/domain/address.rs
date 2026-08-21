@@ -80,7 +80,7 @@ pub fn parse(utterance: &str) -> Address {
     let lower = text.to_lowercase();
     if let Some(marker) = find_marker(&lower, PROJECT_MARKERS) {
         // The verb-stop in split_span keeps multi-word project names
-        // whole ("workspace fabrica") and hands the work back untouched.
+        // whole ("workspace codigo") and hands the work back untouched.
         let (name, rest) = split_span(&text, marker);
         if !name.is_empty() {
             project = Some(name);
@@ -171,8 +171,8 @@ mod tests {
     #[test]
     fn project_span_breaks_on_verb_too() {
         // Multi-word project names survive when a verb follows.
-        let a = parse("no projeto workspace fabrica roda os testes");
-        assert_eq!(a.project.as_deref(), Some("workspace fabrica"));
+        let a = parse("no projeto workspace codigo roda os testes");
+        assert_eq!(a.project.as_deref(), Some("workspace codigo"));
         assert_eq!(a.instruction, "roda os testes");
     }
 }

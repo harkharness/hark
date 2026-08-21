@@ -44,7 +44,7 @@ mod tests {
         assert_eq!(load(dir.path()), GlobalState::default());
 
         let state = GlobalState {
-            active_context: Some("fabrica".into()),
+            active_context: Some("alpha".into()),
             projects: vec![crate::domain::project::Project {
                 name: "vox".into(),
                 path: "/p/vox".into(),

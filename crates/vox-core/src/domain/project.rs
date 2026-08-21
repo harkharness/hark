@@ -79,7 +79,7 @@ pub fn as_context(project: &Project) -> crate::domain::context::ContextDef {
 }
 
 /// Speech-friendly normalization: lowercase, pt-BR accents stripped, and
-/// `-`/`_`/`.` become spaces so "workspace fábrica" equals "workspace-fabrica".
+/// `-`/`_`/`.` become spaces so "workspace código" equals "workspace-codigo".
 fn normalize(text: &str) -> String {
     text.chars()
         .map(|c| match c.to_lowercase().next().unwrap_or(c) {
@@ -111,7 +111,7 @@ pub fn find<'a>(projects: &'a [Project], query: &str) -> Option<&'a Project> {
 }
 
 /// Find a project whose name appears (as whole words) anywhere in a spoken
-/// sentence: "ok, então abra workspace fábrica" hits `workspace-fabrica`.
+/// sentence: "ok, então abra workspace código" hits `workspace-codigo`.
 /// Longest name wins when several match; unknown names never guess.
 pub fn find_spoken<'a>(projects: &'a [Project], utterance: &str) -> Option<&'a Project> {
     let spoken: Vec<String> = normalize(utterance)
@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn spoken_paths_become_home_relative() {
         assert_eq!(path_from_speech("home projects vox"), "~/projects/vox");
-        assert_eq!(path_from_speech("Projects workspace-fabrica"), "~/projects/workspace-fabrica");
+        assert_eq!(path_from_speech("Projects workspace-codigo"), "~/projects/workspace-codigo");
         // Typed paths pass through untouched.
         assert_eq!(path_from_speech("~/Projects/vox"), "~/Projects/vox");
         assert_eq!(path_from_speech("/abs/dir"), "/abs/dir");
@@ -185,35 +185,35 @@ mod tests {
     fn finds_projects_by_partial_name() {
         let projects = vec![
             Project { name: "vox".into(), path: "/p/vox".into() },
-            Project { name: "workspace-fabrica".into(), path: "/p/wu".into() },
+            Project { name: "workspace-codigo".into(), path: "/p/wu".into() },
         ];
         assert_eq!(find(&projects, "vox").unwrap().path, "/p/vox");
-        assert_eq!(find(&projects, "fabrica").unwrap().path, "/p/wu");
+        assert_eq!(find(&projects, "codigo").unwrap().path, "/p/wu");
         assert!(find(&projects, "nope").is_none());
         assert!(find(&projects, "").is_none());
     }
 
     #[test]
     fn finds_projects_ignoring_accents_and_separators() {
-        // STT writes natural Portuguese ("workspace fábrica"); names on disk
+        // STT writes natural Portuguese ("workspace código"); names on disk
         // use hyphens and no accents. Both sides must normalize.
         let projects = vec![
-            Project { name: "workspace-fabrica".into(), path: "/p/wu".into() },
+            Project { name: "workspace-codigo".into(), path: "/p/wu".into() },
             Project { name: "vox".into(), path: "/p/vox".into() },
         ];
-        assert_eq!(find(&projects, "workspace fábrica").unwrap().path, "/p/wu");
-        assert_eq!(find(&projects, "Workspace Fabrica").unwrap().path, "/p/wu");
-        assert_eq!(find(&projects, "fábrica").unwrap().path, "/p/wu");
+        assert_eq!(find(&projects, "workspace código").unwrap().path, "/p/wu");
+        assert_eq!(find(&projects, "Workspace Código").unwrap().path, "/p/wu");
+        assert_eq!(find(&projects, "código").unwrap().path, "/p/wu");
     }
 
     #[test]
     fn spots_project_names_inside_sentences() {
         let projects = vec![
-            Project { name: "workspace-fabrica".into(), path: "/p/wu".into() },
+            Project { name: "workspace-codigo".into(), path: "/p/wu".into() },
             Project { name: "vox".into(), path: "/p/vox".into() },
         ];
         assert_eq!(
-            find_spoken(&projects, "ok, então abra workspace fábrica").unwrap().path,
+            find_spoken(&projects, "ok, então abra workspace código").unwrap().path,
             "/p/wu"
         );
         assert_eq!(find_spoken(&projects, "abre o vox aí").unwrap().path, "/p/vox");

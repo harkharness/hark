@@ -564,10 +564,10 @@ mod tests {
             })
         );
         assert_eq!(
-            parse("abre o arquivo config.toml no projeto workspace-fabrica"),
+            parse("abre o arquivo config.toml no projeto workspace-codigo"),
             Some(TaskCommand::OpenFile {
                 query: "config.toml".into(),
-                project: Some("workspace-fabrica".into())
+                project: Some("workspace-codigo".into())
             })
         );
     }
@@ -591,9 +591,9 @@ mod tests {
             Some(TaskCommand::NewChat { project: "vox".into(), instruction: None })
         );
         assert_eq!(
-            parse("nova sessão no projeto workspace-fabrica"),
+            parse("nova sessão no projeto workspace-codigo"),
             Some(TaskCommand::NewChat {
-                project: "workspace-fabrica".into(),
+                project: "workspace-codigo".into(),
                 instruction: None
             })
         );
@@ -607,17 +607,17 @@ mod tests {
     fn new_chats_accept_bare_project_names_and_instructions() {
         // "projeto" is optional; STT rarely says it.
         assert_eq!(
-            parse("inicia um chat no workspace-fabrica"),
+            parse("inicia um chat no workspace-codigo"),
             Some(TaskCommand::NewChat {
-                project: "workspace-fabrica".into(),
+                project: "workspace-codigo".into(),
                 instruction: None
             })
         );
         // "... para <instrução>" carries the first task of the chat.
         assert_eq!(
-            parse("roda um chat no workspace fábrica para reindexar as tasks perdidas"),
+            parse("roda um chat no workspace código para reindexar as tasks perdidas"),
             Some(TaskCommand::NewChat {
-                project: "workspace fábrica".into(),
+                project: "workspace código".into(),
                 instruction: Some("reindexar as tasks perdidas".into())
             })
         );
@@ -638,17 +638,17 @@ mod tests {
         );
         // Works inside a longer sentence (STT never starts at the verb).
         assert_eq!(
-            parse("eu quero que você abra o projeto workspace fábrica"),
+            parse("eu quero que você abra o projeto workspace código"),
             Some(TaskCommand::OpenProject {
-                query: "workspace fábrica".into(),
+                query: "workspace código".into(),
                 instruction: None
             })
         );
         // "... e <instrução>" opens AND dispatches inside it.
         assert_eq!(
-            parse("abre o projeto workspace fábrica e roda a reindexação das tasks"),
+            parse("abre o projeto workspace código e roda a reindexação das tasks"),
             Some(TaskCommand::OpenProject {
-                query: "workspace fábrica".into(),
+                query: "workspace código".into(),
                 instruction: Some("roda a reindexação das tasks".into())
             })
         );
