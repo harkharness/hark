@@ -863,6 +863,21 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .msg .itens { margin-top: 6px; padding-left: 16px; color: var(--text); }
 .msg .itens li::marker { color: var(--dim); }
 .msg .cost { display: block; margin-top: 4px; color: var(--dim); font-size: 11px; }
+/* Ghost action bar: space reserved, revealed on hover (no layout shift). */
+.msg-actions {
+  display: flex; align-items: center; gap: 2px; margin-top: 3px; height: 20px;
+  opacity: 0; transition: opacity .12s ease;
+}
+.msg:hover .msg-actions { opacity: 1; }
+.msg-actions button {
+  background: none; border: none; color: var(--dim); cursor: pointer;
+  padding: 2px 4px; border-radius: 4px; display: inline-flex; align-items: center;
+}
+.msg-actions button:hover { color: var(--text); background: var(--bg); }
+.msg-actions button.speaking { color: var(--accent); opacity: 1; }
+.msg.vox:has(.speaking) .msg-actions { opacity: 1; }
+.msg-when { color: var(--dim); font-size: 11px; margin-left: 5px; }
+.msg.user .msg-actions { justify-content: flex-end; }
 .msg img.paste { max-width: 240px; border-radius: 6px; border: 1px solid var(--border); display: block; margin-top: 4px; }
 
 .events {

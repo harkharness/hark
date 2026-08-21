@@ -1,14 +1,113 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Lock } from "lucide-react";
+import { Check, Copy, Lock, Square, Volume2 } from "lucide-react";
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput } from "./ToolCall";
 import { directiveLabels, shortModel } from "../lib/format";
 import type { Directives, Msg } from "../types";
 import { t } from "../lib/i18n";
+import * as ipc from "../lib/ipc";
 
 /** Deliverable-style tools stay visible on their own — never grouped. */
 const STANDALONE_TOOLS = new Set(["SendUserFile", "ExitPlanMode"]);
+
+/** Markdown → something `say` can read aloud without spelling syntax. */
+function speakable(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/[*_~]{1,3}([^*_~\n]+)[*_~]{1,3}/g, "$1")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^[-:| ]+$/gm, " ")
+    .replace(/\|/g, ", ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** "há 20 min" — self-ticking so an idle chat stays honest. */
+function TimeAgo({ ts }: { ts: number }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const mins = Math.floor((Date.now() - ts) / 60_000);
+  const label =
+    mins < 1
+      ? t("time_now")
+      : mins < 60
+        ? t("time_min", { n: mins })
+        : mins < 1440
+          ? t("time_hour", { n: Math.floor(mins / 60) })
+          : t("time_day", { n: Math.floor(mins / 1440) });
+  return (
+    <span className="msg-when" title={new Date(ts).toLocaleString()}>
+      {label}
+    </span>
+  );
+}
+
+/**
+ * Ghost bar under a bubble (hover reveals): copy the raw markdown, and on
+ * vox replies replay the whole text through TTS — zero tokens, unlike
+ * asking again. Clicking listen while speaking stops it.
+ */
+function MsgActions({
+  copyText,
+  speakText,
+  ts,
+}: {
+  copyText: string;
+  speakText?: string;
+  ts?: number;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+
+  async function listen() {
+    if (speaking) {
+      ipc.speakStop().catch(() => {});
+      setSpeaking(false);
+      return;
+    }
+    // Kill any other message still talking before starting this one.
+    await ipc.speakStop().catch(() => {});
+    setSpeaking(true);
+    try {
+      await ipc.speak(speakText ?? "");
+    } finally {
+      setSpeaking(false);
+    }
+  }
+
+  return (
+    <div className="msg-actions">
+      <button
+        title={t("msg_copy")}
+        onClick={() => {
+          navigator.clipboard.writeText(copyText).catch(() => {});
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1500);
+        }}
+      >
+        {copied ? <Check size={13} /> : <Copy size={13} />}
+      </button>
+      {speakText && (
+        <button
+          className={speaking ? "speaking" : ""}
+          title={speaking ? t("msg_stop") : t("msg_listen")}
+          onClick={listen}
+        >
+          {speaking ? <Square size={13} /> : <Volume2 size={13} />}
+        </button>
+      )}
+      {ts != null && <TimeAgo ts={ts} />}
+    </div>
+  );
+}
 
 /**
  * The visible thread: one task at a time (or the general vox conversation).
@@ -123,6 +222,15 @@ export default function Transcript({
                   ].join(" · ")}
                 </span>
               )}
+              <MsgActions
+                copyText={[m.text, m.detalhes, ...(m.itens ?? [])]
+                  .filter(Boolean)
+                  .join("\n\n")}
+                speakText={speakable(
+                  [m.text, m.detalhes, ...(m.itens ?? [])].filter(Boolean).join(". "),
+                )}
+                ts={m.ts}
+              />
             </>
           ) : (
             <>
@@ -130,6 +238,7 @@ export default function Transcript({
               {m.images?.map((src, j) => (
                 <img key={j} className="paste" src={src} alt={`image `} />
               ))}
+              <MsgActions copyText={m.text} ts={m.ts} />
             </>
           )}
         </div>

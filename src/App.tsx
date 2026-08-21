@@ -130,7 +130,16 @@ export default function App({
   // Tasks whose history was already injected once (avoid re-loading on refocus).
   const loadedTasks = useRef(new Set<string>());
 
-  const push = useCallback((m: Msg) => setMessages((old) => [...old, m]), []);
+  const push = useCallback(
+    (m: Msg) =>
+      setMessages((old) => [
+        ...old,
+        (m.who === "user" || m.who === "vox") && m.ts == null
+          ? { ...m, ts: Date.now() }
+          : m,
+      ]),
+    [],
+  );
   /** Thread key for worker events: the task LABEL, stable and readable. */
   const labelFor = useCallback(
     (taskId: string) => workersRef.current[taskId]?.label ?? taskId,

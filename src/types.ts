@@ -63,7 +63,7 @@ export type PermissionAsk = {
 };
 
 export type Msg =
-  | { who: "user"; text: string; images?: string[]; task?: string }
+  | { who: "user"; text: string; images?: string[]; task?: string; ts?: number }
   | {
       who: "vox";
       text: string;
@@ -73,6 +73,8 @@ export type Msg =
       model?: string;
       usage?: TurnUsage;
       task?: string;
+      /** Epoch ms, stamped by push() — feeds the hover "há N min". */
+      ts?: number;
     }
   | { who: "tool"; name: string; input: string; task?: string }
   | { who: "output"; content: string; error: boolean; task?: string }
