@@ -253,8 +253,9 @@ export default function Hud() {
     }
     if (plan.kind === "permission_answer") {
       // A card was waiting somewhere and the user just said "pode"/"nega".
+      // No feed row: the verdict is not an action — the permission card
+      // itself resolves everywhere and IS the durable record.
       await ipc.approve(plan.request_id, plan.allow).catch(() => {});
-      record(plan.label, plan.allow ? "permitido em voz" : "negado em voz");
       const said = plan.allow ? "Permitido." : "Negado.";
       finish(`${plan.allow ? "✓" : "✗"} ${plan.tool} · ${plan.label}`, "ok", 1600);
       ipc.speak(said).catch(() => {});
