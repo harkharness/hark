@@ -1,76 +1,73 @@
 # Vox
 
-A local, voice-first companion for [Claude Code](https://code.claude.com). Talk to it
-like JARVIS: ask what you were working on, hear the answer out loud, and (eventually)
-dispatch real work to Claude Code sessions.
+A local, voice-first cockpit for [Claude Code](https://code.claude.com). Talk to
+your machine like JARVIS: ask what you were working on, hear the answer out
+loud, and dispatch real work into your existing Claude Code sessions — by voice
+or text, across every project on your disk.
 
-Vox never calls the Anthropic API directly. It drives the `claude` CLI you already
-have installed and authenticated, so usage draws from your existing subscription.
+Vox never calls the Anthropic API directly. It drives the `claude` CLI you
+already have installed and authenticated, so all usage draws from your existing
+subscription. No API key, no separate billing, no telemetry.
 
-> Status: early development. The headless CLI (M1) works; voice and the
-> desktop window are next. See the roadmap below.
+> Status: a working desktop app in active development (macOS, Apple Silicon).
+> Expect sharp edges; the voice loop, windows, boards, cost ledger and the
+> persistent assistant chat all work today.
 
-## Quickstart (headless CLI)
+## What it does
 
-```bash
-cargo build --release -p vox-cli
+- **One global voice surface.** A hotkey opens a floating HUD anywhere: speak,
+  see the transcription and the resolved *destination* before anything runs,
+  confirm by staying silent (when the target is the focused chat) or by voice
+  ("yes" / "no" / a replacement instruction) when Vox had to guess.
+- **A mother window that is your assistant.** A persistent chat backed by one
+  long-lived Claude Code session with your full settings — MCP servers and
+  tools included. It has a name, a personality file it maintains itself, and
+  it speaks its replies. Cheap questions are routed AWAY from it to a bare,
+  snapshot-fed one-shot ask (~cents), so the expensive session only does real
+  work.
+- **Project windows that read like Claude Code.** Sidebar with full session
+  history, markdown transcripts with folded tool calls and grouped command
+  bursts, deliverable file cards, CSV-as-table viewer, an embedded terminal
+  (real PTY), a local file editor, and a kanban board of your demands.
+- **Dispatch into existing sessions.** "Continue the webhook migration" finds
+  the right session on disk (word-boundary matching, ambiguity surfaces as
+  candidates — never a guess), resumes it in its own workspace with your full
+  settings, and streams every event back.
+- **Permissions with a hard floor.** Every privileged tool call renders as an
+  inline card (allow / always / deny — keyboard, click or voice from any
+  window). Commands that touch production (kubectl apply, terraform apply,
+  helm, force-push, destructive SQL, cloud deletes, package publishes…) are
+  NEVER auto-approved: standing rules are ignored, the card turns red, and in
+  bypass mode the infra CLIs are blocked outright.
 
-# Index your local Claude Code history (incremental, fast after first run)
-./target/release/vox index
+## Token efficiency by design
 
-# List recent sessions
-./target/release/vox sessions
+Measured on this codebase with `claude` v2.1.x:
 
-# Ask about your work (spawns `claude`, costs ~$0.04 of your plan usage)
-./target/release/vox ask "what did I leave pending today?"
+| Path | Cost / turn |
+|---|---|
+| Lean ask (no tools, no settings, pre-cooked snapshot) | ~$0.009 |
+| Default `claude -p` (CLAUDE.md + MCP + tools) | $0.23+ |
+| Worker turn with tools executing | $0.33+ |
+| Resumed worker turn (prompt cache warm) | ~$0.001 |
 
-# Debug: print the exact prompt that would be sent, without calling Claude
-./target/release/vox prompt "what did I leave pending today?"
+The architecture assumes tokens are the scarce resource:
 
-# Contexts (kubectl-style focus per workspace; see Configuration)
-./target/release/vox contexts
-./target/release/vox use myproject
-
-# Dispatch real work INTO an existing session (resumes it, full settings,
-# every privileged tool call asks you y/N in the terminal)
-./target/release/vox dispatch "continue the webhook migration, open the DNS PR"
-./target/release/vox dispatch --session <id> "…"   # explicit target
-./target/release/vox ps                             # machine-wide worker registry
-```
-
-## Voice (the JARVIS loop)
-
-```bash
-./target/release/vox setup    # one-time: downloads the whisper model (~466MB)
-./target/release/vox hear     # mic test: records one utterance, prints transcript (free)
-./target/release/vox listen   # full loop: speak -> answer out loud; say "sair" to quit
-```
-
-- Questions ("quais as pendências de hoje?") are answered out loud (cheap fast mode).
-- Instructions ("continua a migração do X") are echoed back for spoken
-  confirmation, then dispatched to the matching session; permission approvals
-  stay on the keyboard (y/N).
-- STT runs fully local (whisper.cpp + Metal); TTS is the system `say` voice.
-- macOS will ask for microphone permission for your terminal on first use
-  (System Settings -> Privacy & Security -> Microphone).
-
-Optional: `cargo install --path crates/vox-cli` puts `vox` on your PATH.
-
-Vox keeps a `.vox/` directory in each workspace it touches (Q&A journal,
-dispatch state and briefs). Add `.vox/` to your global gitignore, or commit it
-if you want the trail visible to your team.
-
-## What it will do
-
-- **Ask about your work by voice or text**: "what's pending today?" Vox indexes your
-  local Claude Code session history (`~/.claude/projects/**/*.jsonl`) into SQLite,
-  builds a compact context snapshot, and asks Claude with a lean, cheap prompt.
-- **Speak the answer**: responses are constrained by a JSON schema into
-  `{ speech, details, items[] }`. Text-to-speech reads `speech`; the UI shows `details`.
-- **Show everything**: a terminal-styled desktop window (Tauri + React) streams every
-  event from the Claude CLI, including tool payloads.
-- **Ask before acting**: in deep mode, tool permission requests surface in the UI and
-  wait for your explicit approval (click first; voice approval later).
+- **Three answer layers**: deterministic questions (board, running workers,
+  spend) are answered locally for zero tokens; phrasing-only questions get a
+  light model with ~1k of context; only real reasoning pays full price.
+- **A gate before the expensive path**: a haiku-tier evaluator (~$0.01) checks
+  a dispatch against its target before a worker burns dollars on the wrong
+  session.
+- **Local-first everything**: session history lives in a SQLite index built
+  incrementally from `~/.claude/projects`; recalling a chat, searching
+  sessions, opening files and reading transcripts never touch a model.
+- **Hard ceilings**: every worker spawns with `--max-budget-usd` (default $2)
+  so a runaway turn stops itself.
+- **An honest ledger**: every turn (including failures) lands in a local spend
+  ledger — USD only from the CLI's own numbers, token counts from the session
+  logs, the two never summed. The costs panel shows where money went, cache
+  hit ratios, and your subscription windows (opt-in status-line bridge).
 
 ## Architecture
 
@@ -78,57 +75,68 @@ Hexagonal (ports & adapters) with a functional core and an imperative shell:
 
 ```
 crates/vox-core      all logic
-  src/domain/        pure functions, immutable types, no I/O (unit-tested)
-  src/ports/         traits: Stt, Tts, AudioIn, AgentRunner, SessionStore, ...
-  src/adapters/      thin imperative shells: claude CLI, sqlite, whisper, cpal, say
-  src/app/           use cases wiring domain + ports
-crates/vox-cli       headless driver: `vox ask "..."` (debugging, scripting, CI)
-src-tauri + src/     desktop window driver (Tauri v2 + React), added in M2
-spikes/              throwaway experiments that de-risked the design (kept as docs)
+  src/domain/        pure functions, immutable types, no I/O (219 unit tests)
+  src/ports/         traits: Stt, Tts, AgentRunner, SessionStore, SpendLedger…
+  src/adapters/      thin shells: claude CLI, sqlite, whisper, cpal, say, pty
+crates/vox-cli       headless driver: vox ask/dispatch/spend (scripting, CI)
+src-tauri + src/     the desktop app (Tauri v2 + React)
 ```
 
-The state machine at the center is `fn update(State, Msg) -> (State, Vec<Effect>)`.
-Shells interpret effects (record, transcribe, spawn claude, speak, notify UI); the
-core stays pure and testable without a microphone, database, or network.
+Domain code is TDD'd and runs without a microphone, database or network.
+The voice pipeline is fully local: whisper.cpp (Metal) for STT, the system
+`say` voice for TTS. The only external process ever spawned is `claude`.
 
-## Roadmap
+## Quickstart
 
-- **M0**: scaffold + spikes (Claude CLI control protocol, whisper pt-BR quality)
-- **M1**: headless brain: session index + snapshot + `vox ask "..."`
-- **M2**: Tauri window (text in, streamed events, payload pane)
-- **M3**: voice: push-to-talk hotkey, VAD, whisper STT, `say` TTS
-- **M4**: interactive sessions, permission approvals, image paste
-- **Later**: dispatching real project sessions, MCP tools, voice approvals, wake word
+```bash
+# Desktop app (dev)
+npm install
+npm run tauri dev
 
-## Requirements
+# Headless CLI
+cargo build --release -p vox-cli
+./target/release/vox index                      # index your session history
+./target/release/vox ask "what's pending today?"
+./target/release/vox dispatch "continue the webhook migration"
+./target/release/vox spend --week               # the ledger, in your terminal
+```
 
-- macOS (Apple Silicon tested); other platforms untested for now
-- [Claude Code](https://code.claude.com) installed and logged in (`claude` on PATH)
-- Rust toolchain
+First voice use: `vox setup` downloads the whisper model (~466MB); macOS asks
+for microphone permission once.
 
 ## Configuration
 
-`~/.config/vox/config.toml` (all paths are examples, nothing is hardcoded):
+`~/.config/vox/config.toml` — everything is optional, comments survive edits
+made through the settings UI:
 
 ```toml
+assistant_name = "Vox"        # what the chat calls itself
 model = "sonnet"
-language = "pt"
-voice = "Luciana"
-theme = "vox"            # code color scheme: "vox" (default) or "dracula"
-whisper_model = "~/.local/share/vox/models/ggml-large-v3-turbo.bin"
-projects_dir = "~/.claude/projects"
-repos = ["~/Projects/my-repo"]
-hotkey = "Cmd+Shift+Space"
-deep_triggers = ["investigate", "dig deeper"]
+language = "pt"               # what the mic expects to hear
+ui_language = "pt"            # what the screen shows ("pt" | "en")
+voice = "Luciana"             # macOS `say` voice
+theme = "vox"                 # code color scheme: "vox" | "dracula"
+hotkey = "cmd+shift+space"    # global push-to-talk
+worker_budget_usd = 2.0       # hard ceiling per worker process
+worker_mode = "acceptEdits"   # default permission mode for new workers
+
+[models]                      # router tiers (all optional)
+light = "haiku"
 ```
+
+The assistant's personality and accumulated learnings live in a plain
+markdown file in the app's data directory (Settings → open file). The model
+maintains it itself through the normal permission flow: tell it "remember I
+prefer short answers" and it writes that down — durable across sessions.
 
 ## Privacy
 
-- The local index (`index.db`) contains fragments of your Claude Code prompts and
-  session titles. It lives in your user data directory and never leaves your machine.
-- Vox makes no network calls of its own. The only external process it talks to is
-  the `claude` CLI, under your existing account.
-- No telemetry.
+- The local index and spend ledger contain fragments of your prompts and
+  session titles. They live in your user data directory and never leave the
+  machine.
+- Vox makes no network calls of its own; the only external process is the
+  `claude` CLI under your existing account.
+- No telemetry, no analytics, nothing phones home.
 
 ## License
 
