@@ -13,6 +13,8 @@ pub struct GlobalState {
     pub workers: Vec<crate::domain::memory::WorkerRecord>,
     /// User-editable project directories (the sidebar groups).
     pub projects: Vec<crate::domain::project::Project>,
+    /// The mother's persistent work chat session (resumed across restarts).
+    pub vox_chat_session: Option<String>,
 }
 
 fn state_path(data_dir: &Path) -> PathBuf {
@@ -47,17 +49,20 @@ mod tests {
                 name: "vox".into(),
                 path: "/p/vox".into(),
             }],
+            vox_chat_session: Some("s-chat".into()),
             ..GlobalState::default()
         };
         save(dir.path(), &state).unwrap();
         assert_eq!(load(dir.path()), state);
 
-        // Old state files (no projects key) must still load.
+        // Old state files (no projects/vox_chat keys) must still load.
         std::fs::write(
             dir.path().join("state.json"),
             r#"{"active_context":"nu","workers":[]}"#,
         )
         .unwrap();
-        assert_eq!(load(dir.path()).active_context.as_deref(), Some("nu"));
+        let old = load(dir.path());
+        assert_eq!(old.active_context.as_deref(), Some("nu"));
+        assert_eq!(old.vox_chat_session, None);
     }
 }

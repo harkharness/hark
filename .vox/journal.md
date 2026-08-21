@@ -18,3 +18,7 @@ A: A última atualização foi uma decisão de não abrir PR, mantendo o host an
 Q: porque o comando /desing não funciona no vox? mas funciona no Claude Code?
 A: O Vox só reconhece a lista própria de comandos dele, e /design não está nela.
 
+## 2026-08-21T13:07:29.667Z
+Q: Então a gente tem um problema ainda para trabalhar no vox, eu não consigo ver o chat que a gente conversa aqui na janela principal, na janela mãe, eu só consigo ver os chats de projetos né?
+A: Isso é uma lacuna real: o Vox não indexa a própria conversa, só sessões de projeto.
+

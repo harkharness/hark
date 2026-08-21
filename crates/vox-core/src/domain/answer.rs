@@ -23,6 +23,53 @@ pub enum AnswerPlan {
     FullAsk,
 }
 
+/// Which SURFACE a message to global vox belongs to — decided before any
+/// answer planning. The lean ask spawns a bare `claude -p` (no tools, no
+/// MCP, no settings): great for questions over the snapshot, useless for
+/// real work. Anything that needs an external tool or produces content
+/// goes to the persistent work chat instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AskLane {
+    /// Cheap one-shot over the pre-cooked snapshot.
+    Lean,
+    /// The mother's persistent session: full settings, MCP, memory.
+    WorkChat,
+}
+
+/// Links mean the model must go LOOK at something — the bare ask can't.
+const URL_MARKS: &[&str] = &["http://", "https://", "www."];
+
+/// External surfaces the lean ask has no access to (exact tokens).
+const TOOL_WORDS: &[&str] = &[
+    "slack", "thread", "threads", "canal", "canais", "email", "mail", "gmail",
+    "jira", "confluence", "github", "gitlab", "notion",
+];
+
+/// Verbs that PRODUCE content (drafts, posts, replies). Reading/analysis
+/// verbs stay lean — the snapshot answers those well. "cria" stays out:
+/// it collides with local task commands that never reach the ask.
+const PRODUCE_VERBS: &[&str] = &[
+    "gera", "gerar", "gere", "monta", "montar", "monte", "escreve", "escrever",
+    "escreva", "redige", "redigir", "redija", "prepara", "preparar", "prepare",
+    "elabora", "elaborar", "elabore", "rascunha", "rascunhar", "rascunhe",
+    "posta", "postar", "poste", "publica", "publicar", "publique", "envia",
+    "enviar", "envie", "manda", "mandar", "mande", "responde", "responder",
+    "responda", "draft", "rascunho",
+];
+
+/// Decide the surface for a message to global vox.
+pub fn lane(text: &str) -> AskLane {
+    if URL_MARKS.iter().any(|m| text.contains(m)) {
+        return AskLane::WorkChat;
+    }
+    let tokens = crate::domain::matching::tokens(text);
+    let has = |set: &[&str]| tokens.iter().any(|t| set.contains(&t.as_str()));
+    if has(TOOL_WORDS) || has(PRODUCE_VERBS) {
+        return AskLane::WorkChat;
+    }
+    AskLane::Lean
+}
+
 /// Everything the local layers may use — all free, already on disk.
 pub struct LocalFacts<'a> {
     pub board: &'a [Task],
@@ -381,5 +428,59 @@ mod tests {
         assert!(prompt.contains("## Board"));
         assert!(prompt.contains("resume o board"));
         assert!(prompt.len() < 400);
+    }
+
+    // ---- AskLane: lean one-shot vs the persistent work chat ----
+
+    #[test]
+    fn urls_and_external_tools_need_the_work_chat() {
+        for text in [
+            "olha esse link https://exemplo.com/doc e me diz o que é",
+            "o que falaram no canal do time?",
+            "resume a thread do slack de ontem",
+            "responde o email do fornecedor",
+            "ve o card no jira e me atualiza",
+        ] {
+            assert_eq!(lane(text), AskLane::WorkChat, "{text}");
+        }
+    }
+
+    #[test]
+    fn producing_content_needs_the_work_chat() {
+        for text in [
+            "gera um draft do resumo semanal",
+            "monta a mensagem de status pro time",
+            "posta lá seguindo o template",
+            "prepara um texto anunciando a mudança",
+            "escreve uma resposta educada pra isso",
+        ] {
+            assert_eq!(lane(text), AskLane::WorkChat, "{text}");
+        }
+    }
+
+    #[test]
+    fn questions_and_analysis_stay_lean() {
+        for text in [
+            "quais as pendências de hoje?",
+            "quanto gastei essa semana?",
+            "o que tá rodando agora?",
+            "por que a task do webhook travou?",
+            "onde parei na migração ontem?",
+            // Reading the user's own history is the snapshot's home turf.
+            "analisa o que trabalhei ontem",
+        ] {
+            assert_eq!(lane(text), AskLane::Lean, "{text}");
+        }
+    }
+
+    #[test]
+    fn the_slack_incident_replays_into_the_work_chat() {
+        // The real failure (21/08): sent to the bare one-shot ask, which has
+        // no tools and no MCP, so it could neither read Slack nor keep the
+        // draft anywhere.
+        let text = "é essa thread aqui https://exemplo.slack.com/archives/C02/p17873 \
+                    eu preciso analisar oq trabalhei ontem nos chats e gerar um draft \
+                    para postar lá seguindo o template";
+        assert_eq!(lane(text), AskLane::WorkChat);
     }
 }

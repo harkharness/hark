@@ -622,10 +622,14 @@ fn start_worker(
     // The human name of this work: the session's title for resumes, the
     // instruction for brand-new sessions. Travels inside events so any
     // window (the mother above all) can speak about it by name.
-    let board_title = worker_board_title(
-        (!spawn.session_id.is_empty()).then_some(spawn.session_id.as_str()),
-        &spawn.instruction,
-    );
+    let board_title = if task_id == VOX_CHAT_TASK {
+        "vox".to_string()
+    } else {
+        worker_board_title(
+            (!spawn.session_id.is_empty()).then_some(spawn.session_id.as_str()),
+            &spawn.instruction,
+        )
+    };
     let mut current_session = spawn.session_id.clone();
     std::thread::spawn(move || {
         use std::io::{BufRead, BufReader};
@@ -641,6 +645,22 @@ fn start_worker(
                         let mut map = reg.0.lock().unwrap();
                         map.insert(workspace.display().to_string(), slash_commands.clone());
                         map.insert(String::new(), slash_commands);
+                    }
+                    if task2 == VOX_CHAT_TASK {
+                        // The mother's chat lives OFF the board and OFF the
+                        // worker registry; only its session id persists so
+                        // the next send resumes the same conversation.
+                        let mut gstate = state_file::load(&config.data_dir());
+                        if gstate.vox_chat_session.as_deref() != Some(session_id.as_str()) {
+                            gstate.vox_chat_session = Some(session_id.clone());
+                            let _ = state_file::save(&config.data_dir(), &gstate);
+                        }
+                        emit_event(
+                            &app2,
+                            serde_json::json!({ "kind": "session_started",
+                                "task_id": task2, "session_id": session_id }),
+                        );
+                        continue;
                     }
                     if !is_new_session {
                         continue;
@@ -718,10 +738,13 @@ fn start_worker(
                 ClaudeEvent::Result(turn) => {
                     // Turn done, worker stays alive for the next message.
                     update_worker_summary(&config, &task2, &turn.raw);
-                    let _ = memory_files::append_state(
-                        &workspace,
-                        &format!("- {} {task2} [turn] {}", now_iso(), turn.raw.chars().take(160).collect::<String>()),
-                    );
+                    if task2 != VOX_CHAT_TASK {
+                        // (the chat's cwd is the data dir — no .vox there)
+                        let _ = memory_files::append_state(
+                            &workspace,
+                            &format!("- {} {task2} [turn] {}", now_iso(), turn.raw.chars().take(160).collect::<String>()),
+                        );
+                    }
                     let workspace_str = workspace.display().to_string();
                     record_live_spend(
                         &config,
@@ -962,6 +985,97 @@ fn worker_send(
     };
     start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
     Ok(next)
+}
+
+/// The mother's persistent work chat: one task id, off the board, off the
+/// worker registry. Its session id lives in the global state so the chat
+/// survives app restarts.
+const VOX_CHAT_TASK: &str = "vox-chat";
+
+/// Which surface a message to global vox belongs to: "lean" (bare one-shot
+/// ask over the snapshot) or "work" (the persistent chat with full
+/// settings + MCP). Pure domain passthrough, zero tokens.
+#[tauri::command]
+fn ask_lane(text: String) -> &'static str {
+    match vox_core::domain::answer::lane(&text) {
+        vox_core::domain::answer::AskLane::Lean => "lean",
+        vox_core::domain::answer::AskLane::WorkChat => "work",
+    }
+}
+
+#[derive(Serialize)]
+struct VoxChatOut {
+    task_id: String,
+    /// True when this message continues a stored session (live or resumed).
+    resumed: bool,
+}
+
+/// Send a message to the mother's work chat. Reuses the live worker when
+/// there is one (directive changes restart it, same as any worker);
+/// otherwise spawns it in the DATA DIR (neutral cwd, full user settings —
+/// MCP and tools work) resuming the stored session when it still exists.
+#[tauri::command(async)]
+fn vox_chat_send(
+    app: AppHandle,
+    live: State<'_, LiveWorkers>,
+    text: String,
+    images: Option<Vec<(String, String)>>,
+) -> Result<VoxChatOut, String> {
+    let alive = live.0.lock().unwrap().contains_key(VOX_CHAT_TASK);
+    if alive {
+        worker_send(app, live, VOX_CHAT_TASK.into(), text, images)?;
+        return Ok(VoxChatOut {
+            task_id: VOX_CHAT_TASK.into(),
+            resumed: true,
+        });
+    }
+
+    let config = Config::load();
+    // Resume only a session whose log file still exists; otherwise start
+    // fresh (a stale id would make the spawn die silently).
+    let stored = state_file::load(&config.data_dir()).vox_chat_session;
+    let session = stored.filter(|id| {
+        SqliteStore::open(&config.data_dir().join("index.db"))
+            .ok()
+            .and_then(|store| {
+                use vox_core::ports::SessionStore;
+                store.session_path(id).ok().flatten()
+            })
+            .is_some_and(|path| std::path::Path::new(&path).exists())
+    });
+
+    let mut directives = vox_core::domain::directives::parse(&text);
+    directives.mode = directives.mode.or_else(|| config.default_worker_mode());
+    let resumed = session.is_some();
+    let spawn = vox_core::adapters::worker::WorkerSpawn {
+        limits: config.spawn_limits(),
+        claude_bin: config.claude_bin_resolved(),
+        cwd: config.data_dir(),
+        session_id: session.unwrap_or_default(),
+        instruction: text,
+        directives,
+    };
+    start_worker(&app, &live, VOX_CHAT_TASK, spawn).map_err(|e| e.to_string())?;
+    Ok(VoxChatOut {
+        task_id: VOX_CHAT_TASK.into(),
+        resumed,
+    })
+}
+
+#[derive(Serialize)]
+struct VoxChatStatus {
+    alive: bool,
+    session_id: Option<String>,
+}
+
+/// Is the mother's chat worker running, and which session backs it?
+#[tauri::command]
+fn vox_chat_status(live: State<'_, LiveWorkers>) -> VoxChatStatus {
+    let config = Config::load();
+    VoxChatStatus {
+        alive: live.0.lock().unwrap().contains_key(VOX_CHAT_TASK),
+        session_id: state_file::load(&config.data_dir()).vox_chat_session,
+    }
 }
 
 fn describe(d: &vox_core::domain::directives::Directives) -> String {
@@ -2368,6 +2482,9 @@ pub fn run() {
             dispatch_text,
             worker_start,
             worker_send,
+            ask_lane,
+            vox_chat_send,
+            vox_chat_status,
             worker_set_mode,
             worker_stop,
             chat_start,

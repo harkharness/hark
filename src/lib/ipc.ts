@@ -71,6 +71,21 @@ export const workerSend = (
 
 export const workerStop = (taskId: string) => invoke("worker_stop", { taskId });
 
+/** Which surface a message to global vox belongs to (zero tokens). */
+export const askLane = (text: string) => invoke<"lean" | "work">("ask_lane", { text });
+
+/** Send to the mother's persistent work chat (full settings + MCP);
+ *  spawns/resumes the chat worker as needed. Events arrive with
+ *  task_id "vox-chat". */
+export const voxChatSend = (text: string, images: [string, string][] = []) =>
+  invoke<{ task_id: string; resumed: boolean }>("vox_chat_send", {
+    text,
+    images: images.length > 0 ? images : null,
+  });
+
+export const voxChatStatus = () =>
+  invoke<{ alive: boolean; session_id: string | null }>("vox_chat_status");
+
 /** Brand-new Claude Code session inside a project directory. */
 export const chatStart = (projectPath: string, instruction: string, mode?: string) =>
   invoke<DispatchOutcome>("chat_start", { projectPath, instruction, mode: mode ?? null });
