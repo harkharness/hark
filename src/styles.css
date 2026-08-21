@@ -1145,6 +1145,12 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   padding: 6px 9px; font: inherit; font-size: 12.5px;
 }
 .set-row input:focus, .set-row select:focus { outline: none; border-color: var(--accent); }
+.set-row .set-open {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 7px;
+  color: var(--text); font: inherit; font-size: 12px; padding: 6px 14px;
+  cursor: pointer; flex: 0 0 auto;
+}
+.set-row .set-open:hover { border-color: var(--accent); color: var(--accent); }
 .set-saved { color: var(--ok); }
 .set-ro { color: var(--dim); font-size: 11px; word-break: break-all; text-align: right; }
 /* Mini code preview: shows the picked theme's real tokens. */

@@ -14,6 +14,7 @@ pub mod project;
 pub mod intent;
 pub mod matching;
 pub mod memory;
+pub mod persona;
 pub mod prompt;
 pub mod session_log;
 pub mod precheck;

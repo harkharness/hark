@@ -520,8 +520,9 @@ export default function Mother() {
    *  into the same thread as events (task_id "vox-chat"). Non-blocking:
    *  the input stays free while the worker runs. */
   async function sendToChat(text: string) {
+    const name = overview?.assistant_name || "Vox";
     setActions((old) =>
-      [...old, { utterance: text, target: "vox", status: "despachado", ts: Date.now() }].slice(-8),
+      [...old, { utterance: text, target: name, status: "despachado", ts: Date.now() }].slice(-8),
     );
     try {
       await ipc.voxChatSend(text);
@@ -567,9 +568,10 @@ export default function Mother() {
       )}
     </div>
   );
+  const assistantName = overview?.assistant_name || "Vox";
   const chatHead = (expanded: boolean) => (
     <div className={expanded ? "chat-head" : "vox-chat-head"}>
-      <span className="vox-chat-title">{t("chat_vox")}</span>
+      <span className="vox-chat-title">{assistantName}</span>
       <span className="vox-chat-meta">
         {chatLive ? t("chat_session_live") : t("chat_session_new")}
         {chatCost > 0 && ` · $${chatCost.toFixed(2)}`}

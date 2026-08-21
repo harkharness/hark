@@ -199,6 +199,8 @@ export type Overview = {
   default_mode: string;
   /** UI language ("pt" | "en") — separate from the spoken one. */
   ui_language: string;
+  /** The assistant's own name (chat header, feed, announcements). */
+  assistant_name: string;
 };
 
 /** One aggregated bucket of the persistent spend ledger. */

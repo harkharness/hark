@@ -62,6 +62,9 @@ pub struct Config {
     /// none ("manual" | "acceptEdits" | "plan" | "auto" | "bypass").
     /// Empty = the CLI's own default (ask for everything).
     pub worker_mode: String,
+    /// The assistant's own name (persona of the mother's work chat, UI
+    /// labels, spoken announcements).
+    pub assistant_name: String,
 }
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize, Default)]
@@ -101,6 +104,7 @@ impl Default for Config {
             worker_budget_usd: 2.0,
             worker_max_turns: 0,
             worker_mode: String::new(),
+            assistant_name: "Vox".into(),
         }
     }
 }

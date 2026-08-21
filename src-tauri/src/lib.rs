@@ -108,6 +108,8 @@ struct Overview {
     default_mode: String,
     /// UI language ("pt" | "en") — separate from the spoken one.
     ui_language: String,
+    /// The assistant's own name (chat header, feed, announcements).
+    assistant_name: String,
 }
 
 /// The editable project list. First run seeds it from what the machine
@@ -166,6 +168,7 @@ fn overview() -> Overview {
         projects: load_projects(&config),
         theme: config.theme,
         ui_language: config.ui_language,
+        assistant_name: config.assistant_name,
         default_mode: config.worker_mode,
     }
 }
@@ -623,7 +626,8 @@ fn start_worker(
     // instruction for brand-new sessions. Travels inside events so any
     // window (the mother above all) can speak about it by name.
     let board_title = if task_id == VOX_CHAT_TASK {
-        "vox".to_string()
+        // The chat speaks and asks permissions under its OWN name.
+        Config::load().assistant_name
     } else {
         worker_board_title(
             (!spawn.session_id.is_empty()).then_some(spawn.session_id.as_str()),
@@ -992,6 +996,22 @@ fn worker_send(
 /// survives app restarts.
 const VOX_CHAT_TASK: &str = "vox-chat";
 
+/// The soul file: <data_dir>/CLAUDE.md — the chat runs in the data dir,
+/// so the CLI loads it on every turn (identity + accumulated learnings).
+/// Created once from the template; after that it belongs to the user and
+/// to the model's own edits — NEVER overwritten.
+pub(crate) fn ensure_persona(config: &Config) {
+    let path = config.data_dir().join("CLAUDE.md");
+    if path.exists() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(config.data_dir());
+    let _ = std::fs::write(
+        &path,
+        vox_core::domain::persona::template(&config.assistant_name),
+    );
+}
+
 /// Which surface a message to global vox belongs to: "lean" (bare one-shot
 /// ask over the snapshot) or "work" (the persistent chat with full
 /// settings + MCP). Pure domain passthrough, zero tokens.
@@ -1044,6 +1064,7 @@ fn vox_chat_send(
             .is_some_and(|path| std::path::Path::new(&path).exists())
     });
 
+    ensure_persona(&config);
     let mut directives = vox_core::domain::directives::parse(&text);
     directives.mode = directives.mode.or_else(|| config.default_worker_mode());
     let resumed = session.is_some();
@@ -2454,6 +2475,9 @@ pub fn run() {
         .manage(LiveWorkers(Mutex::new(HashMap::new())))
         .manage(WorkerPermissions(Mutex::new(HashMap::new())))
         .setup(|app| {
+            // The chat's soul file exists from the first boot (settings can
+            // open it before the chat ever spawns).
+            ensure_persona(&Config::load());
             // Warm whisper in the background so the first mic use is instant.
             let _handle = app.handle().clone();
             std::thread::spawn(|| {

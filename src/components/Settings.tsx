@@ -205,6 +205,27 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
           {section === "geral" && (
             <>
               <h2>{t("set_general")}</h2>
+              <Field
+                label={t("set_assistant_name")}
+                hint={t("set_assistant_hint")}
+                keyName="assistant_name"
+                value={v.assistant_name}
+                placeholder="Vox"
+              />
+              <div className="set-row">
+                <div className="set-label">
+                  <b>{t("set_persona")}</b>
+                  <span>{t("set_persona_hint")}</span>
+                </div>
+                <button
+                  className="set-open"
+                  onClick={() =>
+                    ipc.openExternal(`${snap.data_dir}/CLAUDE.md`).catch(() => {})
+                  }
+                >
+                  {t("set_persona_open")}
+                </button>
+              </div>
               <ModelSelect keyName="model" value={v.model} />
               <Select
                 label={t("set_theme")}
