@@ -271,6 +271,7 @@ body {
   letter-spacing: 1px;
 }
 .vc-empty { color: var(--dim); font-size: 12px; padding: 16px; text-align: center; }
+.vc-cost { color: var(--dim); font-size: 10.5px; }
 
 /* Expanded: the split. Left = the mother as-is on a deeper ground;
    right = the real transcript with its own composer. */

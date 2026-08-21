@@ -273,11 +273,9 @@ export default function Hud() {
       try {
         const reply = await ipc.askText(plan.question);
         setStage({ s: "answer", text: reply.fala });
-        record(
-          "vox",
-          `respondido em voz${reply.cost_usd ? ` · $${reply.cost_usd.toFixed(2)}` : ""}`,
-        );
-        // The spoken turn also draws in the mother's unified thread.
+        // No feed row: the thread IS the record for conversation turns —
+        // the feed only narrates what happens OUTSIDE the chat.
+        // The spoken turn draws in the mother's unified thread.
         emit("vox", {
           kind: "chat_echo",
           question: text,
@@ -352,7 +350,6 @@ export default function Hud() {
     try {
       await ipc.voxChatSend(text);
       emit("vox", { kind: "chat_echo", question: text, work: true }).catch(() => {});
-      record("vox", "despachado");
       ipc.speak("Mandei pro chat. Já te respondo.").catch(() => {});
       finish("→ chat · despachado", "ok", 1600);
     } catch (err) {

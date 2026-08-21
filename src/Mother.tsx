@@ -35,7 +35,7 @@ function firstSentence(md: string): string {
 
 /** The compact panel's items: chat messages with tool bursts collapsed. */
 type MiniItem =
-  | { kind: "line"; who: "user" | "vox" | "sys"; text: string; key: number }
+  | { kind: "line"; who: "user" | "vox" | "sys"; text: string; cost?: number; key: number }
   | { kind: "tools"; n: number; key: number };
 
 function buildMini(msgs: Msg[]): MiniItem[] {
@@ -46,7 +46,13 @@ function buildMini(msgs: Msg[]): MiniItem[] {
       if (last?.kind === "tools") last.n += 1;
       else items.push({ kind: "tools", n: 1, key: i });
     } else if (m.who === "user" || m.who === "vox" || m.who === "sys") {
-      items.push({ kind: "line", who: m.who, text: miniText(m.text), key: i });
+      items.push({
+        kind: "line",
+        who: m.who,
+        text: miniText(m.text),
+        cost: m.who === "vox" ? m.cost : undefined,
+        key: i,
+      });
     }
   });
   return items.slice(-5);
@@ -522,18 +528,8 @@ export default function Mother() {
     setBusy("perguntando…");
     try {
       const reply = await ipc.askText(text);
+      // The thread IS the record — no duplicate feed row for turns.
       push({ who: "vox", text: reply.fala, cost: reply.cost_usd, model: reply.model });
-      setActions((old) =>
-        [
-          ...old,
-          {
-            utterance: text,
-            target: "vox",
-            status: `respondido em voz${reply.cost_usd ? ` · $${reply.cost_usd.toFixed(2)}` : ""}`,
-            ts: Date.now(),
-          },
-        ].slice(-8),
-      );
       say(reply.fala);
     } catch (err) {
       push({ who: "sys", text: `erro: ${err}` });
@@ -547,10 +543,6 @@ export default function Mother() {
    *  into the same thread as events (task_id "vox-chat"). Non-blocking:
    *  the input stays free while the worker runs. */
   async function sendToChat(text: string) {
-    const name = overview?.assistant_name || "Vox";
-    setActions((old) =>
-      [...old, { utterance: text, target: name, status: "despachado", ts: Date.now() }].slice(-8),
-    );
     try {
       await ipc.voxChatSend(text);
       setChatLive(true);
@@ -854,6 +846,9 @@ export default function Mother() {
                   ) : (
                     <div key={it.key} className={`vc-line ${it.who}`}>
                       {it.text.slice(0, 220)}
+                      {it.cost != null && (
+                        <span className="vc-cost"> · ${it.cost.toFixed(2)}</span>
+                      )}
                     </div>
                   ),
                 )}
