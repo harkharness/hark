@@ -211,7 +211,7 @@ export default function Mother() {
       (label: string, isError: boolean, taskId?: string, ctxPct?: number | null, cost?: number) => {
         setActions((old) =>
           old.map((a) =>
-            a.target === label && a.status === "despachado"
+            a.target?.toLowerCase() === label.toLowerCase() && a.status === "despachado"
               ? { ...a, status: isError ? "✗ falhou" : "✓ concluído" }
               : a,
           ),
@@ -239,6 +239,20 @@ export default function Mother() {
       const sentence = firstSentence(text);
       return sentence || undefined;
     }, []),
+    // Spoken turns handled by the HUD land in the unified thread too:
+    // the question always; the lean reply when the ask answered it.
+    onChatEcho: useCallback(
+      (
+        question: string,
+        reply: { fala: string; cost_usd?: number; model?: string } | undefined,
+        work: boolean,
+      ) => {
+        push({ who: "user", text: question, task: work ? VOX_CHAT : undefined });
+        if (reply)
+          push({ who: "vox", text: reply.fala, cost: reply.cost_usd, model: reply.model });
+      },
+      [push],
+    ),
     speakRef,
     refresh,
   });

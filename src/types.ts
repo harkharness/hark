@@ -50,6 +50,14 @@ export type VoxEvent =
   /** config.toml changed via the settings UI: re-read what you show. */
   | { kind: "config_changed" }
   | { kind: "voice_action"; utterance: string; target?: string | null; status?: string }
+  /** A spoken turn handled by the HUD, echoed into the mother's thread:
+   *  the question always; the reply too when the lean ask answered it. */
+  | {
+      kind: "chat_echo";
+      question: string;
+      reply?: { fala: string; cost_usd?: number; model?: string };
+      work: boolean;
+    }
   | { kind: "status"; text: string }
   | { kind: "error"; text: string };
 

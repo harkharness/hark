@@ -30,6 +30,12 @@ type Handlers = {
   onFocusTask?: (title: string, sessionId?: string | null) => void;
   /** The voice HUD executed something (the mother records the feed). */
   onVoiceAction?: (utterance: string, target?: string | null, status?: string) => void;
+  /** A spoken turn echoed into the mother's unified thread. */
+  onChatEcho?: (
+    question: string,
+    reply: { fala: string; cost_usd?: number; model?: string } | undefined,
+    work: boolean,
+  ) => void;
   /** A worker finished a turn (the mother updates its feed row and, for
    *  the vox chat, its session cost/context header). */
   onWorkerTurn?: (
@@ -151,6 +157,8 @@ export function useVoxEvents(h: Handlers) {
       } else if (ev.kind === "voice_action") {
         h.onVoiceAction?.(ev.utterance, ev.target, ev.status);
         h.refresh();
+      } else if (ev.kind === "chat_echo") {
+        h.onChatEcho?.(ev.question, ev.reply, ev.work);
       } else if (ev.kind === "permission_decided") {
         // Someone answered (click, keys, voice, the HUD): every window's
         // copy of the card resolves — no stale "aguardando" anywhere.

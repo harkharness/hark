@@ -261,6 +261,14 @@ export default function Hud() {
     } else if (plan.kind === "command") {
       await runCommand(plan.command);
     } else if (plan.kind === "question") {
+      // Surface router: needs external tools or produces content → the
+      // mother's persistent chat (full settings + MCP). The bare ask has
+      // neither — sending Slack work there was the 21/08 incident.
+      const lane = await ipc.askLane(text).catch(() => "lean");
+      if (lane === "work") {
+        await sendToMotherChat(text);
+        return;
+      }
       setStage({ s: "asking", text });
       try {
         const reply = await ipc.askText(plan.question);
@@ -269,6 +277,13 @@ export default function Hud() {
           "vox",
           `respondido em voz${reply.cost_usd ? ` · $${reply.cost_usd.toFixed(2)}` : ""}`,
         );
+        // The spoken turn also draws in the mother's unified thread.
+        emit("vox", {
+          kind: "chat_echo",
+          question: text,
+          reply: { fala: reply.fala, cost_usd: reply.cost_usd, model: reply.model },
+          work: false,
+        }).catch(() => {});
         ipc.speak(reply.fala).catch(() => {});
         window.clearTimeout(timer.current);
         timer.current = window.setTimeout(hide, 6000);
@@ -314,13 +329,34 @@ export default function Hud() {
     } else if (plan.kind === "candidates") {
       await offerCandidates(text, plan.instruction, plan.options);
     } else {
-      // No target at all: say so and listen again — dying here was the
-      // old dead-end that sent people hunting with the mouse.
+      // No project target: work that needs tools still has a home — the
+      // mother's chat (the Slack case). Only then admit "no target".
+      const lane = await ipc.askLane(text).catch(() => "lean");
+      if (lane === "work") {
+        await sendToMotherChat(text);
+        return;
+      }
       await ipc.speak("Não achei o alvo. Fala a task ou o projeto.").catch(() => {});
       finish('sem alvo — "na task X" ou "no projeto Y"', "warn", 300);
       await sleep(150);
       busyRef.current = false;
       start();
+    }
+  }
+
+  /** Real work with no project target → the mother's persistent chat.
+   *  The reply comes back as a worker turn: the mother draws it in the
+   *  thread and SPEAKS its first sentence — the HUD just hands off. */
+  async function sendToMotherChat(text: string) {
+    setStage({ s: "running", text, target: "chat" });
+    try {
+      await ipc.voxChatSend(text);
+      emit("vox", { kind: "chat_echo", question: text, work: true }).catch(() => {});
+      record("vox", "despachado");
+      ipc.speak("Mandei pro chat. Já te respondo.").catch(() => {});
+      finish("→ chat · despachado", "ok", 1600);
+    } catch (err) {
+      finish(`chat: ${err}`, "warn", 3000);
     }
   }
 
