@@ -141,12 +141,15 @@ export default function Transcript({
       ) : m.who === "output" ? (
         <ToolOutput content={m.content} isError={m.error} />
       ) : m.who === "permission" ? (
-        <div className={`permission ${m.decision ?? "waiting"}`}>
+        <div className={`permission ${m.decision ?? "waiting"} ${m.prodRisk ? "prod" : ""}`}>
           <div className="perm-title">
             <Lock size={13} /> {t("perm_allow_q_pre")}{" "}
             <b>{m.task ? m.task.slice(0, 32) : t("perm_worker")}</b> {t("perm_allow_q_mid")}{" "}
             <b>{m.tool}</b>?
           </div>
+          {m.prodRisk && (
+            <div className="perm-prod">⚠ {t("perm_prod", { reason: m.prodRisk })}</div>
+          )}
           <ToolCall name={m.tool} input={m.input} onOpenPath={onOpenPath} defaultOpen />
           {m.decision ? (
             <div className={`perm-done ${m.decision}`}>
@@ -164,13 +167,15 @@ export default function Transcript({
               >
                 {t("perm_deny")} <kbd>n</kbd>
               </button>
-              <button
-                className="always"
-                title={t("perm_always_hint", { tool: m.tool })}
-                onClick={() => onAnswerPermission(m.requestId, true, true)}
-              >
-                {t("perm_always")} <kbd>a</kbd>
-              </button>
+              {!m.prodRisk && (
+                <button
+                  className="always"
+                  title={t("perm_always_hint", { tool: m.tool })}
+                  onClick={() => onAnswerPermission(m.requestId, true, true)}
+                >
+                  {t("perm_always")} <kbd>a</kbd>
+                </button>
+              )}
               <button
                 className="allow"
                 onClick={() => onAnswerPermission(m.requestId, true)}

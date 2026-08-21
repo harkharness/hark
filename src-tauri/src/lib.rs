@@ -728,6 +728,9 @@ fn start_worker(
                         board_title.clone(),
                         tool_name.clone(),
                     ));
+                    // The production gate: a flagged ask NEVER auto-resolves
+                    // (standing rules, permissive windows) — a human answers.
+                    let prod_risk = vox_core::domain::prodgate::check(&tool_name, &input);
                     let _ = app2.emit(
                         "vox-permission",
                         serde_json::json!({
@@ -736,6 +739,7 @@ fn start_worker(
                             "label": board_title,
                             "tool_name": tool_name,
                             "input": input,
+                            "prod_risk": prod_risk,
                         }),
                     );
                 }

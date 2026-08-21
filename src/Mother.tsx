@@ -26,6 +26,13 @@ function miniText(md: string): string {
     .trim();
 }
 
+/** What the voice reads from a chat reply: the first sentence, clean. */
+function firstSentence(md: string): string {
+  const clean = miniText(md);
+  const first = clean.split(/(?<=[.!?…])\s+/)[0] ?? clean;
+  return first.length > 240 ? `${first.slice(0, 240)}…` : first;
+}
+
 /** The compact panel's items: chat messages with tool bursts collapsed. */
 type MiniItem =
   | { kind: "line"; who: "user" | "vox" | "sys"; text: string; key: number }
@@ -225,6 +232,12 @@ export default function Mother() {
       if (t === "board" || t === "custos") setTab(t);
       // Other windows/HUD redirect here: app settings live on the mother.
       if (t === "settings") setSettingsOpen(true);
+    }, []),
+    // The chat speaks its ACTUAL reply (first sentence), not "task done".
+    turnSpeech: useCallback((taskId: string, text: string, isError: boolean) => {
+      if (taskId !== VOX_CHAT || isError) return undefined;
+      const sentence = firstSentence(text);
+      return sentence || undefined;
     }, []),
     speakRef,
     refresh,
@@ -601,6 +614,7 @@ export default function Mother() {
           <span className="mother-action-text">
             {pendingPerm.tool} pede permissão
             {pendingPerm.task ? ` em ${pendingPerm.task.slice(0, 26)}` : ""}
+            {pendingPerm.prodRisk ? ` — ⚠ ${pendingPerm.prodRisk}` : ""}
           </span>
           <span className="mother-action-target">fale “pode” ou “nega”</span>
         </div>

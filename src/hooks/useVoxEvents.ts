@@ -45,6 +45,9 @@ type Handlers = {
    * open window speaks the same news and the voice stutters in chorus.
    */
   announce?: boolean;
+  /** Override WHAT a finished turn says (the vox chat speaks its actual
+   *  reply, not "task done"). Return null/undefined for the default. */
+  turnSpeech?: (taskId: string, text: string, isError: boolean) => string | null | undefined;
   /**
    * Standing "sempre permitir" rules: return true to auto-approve this
    * ask without interrupting anyone (the card lands already decided).
@@ -117,10 +120,12 @@ export function useVoxEvents(h: Handlers) {
         h.onWorkerTurn?.(ev.label ?? label, ev.is_error, ev.task_id, ev.context_pct, ev.cost_usd);
         if (h.announce && h.speakRef.current) {
           const spoken = ev.label ?? label;
+          const custom = h.turnSpeech?.(ev.task_id, ev.text, ev.is_error);
           ipc.speak(
-            ev.is_error
-              ? `A task ${spoken} falhou, olha a tela.`
-              : `Task ${spoken} terminou o turno.`,
+            custom ??
+              (ev.is_error
+                ? `A task ${spoken} falhou, olha a tela.`
+                : `Task ${spoken} terminou o turno.`),
           ).catch(() => {});
         }
         h.refresh();
@@ -176,8 +181,9 @@ export function useVoxEvents(h: Handlers) {
       const ask = e.payload;
       const thread = h.labelFor(ask.task_id);
       // A standing "sempre permitir" rule answers on the spot: the card
-      // shows up already decided and nobody is interrupted.
-      if (h.autoAllow?.(ask)) {
+      // shows up already decided and nobody is interrupted. NEVER for a
+      // production-gated ask — that one always reaches a human.
+      if (!ask.prod_risk && h.autoAllow?.(ask)) {
         h.push({
           who: "permission",
           requestId: ask.request_id,
@@ -196,6 +202,7 @@ export function useVoxEvents(h: Handlers) {
         requestId: ask.request_id,
         tool: ask.tool_name,
         input: ask.input,
+        prodRisk: ask.prod_risk,
         task: thread,
       });
       h.pushRaw(thread, `${ts()} 🔐 ${ask.tool_name} aguardando decisão`);

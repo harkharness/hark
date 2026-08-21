@@ -60,6 +60,9 @@ export type PermissionAsk = {
   label?: string;
   tool_name: string;
   input: string;
+  /** Set when the command touches production (domain::prodgate): the ask
+   *  must reach a human — no standing rule may answer it. */
+  prod_risk?: string | null;
 };
 
 export type Msg =
@@ -86,6 +89,8 @@ export type Msg =
       decision?: "allow" | "deny";
       /** Decided by a standing "sempre permitir" rule, not a click. */
       auto?: boolean;
+      /** Production-gate reason: card turns red, "always" disappears. */
+      prodRisk?: string | null;
       task?: string;
     }
   | { who: "sys"; text: string; task?: string };

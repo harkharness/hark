@@ -856,6 +856,9 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .permission.allow { border-color: var(--ok); background: rgba(158,206,106,.04); }
 .permission.deny { border-color: var(--err); background: rgba(247,118,142,.04); }
+/* Production gate: the card goes red and "always allow" disappears. */
+.permission.prod.waiting { border-color: var(--err); background: rgba(247,118,142,.06); }
+.perm-prod { color: var(--err); font-size: 12px; margin: 4px 0 6px; }
 .perm-title {
   color: var(--text); font-size: 13px; font-weight: 600; margin-bottom: 8px;
   display: flex; align-items: center; gap: 7px;

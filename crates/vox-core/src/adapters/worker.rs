@@ -85,6 +85,16 @@ impl WorkerSpawn {
             args.push("--max-turns".into());
             args.push(turns.to_string());
         }
+        // bypassPermissions never asks, so production tooling is denied
+        // outright (the gate's hard floor — see domain::prodgate).
+        if self.directives.mode == Some(crate::domain::directives::Mode::Bypass) {
+            args.push("--disallowedTools".into());
+            args.extend(
+                crate::domain::prodgate::BYPASS_DENY_RULES
+                    .iter()
+                    .map(|r| r.to_string()),
+            );
+        }
         args
     }
 }
@@ -256,6 +266,26 @@ mod tests {
             instruction: "go".into(),
             directives,
             limits: SpawnLimits::default(),
+        }
+    }
+
+    #[test]
+    fn bypass_mode_still_blocks_production_tools() {
+        // bypassPermissions never asks, so the infra CLIs must be denied
+        // outright — the production gate's hard floor survives the mode.
+        let args = spawn(
+            "s-1",
+            Directives { mode: Some(Mode::Bypass), ..Directives::default() },
+        )
+        .cli_args(true);
+        let flag = args.iter().position(|a| a == "--disallowedTools").expect("deny rules");
+        assert!(args[flag + 1..].contains(&"Bash(kubectl:*)".to_string()));
+        assert!(args[flag + 1..].contains(&"Bash(terraform:*)".to_string()));
+
+        // Every other mode asks through stdio: no blanket denies there.
+        for mode in [None, Some(Mode::Auto), Some(Mode::AcceptEdits), Some(Mode::Manual)] {
+            let args = spawn("s-1", Directives { mode, ..Directives::default() }).cli_args(true);
+            assert!(!args.contains(&"--disallowedTools".to_string()), "{mode:?}");
         }
     }
 
