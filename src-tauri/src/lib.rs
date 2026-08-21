@@ -291,10 +291,30 @@ fn route_text(text: String) -> String {
     }
 }
 
+/// One mouth: utterances queue behind this lock instead of talking over
+/// each other (two permission asks in a row used to speak simultaneously).
+fn tts_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+/// Bumped by speak_stop: queued utterances from before the cut give up
+/// instead of speaking stale news after Esc.
+fn tts_generation() -> &'static std::sync::atomic::AtomicU64 {
+    static GEN: std::sync::OnceLock<std::sync::atomic::AtomicU64> = std::sync::OnceLock::new();
+    GEN.get_or_init(|| std::sync::atomic::AtomicU64::new(0))
+}
+
 #[tauri::command]
 fn speak(app: AppHandle, text: String) {
     let config = Config::load();
+    let generation = tts_generation().load(std::sync::atomic::Ordering::SeqCst);
     std::thread::spawn(move || {
+        // Serialize: the second utterance WAITS for the first to finish.
+        let _mouth = tts_lock().lock().unwrap_or_else(|e| e.into_inner());
+        if tts_generation().load(std::sync::atomic::Ordering::SeqCst) != generation {
+            return; // cut (Esc) while queued: stale news stays unsaid
+        }
         // The voice orb follows these events (no audio analysis needed).
         emit_event(&app, serde_json::json!({ "kind": "speaking", "on": true }));
         let _ = SayTts {
@@ -305,9 +325,11 @@ fn speak(app: AppHandle, text: String) {
     });
 }
 
-/// Cut any in-flight TTS immediately (Esc in the window).
+/// Cut any in-flight TTS immediately (Esc in the window) — and drop
+/// whatever was queued behind it.
 #[tauri::command]
 fn speak_stop(app: AppHandle) {
+    tts_generation().fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let _ = std::process::Command::new("killall").arg("say").status();
     emit_event(&app, serde_json::json!({ "kind": "speaking", "on": false }));
 }
