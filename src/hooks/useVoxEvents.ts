@@ -211,6 +211,7 @@ export function useVoxEvents(h: Handlers) {
         tool: ask.tool_name,
         input: ask.input,
         prodRisk: ask.prod_risk,
+        label: ask.label,
         task: thread,
       });
       h.pushRaw(thread, `${ts()} 🔐 ${ask.tool_name} aguardando decisão`);

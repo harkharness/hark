@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Check, Copy, Lock, Square, Volume2 } from "lucide-react";
 import Markdown from "./Markdown";
-import ToolCall, { ToolOutput } from "./ToolCall";
+import ToolCall, { ToolOutput, toolHint, toolLabel } from "./ToolCall";
 import { directiveLabels, shortModel } from "../lib/format";
 import type { Directives, Msg } from "../types";
 import { t } from "../lib/i18n";
@@ -141,26 +141,41 @@ export default function Transcript({
       ) : m.who === "output" ? (
         <ToolOutput content={m.content} isError={m.error} />
       ) : m.who === "permission" ? (
-        <div className={`permission ${m.decision ?? "waiting"} ${m.prodRisk ? "prod" : ""}`}>
-          <div className="perm-title">
-            <Lock size={13} /> {t("perm_allow_q_pre")}{" "}
-            <b>{m.task ? m.task.slice(0, 32) : t("perm_worker")}</b> {t("perm_allow_q_mid")}{" "}
-            <b>{m.tool}</b>?
-          </div>
-          {m.prodRisk && (
-            <div className="perm-prod">⚠ {t("perm_prod", { reason: m.prodRisk })}</div>
-          )}
-          <ToolCall name={m.tool} input={m.input} onOpenPath={onOpenPath} defaultOpen />
-          {m.decision ? (
-            <div className={`perm-done ${m.decision}`}>
-              {m.decision === "allow"
-                ? m.auto
-                  ? t("perm_auto")
-                  : t("perm_allowed")
-                : t("perm_denied")}
+        m.decision ? (
+          // Decided: the card COLLAPSES to one quiet line — the decision
+          // is the record, the payload stays one click away.
+          <details className={`perm-line ${m.decision}`}>
+            <summary>
+              <span className={`tool-tick ${m.decision === "allow" ? "ok" : "err"}`}>
+                {m.decision === "allow" ? "✓" : "✗"}
+              </span>
+              <span className="toolname">{toolLabel(m.tool).label}</span>
+              <span className="tool-hint">{toolHint(m.tool, m.input)}</span>
+              <span className={`perm-how ${m.decision}`}>
+                {m.decision === "allow"
+                  ? m.auto
+                    ? t("perm_auto")
+                    : t("perm_allowed")
+                  : t("perm_denied")}
+              </span>
+            </summary>
+            <div className="tool-body">
+              <ToolCall name={m.tool} input={m.input} onOpenPath={onOpenPath} defaultOpen />
             </div>
-          ) : (
+          </details>
+        ) : (
+          <div className={`permission waiting ${m.prodRisk ? "prod" : ""}`}>
+            <div className="perm-title">
+              <Lock size={13} /> <b className="perm-who">{m.label ?? m.task ?? t("perm_worker")}</b>{" "}
+              {t("perm_asks")} <b>{toolLabel(m.tool).label}</b>
+              <span className="tool-hint">{toolHint(m.tool, m.input)}</span>
+            </div>
+            {m.prodRisk && (
+              <div className="perm-prod">⚠ {t("perm_prod", { reason: m.prodRisk })}</div>
+            )}
+            <ToolCall name={m.tool} input={m.input} onOpenPath={onOpenPath} defaultOpen />
             <div className="perm-actions">
+              <span className="perm-voice-hint">{t("perm_voice_hint")}</span>
               <button
                 className="deny"
                 onClick={() => onAnswerPermission(m.requestId, false)}
@@ -183,8 +198,8 @@ export default function Transcript({
                 {t("perm_once")} <kbd>y</kbd>
               </button>
             </div>
-          )}
-        </div>
+          </div>
+        )
       ) : (
         <div className="bubble">
           <span className="tag">
@@ -251,12 +266,42 @@ export default function Transcript({
     </div>
   );
 
-  // Consecutive tool calls (and their outputs) collapse into ONE bordered
-  // group — "executado N comandos" — the way Claude Code keeps a burst of
-  // work from scattering down the chat. Deliverables and permission cards
-  // always break the run and stand on their own.
+  // A tool and its output are ONE unit: the output fuses into the tool's
+  // fold (✓/✗ on the line, "resultado · N linhas" inside). Orphan outputs
+  // render on their own.
+  type Unit = { m: Msg; i: number; result?: { content: string; error: boolean } };
+  const units: Unit[] = [];
+  messages.forEach((m, i) => {
+    if (m.who === "output") {
+      const last = units.at(-1);
+      if (last && last.m.who === "tool") {
+        last.result = last.result
+          ? {
+              content: `${last.result.content}\n${m.content}`,
+              error: last.result.error || m.error,
+            }
+          : { content: m.content, error: m.error };
+        return;
+      }
+    }
+    units.push({ m, i });
+  });
+
+  const renderUnit = ({ m, i, result }: Unit): ReactNode =>
+    m.who === "tool" ? (
+      <div key={i} className={`msg ${m.who}`}>
+        <ToolCall name={m.name} input={m.input} onOpenPath={onOpenPath} result={result} />
+      </div>
+    ) : (
+      renderOne(m, i)
+    );
+
+  // Consecutive tool units collapse into ONE bordered group — "executado
+  // N comandos" — the way Claude Code keeps a burst of work from
+  // scattering down the chat. Deliverables and permission cards always
+  // break the run and stand on their own.
   const nodes: ReactNode[] = [];
-  let run: { m: Msg; i: number }[] = [];
+  let run: Unit[] = [];
   const flush = () => {
     if (run.length === 0) return;
     const tools = run.filter(({ m }) => m.who === "tool").length;
@@ -264,22 +309,22 @@ export default function Transcript({
       nodes.push(
         <details key={`group-${run[0].i}`} className="tool-group">
           <summary>{t("tools_ran", { n: tools })}</summary>
-          <div className="tg-body">{run.map(({ m, i }) => renderOne(m, i))}</div>
+          <div className="tg-body">{run.map(renderUnit)}</div>
         </details>,
       );
     } else {
-      run.forEach(({ m, i }) => nodes.push(renderOne(m, i)));
+      run.forEach((u) => nodes.push(renderUnit(u)));
     }
     run = [];
   };
-  messages.forEach((m, i) => {
+  units.forEach((u) => {
     const groupable =
-      (m.who === "tool" && !STANDALONE_TOOLS.has(m.name)) ||
-      (m.who === "output" && run.length > 0);
-    if (groupable) run.push({ m, i });
+      (u.m.who === "tool" && !STANDALONE_TOOLS.has(u.m.name)) ||
+      (u.m.who === "output" && run.length > 0);
+    if (groupable) run.push(u);
     else {
       flush();
-      nodes.push(renderOne(m, i));
+      nodes.push(renderUnit(u));
     }
   });
   flush();

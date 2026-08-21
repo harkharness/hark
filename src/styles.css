@@ -860,6 +860,46 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 /* Production gate: the card goes red and "always allow" disappears. */
 .permission.prod.waiting { border-color: var(--err); background: rgba(247,118,142,.06); }
 .perm-prod { color: var(--err); font-size: 12px; margin: 4px 0 6px; }
+.perm-who { color: var(--accent); }
+.perm-title .tool-hint { font-weight: 400; }
+.perm-voice-hint { color: var(--dim); font-size: 11px; margin-right: auto; }
+/* A DECIDED permission collapses to one quiet line (payload one click away). */
+.perm-line { border-left: 2px solid var(--ok); padding: 2px 0 2px 10px; }
+.perm-line.deny { border-left-color: var(--err); }
+.perm-line > summary {
+  cursor: pointer; list-style: none; user-select: none; display: flex;
+  align-items: baseline; gap: 8px; min-width: 0;
+}
+.perm-line > summary::-webkit-details-marker { display: none; }
+.perm-line .toolname {
+  color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+}
+.perm-how { flex: 0 0 auto; font-size: 11px; margin-left: auto; }
+.perm-how.allow { color: var(--ok); }
+.perm-how.deny { color: var(--err); }
+/* Tool unit: outcome tick on the line, result folded inside. */
+.tool-tick { flex: 0 0 auto; font-size: 11px; margin-left: auto; }
+.tool-tick.ok { color: var(--ok); }
+.tool-tick.err { color: var(--err); }
+.tool-result { margin-top: 6px; }
+.tool-result > summary {
+  cursor: pointer; list-style: none; user-select: none; display: flex;
+  align-items: baseline; gap: 6px; color: var(--dim); font-size: 11px;
+}
+.tool-result > summary::-webkit-details-marker { display: none; }
+.tool-result > summary .tool-tick { margin-left: 0; }
+.tool-result pre {
+  margin: 6px 0 0; background: var(--code-bg); border-radius: 8px;
+  padding: 9px 12px; font-size: 12px; color: var(--dim);
+  white-space: pre-wrap; word-break: break-word; max-height: 340px; overflow: auto;
+}
+.tool-result.error pre { color: var(--err); }
+/* MCP tools: a small badge + humanized name. */
+.tool-mcp {
+  flex: 0 0 auto; font-size: 9.5px; text-transform: uppercase;
+  letter-spacing: .5px; color: var(--hl-meta); border: 1px solid rgba(125,207,255,.25);
+  border-radius: 4px; padding: 1px 5px;
+}
 .perm-title {
   color: var(--text); font-size: 13px; font-weight: 600; margin-bottom: 8px;
   display: flex; align-items: center; gap: 7px;

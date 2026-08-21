@@ -15,6 +15,40 @@ function fence(lang: string, body: string): string {
 /** Formats the editor can't render — the OS opens these. */
 const OS_ONLY = /\.(html?|pdf|png|jpe?g|gif|svg|webp)$/i;
 
+/** MCP__CLAUDE_AI_SLACK__SLACK_READ_THREAD → "slack · slack read thread". */
+export function toolLabel(name: string): { label: string; mcp: boolean } {
+  const m = /^mcp__(.+?)__(.+)$/i.exec(name);
+  if (!m) return { label: name, mcp: false };
+  const server = m[1]
+    .toLowerCase()
+    .replace(/^claude[-_]ai[-_]/, "")
+    .replace(/^mcp[-_]/, "")
+    .replace(/[-_]+/g, " ")
+    .trim();
+  const tool = m[2].toLowerCase().replace(/[-_]+/g, " ").trim();
+  return { label: `${server} · ${tool}`, mcp: true };
+}
+
+/** One-line human hint for a tool call (permission lines reuse it). */
+export function toolHint(name: string, input: string): string {
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = JSON.parse(input);
+  } catch {
+    return input.slice(0, 90);
+  }
+  const str = (key: string) =>
+    typeof parsed[key] === "string" ? (parsed[key] as string) : undefined;
+  return (
+    str("description") ??
+    str("command")?.split("\n")[0].slice(0, 90) ??
+    str("file_path") ??
+    str("path") ??
+    str("pattern") ??
+    Object.keys(parsed).join(", ")
+  );
+}
+
 /** Three render shapes: one quiet line, a folded payload, or an
  *  always-visible card (deliverables — never hidden behind a fold). */
 type Rendered =
@@ -32,6 +66,7 @@ export default function ToolCall({
   input,
   onOpenPath,
   defaultOpen = false,
+  result,
 }: {
   name: string;
   input: string;
@@ -39,6 +74,9 @@ export default function ToolCall({
   onOpenPath?: (path: string) => void;
   /** Start expanded (permission cards). */
   defaultOpen?: boolean;
+  /** The tool's OUTPUT, fused into this unit: a ✓/✗ tick on the summary
+   *  line and a folded "resultado · N linhas" inside the body. */
+  result?: { content: string; error: boolean };
 }) {
   let parsed: Record<string, unknown>;
   try {
@@ -185,12 +223,24 @@ export default function ToolCall({
 
   if ("card" in rendered) return <>{rendered.card}</>;
   const { label, hint, body } = rendered;
+  const pretty = toolLabel(label);
+  const nameEl = (
+    <>
+      {pretty.mcp && <span className="tool-mcp">mcp</span>}
+      <span className="toolname">{pretty.label}</span>
+    </>
+  );
+  const tick = result && (
+    <span className={`tool-tick ${result.error ? "err" : "ok"}`}>
+      {result.error ? "✗" : "✓"}
+    </span>
+  );
 
-  // No body = one quiet line; body = folded behind the summary.
-  if (!body) {
+  // No body and no result = one quiet line; otherwise fold it.
+  if (!body && !result) {
     return (
       <div className="toolcall inline">
-        <span className="toolname">{label}</span>
+        {nameEl}
         <span className="tool-hint">{hint}</span>
       </div>
     );
@@ -198,28 +248,39 @@ export default function ToolCall({
   return (
     <details className="toolcall fold" open={defaultOpen}>
       <summary>
-        <span className="toolname">{label}</span>
+        {nameEl}
         <span className="tool-hint">{hint}</span>
+        {tick}
       </summary>
-      <div className="tool-body">{body}</div>
+      <div className="tool-body">
+        {body}
+        {result && <ResultFold content={result.content} isError={result.error} />}
+      </div>
     </details>
   );
 }
 
-/** Tool output: first lines visible, the rest behind a disclosure. */
+/** The tool's output, folded to one quiet line inside its unit. */
+function ResultFold({ content, isError }: { content: string; isError: boolean }) {
+  const lines = content.split("\n").length;
+  const chars =
+    content.length > 1024 ? `${(content.length / 1024).toFixed(1)}k` : `${content.length}`;
+  return (
+    <details className={`tool-result ${isError ? "error" : ""}`}>
+      <summary>
+        <span className={`tool-tick ${isError ? "err" : "ok"}`}>{isError ? "✗" : "✓"}</span>
+        {t("tc_result", { n: lines, k: chars })}
+      </summary>
+      <pre>{content}</pre>
+    </details>
+  );
+}
+
+/** An ORPHAN tool output (no tool call right before it in the thread). */
 export function ToolOutput({ content, isError }: { content: string; isError: boolean }) {
-  const lines = content.split("\n");
-  const head = lines.slice(0, 8).join("\n");
-  const hidden = lines.length - 8;
   return (
     <div className={`tooloutput ${isError ? "error" : ""}`}>
-      <pre>{head}</pre>
-      {hidden > 0 && (
-        <details>
-          <summary>{t("more_lines", { n: hidden })}</summary>
-          <pre>{lines.slice(8).join("\n")}</pre>
-        </details>
-      )}
+      <ResultFold content={content} isError={isError} />
     </div>
   );
 }

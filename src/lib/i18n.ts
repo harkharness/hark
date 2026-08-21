@@ -113,8 +113,6 @@ const pt = {
   plan_to: "despachar para",
 
   // permission card + small chrome
-  perm_allow_q_pre: "Permitir que",
-  perm_allow_q_mid: "execute",
   perm_worker: "o worker",
   perm_auto: "✓ permitido automaticamente (regra da task)",
   perm_allowed: "✓ permitido",
@@ -185,6 +183,9 @@ const pt = {
   set_persona_hint: "o arquivo que o assistente carrega em todo turno e onde registra o que aprende de você",
   set_persona_open: "abrir arquivo",
   perm_prod: "comando de produção ({reason}) — decisão manual, sem regra automática",
+  perm_asks: "quer executar",
+  perm_voice_hint: "fale “pode” ou “nega” — de qualquer janela",
+  tc_result: "resultado · {n} linhas · {k} chars",
   time_now: "agora",
   time_min: "há {n} min",
   time_hour: "há {n} h",
@@ -416,8 +417,6 @@ const en: Record<keyof typeof pt, string> = {
   picks_about: "sessions about “{q}”",
   plan_to: "dispatch to",
 
-  perm_allow_q_pre: "Allow",
-  perm_allow_q_mid: "to run",
   perm_worker: "the worker",
   perm_auto: "✓ allowed automatically (task rule)",
   perm_allowed: "✓ allowed",
@@ -488,6 +487,9 @@ const en: Record<keyof typeof pt, string> = {
   set_persona_hint: "the file the assistant loads every turn and where it records what it learns about you",
   set_persona_open: "open file",
   perm_prod: "production command ({reason}) — manual decision, no standing rule",
+  perm_asks: "wants to run",
+  perm_voice_hint: "say “pode” or “nega” — from any window",
+  tc_result: "result · {n} lines · {k} chars",
   time_now: "just now",
   time_min: "{n} min ago",
   time_hour: "{n} h ago",

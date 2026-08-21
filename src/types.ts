@@ -99,6 +99,8 @@ export type Msg =
       auto?: boolean;
       /** Production-gate reason: card turns red, "always" disappears. */
       prodRisk?: string | null;
+      /** Human name of the asker (assistant/session title) for the card. */
+      label?: string;
       task?: string;
     }
   | { who: "sys"; text: string; task?: string };
