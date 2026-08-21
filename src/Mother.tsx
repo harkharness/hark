@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Lock, Mic } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ExternalLink, Lock, Maximize2, Mic, Minimize2 } from "lucide-react";
 import Board from "./components/Board";
 import { setLang, t } from "./lib/i18n";
 import CostsPanel from "./components/CostsPanel";
 import Settings from "./components/Settings";
+import Transcript from "./components/Transcript";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { Settings as SettingsIcon } from "lucide-react";
 import { useVoxEvents } from "./hooks/useVoxEvents";
@@ -11,6 +12,38 @@ import * as ipc from "./lib/ipc";
 import type { BoardTask, Msg, Overview, Project, RateLimitState, SessionHit } from "./types";
 
 type MotherTab = "voz" | "board" | "custos";
+
+/** The mother's persistent work chat (backend task id — off the board). */
+const VOX_CHAT = "vox-chat";
+
+/** Markdown → one readable line for the compact 5-message panel. */
+function miniText(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[*_`#>]/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** The compact panel's items: chat messages with tool bursts collapsed. */
+type MiniItem =
+  | { kind: "line"; who: "user" | "vox" | "sys"; text: string; key: number }
+  | { kind: "tools"; n: number; key: number };
+
+function buildMini(msgs: Msg[]): MiniItem[] {
+  const items: MiniItem[] = [];
+  msgs.forEach((m, i) => {
+    if (m.who === "tool") {
+      const last = items.at(-1);
+      if (last?.kind === "tools") last.n += 1;
+      else items.push({ kind: "tools", n: 1, key: i });
+    } else if (m.who === "user" || m.who === "vox" || m.who === "sys") {
+      items.push({ kind: "line", who: m.who, text: miniText(m.text), key: i });
+    }
+  });
+  return items.slice(-5);
+}
 
 /**
  * The mother window: the voice of Vox AND the global views. Three tabs:
@@ -49,12 +82,57 @@ export default function Mother() {
   >([]);
   // Spend today per workspace (feeds the project cards).
   const [spendByWs, setSpendByWs] = useState<Record<string, number>>({});
+  // The persistent work chat: expanded split view + live session header.
+  const [chatExpanded, setChatExpanded] = useState(false);
+  const [chatCost, setChatCost] = useState(0);
+  const [chatCtx, setChatCtx] = useState<number | null>(null);
+  const [chatLive, setChatLive] = useState(false);
   const speakRef = useRef(true);
   // The global hotkey/Esc handlers must see fresh state.
   const micRef = useRef<() => void>(() => {});
   const recordingRef = useRef(false);
 
-  const push = useCallback((m: Msg) => setMessages((old) => [...old, m].slice(-30)), []);
+  const push = useCallback(
+    (m: Msg) =>
+      setMessages((old) =>
+        [
+          ...old,
+          (m.who === "user" || m.who === "vox") && m.ts == null
+            ? { ...m, ts: Date.now() }
+            : m,
+        ].slice(-80),
+      ),
+    [],
+  );
+
+  // The unified thread: local turns (typed asks) + the persistent work
+  // chat's events. Project workers' messages stay OUT — they belong to
+  // their own windows; the mother only announces them in the feed.
+  const chatMsgs = useMemo(
+    () => messages.filter((m) => !m.task || m.task === VOX_CHAT),
+    [messages],
+  );
+
+  // On boot, the stored chat session repaints the thread: the chat is
+  // CONTINUOUS across app restarts, visually too. Local, zero tokens.
+  useEffect(() => {
+    (async () => {
+      const st = await ipc.voxChatStatus().catch(() => null);
+      if (!st?.session_id) return;
+      setChatLive(true);
+      const tr = await ipc.readTranscript(st.session_id, 30).catch(() => null);
+      if (!tr) return;
+      const hist: Msg[] = tr.entries
+        .filter((e) => e.role === "user" || e.role === "assistant")
+        .map((e) => ({
+          who: e.role === "user" ? ("user" as const) : ("vox" as const),
+          text: e.text,
+          task: VOX_CHAT,
+          ts: Date.parse(e.ts) || undefined,
+        }));
+      if (hist.length) setMessages((old) => [...hist, ...old].slice(-80));
+    })();
+  }, []);
   const refresh = useCallback(() => {
     ipc
       .overview()
@@ -121,15 +199,24 @@ export default function Mother() {
       [],
     ),
     // A finished turn flips the feed row of its task: dispatched → done.
-    onWorkerTurn: useCallback((label: string, isError: boolean) => {
-      setActions((old) =>
-        old.map((a) =>
-          a.target === label && a.status === "despachado"
-            ? { ...a, status: isError ? "✗ falhou" : "✓ concluído" }
-            : a,
-        ),
-      );
-    }, []),
+    // Vox-chat turns also feed the chat header (session cost + context).
+    onWorkerTurn: useCallback(
+      (label: string, isError: boolean, taskId?: string, ctxPct?: number | null, cost?: number) => {
+        setActions((old) =>
+          old.map((a) =>
+            a.target === label && a.status === "despachado"
+              ? { ...a, status: isError ? "✗ falhou" : "✓ concluído" }
+              : a,
+          ),
+        );
+        if (taskId === VOX_CHAT) {
+          setChatLive(true);
+          if (cost) setChatCost((c) => c + cost);
+          if (ctxPct != null) setChatCtx(ctxPct);
+        }
+      },
+      [],
+    ),
     onHotkeyMic: useCallback(() => {
       setTab("voz");
       micRef.current();
@@ -364,6 +451,10 @@ export default function Mother() {
     // "roda essa verificação de DNS" burned tokens on a refusal). Plan
     // the destination and confirm — same machinery as the HUD.
     const route = await ipc.routeText(text).catch(() => "ask");
+    // Surface router: work needing external tools or producing content
+    // goes to the PERSISTENT chat (full settings + MCP); questions stay
+    // on the cheap bare ask. One visual thread either way.
+    const lane = await ipc.askLane(text).catch(() => "lean");
     if (route === "dispatch") {
       push({ who: "user", text });
       const plan = await ipc.planUtterance(text).catch(() => null);
@@ -386,11 +477,21 @@ export default function Mother() {
         say(`Achei ${plan.options.length} destinos. Qual deles?`);
         return;
       }
+      // Work with NO project target: the 21/08 Slack case. That is the
+      // mother's own work — it goes to the persistent chat, never dies.
+      if (lane === "work") {
+        await sendToChat(text);
+        return;
+      }
       push({ who: "sys", text: "sem alvo — fale \"na task X\" ou abra a janela do projeto" });
       say("Não achei o alvo pra esse trabalho.");
       return;
     }
     push({ who: "user", text });
+    if (lane === "work") {
+      await sendToChat(text);
+      return;
+    }
     setBusy("perguntando…");
     try {
       const reply = await ipc.askText(text);
@@ -415,6 +516,21 @@ export default function Mother() {
     }
   }
 
+  /** Hand real work to the persistent chat worker; its turns stream back
+   *  into the same thread as events (task_id "vox-chat"). Non-blocking:
+   *  the input stays free while the worker runs. */
+  async function sendToChat(text: string) {
+    setActions((old) =>
+      [...old, { utterance: text, target: "vox", status: "despachado", ts: Date.now() }].slice(-8),
+    );
+    try {
+      await ipc.voxChatSend(text);
+      setChatLive(true);
+    } catch (err) {
+      push({ who: "sys", text: `chat vox: ${err}` });
+    }
+  }
+
   /** ONE voice surface: the mother's mic/orb opens the global HUD too. */
   async function onMic() {
     await ipc.hudShow().catch((err) => push({ who: "sys", text: `voz: ${err}` }));
@@ -423,14 +539,196 @@ export default function Mother() {
 
   const mode: OrbMode = recording ? "listening" : speaking ? "speaking" : busy ? "busy" : "idle";
   const liveWorkers = (overview?.workers ?? []).filter((w) => w.status === "running").length;
-  // The last spoken reply stays readable; system errors too. Raw echo of
-  // every message died with the feed (the feed IS the record now).
-  const lastReply = [...messages].reverse().find((m) => m.who === "vox");
-  const lastUser = [...messages].reverse().find((m) => m.who === "user");
-  const lastMsg = messages.at(-1);
+
+  // Shared blocks: the compact column and the expanded split reuse them.
+  const orbBlock = (
+    <div className="mother-orb" onClick={onMic} title="clique ou fale (Esc corta)">
+      <VoiceOrb mode={mode} />
+    </div>
+  );
+  const statusBlock = (
+    <div className="mother-status">
+      {busy ?? (recording ? "ouvindo… (Esc corta)" : speaking ? "falando…" : "pronto")}
+      {spentToday != null && (
+        <span className="mother-spend"> · hoje ${spentToday.toFixed(2)}</span>
+      )}
+      {liveWorkers > 0 && (
+        <span className="mother-workers">
+          {" "}
+          · {liveWorkers} worker{liveWorkers === 1 ? "" : "s"} ativo
+          {liveWorkers === 1 ? "" : "s"}
+        </span>
+      )}
+      {rateLimit && rateLimit.status !== "allowed" && (
+        <span className="warn">
+          {" "}
+          · {rateLimit.status === "rejected" ? "limite atingido" : "quase no limite"}
+        </span>
+      )}
+    </div>
+  );
+  const chatHead = (expanded: boolean) => (
+    <div className={expanded ? "chat-head" : "vox-chat-head"}>
+      <span className="vox-chat-title">{t("chat_vox")}</span>
+      <span className="vox-chat-meta">
+        {chatLive ? t("chat_session_live") : t("chat_session_new")}
+        {chatCost > 0 && ` · $${chatCost.toFixed(2)}`}
+        {chatCtx != null && ` · ${t("chat_ctx", { n: Math.round(chatCtx * 100) })}`}
+      </span>
+      <button onClick={() => setChatExpanded(!expanded)}>
+        {expanded ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
+        {expanded ? t("chat_collapse") : t("chat_expand")}
+      </button>
+    </div>
+  );
+  const miniItems = buildMini(chatMsgs);
+  const feedBlock = (actions.length > 0 || pendingPerm) && (
+    <div className="mother-feed">
+      {actions.slice(-4).map((a) => (
+        <div key={a.ts} className="mother-action">
+          <Mic size={13} className="mother-action-icon" />
+          <span className="mother-action-text">“{a.utterance}”</span>
+          <span className="mother-action-target">
+            → {a.target ?? "vox"} · {a.status ?? "ok"}
+          </span>
+        </div>
+      ))}
+      {pendingPerm?.who === "permission" && (
+        <div className="mother-action perm">
+          <Lock size={13} className="mother-action-icon" />
+          <span className="mother-action-text">
+            {pendingPerm.tool} pede permissão
+            {pendingPerm.task ? ` em ${pendingPerm.task.slice(0, 26)}` : ""}
+          </span>
+          <span className="mother-action-target">fale “pode” ou “nega”</span>
+        </div>
+      )}
+    </div>
+  );
+  const planBlock = pendingPlan && (
+    <div className="mother-plan">
+      <div className="mother-picks-head">
+        {t("plan_to")}{" "}
+        <b>
+          {pendingPlan.plan.task_title ??
+            `novo chat em ${pendingPlan.plan.project_name ?? "?"}`}
+        </b>
+        ?
+      </div>
+      <pre>{pendingPlan.plan.instruction}</pre>
+      <div className="row">
+        <button className="plain" onClick={() => setPendingPlan(null)}>
+          {t("m_cancel")}
+        </button>
+        <button
+          className="allow"
+          onClick={async () => {
+            const { plan } = pendingPlan;
+            setPendingPlan(null);
+            try {
+              await ipc.voiceExecute(plan);
+              say("Despachado.");
+            } catch (err) {
+              push({ who: "sys", text: `despacho: ${err}` });
+            }
+          }}
+        >
+          {t("m_confirm")}
+        </button>
+      </div>
+    </div>
+  );
+  const picksBlock = picks && (
+    <div className="mother-picks">
+      <div className="mother-picks-head">
+        {t("picks_about", { q: picks.query })}
+        <button onClick={() => setPicks(null)}>{t("m_close")}</button>
+      </div>
+      {picks.candidates.map((c) => (
+        <button key={c.session_id} onClick={() => recoverSession(c)}>
+          <b>{c.title}</b>
+          <span>
+            {c.last_ts ? c.last_ts.slice(0, 10) : ""}
+            {c.cwd ? ` · ${c.cwd.split("/").filter(Boolean).pop()}` : ""}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+  const projectsBlock = (
+    <div className="mother-projects">
+      {(overview?.projects ?? []).map((p) => {
+        const live = (overview?.workers ?? []).filter(
+          (w) =>
+            w.status === "running" &&
+            (w.workspace === p.path || w.workspace.startsWith(`${p.path}/`)),
+        ).length;
+        const spent = Object.entries(spendByWs)
+          .filter(([ws]) => ws === p.path || ws.startsWith(`${p.path}/`))
+          .reduce((a, [, v]) => a + v, 0);
+        return (
+          <button
+            key={p.path}
+            className="mother-proj-card"
+            onClick={() => openProject(p)}
+            title={p.path}
+          >
+            <span className="mother-proj-name">
+              <ExternalLink size={12} /> {p.name}
+            </span>
+            <span className="mother-proj-meta">
+              {live > 0 && <span className="live-dot">◍ {live}</span>}
+              {spent > 0 && ` $${spent.toFixed(2)} ${t("proj_today")}`}
+              {live === 0 && spent === 0 && t("proj_quiet")}
+            </span>
+          </button>
+        );
+      })}
+      {addingProject ? (
+        <input
+          className="mother-proj-add-input"
+          autoFocus
+          placeholder={t("proj_add_placeholder")}
+          onBlur={() => setAddingProject(false)}
+          onKeyDown={async (e) => {
+            if (e.key === "Escape") setAddingProject(false);
+            if (e.key !== "Enter") return;
+            const value = (e.target as HTMLInputElement).value.trim();
+            if (!value) return;
+            setAddingProject(false);
+            try {
+              const entry = await ipc.projectAdd(value);
+              push({ who: "sys", text: `projeto ${entry.name} adicionado (${entry.path})` });
+              refresh();
+              openProject(entry);
+            } catch (err) {
+              push({ who: "sys", text: `projeto: ${err}` });
+            }
+          }}
+        />
+      ) : (
+        <button
+          className="mother-proj-card mother-proj-add"
+          onClick={() => setAddingProject(true)}
+          title={t("proj_add_title")}
+        >
+          <span className="mother-proj-name">{t("proj_add")}</span>
+          <span className="mother-proj-meta">{t("proj_add_hint")}</span>
+        </button>
+      )}
+    </div>
+  );
 
   return (
-    <div className={tab === "voz" ? "mother" : "mother mother-wide"}>
+    <div
+      className={
+        tab !== "voz"
+          ? "mother mother-wide"
+          : chatExpanded
+            ? "mother mother-splitwrap"
+            : "mother"
+      }
+    >
       <nav className="tabs mother-tabs">
         <button className={tab === "voz" ? "active" : ""} onClick={() => setTab("voz")}>
           {t("tab_voice")}
@@ -463,117 +761,78 @@ export default function Mother() {
           <CostsPanel />
         </div>
       ) : (
+        chatExpanded ? (
+        // The user's saved mockup: split view. Left keeps the mother as it
+        // is (orb + shortcuts, NO input); the chat's composer is THE input.
+        <div className="mother-split">
+          <div className="split-left">
+            {orbBlock}
+            {statusBlock}
+            {feedBlock}
+            {planBlock}
+            {picksBlock}
+            {projectsBlock}
+          </div>
+          <div className="split-right">
+            {chatHead(true)}
+            <Transcript
+              messages={chatMsgs}
+              directivesFor={() => undefined}
+              onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
+              onOpenPath={(p) => void ipc.openExternal(p).catch(() => {})}
+            />
+            <div className="chat-composer">
+              <input
+                autoFocus
+                placeholder={t("chat_placeholder")}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submit(input);
+                }}
+                disabled={!!busy}
+              />
+              <button
+                className={`mic ${recording ? "recording" : ""}`}
+                onClick={onMic}
+                title="falar"
+              >
+                <Mic size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
         <>
-          <div className="mother-orb" onClick={onMic} title="clique ou fale (Esc corta)">
-            <VoiceOrb mode={mode} />
+          {orbBlock}
+          {statusBlock}
+          {feedBlock}
+
+          {/* The persistent chat, compact: always the last 5 messages,
+              right above the input — which doubles as its composer. */}
+          <div className="vox-chat">
+            {chatHead(false)}
+            {miniItems.length === 0 ? (
+              <div className="vc-empty">{t("chat_empty")}</div>
+            ) : (
+              <div className="vox-chat-mini">
+                {miniItems.map((it) =>
+                  it.kind === "tools" ? (
+                    <div key={it.key} className="vc-line tools">
+                      › {t("tools_ran", { n: it.n })}
+                    </div>
+                  ) : (
+                    <div key={it.key} className={`vc-line ${it.who}`}>
+                      {it.text.slice(0, 220)}
+                    </div>
+                  ),
+                )}
+              </div>
+            )}
           </div>
-          <div className="mother-status">
-            {busy ?? (recording ? "ouvindo… (Esc corta)" : speaking ? "falando…" : "pronto")}
-            {spentToday != null && (
-              <span className="mother-spend"> · hoje ${spentToday.toFixed(2)}</span>
-            )}
-            {liveWorkers > 0 && (
-              <span className="mother-workers">
-                {" "}
-                · {liveWorkers} worker{liveWorkers === 1 ? "" : "s"} ativo
-                {liveWorkers === 1 ? "" : "s"}
-              </span>
-            )}
-            {rateLimit && rateLimit.status !== "allowed" && (
-              <span className="warn">
-                {" "}
-                · {rateLimit.status === "rejected" ? "limite atingido" : "quase no limite"}
-              </span>
-            )}
-          </div>
 
-          {(actions.length > 0 || pendingPerm) && (
-            <div className="mother-feed">
-              {actions.slice(-4).map((a) => (
-                <div key={a.ts} className="mother-action">
-                  <Mic size={13} className="mother-action-icon" />
-                  <span className="mother-action-text">“{a.utterance}”</span>
-                  <span className="mother-action-target">
-                    → {a.target ?? "vox"} · {a.status ?? "ok"}
-                  </span>
-                </div>
-              ))}
-              {pendingPerm?.who === "permission" && (
-                <div className="mother-action perm">
-                  <Lock size={13} className="mother-action-icon" />
-                  <span className="mother-action-text">
-                    {pendingPerm.tool} pede permissão
-                    {pendingPerm.task ? ` em ${pendingPerm.task.slice(0, 26)}` : ""}
-                  </span>
-                  <span className="mother-action-target">fale “pode” ou “nega”</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {(lastReply || lastMsg?.who === "sys" || lastUser) && (
-            <div className="mother-chat">
-              {lastUser && "text" in lastUser && (
-                <div className="mother-msg user">{lastUser.text}</div>
-              )}
-              {lastReply && "text" in lastReply && (
-                <div className="mother-msg vox">{lastReply.text}</div>
-              )}
-              {lastMsg?.who === "sys" && <div className="mother-msg sys">{lastMsg.text}</div>}
-            </div>
-          )}
-
-          {pendingPlan && (
-            <div className="mother-plan">
-              <div className="mother-picks-head">
-                {t("plan_to")}{" "}
-                <b>
-                  {pendingPlan.plan.task_title ??
-                    `novo chat em ${pendingPlan.plan.project_name ?? "?"}`}
-                </b>
-                ?
-              </div>
-              <pre>{pendingPlan.plan.instruction}</pre>
-              <div className="row">
-                <button className="plain" onClick={() => setPendingPlan(null)}>
-                  {t("m_cancel")}
-                </button>
-                <button
-                  className="allow"
-                  onClick={async () => {
-                    const { plan } = pendingPlan;
-                    setPendingPlan(null);
-                    try {
-                      await ipc.voiceExecute(plan);
-                      say("Despachado.");
-                    } catch (err) {
-                      push({ who: "sys", text: `despacho: ${err}` });
-                    }
-                  }}
-                >
-                  {t("m_confirm")}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {picks && (
-            <div className="mother-picks">
-              <div className="mother-picks-head">
-                {t("picks_about", { q: picks.query })}
-                <button onClick={() => setPicks(null)}>{t("m_close")}</button>
-              </div>
-              {picks.candidates.map((c) => (
-                <button key={c.session_id} onClick={() => recoverSession(c)}>
-                  <b>{c.title}</b>
-                  <span>
-                    {c.last_ts ? c.last_ts.slice(0, 10) : ""}
-                    {c.cwd ? ` · ${c.cwd.split("/").filter(Boolean).pop()}` : ""}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
+          {planBlock}
+          {picksBlock}
 
           <div className="mother-input">
             <input
@@ -594,68 +853,9 @@ export default function Mother() {
             </button>
           </div>
 
-          <div className="mother-projects">
-            {(overview?.projects ?? []).map((p) => {
-              const live = (overview?.workers ?? []).filter(
-                (w) =>
-                  w.status === "running" &&
-                  (w.workspace === p.path || w.workspace.startsWith(`${p.path}/`)),
-              ).length;
-              const spent = Object.entries(spendByWs)
-                .filter(([ws]) => ws === p.path || ws.startsWith(`${p.path}/`))
-                .reduce((a, [, v]) => a + v, 0);
-              return (
-                <button
-                  key={p.path}
-                  className="mother-proj-card"
-                  onClick={() => openProject(p)}
-                  title={p.path}
-                >
-                  <span className="mother-proj-name">
-                    <ExternalLink size={12} /> {p.name}
-                  </span>
-                  <span className="mother-proj-meta">
-                    {live > 0 && <span className="live-dot">◍ {live}</span>}
-                    {spent > 0 && ` $${spent.toFixed(2)} ${t("proj_today")}`}
-                    {live === 0 && spent === 0 && t("proj_quiet")}
-                  </span>
-                </button>
-              );
-            })}
-            {addingProject ? (
-              <input
-                className="mother-proj-add-input"
-                autoFocus
-                placeholder={t("proj_add_placeholder")}
-                onBlur={() => setAddingProject(false)}
-                onKeyDown={async (e) => {
-                  if (e.key === "Escape") setAddingProject(false);
-                  if (e.key !== "Enter") return;
-                  const value = (e.target as HTMLInputElement).value.trim();
-                  if (!value) return;
-                  setAddingProject(false);
-                  try {
-                    const entry = await ipc.projectAdd(value);
-                    push({ who: "sys", text: `projeto ${entry.name} adicionado (${entry.path})` });
-                    refresh();
-                    openProject(entry);
-                  } catch (err) {
-                    push({ who: "sys", text: `projeto: ${err}` });
-                  }
-                }}
-              />
-            ) : (
-              <button
-                className="mother-proj-card mother-proj-add"
-                onClick={() => setAddingProject(true)}
-                title={t("proj_add_title")}
-              >
-                <span className="mother-proj-name">{t("proj_add")}</span>
-                <span className="mother-proj-meta">{t("proj_add_hint")}</span>
-              </button>
-            )}
-          </div>
+          {projectsBlock}
         </>
+        )
       )}
     </div>
   );
