@@ -82,6 +82,38 @@ boundary as **HAP**: newline-delimited JSON over stdio.
   binary and args; a `plugin_host` adapter implements the same core seams
   by speaking HAP to the child process.
 
-Publishing plan: `hark-agent` and `hark-plugin-claude` become public repos
-(the contract is the API surface); the core app can stay private — plugins
-depend on `hark-agent` and, temporarily, on the published ports crate.
+## TODO: extract the plugins into their own public repos
+
+Decided 23/08/2026: plugins eventually live in a dedicated **Hark org** on
+GitHub, public, one repo per plugin (plus the contract). The core app stays
+private. Not now — this note is the map for when we do it.
+
+Today `hark-plugin-claude` compiles against `hark-core`, which is exactly
+what a public repo cannot depend on. The good news is how little is left:
+five of its eight modules (`stream`, `log`, `bridge`, `statusline`, `eco`)
+already import nothing from the core. The remaining coupling is four
+imports' worth:
+
+| Module | Needs from `hark-core` | Fix |
+|---|---|---|
+| `cli.rs` | `ports::{AgentRunner, TurnRequest}` | move both into `hark-agent` |
+| `live.rs` | `ports::LiveSessions`, `domain::prompt::LiveSession` | move both into `hark-agent` |
+| `history.rs` | `ports::{SessionStore, SpendLedger, SpendQuery, SpendGroup, HistoryIndexer}`, `domain::spend::{SpendRow, SpendKind, SpendSource}`, `domain::snapshot::SessionSummary` | move the traits + row types into `hark-agent`; the SQLite impl stays in the core |
+| `worker.rs` | `domain::directives::{Directives, Mode, Effort}`, `domain::prodgate::BYPASS_DENY_RULES` | `Directives` is contract material (the spawn spec already carries it); the deny rules become a `Capabilities`-adjacent constant owned by the plugin |
+
+`SqliteStore` shows up only in `history.rs` tests — a dev-dependency, not a
+real edge.
+
+So the extraction is: **fold the ports into `hark-agent`** (they are the
+contract already, they just live in the wrong crate), flip
+`hark-plugin-claude`'s dependency to `hark-agent` alone, then split:
+
+1. `hark-agent` → public repo (the contract; versioned, semver matters).
+2. `hark-plugin-claude` → public repo depending on the published
+   `hark-agent`.
+3. The core app keeps them as git dependencies (or path deps in a local
+   workspace override during development).
+
+Until then both crates stay in this private workspace as path deps, which
+is why the boundary is enforced by the compiler today: the moment a core
+type sneaks back into a plugin module, the split gets harder.
