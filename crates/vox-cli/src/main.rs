@@ -38,7 +38,7 @@ fn main() {
         Some((cmd, _)) if cmd == "listen" => cmd_listen(),
         _ => {
             eprintln!(
-                "usage: vox listen | vox hear | vox setup | vox ask \"<q>\" | vox dispatch [--session <id>] \"<instruction>\" | vox ps | vox spend [--day|--week|--project] [--rebuild] | vox index | vox sessions | vox use <context> | vox contexts"
+                "usage: vox listen | vox hear | vox setup | vox ask \"<q>\" | vox dispatch [--session <id>] \"<instruction>\" | vox ps | vox spend [--day|--week|--project] [--rebuild] [--export csv|json] | vox index | vox sessions | vox use <context> | vox contexts"
             );
             2
         }
@@ -71,6 +71,55 @@ fn cmd_spend(rest: &[String]) -> i32 {
                 None
             }
         };
+        // --export csv|json: raw rows to stdout (team-side aggregation).
+        // USD stays live-only, tokens jsonl-only — the source column keeps
+        // the never-sum rule enforceable downstream.
+        if let Some(pos) = rest.iter().position(|f| f == "--export") {
+            let format = rest.get(pos + 1).map(String::as_str).unwrap_or("csv");
+            let rows = store.spend_rows(since.as_deref().unwrap_or("0"), 1_000_000)?;
+            match format {
+                "json" => println!("{}", serde_json::to_string_pretty(&rows)?),
+                "csv" => {
+                    let esc = |v: &str| {
+                        if v.contains([',', '"', '\n']) {
+                            format!("\"{}\"", v.replace('"', "\"\""))
+                        } else {
+                            v.to_string()
+                        }
+                    };
+                    println!(
+                        "ts,kind,source,task_id,label,session_id,workspace,model,input_tokens,output_tokens,cache_read_tokens,cache_created_tokens,cost_usd,duration_ms,is_error,is_sidechain,context_window,request_id,outcome"
+                    );
+                    for r in &rows {
+                        println!(
+                            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                            r.ts,
+                            r.kind.as_str(),
+                            r.source.as_str(),
+                            esc(r.task_id.as_deref().unwrap_or("")),
+                            esc(r.label.as_deref().unwrap_or("")),
+                            esc(r.session_id.as_deref().unwrap_or("")),
+                            esc(r.workspace.as_deref().unwrap_or("")),
+                            esc(&r.model),
+                            r.usage.input,
+                            r.usage.output,
+                            r.usage.cache_read,
+                            r.usage.cache_created,
+                            r.cost_usd.map(|v| v.to_string()).unwrap_or_default(),
+                            r.duration_ms.map(|v| v.to_string()).unwrap_or_default(),
+                            r.is_error as u8,
+                            r.is_sidechain as u8,
+                            r.context_window.map(|v| v.to_string()).unwrap_or_default(),
+                            esc(r.request_id.as_deref().unwrap_or("")),
+                            esc(r.outcome.as_deref().unwrap_or("")),
+                        );
+                    }
+                }
+                other => anyhow::bail!("formato de export desconhecido: {other} (csv|json)"),
+            }
+            eprintln!("[{} linhas exportadas]", rows.len());
+            return Ok(0);
+        }
         let group = if has("--project") {
             SpendGroup::Workspace
         } else {

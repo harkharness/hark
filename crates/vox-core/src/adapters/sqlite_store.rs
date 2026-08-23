@@ -274,6 +274,52 @@ impl crate::ports::SpendLedger for SqliteStore {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
+
+    fn spend_rows(
+        &self,
+        since: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<crate::domain::spend::SpendRow>> {
+        use crate::domain::claude_event::TokenUsage;
+        use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
+        let mut stmt = self.conn.prepare(
+            "SELECT ts, kind, source, task_id, label, session_id, workspace, model,
+                    input_tokens, output_tokens, cache_read_tokens, cache_created_tokens,
+                    cost_usd, duration_ms, is_error, is_sidechain, context_window,
+                    request_id, outcome
+             FROM spend WHERE ts >= ?1 ORDER BY ts LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![since, limit as i64], |r| {
+                Ok(SpendRow {
+                    ts: r.get(0)?,
+                    kind: SpendKind::parse(&r.get::<_, String>(1)?)
+                        .unwrap_or(SpendKind::Session),
+                    source: SpendSource::parse(&r.get::<_, String>(2)?)
+                        .unwrap_or(SpendSource::Jsonl),
+                    task_id: r.get(3)?,
+                    label: r.get(4)?,
+                    session_id: r.get(5)?,
+                    workspace: r.get(6)?,
+                    model: r.get(7)?,
+                    usage: TokenUsage {
+                        input: r.get::<_, i64>(8)? as u64,
+                        output: r.get::<_, i64>(9)? as u64,
+                        cache_read: r.get::<_, i64>(10)? as u64,
+                        cache_created: r.get::<_, i64>(11)? as u64,
+                    },
+                    cost_usd: r.get(12)?,
+                    duration_ms: r.get::<_, Option<i64>>(13)?.map(|v| v as u64),
+                    is_error: r.get::<_, i64>(14)? != 0,
+                    is_sidechain: r.get::<_, i64>(15)? != 0,
+                    context_window: r.get::<_, Option<i64>>(16)?.map(|v| v as u64),
+                    request_id: r.get(17)?,
+                    outcome: r.get(18)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
 }
 
 impl SessionStore for SqliteStore {
@@ -682,6 +728,52 @@ mod tests {
             .unwrap();
         let chat = by_task.iter().find(|a| a.key == "vox-chat").expect("chat line");
         assert!((chat.cost_usd - 0.30).abs() < 1e-9);
+    }
+
+    #[test]
+    fn spend_rows_export_returns_full_rows_since() {
+        use crate::domain::claude_event::TokenUsage;
+        use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
+        use crate::ports::SpendLedger;
+
+        let mut store = SqliteStore::in_memory().unwrap();
+        let row = |ts: &str, task: Option<&str>| SpendRow {
+            ts: ts.into(),
+            kind: SpendKind::Worker,
+            source: SpendSource::Live,
+            task_id: task.map(String::from),
+            label: Some("com, vírgula".into()),
+            session_id: Some("s-1".into()),
+            workspace: Some("/p/vox".into()),
+            model: "claude-sonnet-5".into(),
+            usage: TokenUsage { input: 7, output: 3, cache_read: 40, cache_created: 1 },
+            cost_usd: Some(0.02),
+            duration_ms: Some(500),
+            is_error: false,
+            is_sidechain: false,
+            context_window: Some(200_000),
+            request_id: None,
+            outcome: None,
+        };
+        store
+            .record_spend(&[
+                row("2026-08-10T09:00:00Z", None),
+                row("2026-08-21T09:00:00Z", Some("vox-chat")),
+            ])
+            .unwrap();
+
+        let rows = store.spend_rows("2026-08-20T00:00:00Z", 100).unwrap();
+        assert_eq!(rows.len(), 1, "since filters");
+        let r = &rows[0];
+        assert_eq!(r.task_id.as_deref(), Some("vox-chat"));
+        assert_eq!(r.kind, SpendKind::Worker);
+        assert_eq!(r.source, SpendSource::Live);
+        assert_eq!(r.usage.input, 7);
+        assert_eq!(r.label.as_deref(), Some("com, vírgula"));
+        assert_eq!(r.cost_usd, Some(0.02));
+
+        let all = store.spend_rows("0", 100).unwrap();
+        assert_eq!(all.len(), 2, "epoch-zero since exports everything");
     }
 
     #[test]

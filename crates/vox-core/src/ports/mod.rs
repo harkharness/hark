@@ -32,6 +32,13 @@ pub trait SpendLedger {
     fn spend_summary(&self, query: &SpendQuery) -> anyhow::Result<Vec<SpendAgg>>;
     /// Most expensive sessions in USD (live rows), newest window first.
     fn spend_top_sessions(&self, since: &str, limit: usize) -> anyhow::Result<Vec<SpendAgg>>;
+    /// Raw ledger rows since an ISO instant, oldest first — the export
+    /// path (`vox spend --export`), for team-side aggregation.
+    fn spend_rows(
+        &self,
+        since: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<crate::domain::spend::SpendRow>>;
 }
 
 /// Ledger aggregation request.

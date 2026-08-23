@@ -18,7 +18,7 @@ pub struct VoiceReply {
 
 /// Token counters of one model in one turn. This is the raw material of
 /// the spend ledger: without measuring, nothing can be saved.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 pub struct TokenUsage {
     pub input: u64,
     pub output: u64,

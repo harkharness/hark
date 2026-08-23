@@ -5,7 +5,8 @@
 use crate::domain::claude_event::{TokenUsage, TurnResult};
 
 /// What kind of Vox action spent these tokens.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SpendKind {
     /// Voice/text question answered by the lean runner.
     Ask,
@@ -29,11 +30,24 @@ impl SpendKind {
             SpendKind::Session => "session",
         }
     }
+
+    /// Inverse of `as_str` — reading rows back out of the ledger.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "ask" => Some(SpendKind::Ask),
+            "gate" => Some(SpendKind::Gate),
+            "worker" => Some(SpendKind::Worker),
+            "dispatch" => Some(SpendKind::Dispatch),
+            "session" => Some(SpendKind::Session),
+            _ => None,
+        }
+    }
 }
 
 /// Where the row came from. NEVER aggregate across sources: USD exists
 /// only in `Live` rows; complete token history only in `Jsonl` rows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SpendSource {
     Live,
     Jsonl,
@@ -46,10 +60,19 @@ impl SpendSource {
             SpendSource::Jsonl => "jsonl",
         }
     }
+
+    /// Inverse of `as_str` — reading rows back out of the ledger.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "live" => Some(SpendSource::Live),
+            "jsonl" => Some(SpendSource::Jsonl),
+            _ => None,
+        }
+    }
 }
 
 /// One persisted ledger line: one model of one turn.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct SpendRow {
     pub ts: String,
     pub kind: SpendKind,
