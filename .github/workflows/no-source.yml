@@ -1,0 +1,29 @@
+name: no source in the public repo
+
+# This repository ships binaries and documentation. The Hark source stays
+# private until it has been security-reviewed, so a source file landing
+# here is a leak, not a mistake to discuss later. Fail loudly instead.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse source files
+        run: |
+          set -euo pipefail
+          FOUND=$(git ls-files \
+            '*.rs' '*.ts' '*.tsx' '*.js' '*.jsx' '*.swift' '*.kt' \
+            'Cargo.toml' 'Cargo.lock' 'package.json' 'tauri.conf.json' \
+            'src/**' 'src-tauri/**' 'crates/**' || true)
+          if [ -n "$FOUND" ]; then
+            echo "::error::source files are not allowed in the public repo:"
+            echo "$FOUND"
+            exit 1
+          fi
+          echo "clean — binaries and docs only"
