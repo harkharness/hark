@@ -21,6 +21,7 @@ import SessionInfo from "./components/SessionInfo";
 import Sidebar from "./components/Sidebar";
 import TerminalPane, { TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
+import EmptyProject from "./components/EmptyProject";
 import WorkerChips from "./components/WorkerChips";
 import { useVoxEvents } from "./hooks/useVoxEvents";
 import * as ipc from "./lib/ipc";
@@ -1638,6 +1639,15 @@ export default function App({
                       });
                     })
                   }
+                />
+              ) : visibleMessages.length === 0 ? (
+                <EmptyProject
+                  project={activeProject}
+                  board={board}
+                  onResume={openTaskFromSidebar}
+                  onSpeak={onMic}
+                  onSearch={() => sidebarRef.current?.expand()}
+                  onBoard={() => ensureRail("board")}
                 />
               ) : (
                 <Transcript

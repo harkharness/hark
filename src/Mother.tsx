@@ -578,6 +578,15 @@ export default function Mother() {
       <VoiceOrb mode={mode} />
     </div>
   );
+  // The assistant GREETS — identity first, telemetry demoted below it.
+  const hour = new Date().getHours();
+  const greetKey = hour < 12 ? "greet_morning" : hour < 18 ? "greet_afternoon" : "greet_evening";
+  const greetBlock = (
+    <div className="mother-greet">
+      {t(greetKey)}
+      {overview?.user_name ? `, ${overview.user_name}.` : "."}
+    </div>
+  );
   const statusBlock = (
     <div className="mother-status">
       {busy ?? (recording ? "ouvindo… (Esc corta)" : speaking ? "falando…" : "pronto")}
@@ -802,6 +811,7 @@ export default function Mother() {
         <div className="mother-split">
           <div className="split-left">
             {orbBlock}
+            {greetBlock}
             {statusBlock}
             {feedBlock}
             {planBlock}
@@ -840,6 +850,7 @@ export default function Mother() {
       ) : (
         <>
           {orbBlock}
+          {greetBlock}
           {statusBlock}
           {feedBlock}
 
@@ -894,6 +905,15 @@ export default function Mother() {
             >
               <Mic size={16} />
             </button>
+          </div>
+
+          {/* Spoken suggestions: click = send. All three answer cheap. */}
+          <div className="mother-sugs">
+            {[t("sug_spend"), t("sug_running"), t("sug_board")].map((s) => (
+              <button key={s} className="mother-sug" onClick={() => submit(s)}>
+                “{s}”
+              </button>
+            ))}
           </div>
 
           {projectsBlock}

@@ -112,6 +112,8 @@ struct Overview {
     language: String,
     /// The assistant's own name (chat header, feed, announcements).
     assistant_name: String,
+    /// The human's first name (from $USER), for the greeting.
+    user_name: String,
 }
 
 /// The editable project list. First run seeds it from what the machine
@@ -172,6 +174,16 @@ fn overview() -> Overview {
         ui_language: config.ui_language,
         language: config.language,
         assistant_name: config.assistant_name,
+        user_name: std::env::var("USER")
+            .ok()
+            .and_then(|u| {
+                let first = u.split(['.', '_', '-']).next()?.to_string();
+                let mut chars = first.chars();
+                chars
+                    .next()
+                    .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
+            })
+            .unwrap_or_default(),
         default_mode: config.worker_mode,
     }
 }

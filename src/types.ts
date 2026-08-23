@@ -224,6 +224,8 @@ export type Overview = {
   language: string;
   /** The assistant's own name (chat header, feed, announcements). */
   assistant_name: string;
+  /** The human's first name (from $USER), for the greeting. */
+  user_name: string;
 };
 
 /** One aggregated bucket of the persistent spend ledger. */
