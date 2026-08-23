@@ -40,9 +40,53 @@ trate-o como a sua identidade e a sua memória durável.
     )
 }
 
+/// The identity the CHEAP ask carries: only "## Identidade" and
+/// "## Estilo" from the soul file, hard-clipped — a few hundred chars of
+/// tone, never the learnings (those belong to the full chat).
+pub fn excerpt(doc: &str) -> String {
+    let mut out = String::new();
+    let mut keep = false;
+    for line in doc.lines() {
+        if let Some(title) = line.strip_prefix("## ") {
+            keep = matches!(title.trim(), "Identidade" | "Estilo");
+            continue;
+        }
+        if keep && !line.trim().is_empty() {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    let out = out.trim_end().to_string();
+    if out.chars().count() > 600 {
+        let mut clipped: String = out.chars().take(600).collect();
+        clipped.push('…');
+        clipped
+    } else {
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn excerpt_takes_identity_and_style_only() {
+        let doc = template("Aria");
+        let ex = excerpt(&doc);
+        assert!(ex.contains("Aria"), "identity survives");
+        assert!(ex.contains("Tom:"), "style survives");
+        assert!(!ex.contains("Como aprender"), "meta-instructions stay out");
+        assert!(!ex.contains("Aprendizados"), "learnings stay out of the ask");
+    }
+
+    #[test]
+    fn excerpt_stays_tiny_and_handles_junk() {
+        let long = format!("## Identidade\n{}\n## Estilo\n- Tom: x\n", "linha grande\n".repeat(200));
+        assert!(excerpt(&long).chars().count() <= 620, "hard clip");
+        assert_eq!(excerpt(""), "");
+        assert_eq!(excerpt("# sem seções\ntexto"), "");
+    }
 
     #[test]
     fn template_carries_the_assistant_name() {
