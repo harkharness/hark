@@ -53,6 +53,8 @@ pub enum SpendGroup {
     Workspace,
     Day,
     Session,
+    /// By task id — the mother's chat ("vox-chat") reads its own line.
+    Task,
 }
 
 /// What the newest turn of a session weighs, split into the parts that

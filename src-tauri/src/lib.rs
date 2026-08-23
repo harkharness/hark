@@ -1405,6 +1405,7 @@ fn spend_group(group: &str) -> vox_core::ports::SpendGroup {
         "workspace" => SpendGroup::Workspace,
         "day" => SpendGroup::Day,
         "session" => SpendGroup::Session,
+        "task" => SpendGroup::Task,
         _ => SpendGroup::Kind,
     }
 }

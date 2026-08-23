@@ -169,6 +169,15 @@ export default function Mother() {
         setSpendByWs(Object.fromEntries(aggs.map((a) => [a.key, a.cost_usd]))),
       )
       .catch(() => {});
+    // The chat header's cost comes from the LEDGER (today's vox-chat line),
+    // not from a window-local accumulator — restarts don't zero it.
+    ipc
+      .spendSummary(day, "task", "live")
+      .then((aggs) => {
+        const chat = aggs.find((a) => a.key === "vox-chat");
+        if (chat) setChatCost(chat.cost_usd);
+      })
+      .catch(() => {});
   }, []);
   useEffect(refresh, [refresh]);
 
@@ -226,7 +235,7 @@ export default function Mother() {
         );
         if (taskId === VOX_CHAT) {
           setChatLive(true);
-          if (cost) setChatCost((c) => c + cost);
+          // Cost comes from the ledger on the refresh this turn triggers.
           if (ctxPct != null) setChatCtx(ctxPct);
         }
       },
@@ -595,7 +604,7 @@ export default function Mother() {
       <span className="vox-chat-title">{assistantName}</span>
       <span className="vox-chat-meta">
         {chatLive ? t("chat_session_live") : t("chat_session_new")}
-        {chatCost > 0 && ` · $${chatCost.toFixed(2)}`}
+        {chatCost > 0 && ` · $${chatCost.toFixed(2)} ${t("proj_today")}`}
         {chatCtx != null && ` · ${t("chat_ctx", { n: Math.round(chatCtx * 100) })}`}
       </span>
       <button onClick={() => setChatExpanded(!expanded)}>

@@ -226,6 +226,7 @@ impl crate::ports::SpendLedger for SqliteStore {
             SpendGroup::Workspace => "COALESCE(workspace, '—')",
             SpendGroup::Day => "substr(ts, 1, 10)",
             SpendGroup::Session => "COALESCE(session_id, '—')",
+            SpendGroup::Task => "COALESCE(task_id, '—')",
         };
         // ?3 = project root: the row's workspace must equal it or sit under
         // it (a trailing slash keeps sibling directories out).
@@ -662,6 +663,25 @@ mod tests {
             .unwrap();
         assert_eq!(later.len(), 1);
         assert_eq!(later[0].key, "ask");
+
+        // Group by TASK: the mother's chat header reads its own ledger line.
+        store
+            .record_spend(&[SpendRow {
+                task_id: Some("vox-chat".into()),
+                ts: "2026-08-17T12:00:00Z".into(),
+                ..row("2026-08-17T12:00:00Z", SpendKind::Worker, SpendSource::Live, Some(0.30), None, false)
+            }])
+            .unwrap();
+        let by_task = store
+            .spend_summary(&SpendQuery {
+                since: None,
+                group: SpendGroup::Task,
+                source: SpendSource::Live,
+                workspace: None,
+            })
+            .unwrap();
+        let chat = by_task.iter().find(|a| a.key == "vox-chat").expect("chat line");
+        assert!((chat.cost_usd - 0.30).abs() < 1e-9);
     }
 
     #[test]

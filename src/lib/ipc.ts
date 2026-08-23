@@ -123,7 +123,7 @@ export const findSession = (query: string) =>
  * source="jsonl". Never sum across sources. */
 export const spendSummary = (
   since: string | null,
-  group: "kind" | "model" | "label" | "workspace" | "day" | "session",
+  group: "kind" | "model" | "label" | "workspace" | "day" | "session" | "task",
   source: "live" | "jsonl",
   /** Project root: scopes every number to that directory and below. */
   workspace?: string | null,
