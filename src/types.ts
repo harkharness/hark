@@ -140,6 +140,8 @@ export type TranscriptEntry = {
 export type BoardTask = {
   title: string;
   status: "backlog" | "doing" | "waiting" | "done";
+  /** The approved plan as a checklist (user-toggled). */
+  subtasks?: { text: string; done: boolean }[];
   note?: string;
   updated_at: string;
   session_ids: string[];

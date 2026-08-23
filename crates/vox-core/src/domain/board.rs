@@ -26,6 +26,70 @@ pub struct Task {
     /// Kept at the top of the sidebar.
     #[serde(default)]
     pub pinned: bool,
+    /// The approved plan as a visible checklist (user-toggled).
+    #[serde(default)]
+    pub subtasks: Vec<Subtask>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Subtask {
+    pub text: String,
+    #[serde(default)]
+    pub done: bool,
+}
+
+/// An approved plan (ExitPlanMode's markdown) becomes a checklist: the
+/// `##` step headers, or the top-level numbered/bulleted items when the
+/// plan has fewer than two headers. Meta sections (context, verification,
+/// risks, notes) stay out. Capped and clipped — a checklist, not a doc.
+pub fn plan_to_subtasks(plan: &str) -> Vec<Subtask> {
+    const META: &[&str] = &[
+        "context", "contexto", "verifica", "verification", "risco", "risk", "nota", "note",
+    ];
+    let clip = |s: &str| {
+        let s = s.trim();
+        if s.chars().count() > 80 {
+            format!("{}…", s.chars().take(80).collect::<String>())
+        } else {
+            s.to_string()
+        }
+    };
+    let headers: Vec<String> = plan
+        .lines()
+        .filter_map(|l| l.strip_prefix("## "))
+        .filter(|h| {
+            let low = h.to_lowercase();
+            !META.iter().any(|m| low.starts_with(m))
+        })
+        .map(clip)
+        .collect();
+    let steps: Vec<String> = if headers.len() >= 2 {
+        headers
+    } else {
+        plan.lines()
+            .filter_map(|l| {
+                // Top level only: indented sub-items are detail, not steps.
+                if l.starts_with(' ') || l.starts_with('\t') {
+                    return None;
+                }
+                let t = l.trim_start();
+                t.strip_prefix("- ")
+                    .or_else(|| t.strip_prefix("* "))
+                    .or_else(|| {
+                        t.split_once(". ").and_then(|(n, rest)| {
+                            n.chars().all(|c| c.is_ascii_digit()).then_some(rest)
+                        })
+                    })
+                    .map(clip)
+            })
+            .collect()
+    };
+    steps
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .take(12)
+        .map(|text| Subtask { text, done: false })
+        .collect()
 }
 
 /// One board change proposed by Claude inside a structured reply
@@ -107,6 +171,7 @@ pub fn apply_updates(
                     updated_at: now.to_string(),
                     note: update.nota.clone(),
                     pinned: false,
+                    subtasks: Vec::new(),
                 });
             }
         }
@@ -236,7 +301,38 @@ mod tests {
             updated_at: updated_at.into(),
             note: None,
             pinned: false,
+            subtasks: Vec::new(),
         }
+    }
+
+    #[test]
+    fn plan_headers_become_subtasks_meta_sections_stay_out() {
+        let plan = "# Migração\n\n## Context\nblah\n\n## Mover o webhook\ndetalhe\n\n## Trocar o DNS\n\n## Verificação\nteste\n\n## Riscos\n";
+        let subs = plan_to_subtasks(plan);
+        assert_eq!(
+            subs.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
+            vec!["Mover o webhook", "Trocar o DNS"],
+        );
+        assert!(subs.iter().all(|s| !s.done));
+    }
+
+    #[test]
+    fn bullet_plans_fall_back_to_top_level_items() {
+        let plan = "# Plano\n\n1. Ler o template da thread\n2. Montar o draft\n   - detalhe interno fica fora\n3. Postar no canal\n";
+        let subs = plan_to_subtasks(plan);
+        assert_eq!(
+            subs.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
+            vec!["Ler o template da thread", "Montar o draft", "Postar no canal"],
+        );
+    }
+
+    #[test]
+    fn subtasks_are_capped_and_clipped() {
+        let long = (0..30).map(|i| format!("## Passo {i} {}", "x".repeat(200))).collect::<Vec<_>>().join("\n");
+        let subs = plan_to_subtasks(&long);
+        assert!(subs.len() <= 12, "cap");
+        assert!(subs.iter().all(|s| s.text.chars().count() <= 81), "clip");
+        assert!(plan_to_subtasks("sem estrutura nenhuma").is_empty());
     }
 
     #[test]

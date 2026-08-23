@@ -288,6 +288,7 @@ mod tests {
             updated_at: "2026-08-17T10:00:00Z".into(),
             note: None,
             pinned: false,
+            subtasks: Vec::new(),
         }
     }
 

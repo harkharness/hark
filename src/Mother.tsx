@@ -789,6 +789,7 @@ export default function Mother() {
           projects={overview?.projects ?? []}
           onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
           onOpen={openTask}
+          onSubtask={(title, index, done) => ipc.boardSubtaskToggle(title, index, done).then(refresh).catch(() => {})}
         />
       ) : tab === "custos" ? (
         <div className="costs-page">

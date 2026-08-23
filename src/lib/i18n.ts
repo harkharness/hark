@@ -50,6 +50,7 @@ const pt = {
   col_done: "feito",
   card_open: "abrir o chat desta task",
   card_sessions: "sessão(ões)",
+  card_steps: "passos do plano",
 
   // mode select
   mode_manual: "Manual",
@@ -370,6 +371,7 @@ const en: Record<keyof typeof pt, string> = {
   col_done: "done",
   card_open: "open this task's chat",
   card_sessions: "session(s)",
+  card_steps: "plan steps",
 
   mode_manual: "Manual",
   mode_accept: "Accept edits",

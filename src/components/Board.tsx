@@ -16,6 +16,7 @@ export default function Board({
   projects,
   onMove,
   onOpen,
+  onSubtask,
 }: {
   tasks: BoardTask[];
   /** Given on the global board: each card shows the project it belongs to. */
@@ -23,6 +24,8 @@ export default function Board({
   onMove: (title: string, status: BoardTask["status"]) => void;
   /** Click on a card = go back to work on that task. */
   onOpen?: (task: BoardTask) => void;
+  /** Tick/untick one step of the task's plan checklist. */
+  onSubtask?: (title: string, index: number, done: boolean) => void;
 }) {
   // The drop target has to be obvious BEFORE the release, so the column
   // under the pointer lights up in its own color while dragging.
@@ -90,6 +93,31 @@ export default function Board({
                   )}
                   <div className="card-title">{task.title}</div>
                   {task.note && <div className="card-note">{task.note}</div>}
+                  {(task.subtasks?.length ?? 0) > 0 && (
+                    <details
+                      className="card-subs"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <summary>
+                        ☑ {task.subtasks!.filter((s) => s.done).length}/
+                        {task.subtasks!.length} {t("card_steps")}
+                      </summary>
+                      <ul>
+                        {task.subtasks!.map((s, i) => (
+                          <li key={i} className={s.done ? "done" : ""}>
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={s.done}
+                                onChange={(e) => onSubtask?.(task.title, i, e.target.checked)}
+                              />
+                              {s.text}
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                   <div className="card-meta">
                     {task.updated_at.slice(0, 16).replace("T", " ")}
                     {task.session_ids.length > 0 &&

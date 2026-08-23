@@ -96,6 +96,10 @@ export type EcoOut = {
 };
 export const ecoStatus = () => invoke<EcoOut>("eco_status");
 
+/** Tick/untick one step of a task's plan checklist. */
+export const boardSubtaskToggle = (title: string, index: number, done: boolean) =>
+  invoke("board_subtask_toggle", { title, index, done });
+
 /** Which surface a message to global vox belongs to (zero tokens). */
 export const askLane = (text: string) => invoke<"lean" | "work">("ask_lane", { text });
 

@@ -748,10 +748,37 @@ fn start_worker_titled(
                     &app2,
                     serde_json::json!({ "kind": "assistant_text", "task_id": task2, "text": text }),
                 ),
-                ClaudeEvent::ToolUse { name, input } => emit_event(
-                    &app2,
-                    serde_json::json!({ "kind": "worker", "task_id": task2, "name": name, "input": input }),
-                ),
+                ClaudeEvent::ToolUse { name, input } => {
+                    // An APPROVED plan becomes the task's visible checklist.
+                    if name == "ExitPlanMode" {
+                        let plan = serde_json::from_str::<serde_json::Value>(&input)
+                            .ok()
+                            .and_then(|v| v.get("plan").and_then(|p| p.as_str()).map(String::from));
+                        if let Some(plan) = plan {
+                            let subs = vox_core::domain::board::plan_to_subtasks(&plan);
+                            if !subs.is_empty() {
+                                use vox_core::ports::SessionStore;
+                                if let Ok(mut store) =
+                                    SqliteStore::open(&config.data_dir().join("index.db"))
+                                {
+                                    if let Ok(mut tasks) = store.board() {
+                                        if let Some(task) =
+                                            tasks.iter_mut().find(|t| t.title == board_title)
+                                        {
+                                            task.subtasks = subs;
+                                            task.updated_at = now_iso();
+                                            let _ = store.save_board(&tasks);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    emit_event(
+                        &app2,
+                        serde_json::json!({ "kind": "worker", "task_id": task2, "name": name, "input": input }),
+                    )
+                }
                 ClaudeEvent::ToolResult { content, is_error } => emit_event(
                     &app2,
                     serde_json::json!({ "kind": "tool_result", "task_id": task2,
@@ -1045,6 +1072,24 @@ fn worker_send(
 /// worker registry. Its session id lives in the global state so the chat
 /// survives app restarts.
 const VOX_CHAT_TASK: &str = "vox-chat";
+
+/// Tick/untick one step of a task's plan checklist.
+#[tauri::command]
+fn board_subtask_toggle(title: String, index: usize, done: bool) -> Result<(), String> {
+    use vox_core::ports::SessionStore;
+    let config = Config::load();
+    let mut store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let mut tasks = store.board().map_err(|e| e.to_string())?;
+    let task = tasks
+        .iter_mut()
+        .find(|t| t.title == title)
+        .ok_or("task não está no quadro")?;
+    let sub = task.subtasks.get_mut(index).ok_or("passo fora do checklist")?;
+    sub.done = done;
+    task.updated_at = now_iso();
+    store.save_board(&tasks).map_err(|e| e.to_string())
+}
 
 /// Per-worker eco-tool env vars from what the machine has + `[assist]`.
 pub(crate) fn worker_envs(config: &Config) -> Vec<(String, String)> {
@@ -2717,6 +2762,7 @@ pub fn run() {
             worker_restart_light,
             savings_summary,
             eco_status,
+            board_subtask_toggle,
             ask_lane,
             vox_chat_send,
             vox_chat_status,

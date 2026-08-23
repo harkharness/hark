@@ -1410,6 +1410,7 @@ export default function App({
         tasks={board}
         onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
         onOpen={openTaskFromSidebar}
+        onSubtask={(title, index, done) => ipc.boardSubtaskToggle(title, index, done).then(refresh).catch(() => {})}
       />
     </PanelFrame>
   );
