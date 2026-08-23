@@ -65,6 +65,18 @@ pub struct Config {
     /// The assistant's own name (persona of the mother's work chat, UI
     /// labels, spoken announcements).
     pub assistant_name: String,
+    /// Community eco-tools, per WORKER process (env vars — the global
+    /// settings are never touched). Empty = evidence-based defaults:
+    /// ponytail "full" when installed, caveman "off", tokensave "off".
+    pub assist: AssistTable,
+}
+
+#[derive(Debug, Clone, Deserialize, serde::Serialize, Default)]
+#[serde(default)]
+pub struct AssistTable {
+    pub ponytail: Option<String>,
+    pub caveman: Option<String>,
+    pub tokensave: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize, Default)]
@@ -105,6 +117,7 @@ impl Default for Config {
             worker_max_turns: 0,
             worker_mode: String::new(),
             assistant_name: "Vox".into(),
+            assist: AssistTable::default(),
         }
     }
 }

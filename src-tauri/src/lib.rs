@@ -609,6 +609,7 @@ fn worker_start(
         .or_else(|| config.default_worker_mode());
     let spawn = vox_core::adapters::worker::WorkerSpawn {
         limits: config.spawn_limits(),
+        envs: worker_envs(&config),
         claude_bin: config.claude_bin_resolved(),
         cwd: planned.workspace_root.clone(),
         session_id: planned.session.session_id.clone(),
@@ -675,6 +676,9 @@ fn start_worker_titled(
         })
     };
     let mut current_session = spawn.session_id.clone();
+    // Which eco tools this spawn runs with — every turn's ledger row
+    // carries it, so the costs panel can compare real per-tool averages.
+    let eco_outcome = eco_fingerprint(&spawn.envs);
     std::thread::spawn(move || {
         use std::io::{BufRead, BufReader};
         let config = Config::load();
@@ -802,6 +806,7 @@ fn start_worker_titled(
                             session_id: (!current_session.is_empty())
                                 .then_some(current_session.as_str()),
                             workspace: Some(&workspace_str),
+                            outcome: Some(&eco_outcome),
                             ..Default::default()
                         },
                         &turn,
@@ -942,6 +947,7 @@ fn chat_start(
         .or_else(|| config.default_worker_mode());
     let spawn = vox_core::adapters::worker::WorkerSpawn {
         limits: config.spawn_limits(),
+        envs: worker_envs(&config),
         claude_bin: config.claude_bin_resolved(),
         cwd: root,
         session_id: String::new(),
@@ -1039,6 +1045,42 @@ fn worker_send(
 /// worker registry. Its session id lives in the global state so the chat
 /// survives app restarts.
 const VOX_CHAT_TASK: &str = "vox-chat";
+
+/// Per-worker eco-tool env vars from what the machine has + `[assist]`.
+pub(crate) fn worker_envs(config: &Config) -> Vec<(String, String)> {
+    let settings = std::fs::read_to_string(vox_core::config::expand_home("~/.claude/settings.json"))
+        .unwrap_or_default();
+    let status = vox_core::adapters::eco_tools::detect(&settings);
+    vox_core::adapters::eco_tools::eco_envs(
+        status,
+        config.assist.ponytail.as_deref(),
+        config.assist.caveman.as_deref(),
+        config.assist.tokensave.as_deref(),
+    )
+}
+
+/// The ledger fingerprint of a spawn's eco set (feeds spend.outcome).
+pub(crate) fn eco_fingerprint(envs: &[(String, String)]) -> String {
+    let settings = std::fs::read_to_string(vox_core::config::expand_home("~/.claude/settings.json"))
+        .unwrap_or_default();
+    let status = vox_core::adapters::eco_tools::detect(&settings);
+    vox_core::adapters::eco_tools::fingerprint(status, envs)
+}
+
+/// What eco tools this machine has and how workers run them.
+#[tauri::command(async)]
+fn eco_status() -> Result<serde_json::Value, String> {
+    let config = Config::load();
+    let settings = std::fs::read_to_string(vox_core::config::expand_home("~/.claude/settings.json"))
+        .unwrap_or_default();
+    let status = vox_core::adapters::eco_tools::detect(&settings);
+    let envs = worker_envs(&config);
+    Ok(serde_json::json!({
+        "status": status,
+        "envs": envs,
+        "fingerprint": vox_core::adapters::eco_tools::fingerprint(status, &envs),
+    }))
+}
 
 /// The soul file: <data_dir>/CLAUDE.md — the chat runs in the data dir,
 /// so the CLI loads it on every turn (identity + accumulated learnings).
@@ -1178,6 +1220,7 @@ fn vox_chat_send(
     let resumed = session.is_some();
     let spawn = vox_core::adapters::worker::WorkerSpawn {
         limits: config.spawn_limits(),
+        envs: worker_envs(&config),
         claude_bin: config.claude_bin_resolved(),
         cwd: config.data_dir(),
         session_id: session.unwrap_or_default(),
@@ -1401,6 +1444,7 @@ fn dispatch_text(
 
     let spawn = vox_core::adapters::worker::WorkerSpawn {
         limits: config.spawn_limits(),
+        envs: worker_envs(&config),
         claude_bin: config.claude_bin_resolved(),
         cwd: planned.workspace_root.clone(),
         session_id: planned.session.session_id.clone(),
@@ -2672,6 +2716,7 @@ pub fn run() {
             worker_send,
             worker_restart_light,
             savings_summary,
+            eco_status,
             ask_lane,
             vox_chat_send,
             vox_chat_status,

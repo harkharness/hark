@@ -887,6 +887,12 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .saved-method { margin-top: 10px; }
 .saved-method summary { cursor: pointer; color: var(--dim); font-size: 11px; }
 .saved-method ul { margin: 6px 0 0 16px; color: var(--dim); font-size: 11.5px; line-height: 1.6; }
+.eco-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 8px; }
+.eco-chip {
+  border: 1px solid var(--border); border-radius: 8px; padding: 3px 10px;
+  font-size: 11.5px; color: var(--dim); font-family: var(--font-mono);
+}
+.eco-chip.on { color: var(--ok); border-color: rgba(158,206,106,.4); }
 .perm-title .tool-hint { font-weight: 400; }
 .perm-voice-hint { color: var(--dim); font-size: 11px; margin-right: auto; }
 /* A DECIDED permission collapses to one quiet line (payload one click away). */

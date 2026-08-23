@@ -69,6 +69,7 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
   const [method, setMethod] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [savings, setSavings] = useState<import("../lib/ipc").SavingsOut | null>(null);
+  const [eco, setEco] = useState<import("../lib/ipc").EcoOut | null>(null);
 
   const load = useCallback(() => {
     const since = sinceOf(window);
@@ -81,6 +82,7 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
     ipc.subscriptionLimits().then(setLimits).catch(() => setLimits(null));
     ipc.statuslineBridgeStatus().then(setBridge).catch(() => setBridge(null));
     ipc.savingsSummary(since).then(setSavings).catch(() => setSavings(null));
+    ipc.ecoStatus().then(setEco).catch(() => setEco(null));
   }, [window, group, workspace]);
   useEffect(load, [load]);
 
@@ -219,6 +221,25 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
                 ))}
               </ul>
             </details>
+          </section>
+        )}
+
+        {eco && (
+          <section className="card">
+            <h4>{t("c_eco")}</h4>
+            <div className="eco-row">
+              {(["rtk", "ponytail", "caveman", "tokensave"] as const).map((tool) => (
+                <span key={tool} className={`eco-chip ${eco.status[tool] ? "on" : ""}`}>
+                  {tool} {eco.status[tool] ? "✓" : "—"}
+                </span>
+              ))}
+            </div>
+            <p className="hint">
+              {eco.envs.length > 0
+                ? t("c_eco_envs", { envs: eco.envs.map(([k, v]) => `${k}=${v}`).join(" · ") })
+                : t("c_eco_none")}
+            </p>
+            <p className="hint">{t("c_eco_fp", { fp: eco.fingerprint })}</p>
           </section>
         )}
 

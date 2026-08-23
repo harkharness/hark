@@ -31,6 +31,9 @@ pub struct WorkerSpawn {
     /// omitted flags keep the user's own Claude Code defaults.
     pub directives: crate::domain::directives::Directives,
     pub limits: SpawnLimits,
+    /// Per-PROCESS env vars (eco tools: ponytail/caveman/tokensave modes)
+    /// — global settings are never touched.
+    pub envs: Vec<(String, String)>,
 }
 
 impl WorkerSpawn {
@@ -117,6 +120,7 @@ impl PersistentWorker {
     pub fn spawn(spawn: &WorkerSpawn) -> anyhow::Result<(Self, std::process::ChildStdout)> {
         let mut child = std::process::Command::new(&spawn.claude_bin)
             .current_dir(&spawn.cwd)
+            .envs(spawn.envs.iter().cloned())
             .args(spawn.cli_args(true))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -186,6 +190,7 @@ pub fn run(
     // never as a CLI argument.
     let mut child = std::process::Command::new(&spawn.claude_bin)
         .current_dir(&spawn.cwd)
+        .envs(spawn.envs.iter().cloned())
         .args(spawn.cli_args(false))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -266,6 +271,7 @@ mod tests {
             instruction: "go".into(),
             directives,
             limits: SpawnLimits::default(),
+            envs: Vec::new(),
         }
     }
 

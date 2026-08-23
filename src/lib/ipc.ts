@@ -88,6 +88,14 @@ export type SavingsOut = {
 export const savingsSummary = (since: string | null) =>
   invoke<SavingsOut>("savings_summary", { since });
 
+/** Community eco-tools on this machine and how workers run them. */
+export type EcoOut = {
+  status: { rtk: boolean; ponytail: boolean; caveman: boolean; tokensave: boolean };
+  envs: [string, string][];
+  fingerprint: string;
+};
+export const ecoStatus = () => invoke<EcoOut>("eco_status");
+
 /** Which surface a message to global vox belongs to (zero tokens). */
 export const askLane = (text: string) => invoke<"lean" | "work">("ask_lane", { text });
 

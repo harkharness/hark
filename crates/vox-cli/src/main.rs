@@ -553,6 +553,11 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
 
     let spawn = worker::WorkerSpawn {
         limits: config.spawn_limits(),
+        envs: {
+            let settings = std::fs::read_to_string(vox_core::config::expand_home("~/.claude/settings.json")).unwrap_or_default();
+            let status = vox_core::adapters::eco_tools::detect(&settings);
+            vox_core::adapters::eco_tools::eco_envs(status, config.assist.ponytail.as_deref(), config.assist.caveman.as_deref(), config.assist.tokensave.as_deref())
+        },
         directives: vox_core::domain::directives::parse(instruction),
         claude_bin: config.claude_bin_resolved(),
         cwd: planned.workspace_root.clone(),
