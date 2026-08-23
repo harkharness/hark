@@ -76,6 +76,18 @@ export const workerStop = (taskId: string) => invoke("worker_stop", { taskId });
 export const workerRestartLight = (taskId: string) =>
   invoke("worker_restart_light", { taskId });
 
+/** The savings meter: what the architecture avoided spending, with the
+ *  formula of every counter in `methodology`. */
+export type SavingsOut = {
+  avoided_gate_usd: number;
+  avoided_local_usd: number;
+  avoided_cache_usd: number;
+  total_usd: number;
+  methodology: string[];
+};
+export const savingsSummary = (since: string | null) =>
+  invoke<SavingsOut>("savings_summary", { since });
+
 /** Which surface a message to global vox belongs to (zero tokens). */
 export const askLane = (text: string) => invoke<"lean" | "work">("ask_lane", { text });
 

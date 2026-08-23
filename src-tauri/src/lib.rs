@@ -1053,6 +1053,70 @@ pub(crate) fn ensure_persona(config: &Config) {
     );
 }
 
+#[derive(Serialize)]
+struct SavingsOut {
+    avoided_gate_usd: f64,
+    avoided_local_usd: f64,
+    avoided_cache_usd: f64,
+    total_usd: f64,
+    methodology: Vec<String>,
+}
+
+/// The savings meter: ledger-derived inputs → domain::savings::compute.
+/// Every number's formula travels in `methodology` — the UI shows it.
+#[tauri::command(async)]
+fn savings_summary(since: Option<String>) -> Result<SavingsOut, String> {
+    use vox_core::domain::spend::SpendSource;
+    use vox_core::ports::{SpendGroup, SpendLedger, SpendQuery};
+    let config = Config::load();
+    let store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let by = |group: SpendGroup| {
+        store.spend_summary(&SpendQuery {
+            since: since.clone(),
+            group,
+            source: SpendSource::Live,
+            workspace: None,
+        })
+    };
+    let kinds = by(SpendGroup::Kind).map_err(|e| e.to_string())?;
+    let models = by(SpendGroup::Model).map_err(|e| e.to_string())?;
+    let agg = |key: &str| kinds.iter().find(|a| a.key == key);
+
+    // Gate interceptions: rows whose outcome marks a dispatch that never
+    // became a worker turn (meta_vox — talk about vox, not work).
+    let gate_blocked = store
+        .spend_rows(since.as_deref().unwrap_or("0"), 1_000_000)
+        .map_err(|e| e.to_string())?
+        .iter()
+        .filter(|r| r.outcome.as_deref() == Some("gate:meta_vox"))
+        .count() as u64;
+
+    let avg = |cost: f64, turns: u64| if turns > 0 { cost / turns as f64 } else { 0.0 };
+    let worker = agg("worker");
+    let ask = agg("ask");
+    let (total_cost, total_in) = kinds.iter().fold((0.0, 0u64), |(c, t), a| {
+        (c + a.cost_usd, t + a.usage.input + a.usage.cache_read + a.usage.cache_created)
+    });
+    let inputs = vox_core::domain::savings::SavingsInputs {
+        gate_blocked,
+        gate_cost_usd: agg("gate").map(|a| a.cost_usd).unwrap_or(0.0),
+        avg_worker_turn_usd: worker.map(|a| avg(a.cost_usd, a.turns)).unwrap_or(0.0),
+        local_answers: models.iter().find(|a| a.key == "local").map(|a| a.turns).unwrap_or(0),
+        avg_ask_usd: ask.map(|a| avg(a.cost_usd, a.turns)).unwrap_or(0.0),
+        cache_read_tokens: kinds.iter().map(|a| a.usage.cache_read).sum(),
+        usd_per_input_token: if total_in > 0 { total_cost / total_in as f64 } else { 0.0 },
+    };
+    let report = vox_core::domain::savings::compute(&inputs);
+    Ok(SavingsOut {
+        avoided_gate_usd: report.avoided_gate_usd,
+        avoided_local_usd: report.avoided_local_usd,
+        avoided_cache_usd: report.avoided_cache_usd,
+        total_usd: report.total_usd,
+        methodology: report.methodology,
+    })
+}
+
 /// Which surface a message to global vox belongs to: "lean" (bare one-shot
 /// ask over the snapshot) or "work" (the persistent chat with full
 /// settings + MCP). Pure domain passthrough, zero tokens.
@@ -2604,6 +2668,7 @@ pub fn run() {
             worker_start,
             worker_send,
             worker_restart_light,
+            savings_summary,
             ask_lane,
             vox_chat_send,
             vox_chat_status,

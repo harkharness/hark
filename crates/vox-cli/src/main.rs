@@ -120,6 +120,50 @@ fn cmd_spend(rest: &[String]) -> i32 {
             eprintln!("[{} linhas exportadas]", rows.len());
             return Ok(0);
         }
+        // --savings: the meter, same formulas as the UI card.
+        if has("--savings") {
+            let kinds = store.spend_summary(&SpendQuery {
+                since: since.clone(),
+                group: SpendGroup::Kind,
+                source: SpendSource::Live,
+                workspace: None,
+            })?;
+            let models = store.spend_summary(&SpendQuery {
+                since: since.clone(),
+                group: SpendGroup::Model,
+                source: SpendSource::Live,
+                workspace: None,
+            })?;
+            let gate_blocked = store
+                .spend_rows(since.as_deref().unwrap_or("0"), 1_000_000)?
+                .iter()
+                .filter(|r| r.outcome.as_deref() == Some("gate:meta_vox"))
+                .count() as u64;
+            let agg = |key: &str| kinds.iter().find(|a| a.key == key);
+            let avg = |c: f64, t: u64| if t > 0 { c / t as f64 } else { 0.0 };
+            let (total_cost, total_in) = kinds.iter().fold((0.0, 0u64), |(c, t), a| {
+                (c + a.cost_usd, t + a.usage.input + a.usage.cache_read + a.usage.cache_created)
+            });
+            let report = vox_core::domain::savings::compute(&vox_core::domain::savings::SavingsInputs {
+                gate_blocked,
+                gate_cost_usd: agg("gate").map(|a| a.cost_usd).unwrap_or(0.0),
+                avg_worker_turn_usd: agg("worker").map(|a| avg(a.cost_usd, a.turns)).unwrap_or(0.0),
+                local_answers: models.iter().find(|a| a.key == "local").map(|a| a.turns).unwrap_or(0),
+                avg_ask_usd: agg("ask").map(|a| avg(a.cost_usd, a.turns)).unwrap_or(0.0),
+                cache_read_tokens: kinds.iter().map(|a| a.usage.cache_read).sum(),
+                usd_per_input_token: if total_in > 0 { total_cost / total_in as f64 } else { 0.0 },
+            });
+            println!("== evitado (janela {}) ==", if has("--day") { "24h" } else if has("--week") { "7d" } else { "toda" });
+            println!("gate antes do worker      ${:.4}", report.avoided_gate_usd);
+            println!("respostas locais          ${:.4}", report.avoided_local_usd);
+            println!("cache lido (estimado)     ${:.4}", report.avoided_cache_usd);
+            println!("TOTAL                     ${:.4}", report.total_usd);
+            println!("\nmetodologia:");
+            for m in &report.methodology {
+                println!("- {m}");
+            }
+            return Ok(0);
+        }
         let group = if has("--project") {
             SpendGroup::Workspace
         } else {

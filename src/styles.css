@@ -881,6 +881,12 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .perm-who { color: var(--accent); }
 .worker-chip .light { color: var(--warn); }
 .worker-chip .light:hover { color: var(--text); }
+/* Savings card */
+.saved-hero { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 10px; }
+.saved-hero .ok { color: var(--ok); }
+.saved-method { margin-top: 10px; }
+.saved-method summary { cursor: pointer; color: var(--dim); font-size: 11px; }
+.saved-method ul { margin: 6px 0 0 16px; color: var(--dim); font-size: 11.5px; line-height: 1.6; }
 .perm-title .tool-hint { font-weight: 400; }
 .perm-voice-hint { color: var(--dim); font-size: 11px; margin-right: auto; }
 /* A DECIDED permission collapses to one quiet line (payload one click away). */

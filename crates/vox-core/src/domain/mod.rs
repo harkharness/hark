@@ -17,6 +17,7 @@ pub mod memory;
 pub mod persona;
 pub mod prodgate;
 pub mod prompt;
+pub mod savings;
 pub mod session_log;
 pub mod precheck;
 pub mod snapshot;

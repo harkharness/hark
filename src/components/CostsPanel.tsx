@@ -68,6 +68,7 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
   const [bridge, setBridge] = useState<BridgeStatus | null>(null);
   const [method, setMethod] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [savings, setSavings] = useState<import("../lib/ipc").SavingsOut | null>(null);
 
   const load = useCallback(() => {
     const since = sinceOf(window);
@@ -79,6 +80,7 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
     ipc.spendTopSessions(since, 6).then(setTop).catch(() => setTop([]));
     ipc.subscriptionLimits().then(setLimits).catch(() => setLimits(null));
     ipc.statuslineBridgeStatus().then(setBridge).catch(() => setBridge(null));
+    ipc.savingsSummary(since).then(setSavings).catch(() => setSavings(null));
   }, [window, group, workspace]);
   useEffect(load, [load]);
 
@@ -178,6 +180,47 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
             </>
           )}
         </section>
+
+        {savings && savings.total_usd > 0 && (
+          <section className="card">
+            <h4>{t("c_saved")}</h4>
+            <div className="saved-hero">
+              <b className="costs-money ok">{fmtUsd(savings.total_usd)}</b>
+              <span className="costs-sub">{t("c_saved_sub")}</span>
+            </div>
+            <div className="costs-rows">
+              <MeterRow
+                name={t("s_gate")}
+                value={savings.avoided_gate_usd}
+                max={savings.total_usd}
+                detail={fmtUsd(savings.avoided_gate_usd)}
+                color="var(--ok)"
+              />
+              <MeterRow
+                name={t("s_local")}
+                value={savings.avoided_local_usd}
+                max={savings.total_usd}
+                detail={fmtUsd(savings.avoided_local_usd)}
+                color="var(--accent)"
+              />
+              <MeterRow
+                name={t("s_cache")}
+                value={savings.avoided_cache_usd}
+                max={savings.total_usd}
+                detail={`${fmtUsd(savings.avoided_cache_usd)} ~`}
+                color="var(--warn)"
+              />
+            </div>
+            <details className="saved-method">
+              <summary>{t("c_method")}</summary>
+              <ul>
+                {savings.methodology.map((m, i) => (
+                  <li key={i}>{m}</li>
+                ))}
+              </ul>
+            </details>
+          </section>
+        )}
 
         <section className="card">
           <h4>{t("c_limits")}</h4>
