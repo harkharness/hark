@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   Panel,
   PanelGroup,
@@ -98,6 +98,34 @@ export default function App({
    */
   const [rail, setRail] = useState<{ id: RailItem; collapsed: boolean }[]>([]);
   const dragRail = useRef<RailItem | null>(null);
+  // Vertical split between expanded rail panels (flex units, default 1).
+  const [railFlex, setRailFlex] = useState<Record<string, number>>({});
+  const railRef = useRef<HTMLDivElement>(null);
+
+  /** Drag the divider between two expanded rail panels. */
+  function startRailResize(e: React.MouseEvent, above: RailItem, below: RailItem) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startY = e.clientY;
+    const fa = railFlex[above] ?? 1;
+    const fb = railFlex[below] ?? 1;
+    const sum = fa + fb;
+    const expanded = rail.filter((s) => !s.collapsed);
+    const totalFlex = expanded.reduce((a, s) => a + (railFlex[s.id] ?? 1), 0) || 1;
+    const totalPx = railRef.current?.getBoundingClientRect().height ?? 600;
+    const unit = Math.max(40, totalPx / totalFlex);
+    const onMove = (ev: MouseEvent) => {
+      const d = (ev.clientY - startY) / unit;
+      const a = Math.min(Math.max(fa + d, 0.25), sum - 0.25);
+      setRailFlex((old) => ({ ...old, [above]: a, [below]: sum - a }));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
   // Real shell tabs (PTY ids). Owned here so hiding the pane keeps them.
   const [shells, setShells] = useState<string[]>([]);
   const [termTab, setTermTab] = useState<string>("feed");
@@ -1682,21 +1710,39 @@ export default function App({
               <Panel defaultSize={42} minSize={20} className="pane">
                 {/* The rail: panels stack vertically; expanded ones split
                     the height, collapsed ones cost a title bar. */}
-                <div className="rail">
-                  {rail.map((slot) => (
-                    <div
-                      key={slot.id}
-                      className={`rail-slot ${slot.collapsed ? "collapsed" : ""}`}
-                    >
-                      {slot.id === "arquivo"
-                        ? frameArquivo(slot)
-                        : slot.id === "terminal"
-                          ? frameTerminal(slot)
-                          : slot.id === "board"
-                            ? frameBoard(slot)
-                            : frameArquivos(slot)}
-                    </div>
-                  ))}
+                <div className="rail" ref={railRef}>
+                  {rail.map((slot, i) => {
+                    const prev = rail
+                      .slice(0, i)
+                      .reverse()
+                      .find((s) => !s.collapsed);
+                    return (
+                      <Fragment key={slot.id}>
+                        {i > 0 && !slot.collapsed && prev && (
+                          <div
+                            className="rail-vhandle"
+                            onMouseDown={(e) => startRailResize(e, prev.id, slot.id)}
+                          />
+                        )}
+                        <div
+                          className={`rail-slot ${slot.collapsed ? "collapsed" : ""}`}
+                          style={
+                            slot.collapsed
+                              ? undefined
+                              : { flexGrow: railFlex[slot.id] ?? 1 }
+                          }
+                        >
+                          {slot.id === "arquivo"
+                            ? frameArquivo(slot)
+                            : slot.id === "terminal"
+                              ? frameTerminal(slot)
+                              : slot.id === "board"
+                                ? frameBoard(slot)
+                                : frameArquivos(slot)}
+                        </div>
+                      </Fragment>
+                    );
+                  })}
                 </div>
               </Panel>
             </>

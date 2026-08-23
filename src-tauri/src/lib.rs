@@ -679,6 +679,14 @@ fn start_worker_titled(
     // Which eco tools this spawn runs with — every turn's ledger row
     // carries it, so the costs panel can compare real per-tool averages.
     let eco_outcome = eco_fingerprint(&spawn.envs);
+    // The opening instruction IS a turn in flight (batching bookkeeping).
+    app.state::<BatchState>()
+        .0
+        .lock()
+        .unwrap()
+        .entry(task_id.to_string())
+        .or_default()
+        .in_flight = true;
     std::thread::spawn(move || {
         use std::io::{BufRead, BufReader};
         let config = Config::load();
@@ -864,6 +872,33 @@ fn start_worker_titled(
                                        "cache_read": usage.cache_read, "cache_created": usage.cache_created },
                             "context_pct": context_pct }),
                     );
+                    // Batching: everything queued during this turn goes out
+                    // now as ONE message; empty queue clears the flag.
+                    let queued = {
+                        let state = app2.state::<BatchState>();
+                        let mut map = state.0.lock().unwrap();
+                        match map.get_mut(&task2) {
+                            Some(entry) if !entry.queue.is_empty() => {
+                                Some(entry.queue.drain(..).collect::<Vec<_>>().join("\n\n"))
+                            }
+                            Some(entry) => {
+                                entry.in_flight = false;
+                                None
+                            }
+                            None => None,
+                        }
+                    };
+                    if let Some(joined) = queued {
+                        let handle = app2.state::<LiveWorkers>().0.lock().unwrap().get(&task2).cloned();
+                        if let Some(h) = handle {
+                            let _ = h.worker.send_text(&joined, &[]);
+                            emit_event(
+                                &app2,
+                                serde_json::json!({ "kind": "status",
+                                    "text": "fila entregue como uma mensagem" }),
+                            );
+                        }
+                    }
                 }
                 ClaudeEvent::RateLimit(info) => emit_event(
                     &app2,
@@ -887,6 +922,7 @@ fn start_worker_titled(
                 serde_json::json!({ "kind": "worker_exit", "task_id": task2 }),
             );
             app2.state::<LiveWorkers>().0.lock().unwrap().remove(&task2);
+            app2.state::<BatchState>().0.lock().unwrap().remove(&task2);
         }
     });
 
@@ -1031,6 +1067,26 @@ fn worker_send(
         .cloned()
         .ok_or("worker não está mais ativo")?;
 
+    // Batching (opt-in): a turn is running → queue, deliver as ONE message
+    // when it ends. Queued text skips directive parsing by design.
+    if Config::load().batch_messages {
+        let state = app.state::<BatchState>();
+        let mut map = state.0.lock().unwrap();
+        let entry = map.entry(task_id.clone()).or_default();
+        if entry.in_flight {
+            entry.queue.push(text.clone());
+            let n = entry.queue.len();
+            drop(map);
+            emit_event(
+                &app,
+                serde_json::json!({ "kind": "status",
+                    "text": format!("turno em andamento — mensagem na fila ({n} pendente(s))") }),
+            );
+            return Ok(handle.spawn.directives.clone());
+        }
+        entry.in_flight = true;
+    }
+
     let asked = vox_core::domain::directives::parse(&text);
     let mut next = handle.spawn.directives.clone();
     if asked.mode.is_some() {
@@ -1072,6 +1128,17 @@ fn worker_send(
 /// worker registry. Its session id lives in the global state so the chat
 /// survives app restarts.
 const VOX_CHAT_TASK: &str = "vox-chat";
+
+/// Opt-in message batching (`batch_messages = true`): follow-ups sent
+/// while a turn is in flight queue up and land as ONE message when the
+/// turn ends — fewer, fatter turns re-read the cached context less often.
+#[derive(Default)]
+pub(crate) struct BatchState(pub(crate) Mutex<HashMap<String, BatchEntry>>);
+#[derive(Default)]
+pub(crate) struct BatchEntry {
+    pub(crate) in_flight: bool,
+    pub(crate) queue: Vec<String>,
+}
 
 /// Tick/untick one step of a task's plan checklist.
 #[tauri::command]
@@ -2045,6 +2112,12 @@ fn config_write(app: AppHandle, patch: serde_json::Value) -> Result<(), String> 
     let out = vox_core::config::patch_toml(&text, &patch).map_err(|e| e.to_string())?;
     std::fs::write(&path, out).map_err(|e| e.to_string())?;
 
+    // Menu label follows the UI language without a restart.
+    if patch.get("ui_language").is_some() {
+        if let Ok(menu) = build_native_menu(&app) {
+            let _ = app.set_menu(menu);
+        }
+    }
     if let Some(new_hotkey) = patch.get("hotkey").and_then(|v| v.as_str()) {
         if new_hotkey != old_hotkey {
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -2666,54 +2739,59 @@ fn approve(
     }
 }
 
+/// Native macOS menu: the standard set plus "Settings…" (Cmd+,) under the
+/// app's own submenu. Rebuilt on ui_language change (config_write) so the
+/// label follows the UI language without a restart.
+fn build_native_menu(
+    handle: &tauri::AppHandle,
+) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::Error> {
+    use tauri::menu::{AboutMetadata, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+    let label = if Config::load().ui_language == "en" {
+        "Settings…"
+    } else {
+        "Configurações…"
+    };
+    let settings = MenuItemBuilder::with_id("settings", label)
+        .accelerator("Cmd+,")
+        .build(handle)?;
+    let app_menu = SubmenuBuilder::new(handle, "vox")
+        .about(Some(AboutMetadata::default()))
+        .separator()
+        .item(&settings)
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+    // Clipboard/undo only work through these predefined items.
+    let edit = SubmenuBuilder::new(handle, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+    let window = SubmenuBuilder::new(handle, "Window")
+        .minimize()
+        .separator()
+        .close_window()
+        .build()?;
+    MenuBuilder::new(handle)
+        .items(&[&app_menu, &edit, &window])
+        .build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         // Native macOS menu: the standard set plus "Settings…" (Cmd+,)
         // under the app's own submenu — it fronts the MOTHER window with
         // the settings modal open (machine config lives there).
-        .menu(|handle| {
-            use tauri::menu::{
-                AboutMetadata, MenuBuilder, MenuItemBuilder, SubmenuBuilder,
-            };
-            let label = if Config::load().ui_language == "en" {
-                "Settings…"
-            } else {
-                "Configurações…"
-            };
-            let settings = MenuItemBuilder::with_id("settings", label)
-                .accelerator("Cmd+,")
-                .build(handle)?;
-            let app_menu = SubmenuBuilder::new(handle, "vox")
-                .about(Some(AboutMetadata::default()))
-                .separator()
-                .item(&settings)
-                .separator()
-                .hide()
-                .hide_others()
-                .show_all()
-                .separator()
-                .quit()
-                .build()?;
-            // Clipboard/undo only work through these predefined items.
-            let edit = SubmenuBuilder::new(handle, "Edit")
-                .undo()
-                .redo()
-                .separator()
-                .cut()
-                .copy()
-                .paste()
-                .select_all()
-                .build()?;
-            let window = SubmenuBuilder::new(handle, "Window")
-                .minimize()
-                .separator()
-                .close_window()
-                .build()?;
-            MenuBuilder::new(handle)
-                .items(&[&app_menu, &edit, &window])
-                .build()
-        })
+        .menu(build_native_menu)
         .on_menu_event(|app, event| {
             if event.id() == "settings" {
                 let _ = focus_main(app.clone(), Some("settings".into()));
@@ -2724,6 +2802,7 @@ pub fn run() {
         .manage(SlashRegistry::default())
         .manage(Pending(Mutex::new(HashMap::new())))
         .manage(PermLog::default())
+        .manage(BatchState::default())
         .manage(MicLease::default())
         .manage(LiveWorkers(Mutex::new(HashMap::new())))
         .manage(WorkerPermissions(Mutex::new(HashMap::new())))

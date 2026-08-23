@@ -69,6 +69,10 @@ pub struct Config {
     /// settings are never touched). Empty = evidence-based defaults:
     /// ponytail "full" when installed, caveman "off", tokensave "off".
     pub assist: AssistTable,
+    /// Queue follow-up messages while a worker turn is in flight and
+    /// deliver them as ONE message when it ends (fewer, fatter turns).
+    /// Off by default; directive changes are not applied to queued text.
+    pub batch_messages: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize, Default)]
@@ -118,6 +122,7 @@ impl Default for Config {
             worker_mode: String::new(),
             assistant_name: "Vox".into(),
             assist: AssistTable::default(),
+            batch_messages: false,
         }
     }
 }

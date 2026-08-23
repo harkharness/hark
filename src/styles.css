@@ -1597,6 +1597,11 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   height: 100%; min-height: 0; padding-right: 2px;
 }
 .rail-slot { display: flex; min-height: 0; flex: 1 1 0; }
+/* Drag between two expanded rail panels to trade height. */
+.rail-vhandle {
+  flex: 0 0 5px; cursor: row-resize; border-radius: 3px; margin: 1px 6px;
+}
+.rail-vhandle:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .rail-slot.collapsed { flex: 0 0 auto; }
 .rail-slot .frame { flex: 1; min-height: 0; }
 .rail-slot.collapsed .frame { min-height: 0; }
