@@ -1206,6 +1206,102 @@ fn eco_status() -> Result<serde_json::Value, String> {
     }))
 }
 
+/// Everything the first-run wizard needs to decide what to show: which
+/// pieces exist (config, whisper model, claude binary, history) and the
+/// current values to pre-fill.
+#[tauri::command]
+fn setup_status() -> Result<serde_json::Value, String> {
+    let config = Config::load();
+    let whisper = config.whisper_model_path();
+    let claude = config.claude_bin_resolved();
+    let claude_ok = std::path::Path::new(&claude).is_absolute()
+        || std::process::Command::new("which")
+            .arg(&claude)
+            .output()
+            .is_ok_and(|out| out.status.success());
+    let state = hark_core::adapters::state_file::load(&config.data_dir());
+    let models: Vec<serde_json::Value> = hark_core::adapters::model_fetch::whisper_models()
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "key": m.key,
+                "filename": m.filename,
+                "size_label": m.size_label,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "onboarded": state.onboarded,
+        "config_exists": hark_core::config::config_path().exists(),
+        "whisper_ok": whisper.exists(),
+        "whisper_path": whisper.display().to_string(),
+        "claude_bin": claude,
+        "claude_ok": claude_ok,
+        "projects_dir_ok": config.projects_dir.exists(),
+        "models": models,
+        "language": config.language,
+        "assistant_name": config.assistant_name,
+        "hotkey": config.hotkey,
+    }))
+}
+
+/// Download a whisper model in the background, streaming progress to the
+/// window as `hark-setup` events ({key, pct, done, error}). On success the
+/// config points at the downloaded file explicitly.
+#[tauri::command]
+fn setup_download_model(app: AppHandle, key: String) -> Result<(), String> {
+    let model = hark_core::adapters::model_fetch::whisper_model(&key)
+        .ok_or_else(|| format!("modelo desconhecido: {key}"))?;
+    let config = Config::load();
+    let dir = config.data_dir().join("models");
+    std::thread::spawn(move || {
+        let emit = |payload: serde_json::Value| {
+            let _ = app.emit("hark-setup", payload);
+        };
+        let mut last = 255u8;
+        let result = hark_core::adapters::model_fetch::download_model(model, &dir, |pct| {
+            if pct != last {
+                last = pct;
+                emit(serde_json::json!({ "key": model.key, "pct": pct }));
+            }
+        });
+        match result {
+            Ok(path) => {
+                // Point the config at the verified file so a non-default
+                // choice (large-v3-turbo) is what the mic actually loads.
+                let patch =
+                    serde_json::json!({ "whisper_model": path.display().to_string() });
+                let text =
+                    std::fs::read_to_string(hark_core::config::config_path()).unwrap_or_default();
+                if let Ok(out) = hark_core::config::patch_toml(&text, &patch) {
+                    if let Some(parent) = hark_core::config::config_path().parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let _ = std::fs::write(hark_core::config::config_path(), out);
+                }
+                // Warm whisper so the mic works right after the wizard.
+                let config = Config::load();
+                let _ = stt(&config);
+                emit(serde_json::json!({ "key": model.key, "pct": 100, "done": true }));
+            }
+            Err(err) => {
+                emit(serde_json::json!({ "key": model.key, "error": err.to_string() }));
+            }
+        }
+    });
+    Ok(())
+}
+
+/// The wizard finished (or was skipped): never auto-open it again.
+#[tauri::command]
+fn setup_mark_done() -> Result<(), String> {
+    let config = Config::load();
+    let data_dir = config.data_dir();
+    let mut state = hark_core::adapters::state_file::load(&data_dir);
+    state.onboarded = true;
+    hark_core::adapters::state_file::save(&data_dir, &state).map_err(|e| e.to_string())
+}
+
 /// The soul file: <data_dir>/CLAUDE.md — the chat runs in the data dir,
 /// so the CLI loads it on every turn (identity + accumulated learnings).
 /// Created once from the template; after that it belongs to the user and
@@ -2855,6 +2951,9 @@ pub fn run() {
             worker_restart_light,
             savings_summary,
             eco_status,
+            setup_status,
+            setup_download_model,
+            setup_mark_done,
             board_subtask_toggle,
             ask_lane,
             hark_chat_send,

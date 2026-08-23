@@ -8,6 +8,7 @@ pub mod git_collect;
 pub mod jsonl_scan;
 pub mod live_sessions;
 pub mod memory_files;
+pub mod model_fetch;
 pub mod say_tts;
 pub mod sqlite_store;
 pub mod state_file;

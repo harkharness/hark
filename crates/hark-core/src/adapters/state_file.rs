@@ -17,6 +17,8 @@ pub struct GlobalState {
     /// `alias` keeps state files written under the old product name loading.
     #[serde(alias = "vox_chat_session")]
     pub hark_chat_session: Option<String>,
+    /// First-run wizard completed (or explicitly skipped) on this machine.
+    pub onboarded: bool,
 }
 
 fn state_path(data_dir: &Path) -> PathBuf {

@@ -692,31 +692,31 @@ fn cmd_board() -> i32 {
 
 /// Download the default whisper model into the data dir.
 fn cmd_setup() -> i32 {
+    use hark_core::adapters::model_fetch;
     let config = Config::load();
     let path = config.whisper_model_path();
     if path.exists() {
         println!("whisper model ok: {}", path.display());
         return 0;
     }
+    let model = model_fetch::whisper_model("small").expect("known model");
     let dir = path.parent().expect("model dir");
-    if std::fs::create_dir_all(dir).is_err() {
-        eprintln!("hark: cannot create {}", dir.display());
-        return 1;
-    }
-    let url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin";
-    println!("downloading {url} (~466MB)…");
-    let status = std::process::Command::new("curl")
-        .args(["-fSL", "--progress-bar", "-o"])
-        .arg(&path)
-        .arg(url)
-        .status();
-    match status {
-        Ok(s) if s.success() => {
-            println!("done: {}", path.display());
+    println!("downloading {} ({})…", model.url, model.size_label);
+    let mut last = 255u8;
+    match model_fetch::download_model(model, dir, |pct| {
+        if pct != last {
+            last = pct;
+            print!("\r{pct:>3}%");
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+        }
+    }) {
+        Ok(path) => {
+            println!("\ndone (sha256 verified): {}", path.display());
             0
         }
-        _ => {
-            eprintln!("hark: download failed");
+        Err(err) => {
+            eprintln!("\nhark: {err}");
             1
         }
     }

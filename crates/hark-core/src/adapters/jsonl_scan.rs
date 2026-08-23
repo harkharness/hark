@@ -29,6 +29,11 @@ pub fn refresh_index(
 
 fn jsonl_files(projects_dir: &Path) -> anyhow::Result<Vec<std::path::PathBuf>> {
     let mut files = Vec::new();
+    // A machine that never ran Claude Code has no projects dir yet; that is
+    // an empty history, not an error.
+    if !projects_dir.exists() {
+        return Ok(files);
+    }
     for project in std::fs::read_dir(projects_dir)? {
         let project = project?.path();
         if !project.is_dir() {
@@ -216,6 +221,15 @@ mod tests {
         assert_eq!(sessions[0].session_id, "sess-1");
         assert_eq!(sessions[0].last_prompt.as_deref(), Some("open the PR"));
         assert_eq!(sessions[0].recent_prompts.len(), 2);
+    }
+
+    #[test]
+    fn missing_projects_dir_is_an_empty_index_not_an_error() {
+        // A fresh machine has no ~/.claude/projects yet; asking must not break.
+        let mut store = SqliteStore::in_memory().unwrap();
+        let ghost = std::path::Path::new("/nonexistent/hark-test/projects");
+        assert_eq!(refresh_index(ghost, &mut store).unwrap(), 0);
+        assert_eq!(rebuild_spend(ghost, &mut store).unwrap(), 0);
     }
 
     #[test]

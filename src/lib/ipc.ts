@@ -325,3 +325,23 @@ export const setActiveContext = (ctx: {
 export const hudHide = () => invoke("hud_hide");
 /** Open the global voice HUD — every mic button funnels here now. */
 export const hudShow = () => invoke("hud_show");
+
+// --- first-run wizard -------------------------------------------------
+export type SetupStatus = {
+  onboarded: boolean;
+  config_exists: boolean;
+  whisper_ok: boolean;
+  whisper_path: string;
+  claude_bin: string;
+  claude_ok: boolean;
+  projects_dir_ok: boolean;
+  models: { key: string; filename: string; size_label: string }[];
+  language: string;
+  assistant_name: string;
+  hotkey: string;
+};
+export const setupStatus = () => invoke<SetupStatus>("setup_status");
+/** Background download; progress arrives as `hark-setup` events. */
+export const setupDownloadModel = (key: string) =>
+  invoke("setup_download_model", { key });
+export const setupMarkDone = () => invoke("setup_mark_done");

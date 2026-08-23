@@ -4,6 +4,7 @@ import Board from "./components/Board";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import CostsPanel from "./components/CostsPanel";
 import Settings from "./components/Settings";
+import Onboarding from "./components/Onboarding";
 import Transcript from "./components/Transcript";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { Settings as SettingsIcon } from "lucide-react";
@@ -127,6 +128,18 @@ export default function Mother() {
     () => messages.filter((m) => !m.task || m.task === HARK_CHAT),
     [messages],
   );
+
+  // First-run wizard: a virgin machine (no config, no whisper model or no
+  // claude CLI) gets the guided setup instead of a dead microphone.
+  const [setup, setSetup] = useState<ipc.SetupStatus | null>(null);
+  useEffect(() => {
+    ipc
+      .setupStatus()
+      .then((s) => {
+        if (!s.onboarded && (!s.config_exists || !s.whisper_ok || !s.claude_ok)) setSetup(s);
+      })
+      .catch(() => {});
+  }, []);
 
   // On boot, the stored chat session repaints the thread: the chat is
   // CONTINUOUS across app restarts, visually too. Local, zero tokens.
@@ -772,6 +785,7 @@ export default function Mother() {
             : "mother"
       }
     >
+      {setup && <Onboarding status={setup} onClose={() => setSetup(null)} />}
       <nav className="tabs mother-tabs">
         <button className={tab === "voz" ? "active" : ""} onClick={() => setTab("voz")}>
           {t("tab_voice")}
