@@ -269,7 +269,7 @@ export default function Modals({
                 case "permission":
                   return `  🔐 ${m.tool} ${m.decision ?? "aguardando"}`;
                 default:
-                  return `vox: ${"text" in m ? m.text : ""}`;
+                  return `hark: ${"text" in m ? m.text : ""}`;
               }
             })
             .join("\n") || t("m_no_events")}

@@ -1,11 +1,11 @@
-# Vox
+# Hark
 
 A local, voice-first cockpit for [Claude Code](https://code.claude.com). Talk to
 your machine like JARVIS: ask what you were working on, hear the answer out
 loud, and dispatch real work into your existing Claude Code sessions — by voice
 or text, across every project on your disk.
 
-Vox never calls the Anthropic API directly. It drives the `claude` CLI you
+Hark never calls the Anthropic API directly. It drives the `claude` CLI you
 already have installed and authenticated, so all usage draws from your existing
 subscription. No API key, no separate billing, no telemetry.
 
@@ -18,7 +18,7 @@ subscription. No API key, no separate billing, no telemetry.
 - **One global voice surface.** A hotkey opens a floating HUD anywhere: speak,
   see the transcription and the resolved *destination* before anything runs,
   confirm by staying silent (when the target is the focused chat) or by voice
-  ("yes" / "no" / a replacement instruction) when Vox had to guess.
+  ("yes" / "no" / a replacement instruction) when Hark had to guess.
 - **A mother window that is your assistant.** A persistent chat backed by one
   long-lived Claude Code session with your full settings — MCP servers and
   tools included. It has a name, a personality file it maintains itself, and
@@ -74,11 +74,11 @@ The architecture assumes tokens are the scarce resource:
 Hexagonal (ports & adapters) with a functional core and an imperative shell:
 
 ```
-crates/vox-core      all logic
+crates/hark-core      all logic
   src/domain/        pure functions, immutable types, no I/O (219 unit tests)
   src/ports/         traits: Stt, Tts, AgentRunner, SessionStore, SpendLedger…
   src/adapters/      thin shells: claude CLI, sqlite, whisper, cpal, say, pty
-crates/vox-cli       headless driver: vox ask/dispatch/spend (scripting, CI)
+crates/hark-cli       headless driver: hark ask/dispatch/spend (scripting, CI)
 src-tauri + src/     the desktop app (Tauri v2 + React)
 ```
 
@@ -94,28 +94,28 @@ npm install
 npm run tauri dev
 
 # Headless CLI
-cargo build --release -p vox-cli
-./target/release/vox index                      # index your session history
-./target/release/vox ask "what's pending today?"
-./target/release/vox dispatch "continue the webhook migration"
-./target/release/vox spend --week               # the ledger, in your terminal
+cargo build --release -p hark-cli
+./target/release/hark index                      # index your session history
+./target/release/hark ask "what's pending today?"
+./target/release/hark dispatch "continue the webhook migration"
+./target/release/hark spend --week               # the ledger, in your terminal
 ```
 
-First voice use: `vox setup` downloads the whisper model (~466MB); macOS asks
+First voice use: `hark setup` downloads the whisper model (~466MB); macOS asks
 for microphone permission once.
 
 ## Configuration
 
-`~/.config/vox/config.toml` — everything is optional, comments survive edits
+`~/.config/hark/config.toml` — everything is optional, comments survive edits
 made through the settings UI:
 
 ```toml
-assistant_name = "Vox"        # what the chat calls itself
+assistant_name = "Hark"        # what the chat calls itself
 model = "sonnet"
 language = "pt"               # what the mic expects to hear
 ui_language = "pt"            # what the screen shows ("pt" | "en")
 voice = "Luciana"             # macOS `say` voice
-theme = "vox"                 # code color scheme: "vox" | "dracula"
+theme = "hark"                 # code color scheme: "hark" | "dracula"
 hotkey = "cmd+shift+space"    # global push-to-talk
 worker_budget_usd = 2.0       # hard ceiling per worker process
 worker_mode = "acceptEdits"   # default permission mode for new workers
@@ -134,7 +134,7 @@ prefer short answers" and it writes that down — durable across sessions.
 - The local index and spend ledger contain fragments of your prompts and
   session titles. They live in your user data directory and never leave the
   machine.
-- Vox makes no network calls of its own; the only external process is the
+- Hark makes no network calls of its own; the only external process is the
   `claude` CLI under your existing account.
 - No telemetry, no analytics, nothing phones home.
 

@@ -23,7 +23,7 @@ import TerminalPane, { TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
 import WorkerChips from "./components/WorkerChips";
-import { useVoxEvents } from "./hooks/useVoxEvents";
+import { useHarkEvents } from "./hooks/useHarkEvents";
 import * as ipc from "./lib/ipc";
 import type {
   BoardTask,
@@ -163,7 +163,7 @@ export default function App({
     (m: Msg) =>
       setMessages((old) => [
         ...old,
-        (m.who === "user" || m.who === "vox") && m.ts == null
+        (m.who === "user" || m.who === "hark") && m.ts == null
           ? { ...m, ts: Date.now() }
           : m,
       ]),
@@ -229,7 +229,7 @@ export default function App({
     return () => window.removeEventListener("focus", report);
   }, [focusedTask, forcedProject]);
 
-  useVoxEvents({
+  useHarkEvents({
     labelFor,
     push,
     setMessages,
@@ -391,14 +391,14 @@ export default function App({
       // starting one IS the context selection (no manual picker).
       const reply = await ipc.askText(question, images.map(toImagePair), activeProject);
       push({
-        who: "vox",
+        who: "hark",
         text: reply.fala,
         detalhes: reply.detalhes,
         itens: reply.itens,
         cost: reply.cost_usd,
         model: reply.model,
       });
-      if (reply.cost_usd) addCost("vox (perguntas)", reply.cost_usd);
+      if (reply.cost_usd) addCost("hark (perguntas)", reply.cost_usd);
       say(reply.fala);
     } catch (err) {
       push({ who: "sys", text: `erro: ${err}` });
@@ -433,7 +433,7 @@ export default function App({
             : instruction.split(/\s+/).slice(0, 5).join(" ");
         adoptWorker(out.task_id, label, out.directives, sessionId ?? "");
       } else if (out.status === "done") {
-        push({ who: "vox", text: out.summary, cost: out.cost_usd });
+        push({ who: "hark", text: out.summary, cost: out.cost_usd });
         say("Tarefa concluída.");
       } else if (out.status === "failed") {
         push({ who: "sys", text: `worker falhou: ${out.summary}` });
@@ -667,7 +667,7 @@ export default function App({
       }
     }
 
-    // "/" = explicit command: NEVER the evaluator/gate. Vox-native ones
+    // "/" = explicit command: NEVER the evaluator/gate. Hark-native ones
     // run here; anything else is delivered verbatim to the focused session
     // (the CLI expands its own slash commands — /compact, customs, plugins).
     if (text.startsWith("/")) {
@@ -831,7 +831,7 @@ export default function App({
           text: `avaliador: ${gate.acao} (${Math.round(gate.confianca * 100)}%) · ${gate.motivo}${gate.aviso ? ` · ⚠ ${gate.aviso}` : ""} · $${(gate.cost_usd ?? 0).toFixed(4)}`,
           task: focusedTask.title,
         });
-        if (gate.acao === "meta_vox" || gate.acao === "pergunta") {
+        if (gate.acao === "meta_hark" || gate.acao === "pergunta") {
           push({ who: "user", text });
           runAsk(text, images);
           return;
@@ -1236,7 +1236,7 @@ export default function App({
       });
       for (const e of out.entries) {
         if (e.role === "user") push({ who: "user", text: e.text, task: title });
-        else if (e.role === "assistant") push({ who: "vox", text: e.text, task: title });
+        else if (e.role === "assistant") push({ who: "hark", text: e.text, task: title });
         else if (e.role === "tool_use")
           push({ who: "tool", name: e.tool ?? "tool", input: e.text, task: title });
       }
@@ -1557,7 +1557,7 @@ export default function App({
                 : frameArquivos()}
         </div>
       ) : (
-        <PanelGroup direction="horizontal" autoSaveId="vox-code" className="workarea">
+        <PanelGroup direction="horizontal" autoSaveId="hark-code" className="workarea">
           <Panel
             ref={sidebarRef}
             collapsible

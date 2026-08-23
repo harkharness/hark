@@ -1438,6 +1438,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "hark-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hark-core",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-global-shortcut",
+ "urlencoding",
+]
+
+[[package]]
+name = "hark-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hark-core",
+ "serde_json",
+]
+
+[[package]]
+name = "hark-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "cpal",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "toml 0.8.23",
+ "toml_edit 0.22.27",
+ "whisper-rs",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4285,47 +4326,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "vox-app"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "portable-pty",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-global-shortcut",
- "urlencoding",
- "vox-core",
-]
-
-[[package]]
-name = "vox-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde_json",
- "vox-core",
-]
-
-[[package]]
-name = "vox-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "cpal",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.20",
- "toml 0.8.23",
- "toml_edit 0.22.27",
- "whisper-rs",
-]
 
 [[package]]
 name = "vswhom"

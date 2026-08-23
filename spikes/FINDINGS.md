@@ -15,7 +15,7 @@ claude -p <prompt> --model sonnet --output-format json \
 
 - Cost **$0.0089**, ~4.7s. Same prompt with default settings (project CLAUDE.md,
   memory, all tool definitions): **$0.23**. With tools executing: **$0.33+**.
-- Conclusion: fast mode must stay lean; Vox pre-bakes context in Rust.
+- Conclusion: fast mode must stay lean; Hark pre-bakes context in Rust.
 - `--json-schema` works with both `json` and `stream-json` output. The schema is
   enforced via a synthetic `StructuredOutput` tool call; the final `result` event
   carries the validated JSON string in `.result`.
@@ -58,7 +58,7 @@ The client answers on stdin:
              "response":{"behavior":"allow"}}}
 ```
 
-Deny variant: `{"behavior":"deny","message":"User rejected this action from Vox."}`.
+Deny variant: `{"behavior":"deny","message":"User rejected this action from Hark."}`.
 Verified both ways: allow executed the tool (file created, `permission_denials: []`);
 deny blocked it (`permission_denials: 1`, file untouched, Claude acknowledged the
 rejection in its answer). Without the flag, `--permission-mode manual` silently
@@ -115,7 +115,7 @@ Test audio: `say -v Luciana` (pt-BR) rendered to 16kHz mono wav via `afconvert`
 
 | Model | Phrase | Result |
 |---|---|---|
-| small (466MB) | "Quais são as pendências de hoje no projeto vox?" | perfect except "vox" -> "VOCUS" |
+| small (466MB) | "Quais são as pendências de hoje no projeto hark?" | perfect except "hark" -> "VOCUS" |
 | small | "Abre a tarefa da migração do webhook e prepara o pull request." | "webhook" -> "e-block", "pull request" -> "pulo-request" |
 
 - Latency (small, Metal): first run ~11s (Metal shader warmup), subsequent ~0.4s
@@ -127,7 +127,7 @@ Retest with `initial_prompt` vocabulary biasing
 
 | Model + bias | test1 | test2 | Latency |
 |---|---|---|---|
-| small + initial_prompt | perfect ("VOX" correct) | perfect ("webhook", "pull request" correct) | ~0.3s |
+| small + initial_prompt | perfect ("HARK" correct) | perfect ("webhook", "pull request" correct) | ~0.3s |
 | large-v3-turbo + initial_prompt | perfect | "webhook" -> "e-book" | ~1.1-1.5s |
 
 **Decision: default model = `small` (466MB) with `initial_prompt` vocabulary bias.**

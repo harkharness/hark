@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
-use vox_core::config::Config;
+use hark_core::config::Config;
 
 /// What the user is looking at right now: the focused window reports its
 /// project and focused task, so an unaddressed sentence has a sane
@@ -22,7 +22,7 @@ pub struct ActiveCtx {
 /// PROJECT window the user worked in. The mother/HUD focusing (or a
 /// window closing) never erases that — see domain::focus for the rules.
 #[derive(Default)]
-pub struct ActiveContext(pub Mutex<vox_core::domain::focus::FocusLedger<ActiveCtx>>);
+pub struct ActiveContext(pub Mutex<hark_core::domain::focus::FocusLedger<ActiveCtx>>);
 
 #[tauri::command]
 pub fn set_active_context(
@@ -65,7 +65,7 @@ pub enum VoicePlan {
         instruction: String,
         options: Vec<VoiceCandidate>,
     },
-    /// A question for the vox ask pipeline (speaks the answer).
+    /// A question for the hark ask pipeline (speaks the answer).
     Question { question: String },
     /// Work with no resolvable destination: the HUD asks for an address.
     NoTarget { instruction: String },
@@ -104,7 +104,7 @@ fn project_of(config: &Config, path: &str) -> (Option<String>, Option<String>) {
 }
 
 /// A board task as a HUD candidate.
-fn task_candidate(config: &Config, task: &vox_core::domain::board::Task) -> VoiceCandidate {
+fn task_candidate(config: &Config, task: &hark_core::domain::board::Task) -> VoiceCandidate {
     let (project_name, workspace) = task
         .workspace
         .as_deref()
@@ -138,8 +138,8 @@ fn session_candidate(config: &Config, hit: &super::SessionHit) -> VoiceCandidate
 fn rank_sessions(
     query: &str,
     hits: Vec<super::SessionHit>,
-) -> vox_core::domain::matching::Match<super::SessionHit> {
-    vox_core::domain::matching::rank(
+) -> hark_core::domain::matching::Match<super::SessionHit> {
+    hark_core::domain::matching::rank(
         query,
         hits,
         |h| {
@@ -158,7 +158,7 @@ fn rank_sessions(
 fn session_warnings(session_id: Option<&str>) -> Vec<String> {
     session_id
         .map(|sid| {
-            vox_core::domain::precheck::prechecks(&super::session_facts(sid))
+            hark_core::domain::precheck::prechecks(&super::session_facts(sid))
                 .into_iter()
                 .map(|w| w.text)
                 .collect()
@@ -185,7 +185,7 @@ fn work_at(candidate: VoiceCandidate, instruction: String, confidence: &str) -> 
 /// tokens.
 #[tauri::command(async)]
 pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String> {
-    use vox_core::domain::matching::Match;
+    use hark_core::domain::matching::Match;
     let config = Config::load();
     let ctx = app
         .state::<ActiveContext>()
@@ -200,7 +200,7 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
     //    the answer, whatever window it belongs to.
     let newest_perm = app.state::<super::PermLog>().0.lock().unwrap().last().cloned();
     if let Some((request_id, label, tool)) = newest_perm {
-        if let Some((allow, always)) = vox_core::domain::verdict::interpret_permission(&text) {
+        if let Some((allow, always)) = hark_core::domain::verdict::interpret_permission(&text) {
             return Ok(VoicePlan::PermissionAnswer { request_id, label, tool, allow, always });
         }
     }
@@ -229,12 +229,12 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
     }
 
     // 2. Explicit address: "na task X…", "no projeto Y…".
-    let addr = vox_core::domain::address::parse(&text);
+    let addr = hark_core::domain::address::parse(&text);
     if let Some(task_query) = &addr.task {
         // Board first (titles the user knows), then the whole index.
         // Ambiguity becomes options on screen, never a silent guess.
         let ranked = super::with_board(|_, tasks| {
-            Ok(vox_core::domain::board::find_ranked(&tasks, task_query))
+            Ok(hark_core::domain::board::find_ranked(&tasks, task_query))
         })?;
         match ranked {
             Match::Hit(task) => {
@@ -265,8 +265,8 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
     }
     if let Some(project_query) = &addr.project {
         let projects = super::load_projects(&config);
-        let hit = vox_core::domain::project::find(&projects, project_query)
-            .or_else(|| vox_core::domain::project::find_spoken(&projects, project_query));
+        let hit = hark_core::domain::project::find(&projects, project_query)
+            .or_else(|| hark_core::domain::project::find_spoken(&projects, project_query));
         return Ok(match hit {
             Some(p) => VoicePlan::Work {
                 instruction: addr.instruction,
@@ -285,7 +285,7 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
 
     // 3. No address: questions go to ask; work goes to the ACTIVE task
     //    (what the user is looking at), else to the best session match.
-    if vox_core::domain::intent::route(&text) == vox_core::domain::intent::Route::Ask {
+    if hark_core::domain::intent::route(&text) == hark_core::domain::intent::Route::Ask {
         return Ok(VoicePlan::Question { question: text });
     }
     if let (Some(title), Some(session)) = (&ctx.task_title, &ctx.session_id) {
@@ -303,15 +303,15 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
         });
     }
     Ok(match rank_sessions(&text, super::session_hits(&text, 8)?) {
-        vox_core::domain::matching::Match::Hit(hit) => {
+        hark_core::domain::matching::Match::Hit(hit) => {
             // Search-resolved: executable, but only after a spoken yes.
             work_at(session_candidate(&config, &hit), text, "low")
         }
-        vox_core::domain::matching::Match::Ambiguous(hits) => VoicePlan::Candidates {
+        hark_core::domain::matching::Match::Ambiguous(hits) => VoicePlan::Candidates {
             instruction: text,
             options: hits.iter().map(|h| session_candidate(&config, h)).collect(),
         },
-        vox_core::domain::matching::Match::None => VoicePlan::NoTarget { instruction: text },
+        hark_core::domain::matching::Match::None => VoicePlan::NoTarget { instruction: text },
     })
 }
 
@@ -405,7 +405,7 @@ pub fn voice_execute(
     let workspace = workspace.or_else(|| {
         session_id.as_deref().and_then(|sid| {
             let config = Config::load();
-            let store = vox_core::adapters::sqlite_store::SqliteStore::open(
+            let store = hark_core::adapters::sqlite_store::SqliteStore::open(
                 &config.data_dir().join("index.db"),
             )
             .ok()?;
@@ -425,7 +425,7 @@ pub fn voice_execute(
         );
     }
     let _ = app.emit(
-        "vox",
+        "hark",
         serde_json::json!({
             "kind": "voice_action",
             "utterance": instruction,
@@ -443,7 +443,7 @@ pub fn show_hud(app: &AppHandle) {
         position_hud(app, &hud);
         let _ = hud.show();
         let _ = hud.set_focus();
-        let _ = app.emit_to("hud", "vox", serde_json::json!({ "kind": "hud_listen" }));
+        let _ = app.emit_to("hud", "hark", serde_json::json!({ "kind": "hud_listen" }));
         return;
     }
     let built = tauri::WebviewWindowBuilder::new(
@@ -451,7 +451,7 @@ pub fn show_hud(app: &AppHandle) {
         "hud",
         tauri::WebviewUrl::App("index.html?hud=1".into()),
     )
-    .title("vox")
+    .title("hark")
     .decorations(false)
     .transparent(true)
     .always_on_top(true)

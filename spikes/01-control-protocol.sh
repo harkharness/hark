@@ -37,10 +37,10 @@ send() {
 # Optional client->CLI initialize handshake (the Agent SDK does this to declare
 # a canUseTool callback; without it the CLI may auto-deny instead of asking).
 if [ "${INIT:-0}" = "1" ]; then
-  send '{"type":"control_request","request_id":"vox-init-1","request":{"subtype":"initialize"}}'
+  send '{"type":"control_request","request_id":"hark-init-1","request":{"subtype":"initialize"}}'
 fi
 
-PROMPT="${PROMPT:-Run the bash command \`echo vox-spike-ok\` and tell me its output verbatim.}"
+PROMPT="${PROMPT:-Run the bash command \`echo hark-spike-ok\` and tell me its output verbatim.}"
 send "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"$PROMPT\"}]}}"
 
 # Watch output; auto-answer any permission control_request with allow.
@@ -56,7 +56,7 @@ tail -n +1 -f "$RUN" | while IFS= read -r line; do
       if [ "$subtype" = "can_use_tool" ] && [ "$answered" -eq 0 ]; then
         answered=1
         if [ "${ACTION:-allow}" = "deny" ]; then
-          send "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"$req_id\",\"response\":{\"behavior\":\"deny\",\"message\":\"User rejected this action from Vox.\"}}}"
+          send "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"$req_id\",\"response\":{\"behavior\":\"deny\",\"message\":\"User rejected this action from Hark.\"}}}"
         else
           send "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"$req_id\",\"response\":{\"behavior\":\"allow\"}}}"
         fi

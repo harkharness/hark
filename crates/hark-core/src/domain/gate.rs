@@ -1,0 +1,253 @@
+//! The pre-execution evaluator: a cheap model call that decides WHERE a
+//! message should go before anything expensive or destructive runs.
+//! Born from a real incident: a correction aimed at Hark was piped straight
+//! into the wrong session and burned $18 on an inherited 1M-context model.
+
+use serde::{Deserialize, Serialize};
+
+/// What the evaluator can decide about a message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GateAction {
+    /// Message is about Hark itself (correction, naming, focus): NEVER dispatch.
+    MetaHark,
+    /// Continue the focused task's session.
+    ContinuarTask,
+    /// The user means a DIFFERENT task than the focused one.
+    TrocarTask,
+    /// New piece of work, no matching task.
+    NovaTask,
+    /// Just a question for the hark ask path.
+    Pergunta,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GateDecision {
+    pub acao: GateAction,
+    pub confianca: f64,
+    pub motivo: String,
+    #[serde(default)]
+    pub aviso: Option<String>,
+    #[serde(default)]
+    pub task_alvo: Option<String>,
+}
+
+impl GateDecision {
+    /// Anything uncertain or cost-flagged stops for a click first.
+    pub fn needs_confirmation(&self) -> bool {
+        self.confianca < 0.8 || self.aviso.as_deref().is_some_and(|a| !a.is_empty())
+    }
+
+    /// Small models leak tool markup into string fields; scrub and clamp
+    /// before anything reaches the screen.
+    pub fn sanitized(mut self) -> Self {
+        self.motivo = scrub(&self.motivo, 160);
+        self.aviso = self
+            .aviso
+            .map(|a| scrub(&a, 200))
+            .filter(|a| !a.is_empty());
+        self
+    }
+}
+
+/// Remove XML-ish tags and clamp length.
+fn scrub(text: &str, max: usize) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_tag = false;
+    for c in text.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    let clean = out.split_whitespace().collect::<Vec<_>>().join(" ");
+    if clean.chars().count() <= max {
+        clean
+    } else {
+        clean.chars().take(max).collect::<String>() + "…"
+    }
+}
+
+/// The gate receives no numbers and knows no tools: an aviso citing either
+/// is fabricated (the 19/08 "MCP caiu" incident) — drop it. Real cost
+/// warnings come from domain::precheck, computed locally.
+pub fn credible_aviso(aviso: Option<String>) -> Option<String> {
+    let aviso = aviso?.trim().to_string();
+    if aviso.is_empty() {
+        return None;
+    }
+    // Whole tokens, not substrings — "combina" must not trip on "mb".
+    const EXACT: &[&str] = &["mcp", "ccd", "mb", "gb", "caiu"];
+    const PREFIX: &[&str] = &["tool", "token", "ferramenta", "servidor", "offline", "indisponi"];
+    let invented = aviso.chars().any(|c| c.is_ascii_digit())
+        || crate::domain::matching::tokens(&aviso).iter().any(|t| {
+            EXACT.contains(&t.as_str()) || PREFIX.iter().any(|p| t.starts_with(p))
+        });
+    (!invented).then_some(aviso)
+}
+
+/// Everything the evaluator sees besides the message itself.
+#[derive(Debug, Clone, Default)]
+pub struct GateContext {
+    pub focused_task: Option<String>,
+    pub focused_session: Option<String>,
+    /// Real title of the focused session (may differ from the task name;
+    /// a mismatch is exactly the incident we are guarding against).
+    pub focused_session_title: Option<String>,
+    pub board_lines: Vec<String>,
+    pub live_workers: Vec<String>,
+}
+
+pub const GATE_SCHEMA: &str = r#"{
+  "type": "object",
+  "properties": {
+    "acao": {
+      "type": "string",
+      "enum": ["meta_hark", "continuar_task", "trocar_task", "nova_task", "pergunta"],
+      "description": "meta_hark: a mensagem fala DO hark/da sessao/do foco (correcao, renomear, reclamacao) e nao deve executar nada. continuar_task: segue a task focada. trocar_task: o usuario quer outra task. nova_task: trabalho novo. pergunta: consulta informativa."
+    },
+    "confianca": { "type": "number", "description": "0 a 1" },
+    "motivo": { "type": "string", "description": "Uma frase curta explicando a decisao" },
+    "aviso": { "type": "string", "description": "UMA frase curta, SOMENTE quando o titulo real da sessao nao combina com a task focada. NUNCA invente; NUNCA cite ferramentas, MCPs, arquivos, tamanhos ou numeros. Vazio quando nao ha risco." },
+    "task_alvo": { "type": "string", "description": "Titulo da task correta quando acao=trocar_task" }
+  },
+  "required": ["acao", "confianca", "motivo"]
+}"#;
+
+pub const GATE_SYSTEM_PROMPT: &str = "Voce e o roteador do Hark, um orquestrador de sessoes do \
+Claude Code. Sua unica funcao e decidir PARA ONDE uma mensagem vai, nunca executa-la. \
+Seja conservador: na duvida, confianca baixa. Mensagens que corrigem o Hark, reclamam de \
+foco errado ou pedem para renomear/organizar sessoes sao SEMPRE meta_hark. \
+Se o titulo real da sessao focada nao combina com a task focada, avise.";
+
+/// Compact prompt for the evaluator (hundreds of tokens, haiku-priced).
+pub fn build_prompt(message: &str, ctx: &GateContext) -> String {
+    let mut sections = vec![format!("Mensagem do usuario:\n{message}")];
+    if let Some(task) = &ctx.focused_task {
+        sections.push(format!(
+            "Task focada: {task}\nSessao focada: {} (titulo real: {})",
+            ctx.focused_session.as_deref().unwrap_or("?"),
+            ctx.focused_session_title.as_deref().unwrap_or("desconhecido"),
+        ));
+    } else {
+        sections.push("Nenhuma task focada.".into());
+    }
+    if !ctx.board_lines.is_empty() {
+        sections.push(format!("Tasks no quadro:\n{}", ctx.board_lines.join("\n")));
+    }
+    if !ctx.live_workers.is_empty() {
+        sections.push(format!("Workers ativos: {}", ctx.live_workers.join(", ")));
+    }
+    sections.push("Decida a acao.".into());
+    sections.join("\n\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ctx() -> GateContext {
+        GateContext {
+            focused_task: Some("Doc playbooks de alertas - revisão comentários".into()),
+            focused_session: Some("gladius-123".into()),
+            focused_session_title: Some("Gladius: Hydrator e outras features".into()),
+            board_lines: vec!["Doc playbooks de alertas [waiting] sessao=None".into()],
+            live_workers: vec![],
+        }
+    }
+
+    #[test]
+    fn renders_prompt_with_message_and_context() {
+        let prompt = build_prompt("vale renomear essa sessão", &ctx());
+        assert!(prompt.contains("vale renomear essa sessão"));
+        assert!(prompt.contains("Gladius: Hydrator"));
+        assert!(prompt.contains("Doc playbooks"));
+    }
+
+    #[test]
+    fn schema_is_valid_and_demands_the_essentials() {
+        let schema: serde_json::Value = serde_json::from_str(GATE_SCHEMA).unwrap();
+        let required = schema["required"].as_array().unwrap();
+        for field in ["acao", "confianca", "motivo"] {
+            assert!(required.iter().any(|v| v == field), "missing {field}");
+        }
+        let actions = schema["properties"]["acao"]["enum"].as_array().unwrap();
+        assert!(actions.iter().any(|v| v == "meta_hark"));
+        assert!(actions.iter().any(|v| v == "continuar_task"));
+    }
+
+    #[test]
+    fn scrubs_leaked_markup_from_small_models() {
+        let decision: GateDecision = serde_json::from_str(
+            r#"{"acao":"meta_hark","confianca":0.95,"motivo":"reclamação de organização</aniso>","aviso":"histórico grande (49MB)</invoke> risco de custo"}"#,
+        )
+        .unwrap();
+        let clean = decision.sanitized();
+        assert_eq!(clean.motivo, "reclamação de organização");
+        assert_eq!(clean.aviso.as_deref(), Some("histórico grande (49MB) risco de custo"));
+    }
+
+    #[test]
+    fn aviso_citing_mcp_or_tools_is_dropped() {
+        // The 19/08 incident: the gate INVENTED "MCP ccd_session_mgmt caiu".
+        // No tool/MCP claim can survive — Hark has no MCP health check.
+        assert_eq!(credible_aviso(Some("MCP `ccd_session_mgmt` aparentemente caiu".into())), None);
+        assert_eq!(credible_aviso(Some("a ferramenta de sessão está offline".into())), None);
+        assert_eq!(credible_aviso(Some("servidor indisponível".into())), None);
+    }
+
+    #[test]
+    fn aviso_with_fabricated_numbers_is_dropped() {
+        // The gate receives no numbers anymore: any digit is fabricated
+        // (local prechecks carry the real ones).
+        assert_eq!(credible_aviso(Some("histórico de 3.8MB, turnos caros".into())), None);
+        assert_eq!(credible_aviso(Some("contexto de 1M tokens".into())), None);
+        assert_eq!(credible_aviso(None), None);
+        assert_eq!(credible_aviso(Some("  ".into())), None);
+    }
+
+    #[test]
+    fn title_mismatch_aviso_survives() {
+        let aviso = "o título da sessão não combina com a task focada";
+        assert_eq!(credible_aviso(Some(aviso.into())).as_deref(), Some(aviso));
+    }
+
+    #[test]
+    fn schema_no_longer_solicits_cost_warnings() {
+        // Cost warnings are LOCAL now (precheck.rs); the gate only flags
+        // title mismatch and must be told to never invent.
+        assert!(!GATE_SCHEMA.contains("historico grande"));
+        assert!(!GATE_SCHEMA.contains("modelo caro"));
+        assert!(GATE_SCHEMA.contains("NUNCA invente"));
+    }
+
+    #[test]
+    fn parses_decision_and_flags_what_needs_confirmation() {
+        let decision: GateDecision = serde_json::from_str(
+            r#"{"acao":"meta_hark","confianca":0.95,"motivo":"usuário corrige o foco do hark","aviso":null}"#,
+        )
+        .unwrap();
+        assert_eq!(decision.acao, GateAction::MetaHark);
+        assert!(!decision.needs_confirmation());
+
+        let risky: GateDecision = serde_json::from_str(
+            r#"{"acao":"continuar_task","confianca":0.55,"motivo":"ambíguo","aviso":"sessão usa opus-1m, turno caro"}"#,
+        )
+        .unwrap();
+        assert!(risky.needs_confirmation(), "low confidence must confirm");
+
+        let warned: GateDecision = serde_json::from_str(
+            r#"{"acao":"continuar_task","confianca":0.9,"motivo":"ok","aviso":"contexto de 1M tokens"}"#,
+        )
+        .unwrap();
+        assert!(warned.needs_confirmation(), "cost warning must confirm");
+
+        let clean: GateDecision = serde_json::from_str(
+            r#"{"acao":"continuar_task","confianca":0.9,"motivo":"segue a task focada"}"#,
+        )
+        .unwrap();
+        assert!(!clean.needs_confirmation());
+    }
+}

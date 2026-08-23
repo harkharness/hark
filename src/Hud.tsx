@@ -3,7 +3,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { CircleQuestionMark, FolderPlus, Mic, ShieldCheck, Target } from "lucide-react";
 import * as ipc from "./lib/ipc";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
-import type { VoiceCandidate, VoicePlan, VoxEvent } from "./types";
+import type { VoiceCandidate, VoicePlan, HarkEvent } from "./types";
 
 type Stage =
   | { s: "listening" }
@@ -49,7 +49,7 @@ export default function Hud() {
   /** What the user said this round — feeds the mother's action log. */
   const lastText = useRef("");
   const record = useCallback((target: string, status: string) => {
-    emit("vox", {
+    emit("hark", {
       kind: "voice_action",
       utterance: lastText.current,
       target,
@@ -258,7 +258,7 @@ export default function Hud() {
       await ipc.approve(plan.request_id, plan.allow).catch(() => {});
       // "sempre pode": the owning window records the standing rule.
       if (plan.allow && plan.always) {
-        emit("vox", { kind: "allow_rule", label: plan.label, tool: plan.tool }).catch(() => {});
+        emit("hark", { kind: "allow_rule", label: plan.label, tool: plan.tool }).catch(() => {});
       }
       const said = plan.allow ? (plan.always ? st("sp_allowed_always") : st("sp_allowed")) : st("sp_denied");
       finish(`${plan.allow ? "✓" : "✗"} ${plan.tool} · ${plan.label}`, "ok", 1600);
@@ -281,7 +281,7 @@ export default function Hud() {
         // No feed row: the thread IS the record for conversation turns —
         // the feed only narrates what happens OUTSIDE the chat.
         // The spoken turn draws in the mother's unified thread.
-        emit("vox", {
+        emit("hark", {
           kind: "chat_echo",
           question: text,
           reply: { fala: reply.fala, cost_usd: reply.cost_usd, model: reply.model },
@@ -353,8 +353,8 @@ export default function Hud() {
   async function sendToMotherChat(text: string) {
     setStage({ s: "running", text, target: "chat" });
     try {
-      await ipc.voxChatSend(text);
-      emit("vox", { kind: "chat_echo", question: text, work: true }).catch(() => {});
+      await ipc.harkChatSend(text);
+      emit("hark", { kind: "chat_echo", question: text, work: true }).catch(() => {});
       ipc.speak("Mandei pro chat. Já te respondo.").catch(() => {});
       finish("→ chat · despachado", "ok", 1600);
     } catch (err) {
@@ -402,7 +402,7 @@ export default function Hud() {
     // UI language for this window (stage changes repaint with it).
     ipc.configRead().then((s) => { setLang(s.values.ui_language); setSpeechLang(s.values.language); }).catch(() => {});
     startRef.current();
-    const un = listen<VoxEvent>("vox", (e) => {
+    const un = listen<HarkEvent>("hark", (e) => {
       if (e.payload.kind !== "hud_listen") return;
       // Hotkey while something lingers (note/answer/candidates/confirm):
       // the user wants to talk again — drop the leftover and re-arm.

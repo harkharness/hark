@@ -15,7 +15,7 @@ export type TurnUsage = {
   cache_created: number;
 };
 
-export type VoxEvent =
+export type HarkEvent =
   | { kind: "tool"; name: string; input: string }
   | { kind: "worker"; task_id: string; name: string; input: string }
   | { kind: "assistant_text"; task_id: string; text: string }
@@ -78,7 +78,7 @@ export type PermissionAsk = {
 export type Msg =
   | { who: "user"; text: string; images?: string[]; task?: string; ts?: number }
   | {
-      who: "vox";
+      who: "hark";
       text: string;
       detalhes?: string;
       itens?: string[];
@@ -150,7 +150,7 @@ export type BoardTask = {
 };
 
 export type GateOut = {
-  acao: "meta_vox" | "continuar_task" | "trocar_task" | "nova_task" | "pergunta";
+  acao: "meta_hark" | "continuar_task" | "trocar_task" | "nova_task" | "pergunta";
   confianca: number;
   motivo: string;
   aviso?: string;
@@ -214,7 +214,7 @@ export type Overview = {
   }[];
   board: BoardTask[];
   projects: Project[];
-  /** Code color scheme from config.toml ("vox" | "dracula" | custom). */
+  /** Code color scheme from config.toml ("hark" | "dracula" | custom). */
   theme: string;
   /** Config default permission mode for new workers ("" = CLI default). */
   default_mode: string;

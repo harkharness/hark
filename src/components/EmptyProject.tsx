@@ -68,7 +68,7 @@ export default function EmptyProject({
           <span style={{ height: 18 }} />
           <span style={{ height: 10 }} />
         </span>
-        <div className="ep-name">{project?.name ?? "vox"}</div>
+        <div className="ep-name">{project?.name ?? "hark"}</div>
         <div className="ep-sub">
           {chats != null && `${t("ep_chats", { n: chats })} · `}
           {board.length > 0 && `${t("ep_tasks", { n: board.length })} · `}

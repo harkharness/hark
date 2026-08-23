@@ -15,7 +15,7 @@ type Mention = {
 type SlashHit = { name: string; desc?: string };
 type Slash = { hits: SlashHit[]; sel: number };
 
-/** Commands Vox resolves itself; everything else in the palette is the
+/** Commands Hark resolves itself; everything else in the palette is the
  *  CLI's own list (from the session's init event) sent verbatim. */
 const NATIVE_SLASH: SlashHit[] = [
   { name: "modo", desc: "modo de permissão: manual · edições · plano · auto · ignorar" },

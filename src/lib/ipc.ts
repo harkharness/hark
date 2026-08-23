@@ -100,20 +100,20 @@ export const ecoStatus = () => invoke<EcoOut>("eco_status");
 export const boardSubtaskToggle = (title: string, index: number, done: boolean) =>
   invoke("board_subtask_toggle", { title, index, done });
 
-/** Which surface a message to global vox belongs to (zero tokens). */
+/** Which surface a message to global hark belongs to (zero tokens). */
 export const askLane = (text: string) => invoke<"lean" | "work">("ask_lane", { text });
 
 /** Send to the mother's persistent work chat (full settings + MCP);
  *  spawns/resumes the chat worker as needed. Events arrive with
- *  task_id "vox-chat". */
-export const voxChatSend = (text: string, images: [string, string][] = []) =>
-  invoke<{ task_id: string; resumed: boolean }>("vox_chat_send", {
+ *  task_id "hark-chat". */
+export const harkChatSend = (text: string, images: [string, string][] = []) =>
+  invoke<{ task_id: string; resumed: boolean }>("hark_chat_send", {
     text,
     images: images.length > 0 ? images : null,
   });
 
-export const voxChatStatus = () =>
-  invoke<{ alive: boolean; session_id: string | null }>("vox_chat_status");
+export const harkChatStatus = () =>
+  invoke<{ alive: boolean; session_id: string | null }>("hark_chat_status");
 
 /** Brand-new Claude Code session inside a project directory. */
 export const chatStart = (projectPath: string, instruction: string, mode?: string) =>

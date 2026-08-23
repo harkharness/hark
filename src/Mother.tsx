@@ -7,14 +7,14 @@ import Settings from "./components/Settings";
 import Transcript from "./components/Transcript";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { Settings as SettingsIcon } from "lucide-react";
-import { useVoxEvents } from "./hooks/useVoxEvents";
+import { useHarkEvents } from "./hooks/useHarkEvents";
 import * as ipc from "./lib/ipc";
 import type { BoardTask, Msg, Overview, Project, RateLimitState, SessionHit } from "./types";
 
 type MotherTab = "voz" | "board" | "custos";
 
 /** The mother's persistent work chat (backend task id — off the board). */
-const VOX_CHAT = "vox-chat";
+const HARK_CHAT = "hark-chat";
 
 /** Markdown → one readable line for the compact 5-message panel. */
 function miniText(md: string): string {
@@ -37,7 +37,7 @@ function firstSentence(md: string): string {
  *  question on one clamped line, reply on two, tool bursts as one
  *  activity line. Full text lives behind "expandir". */
 type DigestRow =
-  | { kind: "user" | "vox" | "sys"; text: string; key: number }
+  | { kind: "user" | "hark" | "sys"; text: string; key: number }
   | { kind: "tools"; n: number; err: boolean; key: number };
 
 function buildDigest(msgs: Msg[]): DigestRow[] {
@@ -50,7 +50,7 @@ function buildDigest(msgs: Msg[]): DigestRow[] {
     } else if (m.who === "output") {
       const last = rows.at(-1);
       if (last?.kind === "tools" && m.error) last.err = true;
-    } else if (m.who === "user" || m.who === "vox" || m.who === "sys") {
+    } else if (m.who === "user" || m.who === "hark" || m.who === "sys") {
       rows.push({ kind: m.who, text: miniText(m.text), key: i });
     }
   });
@@ -61,7 +61,7 @@ function buildDigest(msgs: Msg[]): DigestRow[] {
 }
 
 /**
- * The mother window: the voice of Vox AND the global views. Three tabs:
+ * The mother window: the voice of Hark AND the global views. Three tabs:
  * voz (orb + mic), board (every project's demands — demands belong to the
  * user, not to a directory) and custos (the whole ledger). Project windows
  * are filtered views; closing the mother closes everything.
@@ -112,7 +112,7 @@ export default function Mother() {
       setMessages((old) =>
         [
           ...old,
-          (m.who === "user" || m.who === "vox") && m.ts == null
+          (m.who === "user" || m.who === "hark") && m.ts == null
             ? { ...m, ts: Date.now() }
             : m,
         ].slice(-80),
@@ -124,7 +124,7 @@ export default function Mother() {
   // chat's events. Project workers' messages stay OUT — they belong to
   // their own windows; the mother only announces them in the feed.
   const chatMsgs = useMemo(
-    () => messages.filter((m) => !m.task || m.task === VOX_CHAT),
+    () => messages.filter((m) => !m.task || m.task === HARK_CHAT),
     [messages],
   );
 
@@ -132,7 +132,7 @@ export default function Mother() {
   // CONTINUOUS across app restarts, visually too. Local, zero tokens.
   useEffect(() => {
     (async () => {
-      const st = await ipc.voxChatStatus().catch(() => null);
+      const st = await ipc.harkChatStatus().catch(() => null);
       if (!st?.session_id) return;
       setChatLive(true);
       const tr = await ipc.readTranscript(st.session_id, 30).catch(() => null);
@@ -140,9 +140,9 @@ export default function Mother() {
       const hist: Msg[] = tr.entries
         .filter((e) => e.role === "user" || e.role === "assistant")
         .map((e) => ({
-          who: e.role === "user" ? ("user" as const) : ("vox" as const),
+          who: e.role === "user" ? ("user" as const) : ("hark" as const),
           text: e.text,
-          task: VOX_CHAT,
+          task: HARK_CHAT,
           ts: Date.parse(e.ts) || undefined,
         }));
       if (hist.length) setMessages((old) => [...hist, ...old].slice(-80));
@@ -170,12 +170,12 @@ export default function Mother() {
         setSpendByWs(Object.fromEntries(aggs.map((a) => [a.key, a.cost_usd]))),
       )
       .catch(() => {});
-    // The chat header's cost comes from the LEDGER (today's vox-chat line),
+    // The chat header's cost comes from the LEDGER (today's hark-chat line),
     // not from a window-local accumulator — restarts don't zero it.
     ipc
       .spendSummary(day, "task", "live")
       .then((aggs) => {
-        const chat = aggs.find((a) => a.key === "vox-chat");
+        const chat = aggs.find((a) => a.key === "hark-chat");
         if (chat) setChatCost(chat.cost_usd);
       })
       .catch(() => {});
@@ -206,7 +206,7 @@ export default function Mother() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  useVoxEvents({
+  useHarkEvents({
     labelFor: (id) => id,
     push,
     setMessages,
@@ -224,7 +224,7 @@ export default function Mother() {
       [],
     ),
     // A finished turn flips the feed row of its task: dispatched → done.
-    // Vox-chat turns also feed the chat header (session cost + context).
+    // Hark-chat turns also feed the chat header (session cost + context).
     onWorkerTurn: useCallback(
       (label: string, isError: boolean, taskId?: string, ctxPct?: number | null, cost?: number) => {
         setActions((old) =>
@@ -234,7 +234,7 @@ export default function Mother() {
               : a,
           ),
         );
-        if (taskId === VOX_CHAT) {
+        if (taskId === HARK_CHAT) {
           setChatLive(true);
           // Cost comes from the ledger on the refresh this turn triggers.
           if (ctxPct != null) setChatCtx(ctxPct);
@@ -253,7 +253,7 @@ export default function Mother() {
     }, []),
     // The chat speaks its ACTUAL reply (first sentence), not "task done".
     turnSpeech: useCallback((taskId: string, text: string, isError: boolean) => {
-      if (taskId !== VOX_CHAT || isError) return undefined;
+      if (taskId !== HARK_CHAT || isError) return undefined;
       const sentence = firstSentence(text);
       return sentence || undefined;
     }, []),
@@ -265,9 +265,9 @@ export default function Mother() {
         reply: { fala: string; cost_usd?: number; model?: string } | undefined,
         work: boolean,
       ) => {
-        push({ who: "user", text: question, task: work ? VOX_CHAT : undefined });
+        push({ who: "user", text: question, task: work ? HARK_CHAT : undefined });
         if (reply)
-          push({ who: "vox", text: reply.fala, cost: reply.cost_usd, model: reply.model });
+          push({ who: "hark", text: reply.fala, cost: reply.cost_usd, model: reply.model });
       },
       [push],
     ),
@@ -541,7 +541,7 @@ export default function Mother() {
     try {
       const reply = await ipc.askText(text);
       // The thread IS the record — no duplicate feed row for turns.
-      push({ who: "vox", text: reply.fala, cost: reply.cost_usd, model: reply.model });
+      push({ who: "hark", text: reply.fala, cost: reply.cost_usd, model: reply.model });
       say(reply.fala);
     } catch (err) {
       push({ who: "sys", text: `erro: ${err}` });
@@ -552,14 +552,14 @@ export default function Mother() {
   }
 
   /** Hand real work to the persistent chat worker; its turns stream back
-   *  into the same thread as events (task_id "vox-chat"). Non-blocking:
+   *  into the same thread as events (task_id "hark-chat"). Non-blocking:
    *  the input stays free while the worker runs. */
   async function sendToChat(text: string) {
     try {
-      await ipc.voxChatSend(text);
+      await ipc.harkChatSend(text);
       setChatLive(true);
     } catch (err) {
-      push({ who: "sys", text: `chat vox: ${err}` });
+      push({ who: "sys", text: `chat hark: ${err}` });
     }
   }
 
@@ -608,11 +608,11 @@ export default function Mother() {
       )}
     </div>
   );
-  const assistantName = overview?.assistant_name || "Vox";
+  const assistantName = overview?.assistant_name || "Hark";
   const chatHead = (expanded: boolean) => (
-    <div className={expanded ? "chat-head" : "vox-chat-head"}>
-      <span className="vox-chat-title">{assistantName}</span>
-      <span className="vox-chat-meta">
+    <div className={expanded ? "chat-head" : "hark-chat-head"}>
+      <span className="hark-chat-title">{assistantName}</span>
+      <span className="hark-chat-meta">
         {chatLive ? t("chat_session_live") : t("chat_session_new")}
         {chatCost > 0 && ` · $${chatCost.toFixed(2)} ${t("proj_today")}`}
         {chatCtx != null && ` · ${t("chat_ctx", { n: Math.round(chatCtx * 100) })}`}
@@ -631,7 +631,7 @@ export default function Mother() {
           <Mic size={13} className="mother-action-icon" />
           <span className="mother-action-text">“{a.utterance}”</span>
           <span className="mother-action-target">
-            → {a.target ?? "vox"} · {a.status ?? "ok"}
+            → {a.target ?? "hark"} · {a.status ?? "ok"}
           </span>
         </div>
       ))}
@@ -857,12 +857,12 @@ export default function Mother() {
           {/* The persistent chat, compact: a glanceable digest of the last
               two exchanges — full text only when expanded. The input below
               doubles as its composer. */}
-          <div className="vox-chat">
+          <div className="hark-chat">
             {chatHead(false)}
             {digestRows.length === 0 ? (
               <div className="vc-empty">{t("chat_empty")}</div>
             ) : (
-              <div className="vox-digest">
+              <div className="hark-digest">
                 {digestRows.map((r) =>
                   r.kind === "tools" ? (
                     <div key={r.key} className="vd-row">

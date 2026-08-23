@@ -16,7 +16,7 @@ src/
     format.ts         pure formatting helpers (model names, directive chips)
     highlight.ts      highlight.js core + grammars for the file viewer
   hooks/
-    useVoxEvents.ts   the single subscription to backend events
+    useHarkEvents.ts   the single subscription to backend events
   components/         pure presentation, state comes in via props
     Sidebar.tsx       chats grouped by project (+ add/remove projects)
     Transcript.tsx    the visible thread (markdown, tool calls, permissions)
@@ -41,8 +41,8 @@ src/
    that's fine — anything another component reads must live in App.
 3. **Threads are keyed by task LABEL** (`Msg.task`), not task_id, because
    the transcript survives worker restarts and the label is stable.
-4. **Backend events arrive only via `useVoxEvents`.** New event kinds get a
-   branch there and a variant in `types.ts` (`VoxEvent`).
+4. **Backend events arrive only via `useHarkEvents`.** New event kinds get a
+   branch there and a variant in `types.ts` (`HarkEvent`).
 5. **Panels**: `react-resizable-panels` v2 (`PanelGroup/Panel/
    PanelResizeHandle`), layout persisted via `autoSaveId`. Sidebar
    collapses with Cmd+B; quick-open on Cmd+P.

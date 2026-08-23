@@ -15,7 +15,7 @@ const MODE_OPTIONS: [string, string][] = [
 ];
 
 /**
- * App settings over ~/.config/vox/config.toml — the FILE stays the source
+ * App settings over ~/.config/hark/config.toml — the FILE stays the source
  * of truth (writes are surgical patches; comments survive). Every field
  * saves on change and hot-applies where possible (theme, mode, ceilings,
  * even the hotkey re-registers). Lives on the MOTHER window only: these
@@ -210,7 +210,7 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
                 hint={t("set_assistant_hint")}
                 keyName="assistant_name"
                 value={v.assistant_name}
-                placeholder="Vox"
+                placeholder="Hark"
               />
               <div className="set-row">
                 <div className="set-label">
@@ -233,11 +233,11 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
                 keyName="theme"
                 value={v.theme}
                 options={[
-                  ["vox", t("set_theme_default")],
+                  ["hark", t("set_theme_default")],
                   ["dracula", "Dracula"],
                 ]}
               />
-              <div className="set-preview" data-theme={v.theme === "vox" ? undefined : v.theme}>
+              <div className="set-preview" data-theme={v.theme === "hark" ? undefined : v.theme}>
                 <pre>
                   <span className="hl-kw">function</span>{" "}
                   <span className="hl-title">greet</span>(name) {"{"}
@@ -341,7 +341,7 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
                 hint={t("set_whisper_hint", { path: snap.whisper_model_resolved })}
                 keyName="whisper_model"
                 value={v.whisper_model}
-                placeholder="~/.local/share/vox/models/ggml-small.bin"
+                placeholder="~/.local/share/hark/models/ggml-small.bin"
               />
               <div className="set-row">
                 <div className="set-label">

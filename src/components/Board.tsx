@@ -59,7 +59,7 @@ export default function Board({
             onDrop={(e) => {
               setOver(null);
               setDragging(null);
-              const title = e.dataTransfer.getData("text/vox-task");
+              const title = e.dataTransfer.getData("text/hark-task");
               if (title) onMove(title, status);
             }}
           >
@@ -77,7 +77,7 @@ export default function Board({
                   title={onOpen ? t("card_open") : undefined}
                   onClick={() => onOpen?.(task)}
                   onDragStart={(e) => {
-                    e.dataTransfer.setData("text/vox-task", task.title);
+                    e.dataTransfer.setData("text/hark-task", task.title);
                     e.dataTransfer.effectAllowed = "move";
                     setDragging(task.title);
                   }}

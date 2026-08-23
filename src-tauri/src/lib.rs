@@ -1,4 +1,4 @@
-//! Tauri driver: the desktop window over the same vox-core used by the CLI.
+//! Tauri driver: the desktop window over the same hark-core used by the CLI.
 
 mod terminal;
 mod voice;
@@ -7,20 +7,20 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{mpsc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, State};
-use vox_core::adapters::claude_cli::ClaudeCli;
-use vox_core::adapters::git_collect::GitCli;
-use vox_core::adapters::live_sessions::ClaudeAgentsCli;
-use vox_core::adapters::memory_files::{self, VoxDir};
-use vox_core::adapters::sqlite_store::SqliteStore;
-use vox_core::adapters::state_file;
-use vox_core::adapters::{cpal_audio::CpalMic, say_tts::SayTts, whisper_stt::WhisperStt};
-use vox_core::app::ask::{ask_with_image, AskDeps};
-use vox_core::app::dispatch::{plan, Plan};
-use vox_core::chrono::{SecondsFormat, Utc};
-use vox_core::config::Config;
-use vox_core::domain::claude_event::{ClaudeEvent, PermissionDecision, VoiceReply};
-use vox_core::domain::memory::{WorkerRecord, WorkerStatus};
-use vox_core::ports::{AgentRunner, AudioIn, Stt, Tts};
+use hark_core::adapters::claude_cli::ClaudeCli;
+use hark_core::adapters::git_collect::GitCli;
+use hark_core::adapters::live_sessions::ClaudeAgentsCli;
+use hark_core::adapters::memory_files::{self, HarkDir};
+use hark_core::adapters::sqlite_store::SqliteStore;
+use hark_core::adapters::state_file;
+use hark_core::adapters::{cpal_audio::CpalMic, say_tts::SayTts, whisper_stt::WhisperStt};
+use hark_core::app::ask::{ask_with_image, AskDeps};
+use hark_core::app::dispatch::{plan, Plan};
+use hark_core::chrono::{SecondsFormat, Utc};
+use hark_core::config::Config;
+use hark_core::domain::claude_event::{ClaudeEvent, PermissionDecision, VoiceReply};
+use hark_core::domain::memory::{WorkerRecord, WorkerStatus};
+use hark_core::ports::{AgentRunner, AudioIn, Stt, Tts};
 
 /// Permission requests waiting for a click, keyed by request_id.
 struct Pending(Mutex<HashMap<String, mpsc::Sender<PermissionDecision>>>);
@@ -32,8 +32,8 @@ pub(crate) struct PermLog(pub(crate) Mutex<Vec<(String, String, String)>>);
 
 /// A live worker plus everything needed to restart it on the same session.
 struct WorkerHandle {
-    worker: std::sync::Arc<vox_core::adapters::worker::PersistentWorker>,
-    spawn: vox_core::adapters::worker::WorkerSpawn,
+    worker: std::sync::Arc<hark_core::adapters::worker::PersistentWorker>,
+    spawn: hark_core::adapters::worker::WorkerSpawn,
 }
 
 /// Conversational workers still alive, keyed by task_id.
@@ -60,7 +60,7 @@ fn now_iso() -> String {
 }
 
 fn emit_event(app: &AppHandle, payload: serde_json::Value) {
-    let _ = app.emit("vox", payload);
+    let _ = app.emit("hark", payload);
 }
 
 fn build_deps<'a>(
@@ -68,7 +68,7 @@ fn build_deps<'a>(
     store: &'a mut SqliteStore,
     live: &'a ClaudeAgentsCli,
     runner: &'a dyn AgentRunner,
-    active_project: Option<vox_core::domain::project::Project>,
+    active_project: Option<hark_core::domain::project::Project>,
 ) -> AskDeps<'a> {
     let state = state_file::load(&config.data_dir());
     AskDeps {
@@ -76,7 +76,7 @@ fn build_deps<'a>(
         projects: state.projects,
         active_project,
         workers: state.workers,
-        journal: &VoxDir,
+        journal: &HarkDir,
         store,
         live,
         repos: &GitCli,
@@ -89,9 +89,9 @@ struct NoopRunner;
 impl AgentRunner for NoopRunner {
     fn ask(
         &self,
-        _request: &vox_core::ports::TurnRequest,
+        _request: &hark_core::ports::TurnRequest,
         _e: &mut dyn FnMut(&ClaudeEvent),
-    ) -> anyhow::Result<vox_core::domain::claude_event::TurnResult> {
+    ) -> anyhow::Result<hark_core::domain::claude_event::TurnResult> {
         anyhow::bail!("not used")
     }
 }
@@ -101,8 +101,8 @@ struct Overview {
     contexts: Vec<String>,
     active: String,
     workers: Vec<WorkerRecord>,
-    board: Vec<vox_core::domain::board::Task>,
-    projects: Vec<vox_core::domain::project::Project>,
+    board: Vec<hark_core::domain::board::Task>,
+    projects: Vec<hark_core::domain::project::Project>,
     theme: String,
     /// Config default permission mode for new workers ("" = CLI default).
     default_mode: String,
@@ -118,9 +118,9 @@ struct Overview {
 
 /// The editable project list. First run seeds it from what the machine
 /// already knows: board workspaces and configured context repos.
-fn load_projects(config: &Config) -> Vec<vox_core::domain::project::Project> {
-    use vox_core::domain::project;
-    use vox_core::ports::SessionStore;
+fn load_projects(config: &Config) -> Vec<hark_core::domain::project::Project> {
+    use hark_core::domain::project;
+    use hark_core::ports::SessionStore;
     let mut state = state_file::load(&config.data_dir());
     if !state.projects.is_empty() {
         return state.projects;
@@ -152,7 +152,7 @@ fn load_projects(config: &Config) -> Vec<vox_core::domain::project::Project> {
 
 #[tauri::command]
 fn overview() -> Overview {
-    use vox_core::ports::SessionStore;
+    use hark_core::ports::SessionStore;
     let config = Config::load();
     let state = state_file::load(&config.data_dir());
     let mut workers = state.workers;
@@ -189,9 +189,9 @@ fn overview() -> Overview {
 }
 
 #[tauri::command]
-fn project_add(path: String) -> Result<vox_core::domain::project::Project, String> {
-    use vox_core::domain::project;
-    let expanded = vox_core::config::expand_home(&path);
+fn project_add(path: String) -> Result<hark_core::domain::project::Project, String> {
+    use hark_core::domain::project;
+    let expanded = hark_core::config::expand_home(&path);
     let root = std::path::PathBuf::from(&expanded)
         .canonicalize()
         .map_err(|_| format!("diretório não existe: {expanded}"))?;
@@ -212,16 +212,16 @@ fn project_add(path: String) -> Result<vox_core::domain::project::Project, Strin
 fn project_remove(key: String) -> Result<(), String> {
     let config = Config::load();
     let mut state = state_file::load(&config.data_dir());
-    state.projects = vox_core::domain::project::remove(state.projects, &key);
+    state.projects = hark_core::domain::project::remove(state.projects, &key);
     state_file::save(&config.data_dir(), &state).map_err(|e| e.to_string())
 }
 
 /// Fuzzy file search inside a project (drives @mention and quick-open).
 #[tauri::command(async)]
 fn project_files(path: String, query: String, limit: Option<usize>) -> Vec<String> {
-    let root = std::path::PathBuf::from(vox_core::config::expand_home(&path));
-    let files = vox_core::adapters::fs_files::list_files(&root, 8000);
-    vox_core::domain::file_search::search(
+    let root = std::path::PathBuf::from(hark_core::config::expand_home(&path));
+    let files = hark_core::adapters::fs_files::list_files(&root, 8000);
+    hark_core::domain::file_search::search(
         &query,
         files.iter().map(|s| s.as_str()),
         limit.unwrap_or(30),
@@ -232,7 +232,7 @@ fn project_files(path: String, query: String, limit: Option<usize>) -> Vec<Strin
 /// logs the user clicks open) — are readable/writable from the UI.
 fn guard_project_path(path: &str) -> Result<std::path::PathBuf, String> {
     let config = Config::load();
-    let target = std::path::PathBuf::from(vox_core::config::expand_home(path))
+    let target = std::path::PathBuf::from(hark_core::config::expand_home(path))
         .canonicalize()
         .map_err(|e| format!("{path}: {e}"))?;
     let projects = load_projects(&config);
@@ -241,7 +241,7 @@ fn guard_project_path(path: &str) -> Result<std::path::PathBuf, String> {
         .map(|proj| proj.path.clone())
         .chain(std::iter::once("~/.claude".to_string()));
     let allowed = roots.into_iter().any(|root| {
-        std::path::PathBuf::from(vox_core::config::expand_home(&root))
+        std::path::PathBuf::from(hark_core::config::expand_home(&root))
             .canonicalize()
             .map(|root| target.starts_with(root))
             .unwrap_or(false)
@@ -300,9 +300,9 @@ fn use_context(name: String) -> Result<(), String> {
 
 #[tauri::command]
 fn route_text(text: String) -> String {
-    match vox_core::domain::intent::route(&text) {
-        vox_core::domain::intent::Route::Dispatch => "dispatch".into(),
-        vox_core::domain::intent::Route::Ask => "ask".into(),
+    match hark_core::domain::intent::route(&text) {
+        hark_core::domain::intent::Route::Dispatch => "dispatch".into(),
+        hark_core::domain::intent::Route::Ask => "ask".into(),
     }
 }
 
@@ -384,20 +384,20 @@ fn hear_once(lease: State<'_, MicLease>, owner: Option<String>) -> Result<String
     }
     let _guard = MicGuard(&lease);
     let config = Config::load();
-    let stt = stt(&config).ok_or("whisper model missing (run: vox setup)")?;
+    let stt = stt(&config).ok_or("whisper model missing (run: hark setup)")?;
     let tts = SayTts {
         voice: config.voice.clone(),
     };
     let stop = mic_stop_flag();
     stop.store(false, std::sync::atomic::Ordering::SeqCst);
-    tts.beep(vox_core::ports::Cue::Listening);
+    tts.beep(hark_core::ports::Cue::Listening);
     let audio = CpalMic {
         stop,
         ..CpalMic::default()
     }
     .record_utterance()
     .map_err(|e| e.to_string())?;
-    tts.beep(vox_core::ports::Cue::Captured);
+    tts.beep(hark_core::ports::Cue::Captured);
     stt.transcribe(&audio).map_err(|e| e.to_string())
 }
 
@@ -410,7 +410,7 @@ fn interpret_verdict(
     options: Option<Vec<String>>,
     actions: Option<Vec<(String, Vec<String>)>>,
 ) -> Result<serde_json::Value, String> {
-    use vox_core::domain::verdict::Verdict;
+    use hark_core::domain::verdict::Verdict;
     let options = options.unwrap_or_default();
     let option_refs: Vec<&str> = options.iter().map(String::as_str).collect();
     let actions = actions.unwrap_or_default();
@@ -424,7 +424,7 @@ fn interpret_verdict(
         .map(|((id, _), ps)| (id.as_str(), ps.as_slice()))
         .collect();
     Ok(
-        match vox_core::domain::verdict::interpret(&utterance, &option_refs, &action_refs) {
+        match hark_core::domain::verdict::interpret(&utterance, &option_refs, &action_refs) {
             Verdict::Confirm { always } => serde_json::json!({ "kind": "confirm", "always": always }),
             Verdict::Deny => serde_json::json!({ "kind": "deny" }),
             Verdict::Pick(i) => serde_json::json!({ "kind": "pick", "index": i }),
@@ -474,7 +474,7 @@ fn ask_text(
     };
     // The UI's focused project scopes this question (click = context).
     let active_project = match (project_name, project_path) {
-        (Some(name), Some(path)) => Some(vox_core::domain::project::Project { name, path }),
+        (Some(name), Some(path)) => Some(hark_core::domain::project::Project { name, path }),
         _ => None,
     };
     let mut deps = build_deps(&config, &mut store, &live, &runner, active_project);
@@ -516,7 +516,7 @@ enum DispatchOut {
     /// Conversational worker is up; results arrive as events.
     Started {
         task_id: String,
-        directives: vox_core::domain::directives::Directives,
+        directives: hark_core::domain::directives::Directives,
     },
     Done {
         task_id: String,
@@ -599,7 +599,7 @@ fn worker_start(
         Utc::now().format("%m%d%H%M%S")
     );
     let brief = format!(
-        "# Vox dispatch {task_id}\n\n- session: {}\n- workspace: {}\n\n## Instruction\n\n{instruction}\n",
+        "# Hark dispatch {task_id}\n\n- session: {}\n- workspace: {}\n\n## Instruction\n\n{instruction}\n",
         planned.session.session_id,
         planned.workspace_root.display()
     );
@@ -614,12 +614,12 @@ fn worker_start(
     );
 
     // Mode precedence: spoken directive > window selector > config default.
-    let mut directives = vox_core::domain::directives::parse(&instruction);
+    let mut directives = hark_core::domain::directives::parse(&instruction);
     directives.mode = directives
         .mode
-        .or_else(|| mode.as_deref().and_then(vox_core::domain::directives::Mode::from_flag))
+        .or_else(|| mode.as_deref().and_then(hark_core::domain::directives::Mode::from_flag))
         .or_else(|| config.default_worker_mode());
-    let spawn = vox_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_core::adapters::worker::WorkerSpawn {
         limits: config.spawn_limits(),
         envs: worker_envs(&config),
         claude_bin: config.claude_bin_resolved(),
@@ -642,7 +642,7 @@ fn start_worker(
     app: &AppHandle,
     live: &State<'_, LiveWorkers>,
     task_id: &str,
-    spawn: vox_core::adapters::worker::WorkerSpawn,
+    spawn: hark_core::adapters::worker::WorkerSpawn,
 ) -> anyhow::Result<()> {
     start_worker_titled(app, live, task_id, spawn, None)
 }
@@ -654,10 +654,10 @@ fn start_worker_titled(
     app: &AppHandle,
     live: &State<'_, LiveWorkers>,
     task_id: &str,
-    spawn: vox_core::adapters::worker::WorkerSpawn,
+    spawn: hark_core::adapters::worker::WorkerSpawn,
     title: Option<String>,
 ) -> anyhow::Result<()> {
-    let (worker, stdout) = vox_core::adapters::worker::PersistentWorker::spawn(&spawn)?;
+    let (worker, stdout) = hark_core::adapters::worker::PersistentWorker::spawn(&spawn)?;
     let pid = worker.pid;
     live.0.lock().unwrap().insert(
         task_id.to_string(),
@@ -676,7 +676,7 @@ fn start_worker_titled(
     // The human name of this work: the session's title for resumes, the
     // instruction for brand-new sessions. Travels inside events so any
     // window (the mother above all) can speak about it by name.
-    let board_title = if task_id == VOX_CHAT_TASK {
+    let board_title = if task_id == HARK_CHAT_TASK {
         // The chat speaks and asks permissions under its OWN name.
         Config::load().assistant_name
     } else {
@@ -703,7 +703,7 @@ fn start_worker_titled(
         use std::io::{BufRead, BufReader};
         let config = Config::load();
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            match vox_core::domain::claude_event::parse(&line) {
+            match hark_core::domain::claude_event::parse(&line) {
                 ClaudeEvent::SessionStarted { session_id, slash_commands } => {
                     current_session = session_id.clone();
                     // The init event names the session's slash commands:
@@ -714,13 +714,13 @@ fn start_worker_titled(
                         map.insert(workspace.display().to_string(), slash_commands.clone());
                         map.insert(String::new(), slash_commands);
                     }
-                    if task2 == VOX_CHAT_TASK {
+                    if task2 == HARK_CHAT_TASK {
                         // The mother's chat lives OFF the board and OFF the
                         // worker registry; only its session id persists so
                         // the next send resumes the same conversation.
                         let mut gstate = state_file::load(&config.data_dir());
-                        if gstate.vox_chat_session.as_deref() != Some(session_id.as_str()) {
-                            gstate.vox_chat_session = Some(session_id.clone());
+                        if gstate.hark_chat_session.as_deref() != Some(session_id.as_str()) {
+                            gstate.hark_chat_session = Some(session_id.clone());
                             let _ = state_file::save(&config.data_dir(), &gstate);
                         }
                         emit_event(
@@ -739,16 +739,16 @@ fn start_worker_titled(
                         w.session_id = session_id.clone();
                     }
                     let _ = state_file::save(&config.data_dir(), &gstate);
-                    use vox_core::ports::SessionStore;
+                    use hark_core::ports::SessionStore;
                     if let Ok(mut store) = SqliteStore::open(&config.data_dir().join("index.db")) {
                         if let Ok(current) = store.board() {
-                            let updates = [vox_core::domain::board::BoardUpdate {
+                            let updates = [hark_core::domain::board::BoardUpdate {
                                 titulo: board_title.clone(),
-                                status: vox_core::domain::board::TaskStatus::Doing,
+                                status: hark_core::domain::board::TaskStatus::Doing,
                                 nota: None,
                                 sessao: None,
                             }];
-                            let merged = vox_core::domain::board::apply_updates(
+                            let merged = hark_core::domain::board::apply_updates(
                                 current,
                                 &updates,
                                 &now_iso(),
@@ -775,9 +775,9 @@ fn start_worker_titled(
                             .ok()
                             .and_then(|v| v.get("plan").and_then(|p| p.as_str()).map(String::from));
                         if let Some(plan) = plan {
-                            let subs = vox_core::domain::board::plan_to_subtasks(&plan);
+                            let subs = hark_core::domain::board::plan_to_subtasks(&plan);
                             if !subs.is_empty() {
-                                use vox_core::ports::SessionStore;
+                                use hark_core::ports::SessionStore;
                                 if let Ok(mut store) =
                                     SqliteStore::open(&config.data_dir().join("index.db"))
                                 {
@@ -821,9 +821,9 @@ fn start_worker_titled(
                     ));
                     // The production gate: a flagged ask NEVER auto-resolves
                     // (standing rules, permissive windows) — a human answers.
-                    let prod_risk = vox_core::domain::prodgate::check(&tool_name, &input);
+                    let prod_risk = hark_core::domain::prodgate::check(&tool_name, &input);
                     let _ = app2.emit(
-                        "vox-permission",
+                        "hark-permission",
                         serde_json::json!({
                             "request_id": request_id,
                             "task_id": task2,
@@ -837,8 +837,8 @@ fn start_worker_titled(
                 ClaudeEvent::Result(turn) => {
                     // Turn done, worker stays alive for the next message.
                     update_worker_summary(&config, &task2, &turn.raw);
-                    if task2 != VOX_CHAT_TASK {
-                        // (the chat's cwd is the data dir — no .vox there)
+                    if task2 != HARK_CHAT_TASK {
+                        // (the chat's cwd is the data dir — no .hark there)
                         let _ = memory_files::append_state(
                             &workspace,
                             &format!("- {} {task2} [turn] {}", now_iso(), turn.raw.chars().take(160).collect::<String>()),
@@ -847,8 +847,8 @@ fn start_worker_titled(
                     let workspace_str = workspace.display().to_string();
                     record_live_spend(
                         &config,
-                        vox_core::domain::spend::SpendKind::Worker,
-                        &vox_core::domain::spend::SpendMeta {
+                        hark_core::domain::spend::SpendKind::Worker,
+                        &hark_core::domain::spend::SpendMeta {
                             task_id: Some(&task2),
                             session_id: (!current_session.is_empty())
                                 .then_some(current_session.as_str()),
@@ -859,7 +859,7 @@ fn start_worker_titled(
                         &turn,
                     );
                     // Aggregate usage + how full the context window is.
-                    let mut usage = vox_core::domain::claude_event::TokenUsage::default();
+                    let mut usage = hark_core::domain::claude_event::TokenUsage::default();
                     let mut window: Option<u64> = None;
                     for m in &turn.usage {
                         usage.input += m.usage.input;
@@ -974,16 +974,16 @@ fn update_registry_and_board(
     });
     let _ = state_file::save(&config.data_dir(), &gstate);
 
-    use vox_core::ports::SessionStore;
+    use hark_core::ports::SessionStore;
     if let Ok(mut store) = SqliteStore::open(&config.data_dir().join("index.db")) {
         if let Ok(current) = store.board() {
-            let updates = [vox_core::domain::board::BoardUpdate {
+            let updates = [hark_core::domain::board::BoardUpdate {
                 titulo: worker_board_title(session_id, instruction),
-                status: vox_core::domain::board::TaskStatus::Doing,
+                status: hark_core::domain::board::TaskStatus::Doing,
                 nota: Some("worker conversacional ativo".into()),
                 sessao: None,
             }];
-            let merged = vox_core::domain::board::apply_updates(
+            let merged = hark_core::domain::board::apply_updates(
                 current,
                 &updates,
                 &now_iso(),
@@ -1007,7 +1007,7 @@ fn chat_start(
     mode: Option<String>,
 ) -> Result<DispatchOut, String> {
     let config = Config::load();
-    let root = std::path::PathBuf::from(vox_core::config::expand_home(&project_path));
+    let root = std::path::PathBuf::from(hark_core::config::expand_home(&project_path));
     if !root.is_dir() {
         return Err(format!("diretório não existe: {}", root.display()));
     }
@@ -1015,12 +1015,12 @@ fn chat_start(
     update_registry_and_board(&config, &task_id, &root, None, &instruction, WorkerStatus::Running);
 
     // Mode precedence: spoken directive > window selector > config default.
-    let mut directives = vox_core::domain::directives::parse(&instruction);
+    let mut directives = hark_core::domain::directives::parse(&instruction);
     directives.mode = directives
         .mode
-        .or_else(|| mode.as_deref().and_then(vox_core::domain::directives::Mode::from_flag))
+        .or_else(|| mode.as_deref().and_then(hark_core::domain::directives::Mode::from_flag))
         .or_else(|| config.default_worker_mode());
-    let spawn = vox_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_core::adapters::worker::WorkerSpawn {
         limits: config.spawn_limits(),
         envs: worker_envs(&config),
         claude_bin: config.claude_bin_resolved(),
@@ -1037,12 +1037,12 @@ fn chat_start(
 /// flow: the ledger is bookkeeping, not the critical path.
 fn record_live_spend(
     config: &Config,
-    kind: vox_core::domain::spend::SpendKind,
-    meta: &vox_core::domain::spend::SpendMeta,
-    turn: &vox_core::domain::claude_event::TurnResult,
+    kind: hark_core::domain::spend::SpendKind,
+    meta: &hark_core::domain::spend::SpendMeta,
+    turn: &hark_core::domain::claude_event::TurnResult,
 ) {
-    use vox_core::ports::SpendLedger;
-    let rows = vox_core::domain::spend::rows_from_turn(&now_iso(), kind, meta, turn);
+    use hark_core::ports::SpendLedger;
+    let rows = hark_core::domain::spend::rows_from_turn(&now_iso(), kind, meta, turn);
     if rows.is_empty() {
         return;
     }
@@ -1070,7 +1070,7 @@ fn worker_send(
     task_id: String,
     text: String,
     images: Option<Vec<(String, String)>>,
-) -> Result<vox_core::domain::directives::Directives, String> {
+) -> Result<hark_core::domain::directives::Directives, String> {
     let handle = live
         .0
         .lock()
@@ -1099,7 +1099,7 @@ fn worker_send(
         entry.in_flight = true;
     }
 
-    let asked = vox_core::domain::directives::parse(&text);
+    let asked = hark_core::domain::directives::parse(&text);
     let mut next = handle.spawn.directives.clone();
     if asked.mode.is_some() {
         next.mode = asked.mode;
@@ -1127,7 +1127,7 @@ fn worker_send(
     );
     handle.worker.shutdown();
     // Limits carry over from the original spawn (`..clone()`).
-    let spawn = vox_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_core::adapters::worker::WorkerSpawn {
         instruction: text,
         directives: next.clone(),
         ..handle.spawn.clone()
@@ -1139,7 +1139,7 @@ fn worker_send(
 /// The mother's persistent work chat: one task id, off the board, off the
 /// worker registry. Its session id lives in the global state so the chat
 /// survives app restarts.
-const VOX_CHAT_TASK: &str = "vox-chat";
+const HARK_CHAT_TASK: &str = "hark-chat";
 
 /// Opt-in message batching (`batch_messages = true`): follow-ups sent
 /// while a turn is in flight queue up and land as ONE message when the
@@ -1155,7 +1155,7 @@ pub(crate) struct BatchEntry {
 /// Tick/untick one step of a task's plan checklist.
 #[tauri::command]
 fn board_subtask_toggle(title: String, index: usize, done: bool) -> Result<(), String> {
-    use vox_core::ports::SessionStore;
+    use hark_core::ports::SessionStore;
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
@@ -1172,10 +1172,10 @@ fn board_subtask_toggle(title: String, index: usize, done: bool) -> Result<(), S
 
 /// Per-worker eco-tool env vars from what the machine has + `[assist]`.
 pub(crate) fn worker_envs(config: &Config) -> Vec<(String, String)> {
-    let settings = std::fs::read_to_string(vox_core::config::expand_home("~/.claude/settings.json"))
+    let settings = std::fs::read_to_string(hark_core::config::expand_home("~/.claude/settings.json"))
         .unwrap_or_default();
-    let status = vox_core::adapters::eco_tools::detect(&settings);
-    vox_core::adapters::eco_tools::eco_envs(
+    let status = hark_core::adapters::eco_tools::detect(&settings);
+    hark_core::adapters::eco_tools::eco_envs(
         status,
         config.assist.ponytail.as_deref(),
         config.assist.caveman.as_deref(),
@@ -1185,24 +1185,24 @@ pub(crate) fn worker_envs(config: &Config) -> Vec<(String, String)> {
 
 /// The ledger fingerprint of a spawn's eco set (feeds spend.outcome).
 pub(crate) fn eco_fingerprint(envs: &[(String, String)]) -> String {
-    let settings = std::fs::read_to_string(vox_core::config::expand_home("~/.claude/settings.json"))
+    let settings = std::fs::read_to_string(hark_core::config::expand_home("~/.claude/settings.json"))
         .unwrap_or_default();
-    let status = vox_core::adapters::eco_tools::detect(&settings);
-    vox_core::adapters::eco_tools::fingerprint(status, envs)
+    let status = hark_core::adapters::eco_tools::detect(&settings);
+    hark_core::adapters::eco_tools::fingerprint(status, envs)
 }
 
 /// What eco tools this machine has and how workers run them.
 #[tauri::command(async)]
 fn eco_status() -> Result<serde_json::Value, String> {
     let config = Config::load();
-    let settings = std::fs::read_to_string(vox_core::config::expand_home("~/.claude/settings.json"))
+    let settings = std::fs::read_to_string(hark_core::config::expand_home("~/.claude/settings.json"))
         .unwrap_or_default();
-    let status = vox_core::adapters::eco_tools::detect(&settings);
+    let status = hark_core::adapters::eco_tools::detect(&settings);
     let envs = worker_envs(&config);
     Ok(serde_json::json!({
         "status": status,
         "envs": envs,
-        "fingerprint": vox_core::adapters::eco_tools::fingerprint(status, &envs),
+        "fingerprint": hark_core::adapters::eco_tools::fingerprint(status, &envs),
     }))
 }
 
@@ -1218,7 +1218,7 @@ pub(crate) fn ensure_persona(config: &Config) {
     let _ = std::fs::create_dir_all(config.data_dir());
     let _ = std::fs::write(
         &path,
-        vox_core::domain::persona::template(&config.assistant_name),
+        hark_core::domain::persona::template(&config.assistant_name),
     );
 }
 
@@ -1235,8 +1235,8 @@ struct SavingsOut {
 /// Every number's formula travels in `methodology` — the UI shows it.
 #[tauri::command(async)]
 fn savings_summary(since: Option<String>) -> Result<SavingsOut, String> {
-    use vox_core::domain::spend::SpendSource;
-    use vox_core::ports::{SpendGroup, SpendLedger, SpendQuery};
+    use hark_core::domain::spend::SpendSource;
+    use hark_core::ports::{SpendGroup, SpendLedger, SpendQuery};
     let config = Config::load();
     let store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
@@ -1253,12 +1253,15 @@ fn savings_summary(since: Option<String>) -> Result<SavingsOut, String> {
     let agg = |key: &str| kinds.iter().find(|a| a.key == key);
 
     // Gate interceptions: rows whose outcome marks a dispatch that never
-    // became a worker turn (meta_vox — talk about vox, not work).
+    // became a worker turn (meta_hark — talk about hark, not work).
     let gate_blocked = store
         .spend_rows(since.as_deref().unwrap_or("0"), 1_000_000)
         .map_err(|e| e.to_string())?
         .iter()
-        .filter(|r| r.outcome.as_deref() == Some("gate:meta_vox"))
+        .filter(|r| {
+            // "gate:meta_vox" is the same outcome recorded before the rename.
+            matches!(r.outcome.as_deref(), Some("gate:meta_hark" | "gate:meta_vox"))
+        })
         .count() as u64;
 
     let avg = |cost: f64, turns: u64| if turns > 0 { cost / turns as f64 } else { 0.0 };
@@ -1267,7 +1270,7 @@ fn savings_summary(since: Option<String>) -> Result<SavingsOut, String> {
     let (total_cost, total_in) = kinds.iter().fold((0.0, 0u64), |(c, t), a| {
         (c + a.cost_usd, t + a.usage.input + a.usage.cache_read + a.usage.cache_created)
     });
-    let inputs = vox_core::domain::savings::SavingsInputs {
+    let inputs = hark_core::domain::savings::SavingsInputs {
         gate_blocked,
         gate_cost_usd: agg("gate").map(|a| a.cost_usd).unwrap_or(0.0),
         avg_worker_turn_usd: worker.map(|a| avg(a.cost_usd, a.turns)).unwrap_or(0.0),
@@ -1276,7 +1279,7 @@ fn savings_summary(since: Option<String>) -> Result<SavingsOut, String> {
         cache_read_tokens: kinds.iter().map(|a| a.usage.cache_read).sum(),
         usd_per_input_token: if total_in > 0 { total_cost / total_in as f64 } else { 0.0 },
     };
-    let report = vox_core::domain::savings::compute(&inputs);
+    let report = hark_core::domain::savings::compute(&inputs);
     Ok(SavingsOut {
         avoided_gate_usd: report.avoided_gate_usd,
         avoided_local_usd: report.avoided_local_usd,
@@ -1286,19 +1289,19 @@ fn savings_summary(since: Option<String>) -> Result<SavingsOut, String> {
     })
 }
 
-/// Which surface a message to global vox belongs to: "lean" (bare one-shot
+/// Which surface a message to global hark belongs to: "lean" (bare one-shot
 /// ask over the snapshot) or "work" (the persistent chat with full
 /// settings + MCP). Pure domain passthrough, zero tokens.
 #[tauri::command]
 fn ask_lane(text: String) -> &'static str {
-    match vox_core::domain::answer::lane(&text) {
-        vox_core::domain::answer::AskLane::Lean => "lean",
-        vox_core::domain::answer::AskLane::WorkChat => "work",
+    match hark_core::domain::answer::lane(&text) {
+        hark_core::domain::answer::AskLane::Lean => "lean",
+        hark_core::domain::answer::AskLane::WorkChat => "work",
     }
 }
 
 #[derive(Serialize)]
-struct VoxChatOut {
+struct HarkChatOut {
     task_id: String,
     /// True when this message continues a stored session (live or resumed).
     resumed: bool,
@@ -1309,17 +1312,17 @@ struct VoxChatOut {
 /// otherwise spawns it in the DATA DIR (neutral cwd, full user settings —
 /// MCP and tools work) resuming the stored session when it still exists.
 #[tauri::command(async)]
-fn vox_chat_send(
+fn hark_chat_send(
     app: AppHandle,
     live: State<'_, LiveWorkers>,
     text: String,
     images: Option<Vec<(String, String)>>,
-) -> Result<VoxChatOut, String> {
-    let alive = live.0.lock().unwrap().contains_key(VOX_CHAT_TASK);
+) -> Result<HarkChatOut, String> {
+    let alive = live.0.lock().unwrap().contains_key(HARK_CHAT_TASK);
     if alive {
-        worker_send(app, live, VOX_CHAT_TASK.into(), text, images)?;
-        return Ok(VoxChatOut {
-            task_id: VOX_CHAT_TASK.into(),
+        worker_send(app, live, HARK_CHAT_TASK.into(), text, images)?;
+        return Ok(HarkChatOut {
+            task_id: HARK_CHAT_TASK.into(),
             resumed: true,
         });
     }
@@ -1327,22 +1330,22 @@ fn vox_chat_send(
     let config = Config::load();
     // Resume only a session whose log file still exists; otherwise start
     // fresh (a stale id would make the spawn die silently).
-    let stored = state_file::load(&config.data_dir()).vox_chat_session;
+    let stored = state_file::load(&config.data_dir()).hark_chat_session;
     let session = stored.filter(|id| {
         SqliteStore::open(&config.data_dir().join("index.db"))
             .ok()
             .and_then(|store| {
-                use vox_core::ports::SessionStore;
+                use hark_core::ports::SessionStore;
                 store.session_path(id).ok().flatten()
             })
             .is_some_and(|path| std::path::Path::new(&path).exists())
     });
 
     ensure_persona(&config);
-    let mut directives = vox_core::domain::directives::parse(&text);
+    let mut directives = hark_core::domain::directives::parse(&text);
     directives.mode = directives.mode.or_else(|| config.default_worker_mode());
     let resumed = session.is_some();
-    let spawn = vox_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_core::adapters::worker::WorkerSpawn {
         limits: config.spawn_limits(),
         envs: worker_envs(&config),
         claude_bin: config.claude_bin_resolved(),
@@ -1351,26 +1354,26 @@ fn vox_chat_send(
         instruction: text,
         directives,
     };
-    start_worker(&app, &live, VOX_CHAT_TASK, spawn).map_err(|e| e.to_string())?;
-    Ok(VoxChatOut {
-        task_id: VOX_CHAT_TASK.into(),
+    start_worker(&app, &live, HARK_CHAT_TASK, spawn).map_err(|e| e.to_string())?;
+    Ok(HarkChatOut {
+        task_id: HARK_CHAT_TASK.into(),
         resumed,
     })
 }
 
 #[derive(Serialize)]
-struct VoxChatStatus {
+struct HarkChatStatus {
     alive: bool,
     session_id: Option<String>,
 }
 
 /// Is the mother's chat worker running, and which session backs it?
 #[tauri::command]
-fn vox_chat_status(live: State<'_, LiveWorkers>) -> VoxChatStatus {
+fn hark_chat_status(live: State<'_, LiveWorkers>) -> HarkChatStatus {
     let config = Config::load();
-    VoxChatStatus {
-        alive: live.0.lock().unwrap().contains_key(VOX_CHAT_TASK),
-        session_id: state_file::load(&config.data_dir()).vox_chat_session,
+    HarkChatStatus {
+        alive: live.0.lock().unwrap().contains_key(HARK_CHAT_TASK),
+        session_id: state_file::load(&config.data_dir()).hark_chat_session,
     }
 }
 
@@ -1400,7 +1403,7 @@ fn worker_restart_light(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| handle.spawn.session_id.clone());
     let brief = {
-        use vox_core::ports::SessionStore;
+        use hark_core::ports::SessionStore;
         let store =
             SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
         let path = store
@@ -1409,8 +1412,8 @@ fn worker_restart_light(
             .flatten()
             .ok_or("sessão sem arquivo indexado")?;
         let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let entries = vox_core::domain::transcript::tail_entries(text.lines(), 400);
-        vox_core::domain::transcript::brief(&entries, 1500)
+        let entries = hark_core::domain::transcript::tail_entries(text.lines(), 400);
+        hark_core::domain::transcript::brief(&entries, 1500)
     };
     let title = worker_board_title(Some(&session), &handle.spawn.instruction);
     emit_event(
@@ -1419,7 +1422,7 @@ fn worker_restart_light(
             "text": format!("recomeçando \"{title}\" leve: sessão nova com resumo local") }),
     );
     handle.worker.shutdown();
-    let spawn = vox_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_core::adapters::worker::WorkerSpawn {
         session_id: String::new(),
         instruction: format!(
             "Contexto local da conversa anterior (resumo gerado sem custo):\n{brief}\n\nContinue o trabalho de onde paramos."
@@ -1429,7 +1432,7 @@ fn worker_restart_light(
     start_worker_titled(&app, &live, &task_id, spawn, Some(title)).map_err(|e| e.to_string())
 }
 
-fn describe(d: &vox_core::domain::directives::Directives) -> String {
+fn describe(d: &hark_core::domain::directives::Directives) -> String {
     [
         d.mode.map(|m| format!("modo {}", m.label())),
         d.effort.map(|e| format!("esforço {}", e.as_flag())),
@@ -1450,8 +1453,8 @@ fn worker_set_mode(
     live: State<'_, LiveWorkers>,
     task_id: String,
     mode: String,
-) -> Result<vox_core::domain::directives::Directives, String> {
-    let Some(mode) = vox_core::domain::directives::Mode::from_flag(&mode) else {
+) -> Result<hark_core::domain::directives::Directives, String> {
+    let Some(mode) = hark_core::domain::directives::Mode::from_flag(&mode) else {
         return Err(format!("modo desconhecido: {mode}"));
     };
     let handle = live
@@ -1472,7 +1475,7 @@ fn worker_set_mode(
             "text": format!("reabrindo a thread com {}", describe(&next)) }),
     );
     handle.worker.shutdown();
-    let spawn = vox_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_core::adapters::worker::WorkerSpawn {
         directives: next.clone(),
         ..handle.spawn.clone()
     };
@@ -1548,7 +1551,7 @@ fn dispatch_text(
     );
 
     let brief = format!(
-        "# Vox dispatch {task_id}\n\n- session: {}\n- workspace: {}\n\n## Instruction\n\n{instruction}\n",
+        "# Hark dispatch {task_id}\n\n- session: {}\n- workspace: {}\n\n## Instruction\n\n{instruction}\n",
         planned.session.session_id,
         planned.workspace_root.display()
     );
@@ -1566,7 +1569,7 @@ fn dispatch_text(
     });
     let _ = state_file::save(&config.data_dir(), &gstate);
 
-    let spawn = vox_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_core::adapters::worker::WorkerSpawn {
         limits: config.spawn_limits(),
         envs: worker_envs(&config),
         claude_bin: config.claude_bin_resolved(),
@@ -1575,13 +1578,13 @@ fn dispatch_text(
         instruction: instruction.clone(),
         directives: {
             // The one-shot path honors the config default mode too.
-            let mut d = vox_core::domain::directives::parse(&instruction);
+            let mut d = hark_core::domain::directives::parse(&instruction);
             d.mode = d.mode.or_else(|| config.default_worker_mode());
             d
         },
     };
     let label = worker_board_title(Some(&planned.session.session_id), &instruction);
-    let result = vox_core::adapters::worker::run(
+    let result = hark_core::adapters::worker::run(
         &spawn,
         &mut |_running| {},
         &mut |tool, input| {
@@ -1595,7 +1598,7 @@ fn dispatch_text(
                 tool.to_string(),
             ));
             let _ = app.emit(
-                "vox-permission",
+                "hark-permission",
                 serde_json::json!({
                     "request_id": request_id,
                     "task_id": task_id,
@@ -1622,8 +1625,8 @@ fn dispatch_text(
         let workspace_str = planned.workspace_root.display().to_string();
         record_live_spend(
             &config,
-            vox_core::domain::spend::SpendKind::Dispatch,
-            &vox_core::domain::spend::SpendMeta {
+            hark_core::domain::spend::SpendKind::Dispatch,
+            &hark_core::domain::spend::SpendMeta {
                 task_id: Some(&task_id),
                 session_id: Some(&planned.session.session_id),
                 workspace: Some(&workspace_str),
@@ -1687,8 +1690,8 @@ struct SpendAggOut {
     errors: u64,
 }
 
-impl From<vox_core::ports::SpendAgg> for SpendAggOut {
-    fn from(a: vox_core::ports::SpendAgg) -> Self {
+impl From<hark_core::ports::SpendAgg> for SpendAggOut {
+    fn from(a: hark_core::ports::SpendAgg) -> Self {
         Self {
             key: a.key,
             cost_usd: a.cost_usd,
@@ -1702,8 +1705,8 @@ impl From<vox_core::ports::SpendAgg> for SpendAggOut {
     }
 }
 
-fn spend_group(group: &str) -> vox_core::ports::SpendGroup {
-    use vox_core::ports::SpendGroup;
+fn spend_group(group: &str) -> hark_core::ports::SpendGroup {
+    use hark_core::ports::SpendGroup;
     match group {
         "model" => SpendGroup::Model,
         "label" => SpendGroup::Label,
@@ -1724,7 +1727,7 @@ fn spend_summary(
     source: String,
     workspace: Option<String>,
 ) -> Result<Vec<SpendAggOut>, String> {
-    use vox_core::ports::{SpendLedger, SpendQuery};
+    use hark_core::ports::{SpendLedger, SpendQuery};
     let config = Config::load();
     let store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
@@ -1732,12 +1735,12 @@ fn spend_summary(
         since,
         group: spend_group(&group),
         source: if source == "jsonl" {
-            vox_core::domain::spend::SpendSource::Jsonl
+            hark_core::domain::spend::SpendSource::Jsonl
         } else {
-            vox_core::domain::spend::SpendSource::Live
+            hark_core::domain::spend::SpendSource::Live
         },
         // The project window scopes every number to its own directory.
-        workspace: workspace.map(|w| vox_core::config::expand_home(&w)),
+        workspace: workspace.map(|w| hark_core::config::expand_home(&w)),
     };
     Ok(store
         .spend_summary(&query)
@@ -1749,7 +1752,7 @@ fn spend_summary(
 
 #[tauri::command(async)]
 fn spend_top_sessions(since: String, limit: usize) -> Result<Vec<SpendAggOut>, String> {
-    use vox_core::ports::{SessionStore, SpendLedger};
+    use hark_core::ports::{SessionStore, SpendLedger};
     let config = Config::load();
     let store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
@@ -1778,7 +1781,7 @@ fn spend_top_sessions(since: String, limit: usize) -> Result<Vec<SpendAggOut>, S
 fn friendly_session_name(title: &str) -> String {
     if let Some(rest) = title.strip_prefix("Contexto gerado em: ") {
         let when = rest.get(..16).unwrap_or(rest).replace('T', " ");
-        return format!("pergunta ao vox · {when}");
+        return format!("pergunta ao hark · {when}");
     }
     title.chars().take(48).collect()
 }
@@ -1835,7 +1838,7 @@ struct SessionStats {
 /// is the same signal the gate uses to warn about expensive resumes.
 #[tauri::command(async)]
 fn session_stats(session_id: String) -> Result<SessionStats, String> {
-    use vox_core::ports::SessionStore;
+    use hark_core::ports::SessionStore;
     let config = Config::load();
     let store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
@@ -1866,21 +1869,21 @@ fn session_stats(session_id: String) -> Result<SessionStats, String> {
 struct TranscriptOut {
     /// The session's own title, as shown in Claude Code.
     session_title: Option<String>,
-    entries: Vec<vox_core::domain::transcript::Entry>,
+    entries: Vec<hark_core::domain::transcript::Entry>,
 }
 
 /// Read-only history of a past session, straight from its log file.
 /// Costs nothing: no process spawned, no tokens.
 #[tauri::command(async)]
 fn read_transcript(session_id: String, limit: Option<usize>) -> Result<TranscriptOut, String> {
-    use vox_core::ports::SessionStore;
+    use hark_core::ports::SessionStore;
     let config = Config::load();
     let store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
     let path = store
         .session_path(&session_id)
         .map_err(|e| e.to_string())?
-        .ok_or("sessão não está no índice (rode: vox index)")?;
+        .ok_or("sessão não está no índice (rode: hark index)")?;
     let (session_title, _, _) = store
         .file_state(&path)
         .map_err(|e| e.to_string())?
@@ -1889,7 +1892,7 @@ fn read_transcript(session_id: String, limit: Option<usize>) -> Result<Transcrip
     let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     Ok(TranscriptOut {
         session_title,
-        entries: vox_core::domain::transcript::tail_entries(content.lines(), limit.unwrap_or(200)),
+        entries: hark_core::domain::transcript::tail_entries(content.lines(), limit.unwrap_or(200)),
     })
 }
 
@@ -1897,12 +1900,12 @@ fn read_transcript(session_id: String, limit: Option<usize>) -> Result<Transcrip
 /// snapshot uses. Local and free.
 #[tauri::command(async)]
 fn find_session(query: String) -> Result<Option<serde_json::Value>, String> {
-    use vox_core::ports::SessionStore;
+    use hark_core::ports::SessionStore;
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
-    let _ = vox_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
-    let terms = vox_core::domain::dispatch::significant_terms(&query);
+    let _ = hark_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
+    let terms = hark_core::domain::dispatch::significant_terms(&query);
     let hits = store.search_sessions(&terms, 1).map_err(|e| e.to_string())?;
     Ok(hits.first().map(|s| {
         // cwd travels too: it is how a board task with no workspace still
@@ -1926,14 +1929,14 @@ pub(crate) struct SessionHit {
 pub(crate) fn session_summary(
     store: &SqliteStore,
     session_id: &str,
-) -> Option<vox_core::domain::snapshot::SessionSummary> {
-    use vox_core::ports::SessionStore;
+) -> Option<hark_core::domain::snapshot::SessionSummary> {
+    use hark_core::ports::SessionStore;
     let path = store.session_path(session_id).ok().flatten()?;
     store.file_state(&path).ok().flatten().map(|(s, _, _)| s)
 }
 
 /// The name a human recognises this session by.
-fn session_label(summary: &vox_core::domain::snapshot::SessionSummary) -> String {
+fn session_label(summary: &hark_core::domain::snapshot::SessionSummary) -> String {
     summary
         .title
         .as_deref()
@@ -1947,15 +1950,15 @@ fn session_label(summary: &vox_core::domain::snapshot::SessionSummary) -> String
 /// session someone remembers is a lookup, not an investigation: no agent,
 /// no shell archaeology, zero tokens.
 fn session_hits(query: &str, limit: usize) -> Result<Vec<SessionHit>, String> {
-    use vox_core::ports::SessionStore;
+    use hark_core::ports::SessionStore;
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
     // The index only used to move when `ask` ran, so sessions opened since
     // the last question were invisible here. Incremental (mtime + byte
     // offset), so this is milliseconds when nothing changed.
-    let _ = vox_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
-    let terms = vox_core::domain::dispatch::significant_terms(query);
+    let _ = hark_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
+    let terms = hark_core::domain::dispatch::significant_terms(query);
     let hits = store
         .search_sessions(&terms, limit)
         .map_err(|e| e.to_string())?;
@@ -1982,12 +1985,12 @@ fn session_candidates(query: String, limit: Option<usize>) -> Result<Vec<Session
 /// the board stays the layer of intent on top of it. Zero tokens.
 #[tauri::command(async)]
 fn project_sessions(path: String) -> Result<Vec<SessionHit>, String> {
-    use vox_core::ports::SessionStore;
+    use hark_core::ports::SessionStore;
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
-    let _ = vox_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
-    let root = vox_core::config::expand_home(&path);
+    let _ = hark_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
+    let root = hark_core::config::expand_home(&path);
     let all = store.sessions_since("0").map_err(|e| e.to_string())?;
     Ok(all
         .into_iter()
@@ -2011,22 +2014,22 @@ fn project_sessions(path: String) -> Result<Vec<SessionHit>, String> {
 /// and the card are the same thing from here on.
 #[tauri::command(async)]
 fn task_from_session(session_id: String) -> Result<serde_json::Value, String> {
-    use vox_core::ports::SessionStore;
+    use hark_core::ports::SessionStore;
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
-    let _ = vox_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
+    let _ = hark_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
     let summary = session_summary(&store, &session_id)
         .ok_or_else(|| format!("sessão {session_id} não está no índice"))?;
     let title = session_label(&summary);
     let tasks = store.board().map_err(|e| e.to_string())?;
-    let updates = [vox_core::domain::board::BoardUpdate {
+    let updates = [hark_core::domain::board::BoardUpdate {
         titulo: title.clone(),
-        status: vox_core::domain::board::TaskStatus::Doing,
+        status: hark_core::domain::board::TaskStatus::Doing,
         nota: Some("sessão recuperada".into()),
         sessao: None,
     }];
-    let merged = vox_core::domain::board::apply_updates(
+    let merged = hark_core::domain::board::apply_updates(
         tasks,
         &updates,
         &now_iso(),
@@ -2040,20 +2043,20 @@ fn task_from_session(session_id: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-fn board_move(title: String, status: vox_core::domain::board::TaskStatus) -> Result<(), String> {
-    use vox_core::ports::SessionStore;
+fn board_move(title: String, status: hark_core::domain::board::TaskStatus) -> Result<(), String> {
+    use hark_core::ports::SessionStore;
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
     let tasks = store.board().map_err(|e| e.to_string())?;
-    let tasks = vox_core::domain::board::set_status(tasks, &title, status, &now_iso());
+    let tasks = hark_core::domain::board::set_status(tasks, &title, status, &now_iso());
     store.save_board(&tasks).map_err(|e| e.to_string())
 }
 
 fn with_board<T>(
-    f: impl FnOnce(&mut SqliteStore, Vec<vox_core::domain::board::Task>) -> anyhow::Result<T>,
+    f: impl FnOnce(&mut SqliteStore, Vec<hark_core::domain::board::Task>) -> anyhow::Result<T>,
 ) -> Result<T, String> {
-    use vox_core::ports::SessionStore;
+    use hark_core::ports::SessionStore;
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
@@ -2064,8 +2067,8 @@ fn with_board<T>(
 #[tauri::command]
 fn board_rename(title: String, new_title: String) -> Result<(), String> {
     with_board(|store, tasks| {
-        use vox_core::ports::SessionStore;
-        let tasks = vox_core::domain::board::rename(tasks, &title, &new_title, &now_iso());
+        use hark_core::ports::SessionStore;
+        let tasks = hark_core::domain::board::rename(tasks, &title, &new_title, &now_iso());
         store.save_board(&tasks)
     })
 }
@@ -2073,15 +2076,15 @@ fn board_rename(title: String, new_title: String) -> Result<(), String> {
 #[tauri::command]
 fn board_pin(title: String) -> Result<(), String> {
     with_board(|store, tasks| {
-        use vox_core::ports::SessionStore;
-        let tasks = vox_core::domain::board::toggle_pin(tasks, &title);
+        use hark_core::ports::SessionStore;
+        let tasks = hark_core::domain::board::toggle_pin(tasks, &title);
         store.save_board(&tasks)
     })
 }
 
 #[derive(Serialize)]
 struct GateOut {
-    acao: vox_core::domain::gate::GateAction,
+    acao: hark_core::domain::gate::GateAction,
     confianca: f64,
     motivo: String,
     aviso: Option<String>,
@@ -2095,10 +2098,7 @@ struct GateOut {
 #[tauri::command]
 fn config_read() -> Result<serde_json::Value, String> {
     let config = Config::load();
-    let path = std::path::PathBuf::from(vox_core::config::expand_home("~"))
-        .join(".config")
-        .join("vox")
-        .join("config.toml");
+    let path = hark_core::config::config_path();
     Ok(serde_json::json!({
         "values": config,
         "path": path.display().to_string(),
@@ -2109,19 +2109,18 @@ fn config_read() -> Result<serde_json::Value, String> {
 }
 
 /// Write a flat {key: value} patch into config.toml, preserving comments
-/// and unknown keys (vox_core::config::patch_toml). Hot-applies what it
+/// and unknown keys (hark_core::config::patch_toml). Hot-applies what it
 /// can: a changed hotkey re-registers immediately; every window hears
 /// config_changed and re-reads (theme, mode default, ceilings).
 #[tauri::command]
 fn config_write(app: AppHandle, patch: serde_json::Value) -> Result<(), String> {
-    let dir = std::path::PathBuf::from(vox_core::config::expand_home("~"))
-        .join(".config")
-        .join("vox");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join("config.toml");
+    let path = hark_core::config::config_path();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
     let old_hotkey = Config::load().hotkey;
     let text = std::fs::read_to_string(&path).unwrap_or_default();
-    let out = vox_core::config::patch_toml(&text, &patch).map_err(|e| e.to_string())?;
+    let out = hark_core::config::patch_toml(&text, &patch).map_err(|e| e.to_string())?;
     std::fs::write(&path, out).map_err(|e| e.to_string())?;
 
     // Menu label follows the UI language without a restart.
@@ -2139,7 +2138,7 @@ fn config_write(app: AppHandle, patch: serde_json::Value) -> Result<(), String> 
                 .map_err(|e| format!("atalho inválido: {e}"))?;
         }
     }
-    let _ = app.emit("vox", serde_json::json!({ "kind": "config_changed" }));
+    let _ = app.emit("hark", serde_json::json!({ "kind": "config_changed" }));
     Ok(())
 }
 
@@ -2170,7 +2169,7 @@ fn tts_voices() -> Result<Vec<(String, String)>, String> {
 /// turned a project window into the mother and lost the chat).
 #[tauri::command]
 fn open_external(target: String) -> Result<(), String> {
-    let target = vox_core::config::expand_home(&target);
+    let target = hark_core::config::expand_home(&target);
     std::process::Command::new("open")
         .arg(&target)
         .spawn()
@@ -2179,13 +2178,13 @@ fn open_external(target: String) -> Result<(), String> {
 }
 
 /// What this machine knows about a session before dispatching to it.
-pub(crate) fn session_facts(session_id: &str) -> vox_core::domain::precheck::SessionFacts {
-    let mut facts = vox_core::domain::precheck::SessionFacts::default();
+pub(crate) fn session_facts(session_id: &str) -> hark_core::domain::precheck::SessionFacts {
+    let mut facts = hark_core::domain::precheck::SessionFacts::default();
     let config = Config::load();
     let Ok(store) = SqliteStore::open(&config.data_dir().join("index.db")) else {
         return facts;
     };
-    use vox_core::ports::SessionStore;
+    use hark_core::ports::SessionStore;
     if let Ok(Some(path)) = store.session_path(session_id) {
         if let Ok(meta) = std::fs::metadata(&path) {
             facts.size_mb = meta.len() as f64 / 1_048_576.0;
@@ -2206,8 +2205,8 @@ pub(crate) fn session_facts(session_id: &str) -> vox_core::domain::precheck::Ses
 #[tauri::command(async)]
 fn dispatch_prechecks(
     session_id: String,
-) -> Result<Vec<vox_core::domain::precheck::Warning>, String> {
-    Ok(vox_core::domain::precheck::prechecks(&session_facts(&session_id)))
+) -> Result<Vec<hark_core::domain::precheck::Warning>, String> {
+    Ok(hark_core::domain::precheck::prechecks(&session_facts(&session_id)))
 }
 
 /// The pre-execution evaluator: one cheap haiku call that decides where a
@@ -2219,8 +2218,8 @@ fn evaluate(
     focused_session: Option<String>,
 ) -> Result<GateOut, String> {
     use std::io::{BufRead, BufReader, Write};
-    use vox_core::domain::gate;
-    use vox_core::ports::SessionStore;
+    use hark_core::domain::gate;
+    use hark_core::ports::SessionStore;
 
     let config = Config::load();
     let store =
@@ -2291,7 +2290,7 @@ fn evaluate(
     let prompt = gate::build_prompt(&message, &ctx);
     stdin
         .write_all(
-            vox_core::domain::claude_event::user_message(&prompt, &[]).as_bytes(),
+            hark_core::domain::claude_event::user_message(&prompt, &[]).as_bytes(),
         )
         .and_then(|_| stdin.write_all(b"\n"))
         .map_err(|e| e.to_string())?;
@@ -2301,14 +2300,14 @@ fn evaluate(
     let result = BufReader::new(stdout)
         .lines()
         .map_while(Result::ok)
-        .find_map(|line| match vox_core::domain::claude_event::parse(&line) {
+        .find_map(|line| match hark_core::domain::claude_event::parse(&line) {
             ClaudeEvent::Result(r) => Some(r),
             _ => None,
         });
     let _ = child.wait();
 
     let turn = result.ok_or("avaliador não respondeu")?;
-    let decision_parse = serde_json::from_str::<vox_core::domain::gate::GateDecision>(&turn.raw);
+    let decision_parse = serde_json::from_str::<hark_core::domain::gate::GateDecision>(&turn.raw);
     // Ledger with the verdict as outcome (feeds the savings counters);
     // a failed parse still cost a haiku turn.
     let outcome = match &decision_parse {
@@ -2320,8 +2319,8 @@ fn evaluate(
     };
     record_live_spend(
         &config,
-        vox_core::domain::spend::SpendKind::Gate,
-        &vox_core::domain::spend::SpendMeta {
+        hark_core::domain::spend::SpendKind::Gate,
+        &hark_core::domain::spend::SpendMeta {
             label: Some("avaliador"),
             session_id: ledger_session.as_deref(),
             outcome: Some(&outcome),
@@ -2335,7 +2334,7 @@ fn evaluate(
     // An aviso citing tools/MCPs or carrying numbers is fabricated by
     // construction (the gate receives neither) — drop it BEFORE it can
     // force a confirmation.
-    decision.aviso = vox_core::domain::gate::credible_aviso(decision.aviso.take());
+    decision.aviso = hark_core::domain::gate::credible_aviso(decision.aviso.take());
     Ok(GateOut {
         needs_confirmation: decision.needs_confirmation(),
         acao: decision.acao,
@@ -2377,8 +2376,8 @@ fn task_command(
     text: String,
     focused: Option<String>,
 ) -> Result<Option<serde_json::Value>, String> {
-    use vox_core::domain::task_command::TaskCommand;
-    let Some(command) = vox_core::domain::task_command::parse(&text) else {
+    use hark_core::domain::task_command::TaskCommand;
+    let Some(command) = hark_core::domain::task_command::parse(&text) else {
         // Fallback: "abre <nome>" without the word "projeto" ("ok, então
         // abra workspace fábrica"). Only fires when a REGISTERED project name
         // appears in the sentence — never guesses.
@@ -2386,7 +2385,7 @@ fn task_command(
         if ["abre", "abra", "abrir"].iter().any(|v| lower.contains(v)) {
             let config = Config::load();
             let projects = load_projects(&config);
-            if let Some(hit) = vox_core::domain::project::find_spoken(&projects, &text) {
+            if let Some(hit) = hark_core::domain::project::find_spoken(&projects, &text) {
                 return Ok(Some(serde_json::json!({
                     "kind": "open_project", "title": hit.name, "path": hit.path,
                     "instruction": null,
@@ -2416,7 +2415,7 @@ fn task_command(
             let config = Config::load();
             let projects = load_projects(&config);
             return Ok(Some(
-                match vox_core::domain::project::find(&projects, project) {
+                match hark_core::domain::project::find(&projects, project) {
                     Some(hit) => serde_json::json!({
                         "kind": "new_chat", "title": hit.name, "path": hit.path,
                         "instruction": instruction,
@@ -2428,8 +2427,8 @@ fn task_command(
         TaskCommand::OpenProject { query, instruction } => {
             let config = Config::load();
             let projects = load_projects(&config);
-            let hit = vox_core::domain::project::find(&projects, query)
-                .or_else(|| vox_core::domain::project::find_spoken(&projects, query));
+            let hit = hark_core::domain::project::find(&projects, query)
+                .or_else(|| hark_core::domain::project::find_spoken(&projects, query));
             return Ok(Some(match hit {
                 Some(hit) => serde_json::json!({
                     "kind": "open_project", "title": hit.name, "path": hit.path,
@@ -2467,9 +2466,9 @@ fn task_command(
     // and a query with no board card falls back to the session index —
     // never a silent best-guess (the 19/08 incident class).
     if let TaskCommand::Open(q) | TaskCommand::Switch { query: q, .. } = &command {
-        use vox_core::domain::matching::Match;
+        use hark_core::domain::matching::Match;
         let ranked =
-            with_board(|_, tasks| Ok(vox_core::domain::board::find_ranked(&tasks, q)))?;
+            with_board(|_, tasks| Ok(hark_core::domain::board::find_ranked(&tasks, q)))?;
         return Ok(Some(match ranked {
             Match::Hit(task) => match &command {
                 TaskCommand::Open(_) => serde_json::json!({
@@ -2541,24 +2540,24 @@ fn task_command(
         }
     };
     with_board(|store, tasks| {
-        use vox_core::ports::SessionStore;
-        let Some(task) = vox_core::domain::board::find(&tasks, query) else {
+        use hark_core::ports::SessionStore;
+        let Some(task) = hark_core::domain::board::find(&tasks, query) else {
             return Ok(Some(serde_json::json!({ "kind": "not_found", "query": query })));
         };
         let title = task.title.clone();
         match &command {
             TaskCommand::Rename { title: new, .. } => {
-                let tasks = vox_core::domain::board::rename(tasks, &title, new, &now_iso());
+                let tasks = hark_core::domain::board::rename(tasks, &title, new, &now_iso());
                 store.save_board(&tasks)?;
                 Ok(Some(serde_json::json!({ "kind": "renamed", "title": new })))
             }
             TaskCommand::Pin(_) => {
-                let tasks = vox_core::domain::board::toggle_pin(tasks, &title);
+                let tasks = hark_core::domain::board::toggle_pin(tasks, &title);
                 store.save_board(&tasks)?;
                 Ok(Some(serde_json::json!({ "kind": "pinned", "title": title })))
             }
             TaskCommand::Archive(_) => {
-                let tasks = vox_core::domain::board::archive(tasks, &title);
+                let tasks = hark_core::domain::board::archive(tasks, &title);
                 store.save_board(&tasks)?;
                 Ok(Some(serde_json::json!({ "kind": "archived", "title": title })))
             }
@@ -2579,12 +2578,12 @@ fn task_command(
 
 #[tauri::command]
 fn board_archive(title: String) -> Result<(), String> {
-    use vox_core::ports::SessionStore;
+    use hark_core::ports::SessionStore;
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
     let tasks = store.board().map_err(|e| e.to_string())?;
-    let tasks = vox_core::domain::board::archive(tasks, &title);
+    let tasks = hark_core::domain::board::archive(tasks, &title);
     store.save_board(&tasks).map_err(|e| e.to_string())
 }
 
@@ -2618,7 +2617,7 @@ fn open_project_window(
         if let Some(title) = task {
             let _ = app.emit_to(
                 label.as_str(),
-                "vox",
+                "hark",
                 serde_json::json!({
                     "kind": "focus_task",
                     "title": title,
@@ -2640,7 +2639,7 @@ fn open_project_window(
         url.push_str(&format!("&session={}", urlencoding::encode(session)));
     }
     tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
-        .title(format!("Vox — {name}"))
+        .title(format!("Hark — {name}"))
         .inner_size(1280.0, 820.0)
         // wry's native drop target swallows DOM dragover/drop; without this
         // the board's HTML5 card drag never lands (we take no file drops).
@@ -2650,20 +2649,20 @@ fn open_project_window(
     Ok(())
 }
 
-fn bridge_paths(config: &Config) -> vox_core::adapters::statusline_bridge::BridgePaths {
-    let home = std::path::PathBuf::from(vox_core::config::expand_home("~"));
-    vox_core::adapters::statusline_bridge::BridgePaths::new(&home, &config.data_dir())
+fn bridge_paths(config: &Config) -> hark_core::adapters::statusline_bridge::BridgePaths {
+    let home = std::path::PathBuf::from(hark_core::config::expand_home("~"));
+    hark_core::adapters::statusline_bridge::BridgePaths::new(&home, &config.data_dir())
 }
 
 /// The subscription windows (5h / weekly / per-model), the only numbers the
 /// CLI keeps to itself — they exist solely in the statusLine payload, so
 /// this returns None until the user installs the bridge.
 #[tauri::command(async)]
-fn subscription_limits() -> Result<Option<vox_core::domain::statusline::StatusLine>, String> {
+fn subscription_limits() -> Result<Option<hark_core::domain::statusline::StatusLine>, String> {
     let config = Config::load();
     // 10 minutes: a status line renders on every turn, so anything older
     // means the user stopped working — showing it as current would lie.
-    Ok(vox_core::adapters::statusline_bridge::read(
+    Ok(hark_core::adapters::statusline_bridge::read(
         &bridge_paths(&config),
         600,
     ))
@@ -2671,9 +2670,9 @@ fn subscription_limits() -> Result<Option<vox_core::domain::statusline::StatusLi
 
 #[tauri::command(async)]
 fn statusline_bridge_status(
-) -> Result<vox_core::adapters::statusline_bridge::BridgeStatus, String> {
+) -> Result<hark_core::adapters::statusline_bridge::BridgeStatus, String> {
     let config = Config::load();
-    Ok(vox_core::adapters::statusline_bridge::status(&bridge_paths(
+    Ok(hark_core::adapters::statusline_bridge::status(&bridge_paths(
         &config,
     )))
 }
@@ -2684,14 +2683,14 @@ fn statusline_bridge_status(
 #[tauri::command(async)]
 fn statusline_bridge_install() -> Result<Option<String>, String> {
     let config = Config::load();
-    vox_core::adapters::statusline_bridge::install(&bridge_paths(&config))
+    hark_core::adapters::statusline_bridge::install(&bridge_paths(&config))
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
 fn statusline_bridge_uninstall() -> Result<(), String> {
     let config = Config::load();
-    vox_core::adapters::statusline_bridge::uninstall(&bridge_paths(&config))
+    hark_core::adapters::statusline_bridge::uninstall(&bridge_paths(&config))
         .map_err(|e| e.to_string())
 }
 
@@ -2704,7 +2703,7 @@ fn focus_main(app: AppHandle, tab: Option<String>) -> Result<(), String> {
         let _ = main.set_focus();
     }
     if let Some(tab) = tab {
-        let _ = app.emit_to("main", "vox", serde_json::json!({ "kind": "main_tab", "tab": tab }));
+        let _ = app.emit_to("main", "hark", serde_json::json!({ "kind": "main_tab", "tab": tab }));
     }
     Ok(())
 }
@@ -2733,7 +2732,7 @@ fn approve(
         .unwrap()
         .retain(|(id, _, _)| id != &request_id);
     let _ = app.emit(
-        "vox",
+        "hark",
         serde_json::json!({
             "kind": "permission_decided",
             "request_id": request_id,
@@ -2766,7 +2765,7 @@ fn build_native_menu(
     let settings = MenuItemBuilder::with_id("settings", label)
         .accelerator("Cmd+,")
         .build(handle)?;
-    let app_menu = SubmenuBuilder::new(handle, "vox")
+    let app_menu = SubmenuBuilder::new(handle, "hark")
         .about(Some(AboutMetadata::default()))
         .separator()
         .item(&settings)
@@ -2819,6 +2818,9 @@ pub fn run() {
         .manage(LiveWorkers(Mutex::new(HashMap::new())))
         .manage(WorkerPermissions(Mutex::new(HashMap::new())))
         .setup(|app| {
+            // Move data written under the old product name (vox) into the
+            // hark dirs BEFORE anything reads config or touches the data dir.
+            hark_core::config::migrate_legacy();
             // The chat's soul file exists from the first boot (settings can
             // open it before the chat ever spawns).
             ensure_persona(&Config::load());
@@ -2833,7 +2835,7 @@ pub fn run() {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
                 let hotkey = Config::load().hotkey;
                 if let Err(err) = app.handle().global_shortcut().register(hotkey.as_str()) {
-                    eprintln!("vox: hotkey global '{hotkey}' não registrada: {err}");
+                    eprintln!("hark: hotkey global '{hotkey}' não registrada: {err}");
                 }
             }
             Ok(())
@@ -2855,8 +2857,8 @@ pub fn run() {
             eco_status,
             board_subtask_toggle,
             ask_lane,
-            vox_chat_send,
-            vox_chat_status,
+            hark_chat_send,
+            hark_chat_status,
             worker_set_mode,
             worker_stop,
             chat_start,
@@ -2944,5 +2946,5 @@ pub fn run() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("error while running vox");
+        .expect("error while running hark");
 }

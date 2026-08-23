@@ -27,7 +27,7 @@ fn transcribe(ctx: &WhisperContext, samples: &[f32]) -> anyhow::Result<String> {
     // Bias decoding toward the tech vocabulary we expect in commands.
     params.set_initial_prompt(
         "Comandos sobre desenvolvimento: webhook, pull request, PR, deploy, \
-         Claude Code, branch, commit, migração, cluster, vox.",
+         Claude Code, branch, commit, migração, cluster, hark.",
     );
     params.set_print_progress(false);
     params.set_print_special(false);

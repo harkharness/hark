@@ -52,7 +52,7 @@ function TimeAgo({ ts }: { ts: number }) {
 
 /**
  * Ghost bar under a bubble (hover reveals): copy the raw markdown, and on
- * vox replies replay the whole text through TTS — zero tokens, unlike
+ * hark replies replay the whole text through TTS — zero tokens, unlike
  * asking again. Clicking listen while speaking stops it.
  */
 function MsgActions({
@@ -110,7 +110,7 @@ function MsgActions({
 }
 
 /**
- * The visible thread: one task at a time (or the general vox conversation).
+ * The visible thread: one task at a time (or the general hark conversation).
  * Pure rendering; all state lives in App.
  */
 export default function Transcript({
@@ -203,10 +203,10 @@ export default function Transcript({
       ) : (
         <div className="bubble">
           <span className="tag">
-            {m.who === "user" ? t("tag_you") : "vox"}
+            {m.who === "user" ? t("tag_you") : "hark"}
             {m.task ? ` → ${m.task.slice(0, 12)}` : ""}
           </span>
-          {m.who === "vox" ? (
+          {m.who === "hark" ? (
             <>
               <div className="fala">
                 <Markdown onRun={onRunCommand} onOpenPath={onOpenPath}>{m.text}</Markdown>

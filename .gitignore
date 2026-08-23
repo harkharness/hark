@@ -21,3 +21,7 @@ models/
 
 # Spike scratch output
 spikes/out/
+
+# Per-project agent memory (journal/state/briefs) - never commit
+.vox/
+.hark/

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "vox",
+  "productName": "hark",
   "version": "0.1.0",
-  "identifier": "dev.jhonmike.vox",
+  "identifier": "dev.jhonmike.hark",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "vox",
+        "title": "hark",
         "width": 1080,
         "height": 720,
         "minWidth": 720,

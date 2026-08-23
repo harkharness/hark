@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/vox-core", "crates/vox-cli", "src-tauri"]
+members = ["crates/hark-core", "crates/hark-cli", "src-tauri"]
 exclude = ["spikes/whisper-spike"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/jhonmike/vox"
+repository = "https://github.com/jhonmike/hark"
 
 [workspace.dependencies]
 anyhow = "1"
