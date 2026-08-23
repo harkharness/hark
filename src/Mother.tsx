@@ -33,29 +33,31 @@ function firstSentence(md: string): string {
   return first.length > 240 ? `${first.slice(0, 240)}…` : first;
 }
 
-/** The compact panel's items: chat messages with tool bursts collapsed. */
-type MiniItem =
-  | { kind: "line"; who: "user" | "vox" | "sys"; text: string; cost?: number; key: number }
-  | { kind: "tools"; n: number; key: number };
+/** The compact panel is a DIGEST, never a wall: the last two exchanges,
+ *  question on one clamped line, reply on two, tool bursts as one
+ *  activity line. Full text lives behind "expandir". */
+type DigestRow =
+  | { kind: "user" | "vox" | "sys"; text: string; key: number }
+  | { kind: "tools"; n: number; err: boolean; key: number };
 
-function buildMini(msgs: Msg[]): MiniItem[] {
-  const items: MiniItem[] = [];
+function buildDigest(msgs: Msg[]): DigestRow[] {
+  const rows: DigestRow[] = [];
   msgs.forEach((m, i) => {
     if (m.who === "tool") {
-      const last = items.at(-1);
+      const last = rows.at(-1);
       if (last?.kind === "tools") last.n += 1;
-      else items.push({ kind: "tools", n: 1, key: i });
+      else rows.push({ kind: "tools", n: 1, err: false, key: i });
+    } else if (m.who === "output") {
+      const last = rows.at(-1);
+      if (last?.kind === "tools" && m.error) last.err = true;
     } else if (m.who === "user" || m.who === "vox" || m.who === "sys") {
-      items.push({
-        kind: "line",
-        who: m.who,
-        text: miniText(m.text),
-        cost: m.who === "vox" ? m.cost : undefined,
-        key: i,
-      });
+      rows.push({ kind: m.who, text: miniText(m.text), key: i });
     }
   });
-  return items.slice(-5);
+  // Cut at the second-to-last question: two exchanges, newest at the end.
+  const users = rows.map((r, i) => (r.kind === "user" ? i : -1)).filter((i) => i >= 0);
+  const start = users.length >= 2 ? users[users.length - 2] : 0;
+  return rows.slice(start).slice(-8);
 }
 
 /**
@@ -602,7 +604,7 @@ export default function Mother() {
       </button>
     </div>
   );
-  const miniItems = buildMini(chatMsgs);
+  const digestRows = buildDigest(chatMsgs);
   const feedBlock = (actions.length > 0 || pendingPerm) && (
     <div className="mother-feed">
       {actions.slice(-4).map((a) => (
@@ -830,25 +832,30 @@ export default function Mother() {
           {statusBlock}
           {feedBlock}
 
-          {/* The persistent chat, compact: always the last 5 messages,
-              right above the input — which doubles as its composer. */}
+          {/* The persistent chat, compact: a glanceable digest of the last
+              two exchanges — full text only when expanded. The input below
+              doubles as its composer. */}
           <div className="vox-chat">
             {chatHead(false)}
-            {miniItems.length === 0 ? (
+            {digestRows.length === 0 ? (
               <div className="vc-empty">{t("chat_empty")}</div>
             ) : (
-              <div className="vox-chat-mini">
-                {miniItems.map((it) =>
-                  it.kind === "tools" ? (
-                    <div key={it.key} className="vc-line tools">
-                      › {t("tools_ran", { n: it.n })}
+              <div className="vox-digest">
+                {digestRows.map((r) =>
+                  r.kind === "tools" ? (
+                    <div key={r.key} className="vd-row">
+                      <span className="vd-label" />
+                      <span className="vd-tools">
+                        › {t("tools_ran", { n: r.n })}{" "}
+                        <span className={r.err ? "err" : "ok"}>{r.err ? "✗" : "✓"}</span>
+                      </span>
                     </div>
                   ) : (
-                    <div key={it.key} className={`vc-line ${it.who}`}>
-                      {it.text.slice(0, 220)}
-                      {it.cost != null && (
-                        <span className="vc-cost"> · ${it.cost.toFixed(2)}</span>
-                      )}
+                    <div key={r.key} className={`vd-row ${r.kind}`}>
+                      <span className="vd-label">
+                        {r.kind === "user" ? t("tag_you") : r.kind === "sys" ? "!" : assistantName}
+                      </span>
+                      <span className="vd-text">{r.text}</span>
                     </div>
                   ),
                 )}
