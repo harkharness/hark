@@ -97,9 +97,83 @@ pub fn tail_entries<'a>(lines: impl Iterator<Item = &'a str>, n: usize) -> Vec<E
     entries.into_iter().skip(skip).collect()
 }
 
+/// A LOCAL, zero-token summary of a conversation: the user/assistant turns
+/// (tool noise dropped), newest kept when the budget cuts. Feeds the
+/// "restart light" flow — a fresh session opens with this instead of a
+/// paid re-read of a heavy history.
+pub fn brief(entries: &[Entry], max_chars: usize) -> String {
+    let lines: Vec<String> = entries
+        .iter()
+        .filter(|e| matches!(e.role, Role::User | Role::Assistant))
+        .map(|e| {
+            let who = if e.role == Role::User { "você" } else { "assistente" };
+            let text: String = e.text.split_whitespace().collect::<Vec<_>>().join(" ");
+            let clipped: String = text.chars().take(300).collect();
+            format!("{who}: {clipped}")
+        })
+        .collect();
+    // Keep the newest lines that fit, then restore chronological order.
+    let mut kept: Vec<&String> = Vec::new();
+    let mut used = 0;
+    for line in lines.iter().rev() {
+        let cost = line.chars().count() + 1;
+        if used + cost > max_chars {
+            break;
+        }
+        used += cost;
+        kept.push(line);
+    }
+    kept.reverse();
+    kept.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn e(role: Role, text: &str) -> Entry {
+        Entry {
+            ts: "2026-08-21T10:00:00Z".into(),
+            role,
+            text: text.into(),
+            tool: None,
+            is_error: false,
+        }
+    }
+
+    #[test]
+    fn brief_keeps_conversation_drops_tool_noise_and_fits_budget() {
+        let entries = vec![
+            e(Role::User, "migra o webhook pro cluster novo"),
+            e(Role::ToolUse, r#"{"command":"kubectl get pods"}"#),
+            e(Role::ToolResult, "pod-1 Running\npod-2 Running"),
+            e(Role::Assistant, "Migrei o service e o ingress; falta o DNS."),
+            e(Role::User, "segue com o DNS então"),
+        ];
+        let out = brief(&entries, 2000);
+        assert!(out.contains("migra o webhook"), "user turns survive");
+        assert!(out.contains("falta o DNS"), "assistant turns survive");
+        assert!(!out.contains("kubectl get pods"), "tool payloads stay out");
+        assert!(out.contains("você:") && out.contains("assistente:"), "labeled");
+    }
+
+    #[test]
+    fn brief_clips_to_budget_keeping_the_newest_turns() {
+        let mut entries = vec![e(Role::User, "primeira instrução antiga")];
+        for i in 0..80 {
+            entries.push(e(Role::Assistant, &format!("resposta longa número {i} {}", "x".repeat(120))));
+        }
+        entries.push(e(Role::User, "instrução mais recente importante"));
+        let out = brief(&entries, 1200);
+        assert!(out.chars().count() <= 1300, "hard budget");
+        assert!(out.contains("instrução mais recente"), "newest survives the cut");
+        assert!(!out.contains("primeira instrução antiga"), "oldest is dropped first");
+    }
+
+    #[test]
+    fn brief_of_nothing_is_empty() {
+        assert_eq!(brief(&[], 500), "");
+    }
 
     #[test]
     fn reads_human_prompts_and_assistant_prose() {

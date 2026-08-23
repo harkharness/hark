@@ -71,6 +71,11 @@ export const workerSend = (
 
 export const workerStop = (taskId: string) => invoke("worker_stop", { taskId });
 
+/** Heavy session → fresh one on the same task, context rebuilt from a
+ *  LOCAL brief (zero tokens). */
+export const workerRestartLight = (taskId: string) =>
+  invoke("worker_restart_light", { taskId });
+
 /** Which surface a message to global vox belongs to (zero tokens). */
 export const askLane = (text: string) => invoke<"lean" | "work">("ask_lane", { text });
 

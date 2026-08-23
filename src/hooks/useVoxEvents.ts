@@ -122,7 +122,14 @@ export function useVoxEvents(h: Handlers) {
         });
         h.setLiveWorkers((old) =>
           old[ev.task_id]
-            ? { ...old, [ev.task_id]: { ...old[ev.task_id], status: "turn_done" } }
+            ? {
+                ...old,
+                [ev.task_id]: {
+                  ...old[ev.task_id],
+                  status: "turn_done",
+                  context_pct: ev.context_pct ?? old[ev.task_id].context_pct,
+                },
+              }
             : old,
         );
         h.onWorkerTurn?.(ev.label ?? label, ev.is_error, ev.task_id, ev.context_pct, ev.cost_usd);

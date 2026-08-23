@@ -1,4 +1,4 @@
-import { Info, Lock, X } from "lucide-react";
+import { Info, Lock, RotateCcw, X } from "lucide-react";
 import { directiveLabels } from "../lib/format";
 import type { LiveWorker } from "../types";
 import { t } from "../lib/i18n";
@@ -14,12 +14,15 @@ export default function WorkerChips({
   onToggleFocus,
   onInfo,
   onStop,
+  onRestartLight,
 }: {
   liveWorkers: Record<string, LiveWorker>;
   focused: string | null;
   onToggleFocus: (taskId: string) => void;
   onInfo: (taskId: string) => void;
   onStop: (taskId: string) => void;
+  /** Heavy session (context ≥70%): fresh session with a local brief. */
+  onRestartLight?: (taskId: string) => void;
 }) {
   return (
     <>
@@ -35,6 +38,18 @@ export default function WorkerChips({
           {w.label}
           {directiveLabels(w.directives).length > 0 && (
             <span className="chip-mode">{directiveLabels(w.directives).join(" ")}</span>
+          )}
+          {(w.context_pct ?? 0) >= 0.7 && onRestartLight && (
+            <button
+              className="light"
+              title={t("chip_light", { n: Math.round((w.context_pct ?? 0) * 100) })}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRestartLight(taskId);
+              }}
+            >
+              <RotateCcw size={11} />
+            </button>
           )}
           <button
             className="info"

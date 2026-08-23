@@ -628,6 +628,19 @@ fn start_worker(
     task_id: &str,
     spawn: vox_core::adapters::worker::WorkerSpawn,
 ) -> anyhow::Result<()> {
+    start_worker_titled(app, live, task_id, spawn, None)
+}
+
+/// Same, with an explicit human title — the light restart opens a FRESH
+/// session (empty session_id) whose instruction is a local brief; deriving
+/// the title from that brief would fork the board card.
+fn start_worker_titled(
+    app: &AppHandle,
+    live: &State<'_, LiveWorkers>,
+    task_id: &str,
+    spawn: vox_core::adapters::worker::WorkerSpawn,
+    title: Option<String>,
+) -> anyhow::Result<()> {
     let (worker, stdout) = vox_core::adapters::worker::PersistentWorker::spawn(&spawn)?;
     let pid = worker.pid;
     live.0.lock().unwrap().insert(
@@ -651,10 +664,12 @@ fn start_worker(
         // The chat speaks and asks permissions under its OWN name.
         Config::load().assistant_name
     } else {
-        worker_board_title(
-            (!spawn.session_id.is_empty()).then_some(spawn.session_id.as_str()),
-            &spawn.instruction,
-        )
+        title.unwrap_or_else(|| {
+            worker_board_title(
+                (!spawn.session_id.is_empty()).then_some(spawn.session_id.as_str()),
+                &spawn.instruction,
+            )
+        })
     };
     let mut current_session = spawn.session_id.clone();
     std::thread::spawn(move || {
@@ -1123,6 +1138,61 @@ fn vox_chat_status(live: State<'_, LiveWorkers>) -> VoxChatStatus {
         alive: live.0.lock().unwrap().contains_key(VOX_CHAT_TASK),
         session_id: state_file::load(&config.data_dir()).vox_chat_session,
     }
+}
+
+/// Heavy session → fresh one on the SAME task/board card, context rebuilt
+/// LOCALLY (zero tokens): the old transcript becomes a brief that opens
+/// the new session. Always behind a click.
+#[tauri::command(async)]
+fn worker_restart_light(
+    app: AppHandle,
+    live: State<'_, LiveWorkers>,
+    task_id: String,
+) -> Result<(), String> {
+    let handle = live
+        .0
+        .lock()
+        .unwrap()
+        .get(&task_id)
+        .cloned()
+        .ok_or("worker não está mais ativo")?;
+    let config = Config::load();
+    // The session actually backing this task now (registry beats spawn).
+    let session = state_file::load(&config.data_dir())
+        .workers
+        .iter()
+        .find(|w| w.task_id == task_id)
+        .map(|w| w.session_id.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| handle.spawn.session_id.clone());
+    let brief = {
+        use vox_core::ports::SessionStore;
+        let store =
+            SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+        let path = store
+            .session_path(&session)
+            .ok()
+            .flatten()
+            .ok_or("sessão sem arquivo indexado")?;
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let entries = vox_core::domain::transcript::tail_entries(text.lines(), 400);
+        vox_core::domain::transcript::brief(&entries, 1500)
+    };
+    let title = worker_board_title(Some(&session), &handle.spawn.instruction);
+    emit_event(
+        &app,
+        serde_json::json!({ "kind": "status",
+            "text": format!("recomeçando \"{title}\" leve: sessão nova com resumo local") }),
+    );
+    handle.worker.shutdown();
+    let spawn = vox_core::adapters::worker::WorkerSpawn {
+        session_id: String::new(),
+        instruction: format!(
+            "Contexto local da conversa anterior (resumo gerado sem custo):\n{brief}\n\nContinue o trabalho de onde paramos."
+        ),
+        ..handle.spawn.clone()
+    };
+    start_worker_titled(&app, &live, &task_id, spawn, Some(title)).map_err(|e| e.to_string())
 }
 
 fn describe(d: &vox_core::domain::directives::Directives) -> String {
@@ -2533,6 +2603,7 @@ pub fn run() {
             dispatch_text,
             worker_start,
             worker_send,
+            worker_restart_light,
             ask_lane,
             vox_chat_send,
             vox_chat_status,

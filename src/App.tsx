@@ -1665,6 +1665,11 @@ export default function App({
                     }
                   }}
                   onStop={stopWorker}
+                  onRestartLight={(taskId) =>
+                    ipc
+                      .workerRestartLight(taskId)
+                      .catch((err) => push({ who: "sys", text: `recomeço leve: ${err}` }))
+                  }
                 />
               </Composer>
             </div>

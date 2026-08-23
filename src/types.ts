@@ -117,6 +117,8 @@ export type LiveWorker = {
   label: string;
   status: "running" | "turn_done" | "awaiting";
   directives: Directives;
+  /** How full the session's context window is (0..1), from the last turn. */
+  context_pct?: number | null;
 };
 
 export type DispatchOutcome =
