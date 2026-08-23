@@ -1,0 +1,69 @@
+name: release
+
+# Tag `v*` builds the desktop app (.dmg + .app.tar.gz) and the `hark` CLI
+# for both macOS architectures and attaches everything to a GitHub Release.
+# No code signing yet: install.sh clears the quarantine bit instead.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: macos-13
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - run: npm ci
+
+      - name: Build app bundles (.app + .dmg)
+        run: npx tauri build --target ${{ matrix.target }}
+
+      - name: Build hark CLI
+        run: cargo build --release --target ${{ matrix.target }} -p hark-cli
+
+      - name: Package assets
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          TARGET="${{ matrix.target }}"
+          BUNDLE="target/${TARGET}/release/bundle"
+          mkdir -p out
+
+          cp "${BUNDLE}"/dmg/*.dmg "out/hark-app-${VERSION}-${TARGET}.dmg"
+          tar -czf "out/hark-app-${VERSION}-${TARGET}.app.tar.gz" \
+            -C "${BUNDLE}/macos" hark.app
+          tar -czf "out/hark-cli-${VERSION}-${TARGET}.tar.gz" \
+            -C "target/${TARGET}/release" hark
+
+          (cd out && shasum -a 256 * > "checksums-${TARGET}.txt")
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true

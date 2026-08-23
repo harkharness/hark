@@ -4,10 +4,10 @@ members = ["crates/hark-core", "crates/hark-cli", "src-tauri"]
 exclude = ["spikes/whisper-spike"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/jhonmike/hark"
+repository = "https://github.com/jhonmike/hark-harness"
 
 [workspace.dependencies]
 anyhow = "1"

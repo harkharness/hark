@@ -1,0 +1,32 @@
+name: test
+
+# Keeps releases honest: workspace tests, clippy as errors, typecheck and
+# the frontend build. macOS runner because whisper-rs builds with metal.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: swatinem/rust-cache@v2
+
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets -- -D warnings
