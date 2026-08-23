@@ -76,8 +76,8 @@ pub enum VoicePlan {
         label: String,
         tool: String,
         allow: bool,
-        /// v1 limitation: spoken "sempre" is a plain allow (per-window
-        /// standing rules need the window's own map).
+        /// Spoken "sempre pode": the HUD broadcasts an allow_rule event and
+        /// the owning window records the standing rule in its own map.
         always: bool,
     },
 }

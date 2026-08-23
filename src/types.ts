@@ -50,6 +50,8 @@ export type VoxEvent =
   /** config.toml changed via the settings UI: re-read what you show. */
   | { kind: "config_changed" }
   | { kind: "voice_action"; utterance: string; target?: string | null; status?: string }
+  /** Spoken "sempre pode": the owning window records the standing rule. */
+  | { kind: "allow_rule"; label: string; tool: string }
   /** A spoken turn handled by the HUD, echoed into the mother's thread:
    *  the question always; the reply too when the lean ask answered it. */
   | {

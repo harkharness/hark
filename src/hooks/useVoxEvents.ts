@@ -36,6 +36,8 @@ type Handlers = {
     reply: { fala: string; cost_usd?: number; model?: string } | undefined,
     work: boolean,
   ) => void;
+  /** Spoken "sempre pode" — record the standing allow rule. */
+  onAllowRule?: (label: string, tool: string) => void;
   /** A worker finished a turn (the mother updates its feed row and, for
    *  the vox chat, its session cost/context header). */
   onWorkerTurn?: (
@@ -159,6 +161,8 @@ export function useVoxEvents(h: Handlers) {
         h.refresh();
       } else if (ev.kind === "chat_echo") {
         h.onChatEcho?.(ev.question, ev.reply, ev.work);
+      } else if (ev.kind === "allow_rule") {
+        h.onAllowRule?.(ev.label, ev.tool);
       } else if (ev.kind === "permission_decided") {
         // Someone answered (click, keys, voice, the HUD): every window's
         // copy of the card resolves — no stale "aguardando" anywhere.

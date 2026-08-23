@@ -256,7 +256,11 @@ export default function Hud() {
       // No feed row: the verdict is not an action — the permission card
       // itself resolves everywhere and IS the durable record.
       await ipc.approve(plan.request_id, plan.allow).catch(() => {});
-      const said = plan.allow ? "Permitido." : "Negado.";
+      // "sempre pode": the owning window records the standing rule.
+      if (plan.allow && plan.always) {
+        emit("vox", { kind: "allow_rule", label: plan.label, tool: plan.tool }).catch(() => {});
+      }
+      const said = plan.allow ? (plan.always ? "Permitido, sempre." : "Permitido.") : "Negado.";
       finish(`${plan.allow ? "✓" : "✗"} ${plan.tool} · ${plan.label}`, "ok", 1600);
       ipc.speak(said).catch(() => {});
     } else if (plan.kind === "command") {

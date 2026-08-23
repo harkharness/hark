@@ -215,6 +215,12 @@ export default function App({
       },
       [],
     ),
+    // Spoken "sempre pode" (HUD) reaches THIS window's standing rules too.
+    onAllowRule: useCallback((label: string, tool: string) => {
+      const set = allowAlways.current.get(label) ?? new Set<string>();
+      set.add(tool);
+      allowAlways.current.set(label, set);
+    }, []),
     speakRef,
     refresh,
     onWorkerExit: useCallback((taskId: string) => {
