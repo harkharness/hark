@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="34%" cy="26%" r="86%">
+      <stop offset="0" stop-color="#1a2130"/>
+      <stop offset=".72" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#0a0d12"/>
+    </radialGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7aa2f7"/>
+      <stop offset="1" stop-color="#bb9af7"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#000000" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+  <!-- macOS squircle: 832px plate centered on a 1024 transparent canvas -->
+  <rect x="96" y="96" width="832" height="832" rx="187" fill="url(#bg)" filter="url(#shadow)"/>
+  <rect x="96.75" y="96.75" width="830.5" height="830.5" rx="186.5" fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1.5"/>
+  <!-- the waveform: four breathing bars, gradient blue->purple -->
+  <g fill="url(#bar)">
+    <rect x="336.5" y="408" width="68" height="208" rx="34"/>
+    <rect x="453.5" y="304" width="68" height="416" rx="34"/>
+    <rect x="570.5" y="356" width="68" height="312" rx="34"/>
+    <rect x="687.5" y="441" width="68" height="142" rx="34"/>
+  </g>
+</svg>
