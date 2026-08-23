@@ -17,24 +17,26 @@ subscription. No API key, no separate billing, no telemetry.
 
 ## Install (from a release)
 
-The repo is private for now, so installs go through an authenticated
-[`gh`](https://cli.github.com) (`brew install gh && gh auth login`). Then:
+Binaries ship from the PUBLIC releases-only repo
+([harkharness/hark](https://github.com/harkharness/hark)) — this source repo
+stays private and is never exposed through them. Anyone can install with:
 
 ```bash
-gh api repos/jhonmike/hark-harness/contents/install.sh -H "Accept: application/vnd.github.raw" | bash
+curl -fsSL https://harkharness.web.app/install.sh | bash
 ```
 
-That downloads the latest release for your architecture, installs the `hark`
-CLI into `~/.local/bin`, drops `hark.app` into `/Applications` and clears the
-quarantine bit (the app is not code-signed yet). When the repo goes public
-this becomes a plain `curl -fsSL … | bash`.
+That downloads the latest public release for your architecture, installs the
+`hark` CLI into `~/.local/bin`, drops `hark.app` into `/Applications` and
+clears the quarantine bit (the app is not code-signed yet).
 
 After installing: `hark setup` downloads the whisper speech model (~466MB),
 and the first mic use asks for microphone permission.
 
 Releases are cut by tagging: `git tag v0.x.y && git push --tags` builds both
-macOS targets and attaches `.dmg`, `.app.tar.gz`, the CLI tarball and
-checksums to the GitHub Release.
+macOS targets and publishes `.dmg`, `.app.tar.gz`, the CLI tarball and
+checksums to a Release on `harkharness/hark` (version-less asset names, so
+`releases/latest/download` links never break). Needs the `RELEASE_TOKEN`
+secret — a PAT with write access to that public repo.
 
 ## What it does
 

@@ -1,8 +1,11 @@
 name: release
 
 # Tag `v*` builds the desktop app (.dmg + .app.tar.gz) and the `hark` CLI
-# for both macOS architectures and attaches everything to a GitHub Release.
-# No code signing yet: install.sh clears the quarantine bit instead.
+# for both macOS architectures and publishes everything to a Release on the
+# PUBLIC releases-only repo (harkharness/hark) — binaries ship, source never
+# does. Asset names are version-less so /releases/latest/download URLs stay
+# stable. Needs the RELEASE_TOKEN secret (a PAT with write access to
+# harkharness/hark). No code signing yet: install.sh clears quarantine.
 
 on:
   push:
@@ -54,16 +57,24 @@ jobs:
           BUNDLE="target/${TARGET}/release/bundle"
           mkdir -p out
 
-          cp "${BUNDLE}"/dmg/*.dmg "out/hark-app-${VERSION}-${TARGET}.dmg"
-          tar -czf "out/hark-app-${VERSION}-${TARGET}.app.tar.gz" \
+          # Version-less names: the release tag carries the version, and
+          # /releases/latest/download/<name> keeps working forever.
+          cp "${BUNDLE}"/dmg/*.dmg "out/hark-app-${TARGET}.dmg"
+          tar -czf "out/hark-app-${TARGET}.app.tar.gz" \
             -C "${BUNDLE}/macos" hark.app
-          tar -czf "out/hark-cli-${VERSION}-${TARGET}.tar.gz" \
+          tar -czf "out/hark-cli-${TARGET}.tar.gz" \
             -C "target/${TARGET}/release" hark
+          echo "built ${VERSION} for ${TARGET}"
 
           (cd out && shasum -a 256 * > "checksums-${TARGET}.txt")
 
-      - name: Attach to release
+      - name: Publish to the public releases repo
         uses: softprops/action-gh-release@v2
         with:
+          repository: harkharness/hark
+          token: ${{ secrets.RELEASE_TOKEN }}
+          tag_name: ${{ github.ref_name }}
           files: out/*
-          generate_release_notes: true
+          body: >
+            Hark ${{ github.ref_name }} — free beta. Install:
+            `curl -fsSL https://harkharness.web.app/install.sh | bash`
