@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink, Lock, Maximize2, Mic, Minimize2 } from "lucide-react";
 import Board from "./components/Board";
-import { setLang, t } from "./lib/i18n";
+import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import CostsPanel from "./components/CostsPanel";
 import Settings from "./components/Settings";
 import Transcript from "./components/Transcript";
@@ -154,6 +154,7 @@ export default function Mother() {
       .then((o) => {
         // Language first: setOverview re-renders with t() already right.
         setLang(o.ui_language);
+        setSpeechLang(o.language);
         setOverview(o);
         document.documentElement.dataset.theme = o.theme;
       })
@@ -323,7 +324,7 @@ export default function Mother() {
       return;
     }
     openProject(project, { title: task.title, session: sessionId });
-    say(`Retomando ${task.title} em ${project.name}.`);
+    say(st("sp_resuming_in", { t: task.title, p: project.name }));
   }
 
   /**
@@ -366,20 +367,20 @@ export default function Mother() {
       if (cmd.instruction) {
         try {
           await ipc.chatStart(cmd.path, cmd.instruction);
-          say(`Abrindo ${cmd.title} e iniciando o trabalho.`);
+          say(st("sp_opening_and_work", { t: cmd.title }));
         } catch (err) {
           push({ who: "sys", text: `chat: ${err}` });
-          say(`Abri ${cmd.title}, mas o chat falhou. Olha a janela.`);
+          say(st("sp_opened_chat_failed", { t: cmd.title }));
         }
       } else {
-        say(`Abrindo o projeto ${cmd.title}.`);
+        say(st("sp_opening_project", { t: cmd.title }));
       }
     } else if (cmd.kind === "new_chat") {
       openProject({ name: cmd.title, path: cmd.path });
       if (cmd.instruction) {
         try {
           await ipc.chatStart(cmd.path, cmd.instruction);
-          say(`Chat iniciado em ${cmd.title}.`);
+          say(st("sp_chat_started", { t: cmd.title }));
         } catch (err) {
           push({ who: "sys", text: `chat: ${err}` });
           say("O chat não subiu, olha a janela.");
@@ -389,10 +390,10 @@ export default function Mother() {
       }
     } else if (cmd.kind === "open_hq") {
       setTab(cmd.tab);
-      say(cmd.tab === "custos" ? "Custos na tela." : "Quadro na tela.");
+      say(cmd.tab === "custos" ? "Custos na tela." : st("sp_board_screen"));
     } else if (cmd.kind === "project_added") {
       push({ who: "sys", text: `projeto ${cmd.title} adicionado (${cmd.path})` });
-      say(`Projeto ${cmd.title} adicionado. Abrindo.`);
+      say(st("sp_project_added", { t: cmd.title }));
       refresh();
       openProject({ name: cmd.title, path: cmd.path });
     } else if (cmd.kind === "project_error") {
@@ -407,9 +408,9 @@ export default function Mother() {
         : undefined;
       if (target) {
         openProject(target);
-        say(`Abre o arquivo na janela de ${target.name}.`);
+        say(st("sp_file_in_window", { p: target.name }));
       } else {
-        say("Arquivos eu abro na janela do projeto. Qual projeto?");
+        say(st("sp_file_which_project"));
       }
     } else if (cmd.kind === "session_candidates") {
       if (cmd.candidates.length === 0) {
@@ -436,7 +437,7 @@ export default function Mother() {
           cwd: c.workspace,
         })),
       });
-      say(`Achei ${cmd.candidates.length} tasks. Qual delas?`);
+      say(st("sp_found_tasks", { n: cmd.candidates.length }));
     } else if (cmd.kind === "open_settings") {
       setSettingsOpen(true);
       say("Configurações na tela.");
@@ -451,7 +452,7 @@ export default function Mother() {
       // board tab right here.
       setTab("board");
       refresh();
-      say("Feito. Olha o quadro.");
+      say(st("sp_done_board"));
     }
     return true;
   }
@@ -481,12 +482,12 @@ export default function Mother() {
       const verdict = await ipc.interpretVerdict(text).catch(() => null);
       if (verdict?.kind === "confirm") {
         await answerPermission(pendingPerm.requestId, true);
-        say("Permitido.");
+        say(st("sp_allowed"));
         return;
       }
       if (verdict?.kind === "deny") {
         await answerPermission(pendingPerm.requestId, false);
-        say("Negado.");
+        say(st("sp_denied"));
         return;
       }
     }
@@ -505,7 +506,7 @@ export default function Mother() {
       if (plan?.kind === "work") {
         const target = plan.task_title ?? plan.project_name ?? "novo chat";
         setPendingPlan({ text, plan });
-        say(`Para ${target}. Confirma?`);
+        say(st("sp_confirm_to", { target }));
         return;
       }
       if (plan?.kind === "candidates") {
@@ -518,7 +519,7 @@ export default function Mother() {
             cwd: o.workspace,
           })),
         });
-        say(`Achei ${plan.options.length} destinos. Qual deles?`);
+        say(st("sp_found_dests", { n: plan.options.length }));
         return;
       }
       // Work with NO project target: the 21/08 Slack case. That is the
@@ -660,7 +661,7 @@ export default function Mother() {
             setPendingPlan(null);
             try {
               await ipc.voiceExecute(plan);
-              say("Despachado.");
+              say(st("sp_dispatched"));
             } catch (err) {
               push({ who: "sys", text: `despacho: ${err}` });
             }

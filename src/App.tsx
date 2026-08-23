@@ -7,7 +7,7 @@ import {
 } from "react-resizable-panels";
 import { PanelLeft, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
-import { setLang, t } from "./lib/i18n";
+import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import Board from "./components/Board";
 import Composer, { toImagePair, type Attachment } from "./components/Composer";
 import FilesEditor, { FileTabs } from "./components/FilesEditor";
@@ -151,6 +151,7 @@ export default function App({
       .then((o) => {
         // Language first: setOverview re-renders with t() already right.
         setLang(o.ui_language);
+        setSpeechLang(o.language);
         setOverview(o);
         // Code-surface theme (chat blocks, editor, terminal) via CSS vars.
         document.documentElement.dataset.theme = o.theme;
@@ -407,7 +408,7 @@ export default function App({
         say("Tarefa concluída.");
       } else if (out.status === "failed") {
         push({ who: "sys", text: `worker falhou: ${out.summary}` });
-        say("A tarefa falhou. Detalhes na tela.");
+        say(st("sp_task_failed"));
       } else if (out.status === "choice") {
         setPending({ kind: "choice", instruction, candidates: out.candidates });
       } else if (out.status === "busy") {
@@ -573,7 +574,7 @@ export default function App({
       const hits = await ipc.projectFiles(project.path, query, 1).catch(() => []);
       if (hits.length > 0) {
         openFile({ abs: `${project.path}/${hits[0]}`, rel: hits[0], project });
-        say(`Abrindo ${hits[0].split("/").pop()}.`);
+        say(st("sp_opening_file", { f: hits[0].split("/").pop() ?? "" }));
         return;
       }
     }
@@ -626,13 +627,13 @@ export default function App({
       if (verdict?.kind === "confirm") {
         push({ who: "user", text, task: pendingPermission.task });
         await answerPermission(pendingPermission.requestId, true, verdict.always);
-        say(verdict.always ? "Permitido, e não pergunto mais nesta task." : "Permitido.");
+        say(verdict.always ? "Permitido, e não pergunto mais nesta task." : st("sp_allowed"));
         return;
       }
       if (verdict?.kind === "deny") {
         push({ who: "user", text, task: pendingPermission.task });
         await answerPermission(pendingPermission.requestId, false);
-        say("Negado.");
+        say(st("sp_denied"));
         return;
       }
     }
@@ -670,7 +671,7 @@ export default function App({
       push({ who: "user", text });
       if (cmd.kind === "open" && cmd.session_id) {
         setReading({ sessionId: cmd.session_id, title: cmd.title });
-        say(`Abrindo ${cmd.title}.`);
+        say(st("sp_opening", { t: cmd.title }));
       } else if (cmd.kind === "switch") {
         let session = cmd.session_id;
         if (!session) {
@@ -683,7 +684,7 @@ export default function App({
           return;
         }
         await focusTask(cmd.title, session, cmd.note);
-        say(`Na task ${cmd.title}.`);
+        say(st("sp_on_task", { t: cmd.title }));
         if (cmd.instruction) {
           await sendToFocusedTaskWith(cmd.title, session, cmd.instruction);
         }
@@ -691,7 +692,7 @@ export default function App({
         await openFileByQuery(cmd.query, cmd.project);
       } else if (cmd.kind === "project_added") {
         push({ who: "sys", text: `projeto ${cmd.title} adicionado (${cmd.path})` });
-        say(`Projeto ${cmd.title} adicionado. Abrindo.`);
+        say(st("sp_project_added", { t: cmd.title }));
         refresh();
         // "abre um novo projeto": registering IS half the intent — the
         // window is the other half.
@@ -704,7 +705,7 @@ export default function App({
           await runNewChat({ name: cmd.title, path: cmd.path }, cmd.instruction);
         } else {
           startDraftChat({ name: cmd.title, path: cmd.path });
-          say(`Novo chat em ${cmd.title}. Qual a primeira tarefa?`);
+          say(st("sp_new_chat_first", { t: cmd.title }));
         }
       } else if (cmd.kind === "open_project") {
         await ipc.openProjectWindow(cmd.title, cmd.path).catch((err) =>
@@ -714,14 +715,14 @@ export default function App({
           await ipc.chatStart(cmd.path, cmd.instruction).catch((err) =>
             push({ who: "sys", text: `chat: ${err}` }),
           );
-          say(`Abrindo ${cmd.title} e iniciando o trabalho.`);
+          say(st("sp_opening_and_work", { t: cmd.title }));
         } else {
-          say(`Abrindo o projeto ${cmd.title}.`);
+          say(st("sp_opening_project", { t: cmd.title }));
         }
       } else if (cmd.kind === "open_hq") {
         if (cmd.tab === "board") {
           ensureRail("board");
-          say("Quadro na tela.");
+          say(st("sp_board_screen"));
         } else {
           // Costs are global: they live on the mother window.
           await ipc.focusMain("custos").catch(() => {});
@@ -742,7 +743,7 @@ export default function App({
       } else if (cmd.kind === "task_candidates") {
         // Too close to call: options on screen, never a silent guess.
         setPending({ kind: "pick-task", query: cmd.query, candidates: cmd.candidates });
-        say(`Achei ${cmd.candidates.length} tasks. Qual delas?`);
+        say(st("sp_found_tasks", { n: cmd.candidates.length }));
       } else if (cmd.kind === "open_settings") {
         // App settings live on the mother window.
         await ipc.focusMain("settings").catch(() => {});
@@ -750,10 +751,10 @@ export default function App({
       } else if (cmd.kind === "compact") {
         // Spoken "compacta o contexto": /compact on the focused session.
         await sendSlash("/compact");
-        say("Compactando o contexto.");
+        say(st("sp_compacting"));
       } else if (cmd.kind === "set_mode") {
         selectMode(cmd.mode);
-        say("Modo trocado.");
+        say(st("sp_mode_changed"));
       } else if (cmd.kind === "not_found") {
         push({ who: "sys", text: `nada bate com "${cmd.query}"` });
         say("Não achei isso no quadro.");
@@ -811,7 +812,7 @@ export default function App({
             who: "sys",
             text: `o avaliador sugere a task "${gate.task_alvo}"; use a sidebar ou "vai pra task ${gate.task_alvo}"`,
           });
-          say(`Isso parece ser da task ${gate.task_alvo}.`);
+          say(st("sp_gate_task", { t: gate.task_alvo }));
           return;
         }
       }
@@ -1072,10 +1073,10 @@ export default function App({
           : p.candidates.map((c) => ("title" in c && c.title ? c.title : ""));
       const announce =
         p.kind === "confirm-dispatch"
-          ? `Mostrei sua mensagem na tela${
-              p.sessionId && focusedTask ? ` para ${focusedTask.title}` : ""
-            }. Você confirma?`
-          : `Achei ${labels.length} opções. Qual delas?`;
+          ? p.sessionId && focusedTask
+            ? st("sp_shown_confirm", { t: focusedTask.title })
+            : st("sp_shown_confirm_bare")
+          : st("sp_found_options", { n: labels.length });
       // HARD RULE: never arm the mic while speaking — whisper would
       // transcribe our own voice (speak resolves when `say` exits).
       await ipc.speak(announce).catch(() => {});
@@ -1112,28 +1113,28 @@ export default function App({
           if (cur.kind === "confirm-dispatch") {
             const { instruction, sessionId } = cur;
             setPending(null);
-            say("Compactando antes.");
+            say(st("sp_compact_first"));
             compactFirstRef.current(instruction, sessionId);
           }
           return;
         }
         if (verdict.kind === "deny") {
           setPending(null);
-          say("Cancelado.");
+          say(st("sp_cancelled"));
           return;
         }
         if (cur.kind === "confirm-dispatch") {
           if (verdict.kind === "confirm") {
             push({ who: "user", text: heard });
             confirmDispatchRef.current();
-            say("Despachando.");
+            say(st("sp_dispatching"));
             return;
           }
           if (verdict.kind === "instruction") {
             // The user rephrased (STT got words wrong): swap the message
             // and ask again — the textarea shows the new text.
             setPending({ ...cur, instruction: verdict.text });
-            await ipc.speak("Troquei. Confirma?").catch(() => {});
+            await ipc.speak(st("sp_swapped_confirm")).catch(() => {});
             continue;
           }
         } else if (verdict.kind === "pick") {
@@ -1315,7 +1316,7 @@ export default function App({
     }
     await openTaskByTitle(task.title, hit.session_id);
     refresh();
-    say(`Retomando ${task.title}.`);
+    say(st("sp_resuming", { t: task.title }));
   }
 
   const visibleMessages = messages.filter((m) => {

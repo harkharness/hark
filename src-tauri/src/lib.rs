@@ -108,6 +108,8 @@ struct Overview {
     default_mode: String,
     /// UI language ("pt" | "en") — separate from the spoken one.
     ui_language: String,
+    /// SPOKEN language (STT/TTS) — drives the speech dictionary.
+    language: String,
     /// The assistant's own name (chat header, feed, announcements).
     assistant_name: String,
 }
@@ -168,6 +170,7 @@ fn overview() -> Overview {
         projects: load_projects(&config),
         theme: config.theme,
         ui_language: config.ui_language,
+        language: config.language,
         assistant_name: config.assistant_name,
         default_mode: config.worker_mode,
     }

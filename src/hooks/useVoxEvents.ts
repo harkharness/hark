@@ -5,6 +5,7 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import * as ipc from "../lib/ipc";
+import { st } from "../lib/i18n";
 import type { LiveWorker, Msg, PermissionAsk, VoxEvent } from "../types";
 
 type Handlers = {
@@ -139,8 +140,8 @@ export function useVoxEvents(h: Handlers) {
           ipc.speak(
             custom ??
               (ev.is_error
-                ? `A task ${spoken} falhou, olha a tela.`
-                : `Task ${spoken} terminou o turno.`),
+                ? st("sp_turn_failed", { t: spoken })
+                : st("sp_turn_done", { t: spoken })),
           ).catch(() => {});
         }
         h.refresh();
@@ -233,7 +234,9 @@ export function useVoxEvents(h: Handlers) {
       );
       if (h.announce && h.speakRef.current)
         ipc.speak(
-          `${ask.tool_name} pede permissão${ask.label ? ` em ${ask.label}` : ""}.`,
+          ask.label
+            ? st("sp_perm_ask", { tool: ask.tool_name, t: ask.label })
+            : st("sp_perm_ask_bare", { tool: ask.tool_name }),
         ).catch(() => {});
     });
 

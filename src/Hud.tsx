@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { CircleQuestionMark, FolderPlus, Mic, ShieldCheck, Target } from "lucide-react";
 import * as ipc from "./lib/ipc";
-import { setLang, t } from "./lib/i18n";
+import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import type { VoiceCandidate, VoicePlan, VoxEvent } from "./types";
 
 type Stage =
@@ -160,7 +160,7 @@ export default function Hud() {
    *  "não", or a whole new sentence). Digits/click stay alive as fallback. */
   async function offerCandidates(text: string, instruction: string, options: VoiceCandidate[]) {
     setStage({ s: "candidates", text, instruction, options });
-    await ipc.speak(`Achei ${options.length}. Qual delas?`).catch(() => {});
+    await ipc.speak(st("sp_found_n_which", { n: options.length })).catch(() => {});
     await sleep(150);
     const verdict = await listenVerdict(options.map((o) => o.title));
     if (cancelRef.current || !verdict) return; // keys/click still live
@@ -260,7 +260,7 @@ export default function Hud() {
       if (plan.allow && plan.always) {
         emit("vox", { kind: "allow_rule", label: plan.label, tool: plan.tool }).catch(() => {});
       }
-      const said = plan.allow ? (plan.always ? "Permitido, sempre." : "Permitido.") : "Negado.";
+      const said = plan.allow ? (plan.always ? st("sp_allowed_always") : st("sp_allowed")) : st("sp_denied");
       finish(`${plan.allow ? "✓" : "✗"} ${plan.tool} · ${plan.label}`, "ok", 1600);
       ipc.speak(said).catch(() => {});
     } else if (plan.kind === "command") {
@@ -306,8 +306,8 @@ export default function Hud() {
       }
       const target = plan.task_title ?? `novo chat em ${plan.project_name ?? "?"}`;
       const prompt = hasWarnings
-        ? `Para ${target}, mas ${plan.warnings[0]}. Sigo, ou compacto antes?`
-        : `Para ${target}. Confirmo?`;
+        ? st("sp_confirm_warn", { target, warn: plan.warnings[0] })
+        : st("sp_confirm_to", { target });
       await ipc.speak(prompt).catch(() => {});
       await sleep(150);
       const verdict = await listenVerdict(
@@ -400,7 +400,7 @@ export default function Hud() {
   // Every hotkey press re-arms the HUD; the first mount starts by itself.
   useEffect(() => {
     // UI language for this window (stage changes repaint with it).
-    ipc.configRead().then((s) => setLang(s.values.ui_language)).catch(() => {});
+    ipc.configRead().then((s) => { setLang(s.values.ui_language); setSpeechLang(s.values.language); }).catch(() => {});
     startRef.current();
     const un = listen<VoxEvent>("vox", (e) => {
       if (e.payload.kind !== "hud_listen") return;
