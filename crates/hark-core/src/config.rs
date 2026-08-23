@@ -69,10 +69,20 @@ pub struct Config {
     /// settings are never touched). Empty = evidence-based defaults:
     /// ponytail "full" when installed, caveman "off", tokensave "off".
     pub assist: AssistTable,
+    /// Which agent plugin drives the sessions. Only "claude" ships today;
+    /// the field exists so a second backend is a config change, not a fork.
+    pub agent: AgentTable,
     /// Queue follow-up messages while a worker turn is in flight and
     /// deliver them as ONE message when it ends (fewer, fatter turns).
     /// Off by default; directive changes are not applied to queued text.
     pub batch_messages: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, serde::Serialize, Default)]
+#[serde(default)]
+pub struct AgentTable {
+    /// Plugin id ("claude"); empty falls back to the default backend.
+    pub plugin: String,
 }
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize, Default)]
@@ -121,6 +131,7 @@ impl Default for Config {
             worker_max_turns: 0,
             worker_mode: String::new(),
             assistant_name: "Hark".into(),
+            agent: AgentTable::default(),
             assist: AssistTable::default(),
             batch_messages: false,
         }

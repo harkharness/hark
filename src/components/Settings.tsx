@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, Mic2, Settings2, Wrench, X } from "lucide-react";
+import { Bot, Check, Mic2, Plug, Settings2, Wrench, X } from "lucide-react";
 import * as ipc from "../lib/ipc";
+import PluginsPanel from "./PluginsPanel";
 import { t } from "../lib/i18n";
 
-type Section = "geral" | "voz" | "workers" | "avancado";
+type Section = "geral" | "plugins" | "voz" | "workers" | "avancado";
 
 const MODE_OPTIONS: [string, string][] = [
   ["", "mode_cli"],
@@ -172,6 +173,7 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
 
   const sections: { id: Section; name: string; icon: React.ReactNode }[] = [
     { id: "geral", name: t("set_general"), icon: <Settings2 size={14} /> },
+    { id: "plugins", name: t("set_plugins"), icon: <Plug size={14} /> },
     { id: "voz", name: t("set_voice"), icon: <Mic2 size={14} /> },
     { id: "workers", name: t("set_workers"), icon: <Bot size={14} /> },
     { id: "avancado", name: t("set_advanced"), icon: <Wrench size={14} /> },
@@ -265,6 +267,8 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
               />
             </>
           )}
+
+          {section === "plugins" && <PluginsPanel />}
 
           {section === "voz" && (
             <>

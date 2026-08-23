@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Check, ChevronLeft, Download, Mic, TerminalSquare } from "lucide-react";
+import { Check, ChevronLeft, Download, Mic } from "lucide-react";
 import * as ipc from "../lib/ipc";
+import PluginsPanel from "./PluginsPanel";
 import { setLang, setSpeechLang, t } from "../lib/i18n";
 
 type DlState =
@@ -11,7 +12,7 @@ type DlState =
   | { kind: "error"; err: string };
 
 /**
- * First-run wizard on the mother window: identity → claude CLI check →
+ * First-run wizard on the mother window: identity → agent plugin →
  * whisper model download (verified) → mic test. Every step is skippable;
  * finishing (or skipping) marks the machine onboarded.
  */
@@ -26,12 +27,12 @@ export default function Onboarding({
   const [lang, setLangState] = useState(status.language || "pt");
   const [name, setName] = useState(status.assistant_name || "Hark");
   const [hotkey, setHotkey] = useState(status.hotkey || "cmd+shift+space");
-  const [claude, setClaude] = useState({ ok: status.claude_ok, bin: status.claude_bin });
   const [whisperOk, setWhisperOk] = useState(status.whisper_ok);
   const [dl, setDl] = useState<DlState>({ kind: "idle" });
   const [mic, setMic] = useState<{ kind: "idle" | "listening" | "heard" | "fail"; text?: string }>(
     { kind: "idle" },
   );
+  const [agentReady, setAgentReady] = useState(false);
 
   useEffect(() => {
     const un = listen<{ key: string; pct?: number; done?: boolean; error?: string }>(
@@ -60,11 +61,6 @@ export default function Onboarding({
     });
     setLang(lang);
     setSpeechLang(lang);
-  };
-
-  const recheckClaude = async () => {
-    const fresh = await ipc.setupStatus();
-    setClaude({ ok: fresh.claude_ok, bin: fresh.claude_bin });
   };
 
   const testMic = async () => {
@@ -122,24 +118,8 @@ export default function Onboarding({
 
         {step === 1 && (
           <section className="ob-body">
-            {claude.ok ? (
-              <div className="ob-ok">
-                <Check size={14} /> {t("ob_s2_ok", { path: claude.bin })}
-              </div>
-            ) : (
-              <>
-                <div className="ob-warn">
-                  <TerminalSquare size={14} /> {t("ob_s2_missing")}
-                </div>
-                <div className="ob-hint">{t("ob_s2_how")}</div>
-                <pre className="ob-code">
-                  curl -fsSL https://claude.ai/install.sh | bash{"\n"}claude
-                </pre>
-                <button className="ob-btn" onClick={recheckClaude}>
-                  {t("ob_s2_recheck")}
-                </button>
-              </>
-            )}
+            <PluginsPanel compact onReady={setAgentReady} />
+            {!agentReady && <div className="ob-hint">{t("ob_s2_later")}</div>}
           </section>
         )}
 

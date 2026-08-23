@@ -1220,6 +1220,74 @@ fn eco_status() -> Result<serde_json::Value, String> {
     }))
 }
 
+/// Is the Claude Code binary actually reachable? Returns the resolved path
+/// alongside the verdict — the wizard and the plugin catalog both need it.
+fn claude_detected(config: &Config) -> (bool, String) {
+    let bin = config.claude_bin_resolved();
+    let ok = std::path::Path::new(&bin).is_absolute()
+        || std::process::Command::new("which")
+            .arg(&bin)
+            .output()
+            .is_ok_and(|out| out.status.success());
+    (ok, bin)
+}
+
+/// The agent-plugin catalog: which backends exist, which one drives the
+/// sessions, and what each can do — the capability sheet comes straight
+/// from the plugin's own declaration, so it can never drift from the code.
+#[tauri::command]
+fn agent_plugins() -> Result<serde_json::Value, String> {
+    let config = Config::load();
+    let selected: &str =
+        if config.agent.plugin.is_empty() { "claude" } else { &config.agent.plugin };
+    let (claude_ok, claude_bin) = claude_detected(&config);
+
+    Ok(serde_json::json!([
+        {
+            "id": "claude",
+            "name": "Claude Code",
+            "crate_name": "hark-plugin-claude",
+            "vendor": "Anthropic",
+            "status": "available",
+            "detected": claude_ok,
+            "detail": if claude_ok { claude_bin } else { String::new() },
+            "install": "curl -fsSL https://claude.ai/install.sh | bash",
+            "selected": selected == "claude",
+            "capabilities": hark_plugin_claude::capabilities(),
+        },
+        {
+            "id": "gemini",
+            "name": "Gemini CLI",
+            "crate_name": "hark-plugin-gemini",
+            "vendor": "Google",
+            "status": "planned",
+            "detected": false,
+            "detail": "",
+            "install": "",
+            "selected": false,
+            "capabilities": serde_json::Value::Null,
+        }
+    ]))
+}
+
+/// Pick the agent plugin that drives new sessions. An unknown or unshipped
+/// id is refused here, so the UI can never point the app at a backend that
+/// cannot run.
+#[tauri::command]
+fn agent_plugin_select(id: String) -> Result<(), String> {
+    if id != "claude" {
+        return Err(format!("plugin indisponivel: {id}"));
+    }
+    let path = hark_core::config::config_path();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let out = hark_core::config::patch_toml(&text, &serde_json::json!({ "agent.plugin": id }))
+        .map_err(|e| e.to_string())?;
+    std::fs::write(&path, out).map_err(|e| e.to_string())
+}
+
 /// Everything the first-run wizard needs to decide what to show: which
 /// pieces exist (config, whisper model, claude binary, history) and the
 /// current values to pre-fill.
@@ -1227,12 +1295,7 @@ fn eco_status() -> Result<serde_json::Value, String> {
 fn setup_status() -> Result<serde_json::Value, String> {
     let config = Config::load();
     let whisper = config.whisper_model_path();
-    let claude = config.claude_bin_resolved();
-    let claude_ok = std::path::Path::new(&claude).is_absolute()
-        || std::process::Command::new("which")
-            .arg(&claude)
-            .output()
-            .is_ok_and(|out| out.status.success());
+    let (claude_ok, claude) = claude_detected(&config);
     let state = hark_core::adapters::state_file::load(&config.data_dir());
     let models: Vec<serde_json::Value> = hark_core::adapters::model_fetch::whisper_models()
         .iter()
@@ -2929,6 +2992,8 @@ pub fn run() {
             savings_summary,
             eco_status,
             setup_status,
+            agent_plugins,
+            agent_plugin_select,
             setup_download_model,
             setup_mark_done,
             board_subtask_toggle,

@@ -345,3 +345,30 @@ export const setupStatus = () => invoke<SetupStatus>("setup_status");
 export const setupDownloadModel = (key: string) =>
   invoke("setup_download_model", { key });
 export const setupMarkDone = () => invoke("setup_mark_done");
+
+// --- agent plugins (the backend catalog) ------------------------------
+export type AgentCapabilities = {
+  resume: boolean;
+  permissions: boolean;
+  structured_output: boolean;
+  cost_reporting: boolean;
+  history: boolean;
+  live_list: boolean;
+  slash_commands: boolean;
+  memory_file: string | null;
+  shell_tools: string[];
+};
+export type AgentPlugin = {
+  id: string;
+  name: string;
+  crate_name: string;
+  vendor: string;
+  status: "available" | "planned";
+  detected: boolean;
+  detail: string;
+  install: string;
+  selected: boolean;
+  capabilities: AgentCapabilities | null;
+};
+export const agentPlugins = () => invoke<AgentPlugin[]>("agent_plugins");
+export const agentPluginSelect = (id: string) => invoke("agent_plugin_select", { id });
