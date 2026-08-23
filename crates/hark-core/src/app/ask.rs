@@ -104,6 +104,9 @@ pub fn ask_with_image(
         prompt: &prompt,
         images,
         model: &model,
+        system_prompt: prompt::VOICE_SYSTEM_PROMPT,
+        schema: prompt::RESPONSE_SCHEMA,
+        effort: "low",
     };
     let mut turn_session: Option<String> = None;
     let result = deps.runner.ask(&request, &mut |event| {

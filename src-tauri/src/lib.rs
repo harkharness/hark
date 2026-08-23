@@ -2315,7 +2315,6 @@ fn evaluate(
     focused_task: Option<String>,
     focused_session: Option<String>,
 ) -> Result<GateOut, String> {
-    use std::io::{BufRead, BufReader, Write};
     use hark_core::domain::gate;
     use hark_core::ports::SessionStore;
 
@@ -2356,55 +2355,22 @@ fn evaluate(
             .collect(),
     };
 
-    let mut child = std::process::Command::new(config.claude_bin_resolved())
-        .current_dir(config.data_dir())
-        .args([
-            "-p",
-            "--input-format",
-            "stream-json",
-            "--model",
-            "haiku",
-            "--effort",
-            "low",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--json-schema",
-            gate::GATE_SCHEMA,
-            "--tools",
-            "",
-            "--setting-sources",
-            "",
-            "--system-prompt",
-            gate::GATE_SYSTEM_PROMPT,
-        ])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| e.to_string())?;
-
-    let mut stdin = child.stdin.take().expect("piped stdin");
+    // Same seam as the voice ask: the plugin's schema-constrained one-shot
+    // runner — the gate stopped owning a hand-rolled spawn of the CLI.
+    let runner = hark_plugin_claude::cli::ClaudeCli {
+        claude_bin: config.claude_bin_resolved(),
+        work_dir: config.data_dir(),
+    };
     let prompt = gate::build_prompt(&message, &ctx);
-    stdin
-        .write_all(
-            hark_plugin_claude::stream::user_message(&prompt, &[]).as_bytes(),
-        )
-        .and_then(|_| stdin.write_all(b"\n"))
-        .map_err(|e| e.to_string())?;
-    drop(stdin);
-
-    let stdout = child.stdout.take().expect("piped stdout");
-    let result = BufReader::new(stdout)
-        .lines()
-        .map_while(Result::ok)
-        .find_map(|line| match hark_plugin_claude::stream::parse(&line) {
-            ClaudeEvent::Result(r) => Some(r),
-            _ => None,
-        });
-    let _ = child.wait();
-
-    let turn = result.ok_or("avaliador não respondeu")?;
+    let request = hark_core::ports::TurnRequest {
+        prompt: &prompt,
+        images: &[],
+        model: "haiku",
+        system_prompt: gate::GATE_SYSTEM_PROMPT,
+        schema: gate::GATE_SCHEMA,
+        effort: "low",
+    };
+    let turn = runner.ask(&request, &mut |_| {}).map_err(|e| e.to_string())?;
     let decision_parse = serde_json::from_str::<hark_core::domain::gate::GateDecision>(&turn.raw);
     // Ledger with the verdict as outcome (feeds the savings counters);
     // a failed parse still cost a haiku turn.

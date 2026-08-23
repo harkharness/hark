@@ -6,7 +6,6 @@
 
 use crate::stream::{parse, user_message};
 use hark_agent::{AgentEvent, TurnResult};
-use hark_core::domain::prompt::{RESPONSE_SCHEMA, VOICE_SYSTEM_PROMPT};
 use hark_core::ports::{AgentRunner, TurnRequest};
 use std::io::{BufRead, BufReader, Write};
 
@@ -32,20 +31,19 @@ impl AgentRunner for ClaudeCli {
                 "stream-json",
                 "--model",
                 request.model,
-                // Fast mode: minimal reasoning keeps latency and cost flat.
                 "--effort",
-                "low",
+                request.effort,
                 "--output-format",
                 "stream-json",
                 "--verbose",
                 "--json-schema",
-                RESPONSE_SCHEMA,
+                request.schema,
                 "--tools",
                 "",
                 "--setting-sources",
                 "",
                 "--system-prompt",
-                VOICE_SYSTEM_PROMPT,
+                request.system_prompt,
             ])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())

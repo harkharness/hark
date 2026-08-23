@@ -5,13 +5,21 @@ use hark_agent::{AgentEvent, TurnResult};
 use crate::domain::prompt::{LiveSession, RepoStatus};
 use crate::domain::snapshot::SessionSummary;
 
-/// One fast-mode turn to run.
+/// One fast-mode turn to run: a schema-constrained one-shot with no tools.
+/// Both the voice ask and the dispatch gate ride this — same seam, two
+/// prompts.
 pub struct TurnRequest<'a> {
     pub prompt: &'a str,
     /// Pasted screenshots: ordered (media_type, base64) blocks.
     pub images: &'a [(String, String)],
     /// Model alias chosen by the router or the user.
     pub model: &'a str,
+    /// System prompt of the run (voice persona, gate router…).
+    pub system_prompt: &'a str,
+    /// JSON schema constraining the structured reply.
+    pub schema: &'a str,
+    /// Reasoning effort ("low" keeps latency and cost flat).
+    pub effort: &'a str,
 }
 
 /// Runs one question through the agent backend, streaming events.
