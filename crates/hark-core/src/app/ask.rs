@@ -1,11 +1,10 @@
 //! Use case: answer one question with a fresh context snapshot.
 
-use crate::adapters::jsonl_scan::refresh_index;
 use crate::config::Config;
-use crate::domain::claude_event::{ClaudeEvent, TurnResult};
 use crate::domain::context::{self, ContextDef};
 use crate::domain::prompt::{self, Snapshot};
-use crate::ports::{AgentRunner, LiveSessions, RepoCollector, SessionStore};
+use crate::ports::{AgentRunner, HistoryIndexer, LiveSessions, RepoCollector, SessionStore};
+use hark_agent::{AgentEvent, TurnResult};
 use chrono::{Duration, SecondsFormat, Utc};
 
 /// How many journal entries feed back into the snapshot.
@@ -27,6 +26,8 @@ pub struct AskDeps<'a> {
     pub repos: &'a dyn RepoCollector,
     pub journal: &'a dyn crate::ports::Journal,
     pub runner: &'a dyn AgentRunner,
+    /// The plugin's history indexer (keeps the snapshot fresh).
+    pub indexer: &'a dyn HistoryIndexer,
 }
 
 /// Refresh the index, assemble the snapshot, ask Claude, journal the answer.
@@ -35,7 +36,7 @@ pub struct AskDeps<'a> {
 pub fn ask(
     question: &str,
     deps: &mut AskDeps,
-    on_event: &mut dyn FnMut(&ClaudeEvent),
+    on_event: &mut dyn FnMut(&AgentEvent),
 ) -> anyhow::Result<TurnResult> {
     ask_with_image(question, &[], deps, on_event)
 }
@@ -46,7 +47,7 @@ pub fn ask_with_image(
     question: &str,
     images: &[(String, String)],
     deps: &mut AskDeps,
-    on_event: &mut dyn FnMut(&ClaudeEvent),
+    on_event: &mut dyn FnMut(&AgentEvent),
 ) -> anyhow::Result<TurnResult> {
     let context = resolve_context(deps, Some(question));
 
@@ -106,7 +107,7 @@ pub fn ask_with_image(
     };
     let mut turn_session: Option<String> = None;
     let result = deps.runner.ask(&request, &mut |event| {
-        if let ClaudeEvent::SessionStarted { session_id, .. } = event {
+        if let AgentEvent::SessionStarted { session_id, .. } = event {
             turn_session = Some(session_id.clone());
         }
         on_event(event);
@@ -131,7 +132,7 @@ pub fn ask_with_image(
         let _ = deps.store.record_spend(&rows);
     }
 
-    if let Some(reply) = &result.reply {
+    if let Some(reply) = crate::domain::reply::VoiceReply::from_turn(&result) {
         let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
         let entry = crate::domain::memory::journal_entry(&now, question, &reply.fala);
         // Journaling and board updates must never break the answer flow.
@@ -162,7 +163,7 @@ fn spent_since(deps: &AskDeps, hours: i64) -> Option<f64> {
 /// and hand back a synthetic turn that walks the normal pipeline.
 fn finish_local(
     question: &str,
-    reply: crate::domain::claude_event::VoiceReply,
+    reply: crate::domain::reply::VoiceReply,
     deps: &mut AskDeps,
     context: &Option<ContextDef>,
 ) -> TurnResult {
@@ -172,13 +173,13 @@ fn finish_local(
     let turn = TurnResult {
         is_error: false,
         raw: reply.fala.clone(),
-        reply: Some(reply),
+        reply: serde_json::to_value(&reply).ok(),
         cost_usd: Some(0.0),
         duration_ms: Some(0),
         model: Some("local".into()),
-        usage: vec![crate::domain::claude_event::ModelUsage {
+        usage: vec![hark_agent::ModelUsage {
             model: "local".into(),
-            usage: crate::domain::claude_event::TokenUsage::default(),
+            usage: hark_agent::TokenUsage::default(),
             cost_usd: Some(0.0),
             context_window: None,
         }],
@@ -311,7 +312,7 @@ fn build_snapshot_with(
     hours: i64,
     context: Option<&ContextDef>,
 ) -> anyhow::Result<Snapshot> {
-    refresh_index(&deps.config.projects_dir, deps.store)?;
+    deps.indexer.refresh(&deps.config.projects_dir, deps.store)?;
     let since =
         (Utc::now() - Duration::hours(hours)).to_rfc3339_opts(SecondsFormat::Millis, true);
     let sessions = deps

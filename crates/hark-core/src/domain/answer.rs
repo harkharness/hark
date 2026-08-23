@@ -10,7 +10,7 @@
 //! answer locally on a guess.
 
 use crate::domain::board::{Task, TaskStatus};
-use crate::domain::claude_event::VoiceReply;
+use crate::domain::reply::VoiceReply;
 use crate::domain::memory::{WorkerRecord, WorkerStatus};
 
 #[derive(Debug, Clone, PartialEq)]

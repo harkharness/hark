@@ -7,9 +7,9 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{mpsc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, State};
-use hark_core::adapters::claude_cli::ClaudeCli;
+use hark_plugin_claude::cli::ClaudeCli;
 use hark_core::adapters::git_collect::GitCli;
-use hark_core::adapters::live_sessions::ClaudeAgentsCli;
+use hark_plugin_claude::live::ClaudeAgentsCli;
 use hark_core::adapters::memory_files::{self, HarkDir};
 use hark_core::adapters::sqlite_store::SqliteStore;
 use hark_core::adapters::state_file;
@@ -18,7 +18,8 @@ use hark_core::app::ask::{ask_with_image, AskDeps};
 use hark_core::app::dispatch::{plan, Plan};
 use hark_core::chrono::{SecondsFormat, Utc};
 use hark_core::config::Config;
-use hark_core::domain::claude_event::{ClaudeEvent, PermissionDecision, VoiceReply};
+use hark_core::domain::reply::VoiceReply;
+use hark_plugin_claude::stream::{ClaudeEvent, PermissionDecision};
 use hark_core::domain::memory::{WorkerRecord, WorkerStatus};
 use hark_core::ports::{AgentRunner, AudioIn, Stt, Tts};
 
@@ -32,8 +33,8 @@ pub(crate) struct PermLog(pub(crate) Mutex<Vec<(String, String, String)>>);
 
 /// A live worker plus everything needed to restart it on the same session.
 struct WorkerHandle {
-    worker: std::sync::Arc<hark_core::adapters::worker::PersistentWorker>,
-    spawn: hark_core::adapters::worker::WorkerSpawn,
+    worker: std::sync::Arc<hark_plugin_claude::worker::PersistentWorker>,
+    spawn: hark_plugin_claude::worker::WorkerSpawn,
 }
 
 /// Conversational workers still alive, keyed by task_id.
@@ -82,6 +83,7 @@ fn build_deps<'a>(
         repos: &GitCli,
         runner,
         config,
+        indexer: &hark_plugin_claude::history::ClaudeHistory,
     }
 }
 
@@ -91,7 +93,7 @@ impl AgentRunner for NoopRunner {
         &self,
         _request: &hark_core::ports::TurnRequest,
         _e: &mut dyn FnMut(&ClaudeEvent),
-    ) -> anyhow::Result<hark_core::domain::claude_event::TurnResult> {
+    ) -> anyhow::Result<hark_plugin_claude::stream::TurnResult> {
         anyhow::bail!("not used")
     }
 }
@@ -491,7 +493,7 @@ fn ask_text(
     })
     .map_err(|e| format!("{e:#}"))?;
 
-    match result.reply {
+    match VoiceReply::from_turn(&result) {
         Some(VoiceReply { fala, detalhes, itens, .. }) => Ok(ReplyOut {
             fala,
             detalhes,
@@ -619,7 +621,7 @@ fn worker_start(
         .mode
         .or_else(|| mode.as_deref().and_then(hark_core::domain::directives::Mode::from_flag))
         .or_else(|| config.default_worker_mode());
-    let spawn = hark_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_plugin_claude::worker::WorkerSpawn {
         limits: config.spawn_limits(),
         envs: worker_envs(&config),
         claude_bin: config.claude_bin_resolved(),
@@ -642,7 +644,7 @@ fn start_worker(
     app: &AppHandle,
     live: &State<'_, LiveWorkers>,
     task_id: &str,
-    spawn: hark_core::adapters::worker::WorkerSpawn,
+    spawn: hark_plugin_claude::worker::WorkerSpawn,
 ) -> anyhow::Result<()> {
     start_worker_titled(app, live, task_id, spawn, None)
 }
@@ -654,10 +656,10 @@ fn start_worker_titled(
     app: &AppHandle,
     live: &State<'_, LiveWorkers>,
     task_id: &str,
-    spawn: hark_core::adapters::worker::WorkerSpawn,
+    spawn: hark_plugin_claude::worker::WorkerSpawn,
     title: Option<String>,
 ) -> anyhow::Result<()> {
-    let (worker, stdout) = hark_core::adapters::worker::PersistentWorker::spawn(&spawn)?;
+    let (worker, stdout) = hark_plugin_claude::worker::PersistentWorker::spawn(&spawn)?;
     let pid = worker.pid;
     live.0.lock().unwrap().insert(
         task_id.to_string(),
@@ -703,7 +705,7 @@ fn start_worker_titled(
         use std::io::{BufRead, BufReader};
         let config = Config::load();
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            match hark_core::domain::claude_event::parse(&line) {
+            match hark_plugin_claude::stream::parse(&line) {
                 ClaudeEvent::SessionStarted { session_id, slash_commands } => {
                     current_session = session_id.clone();
                     // The init event names the session's slash commands:
@@ -859,7 +861,7 @@ fn start_worker_titled(
                         &turn,
                     );
                     // Aggregate usage + how full the context window is.
-                    let mut usage = hark_core::domain::claude_event::TokenUsage::default();
+                    let mut usage = hark_plugin_claude::stream::TokenUsage::default();
                     let mut window: Option<u64> = None;
                     for m in &turn.usage {
                         usage.input += m.usage.input;
@@ -1020,7 +1022,7 @@ fn chat_start(
         .mode
         .or_else(|| mode.as_deref().and_then(hark_core::domain::directives::Mode::from_flag))
         .or_else(|| config.default_worker_mode());
-    let spawn = hark_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_plugin_claude::worker::WorkerSpawn {
         limits: config.spawn_limits(),
         envs: worker_envs(&config),
         claude_bin: config.claude_bin_resolved(),
@@ -1039,7 +1041,7 @@ fn record_live_spend(
     config: &Config,
     kind: hark_core::domain::spend::SpendKind,
     meta: &hark_core::domain::spend::SpendMeta,
-    turn: &hark_core::domain::claude_event::TurnResult,
+    turn: &hark_plugin_claude::stream::TurnResult,
 ) {
     use hark_core::ports::SpendLedger;
     let rows = hark_core::domain::spend::rows_from_turn(&now_iso(), kind, meta, turn);
@@ -1127,7 +1129,7 @@ fn worker_send(
     );
     handle.worker.shutdown();
     // Limits carry over from the original spawn (`..clone()`).
-    let spawn = hark_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_plugin_claude::worker::WorkerSpawn {
         instruction: text,
         directives: next.clone(),
         ..handle.spawn.clone()
@@ -1174,8 +1176,8 @@ fn board_subtask_toggle(title: String, index: usize, done: bool) -> Result<(), S
 pub(crate) fn worker_envs(config: &Config) -> Vec<(String, String)> {
     let settings = std::fs::read_to_string(hark_core::config::expand_home("~/.claude/settings.json"))
         .unwrap_or_default();
-    let status = hark_core::adapters::eco_tools::detect(&settings);
-    hark_core::adapters::eco_tools::eco_envs(
+    let status = hark_plugin_claude::eco::detect(&settings);
+    hark_plugin_claude::eco::eco_envs(
         status,
         config.assist.ponytail.as_deref(),
         config.assist.caveman.as_deref(),
@@ -1187,8 +1189,8 @@ pub(crate) fn worker_envs(config: &Config) -> Vec<(String, String)> {
 pub(crate) fn eco_fingerprint(envs: &[(String, String)]) -> String {
     let settings = std::fs::read_to_string(hark_core::config::expand_home("~/.claude/settings.json"))
         .unwrap_or_default();
-    let status = hark_core::adapters::eco_tools::detect(&settings);
-    hark_core::adapters::eco_tools::fingerprint(status, envs)
+    let status = hark_plugin_claude::eco::detect(&settings);
+    hark_plugin_claude::eco::fingerprint(status, envs)
 }
 
 /// What eco tools this machine has and how workers run them.
@@ -1197,12 +1199,12 @@ fn eco_status() -> Result<serde_json::Value, String> {
     let config = Config::load();
     let settings = std::fs::read_to_string(hark_core::config::expand_home("~/.claude/settings.json"))
         .unwrap_or_default();
-    let status = hark_core::adapters::eco_tools::detect(&settings);
+    let status = hark_plugin_claude::eco::detect(&settings);
     let envs = worker_envs(&config);
     Ok(serde_json::json!({
         "status": status,
         "envs": envs,
-        "fingerprint": hark_core::adapters::eco_tools::fingerprint(status, &envs),
+        "fingerprint": hark_plugin_claude::eco::fingerprint(status, &envs),
     }))
 }
 
@@ -1441,7 +1443,7 @@ fn hark_chat_send(
     let mut directives = hark_core::domain::directives::parse(&text);
     directives.mode = directives.mode.or_else(|| config.default_worker_mode());
     let resumed = session.is_some();
-    let spawn = hark_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_plugin_claude::worker::WorkerSpawn {
         limits: config.spawn_limits(),
         envs: worker_envs(&config),
         claude_bin: config.claude_bin_resolved(),
@@ -1518,7 +1520,7 @@ fn worker_restart_light(
             "text": format!("recomeçando \"{title}\" leve: sessão nova com resumo local") }),
     );
     handle.worker.shutdown();
-    let spawn = hark_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_plugin_claude::worker::WorkerSpawn {
         session_id: String::new(),
         instruction: format!(
             "Contexto local da conversa anterior (resumo gerado sem custo):\n{brief}\n\nContinue o trabalho de onde paramos."
@@ -1571,7 +1573,7 @@ fn worker_set_mode(
             "text": format!("reabrindo a thread com {}", describe(&next)) }),
     );
     handle.worker.shutdown();
-    let spawn = hark_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_plugin_claude::worker::WorkerSpawn {
         directives: next.clone(),
         ..handle.spawn.clone()
     };
@@ -1665,7 +1667,7 @@ fn dispatch_text(
     });
     let _ = state_file::save(&config.data_dir(), &gstate);
 
-    let spawn = hark_core::adapters::worker::WorkerSpawn {
+    let spawn = hark_plugin_claude::worker::WorkerSpawn {
         limits: config.spawn_limits(),
         envs: worker_envs(&config),
         claude_bin: config.claude_bin_resolved(),
@@ -1680,7 +1682,7 @@ fn dispatch_text(
         },
     };
     let label = worker_board_title(Some(&planned.session.session_id), &instruction);
-    let result = hark_core::adapters::worker::run(
+    let result = hark_plugin_claude::worker::run(
         &spawn,
         &mut |_running| {},
         &mut |tool, input| {
@@ -2000,7 +2002,7 @@ fn find_session(query: String) -> Result<Option<serde_json::Value>, String> {
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
-    let _ = hark_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
+    let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, &mut store);
     let terms = hark_core::domain::dispatch::significant_terms(&query);
     let hits = store.search_sessions(&terms, 1).map_err(|e| e.to_string())?;
     Ok(hits.first().map(|s| {
@@ -2053,7 +2055,7 @@ fn session_hits(query: &str, limit: usize) -> Result<Vec<SessionHit>, String> {
     // The index only used to move when `ask` ran, so sessions opened since
     // the last question were invisible here. Incremental (mtime + byte
     // offset), so this is milliseconds when nothing changed.
-    let _ = hark_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
+    let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, &mut store);
     let terms = hark_core::domain::dispatch::significant_terms(query);
     let hits = store
         .search_sessions(&terms, limit)
@@ -2085,7 +2087,7 @@ fn project_sessions(path: String) -> Result<Vec<SessionHit>, String> {
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
-    let _ = hark_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
+    let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, &mut store);
     let root = hark_core::config::expand_home(&path);
     let all = store.sessions_since("0").map_err(|e| e.to_string())?;
     Ok(all
@@ -2114,7 +2116,7 @@ fn task_from_session(session_id: String) -> Result<serde_json::Value, String> {
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
-    let _ = hark_core::adapters::jsonl_scan::refresh_index(&config.projects_dir, &mut store);
+    let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, &mut store);
     let summary = session_summary(&store, &session_id)
         .ok_or_else(|| format!("sessão {session_id} não está no índice"))?;
     let title = session_label(&summary);
@@ -2386,7 +2388,7 @@ fn evaluate(
     let prompt = gate::build_prompt(&message, &ctx);
     stdin
         .write_all(
-            hark_core::domain::claude_event::user_message(&prompt, &[]).as_bytes(),
+            hark_plugin_claude::stream::user_message(&prompt, &[]).as_bytes(),
         )
         .and_then(|_| stdin.write_all(b"\n"))
         .map_err(|e| e.to_string())?;
@@ -2396,7 +2398,7 @@ fn evaluate(
     let result = BufReader::new(stdout)
         .lines()
         .map_while(Result::ok)
-        .find_map(|line| match hark_core::domain::claude_event::parse(&line) {
+        .find_map(|line| match hark_plugin_claude::stream::parse(&line) {
             ClaudeEvent::Result(r) => Some(r),
             _ => None,
         });
@@ -2745,20 +2747,20 @@ fn open_project_window(
     Ok(())
 }
 
-fn bridge_paths(config: &Config) -> hark_core::adapters::statusline_bridge::BridgePaths {
+fn bridge_paths(config: &Config) -> hark_plugin_claude::bridge::BridgePaths {
     let home = std::path::PathBuf::from(hark_core::config::expand_home("~"));
-    hark_core::adapters::statusline_bridge::BridgePaths::new(&home, &config.data_dir())
+    hark_plugin_claude::bridge::BridgePaths::new(&home, &config.data_dir())
 }
 
 /// The subscription windows (5h / weekly / per-model), the only numbers the
 /// CLI keeps to itself — they exist solely in the statusLine payload, so
 /// this returns None until the user installs the bridge.
 #[tauri::command(async)]
-fn subscription_limits() -> Result<Option<hark_core::domain::statusline::StatusLine>, String> {
+fn subscription_limits() -> Result<Option<hark_plugin_claude::statusline::StatusLine>, String> {
     let config = Config::load();
     // 10 minutes: a status line renders on every turn, so anything older
     // means the user stopped working — showing it as current would lie.
-    Ok(hark_core::adapters::statusline_bridge::read(
+    Ok(hark_plugin_claude::bridge::read(
         &bridge_paths(&config),
         600,
     ))
@@ -2766,9 +2768,9 @@ fn subscription_limits() -> Result<Option<hark_core::domain::statusline::StatusL
 
 #[tauri::command(async)]
 fn statusline_bridge_status(
-) -> Result<hark_core::adapters::statusline_bridge::BridgeStatus, String> {
+) -> Result<hark_plugin_claude::bridge::BridgeStatus, String> {
     let config = Config::load();
-    Ok(hark_core::adapters::statusline_bridge::status(&bridge_paths(
+    Ok(hark_plugin_claude::bridge::status(&bridge_paths(
         &config,
     )))
 }
@@ -2779,14 +2781,14 @@ fn statusline_bridge_status(
 #[tauri::command(async)]
 fn statusline_bridge_install() -> Result<Option<String>, String> {
     let config = Config::load();
-    hark_core::adapters::statusline_bridge::install(&bridge_paths(&config))
+    hark_plugin_claude::bridge::install(&bridge_paths(&config))
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
 fn statusline_bridge_uninstall() -> Result<(), String> {
     let config = Config::load();
-    hark_core::adapters::statusline_bridge::uninstall(&bridge_paths(&config))
+    hark_plugin_claude::bridge::uninstall(&bridge_paths(&config))
         .map_err(|e| e.to_string())
 }
 

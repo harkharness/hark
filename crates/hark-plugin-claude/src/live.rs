@@ -1,7 +1,7 @@
 //! Live Claude Code sessions via `claude agents --json`.
 
-use crate::domain::prompt::LiveSession;
-use crate::ports::LiveSessions;
+use hark_core::domain::prompt::LiveSession;
+use hark_core::ports::LiveSessions;
 use serde_json::Value;
 
 /// Pure parser for the `claude agents --json` payload.

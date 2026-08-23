@@ -4,9 +4,10 @@
 //! JSON-schema-constrained reply. Spawned from a neutral cwd so no project
 //! CLAUDE.md is picked up. No Anthropic API is ever called directly.
 
-use crate::domain::claude_event::{parse, user_message, ClaudeEvent, TurnResult};
-use crate::domain::prompt::{RESPONSE_SCHEMA, VOICE_SYSTEM_PROMPT};
-use crate::ports::{AgentRunner, TurnRequest};
+use crate::stream::{parse, user_message};
+use hark_agent::{AgentEvent, TurnResult};
+use hark_core::domain::prompt::{RESPONSE_SCHEMA, VOICE_SYSTEM_PROMPT};
+use hark_core::ports::{AgentRunner, TurnRequest};
 use std::io::{BufRead, BufReader, Write};
 
 pub struct ClaudeCli {
@@ -19,7 +20,7 @@ impl AgentRunner for ClaudeCli {
     fn ask(
         &self,
         request: &TurnRequest,
-        on_event: &mut dyn FnMut(&ClaudeEvent),
+        on_event: &mut dyn FnMut(&AgentEvent),
     ) -> anyhow::Result<TurnResult> {
         // stream-json input so the prompt can carry image blocks (pasted
         // screenshots) exactly like the worker path.
@@ -70,7 +71,7 @@ impl AgentRunner for ClaudeCli {
             .map(|line| parse(&line))
             .inspect(|event| on_event(event))
             .find_map(|event| match event {
-                ClaudeEvent::Result(r) => Some(r),
+                AgentEvent::Result(r) => Some(r),
                 _ => None,
             });
 

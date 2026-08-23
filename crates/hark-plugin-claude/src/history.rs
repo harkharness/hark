@@ -3,16 +3,30 @@
 //! and skips files whose mtime is unchanged. The SAME pass feeds two
 //! stores: the session index and the token spend ledger (source=jsonl).
 
-use crate::domain::claude_event::TokenUsage;
-use crate::domain::session_log::{parse_line, SessionEvent};
-use crate::domain::snapshot::SessionSummary;
-use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
-use crate::ports::SessionStore;
+use hark_agent::TokenUsage;
+use crate::log::{parse_line, SessionEvent};
+use hark_core::domain::snapshot::SessionSummary;
+use hark_core::domain::spend::{SpendKind, SpendRow, SpendSource};
+use hark_core::ports::SessionStore;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 
 /// Walk every `*/*.jsonl` under `projects_dir`, fold new lines into the
 /// stored summaries. Returns how many files had new content.
+/// The contract-facing indexer: hark-core's ask path refreshes history
+/// through this without knowing whose disk layout it is.
+pub struct ClaudeHistory;
+
+impl hark_core::ports::HistoryIndexer for ClaudeHistory {
+    fn refresh(
+        &self,
+        projects_dir: &Path,
+        store: &mut dyn hark_core::ports::SessionStore,
+    ) -> anyhow::Result<usize> {
+        refresh_index(projects_dir, store)
+    }
+}
+
 pub fn refresh_index(
     projects_dir: &Path,
     store: &mut (impl SessionStore + ?Sized),
@@ -179,8 +193,8 @@ fn mtime_of(meta: &std::fs::Metadata) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::sqlite_store::SqliteStore;
-    use crate::ports::SessionStore;
+    use hark_core::adapters::sqlite_store::SqliteStore;
+    use hark_core::ports::SessionStore;
     use std::io::Write;
 
     fn user_line(ts: &str, text: &str) -> String {
@@ -264,8 +278,8 @@ mod tests {
 
     #[test]
     fn same_pass_feeds_the_spend_ledger_idempotently() {
-        use crate::domain::spend::SpendSource;
-        use crate::ports::{SpendGroup, SpendLedger, SpendQuery};
+        use hark_core::domain::spend::SpendSource;
+        use hark_core::ports::{SpendGroup, SpendLedger, SpendQuery};
         let assistant = |ts: &str, req: &str| {
             format!(
                 r#"{{"type":"assistant","timestamp":"{ts}","requestId":"{req}","message":{{"role":"assistant","model":"claude-sonnet-5","content":[],"usage":{{"input_tokens":3,"output_tokens":7,"cache_read_input_tokens":11,"cache_creation_input_tokens":13}}}}}}"#

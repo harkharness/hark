@@ -1,109 +1,18 @@
-//! Pure parser for the Claude CLI stream-json output (one JSON per line).
+//! Pure parser for the Claude CLI stream-json output (one JSON per line),
+//! translating it into the neutral `hark_agent::AgentEvent` vocabulary.
 //! Shapes verified empirically against CLI v2.1.220 (see spikes/FINDINGS.md).
 
-use serde::Deserialize;
 use serde_json::Value;
 
-/// Claude's structured answer, constrained by `prompt::RESPONSE_SCHEMA`.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct VoiceReply {
-    pub fala: String,
-    pub detalhes: String,
-    #[serde(default)]
-    pub itens: Vec<String>,
-    /// Board updates proposed by the model (the invisible kanban feed).
-    #[serde(default)]
-    pub board: Vec<crate::domain::board::BoardUpdate>,
-}
+pub use hark_agent::{
+    AgentEvent, ModelUsage, PermissionDecision, RateLimitInfo, TokenUsage, TurnResult,
+};
 
-/// Token counters of one model in one turn. This is the raw material of
-/// the spend ledger: without measuring, nothing can be saved.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
-pub struct TokenUsage {
-    pub input: u64,
-    pub output: u64,
-    pub cache_read: u64,
-    pub cache_created: u64,
-}
-
-/// Per-model usage of a turn, straight from the CLI's `modelUsage`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ModelUsage {
-    pub model: String,
-    pub usage: TokenUsage,
-    pub cost_usd: Option<f64>,
-    /// The model's context window, reported for free by the CLI.
-    pub context_window: Option<u64>,
-}
-
-/// Final outcome of one turn.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TurnResult {
-    pub is_error: bool,
-    /// Parsed structured reply, when the run used the response schema.
-    pub reply: Option<VoiceReply>,
-    /// Raw result string as emitted by the CLI (error text or raw JSON).
-    pub raw: String,
-    pub cost_usd: Option<f64>,
-    pub duration_ms: Option<u64>,
-    /// Main model that produced the turn (highest-cost entry in modelUsage).
-    pub model: Option<String>,
-    /// Token usage per model (empty only when the CLI reported nothing).
-    pub usage: Vec<ModelUsage>,
-}
-
-/// Subscription window signal emitted by the CLI on every turn.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RateLimitInfo {
-    /// allowed | allowed_warning | rejected
-    pub status: String,
-    /// Epoch seconds when the current window resets.
-    pub resets_at: Option<u64>,
-    /// five_hour | seven_day | seven_day_opus | ...
-    pub kind: Option<String>,
-    pub overage: bool,
-}
-
-/// One line of CLI output, reduced to what Hark reacts to.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ClaudeEvent {
-    /// Assistant called a tool; narrated in the UI/TTS while waiting.
-    ToolUse { name: String, input: String },
-    /// Assistant prose (live transcript between tool calls).
-    AssistantText(String),
-    /// A tool finished; shown in the live transcript.
-    ToolResult { content: String, is_error: bool },
-    /// Turn finished.
-    Result(TurnResult),
-    /// CLI asks whether a tool may run (`--permission-prompt-tool stdio`).
-    PermissionRequest {
-        request_id: String,
-        tool_name: String,
-        input: String,
-    },
-    /// The CLI announced which session this process writes to. Essential
-    /// for brand-new sessions, whose id only exists after spawn. It also
-    /// names every slash command the session accepts — the "/" palette's
-    /// source of truth, no directory scanning.
-    SessionStarted {
-        session_id: String,
-        slash_commands: Vec<String>,
-    },
-    /// Subscription window status (five_hour/seven_day), one per turn.
-    RateLimit(RateLimitInfo),
-    /// Anything else (thinking estimates, partial deltas we don't use yet).
-    Ignored,
-}
-
-/// User's verdict on a permission request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PermissionDecision {
-    Allow,
-    Deny,
-}
+/// Historical alias — this crate's parser used to own the event enum.
+pub type ClaudeEvent = AgentEvent;
 
 /// Parse one stdout line from the CLI.
-pub fn parse(line: &str) -> ClaudeEvent {
+pub fn parse(line: &str) -> AgentEvent {
     let Ok(v) = serde_json::from_str::<Value>(line) else {
         return ClaudeEvent::Ignored;
     };
@@ -227,8 +136,10 @@ fn parse_result(v: &Value) -> Option<TurnResult> {
         || v.get("subtype").and_then(Value::as_str) != Some("success");
     Some(TurnResult {
         is_error,
+        // Structured replies stay raw JSON here; the product layer decides
+        // the shape (Hark parses them as VoiceReply in hark-core).
         reply: (!is_error)
-            .then(|| serde_json::from_str::<VoiceReply>(&raw).ok())
+            .then(|| serde_json::from_str::<Value>(&raw).ok())
             .flatten(),
         raw,
         cost_usd: v.get("total_cost_usd").and_then(Value::as_f64),
@@ -341,9 +252,9 @@ mod tests {
         // Highest-cost model wins the label, sidecars ignored.
         assert_eq!(result.model.as_deref(), Some("claude-sonnet-5"));
         let reply = result.reply.expect("structured reply");
-        assert_eq!(reply.fala, "Duas pendências hoje.");
-        assert_eq!(reply.detalhes, "PR aberto e teste falhando");
-        assert_eq!(reply.itens, vec!["revisar PR"]);
+        assert_eq!(reply["fala"], "Duas pendências hoje.");
+        assert_eq!(reply["detalhes"], "PR aberto e teste falhando");
+        assert_eq!(reply["itens"][0], "revisar PR");
     }
 
     #[test]

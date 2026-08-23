@@ -134,8 +134,8 @@ impl Config {
     }
 
     /// Hard caps applied to every worker spawn.
-    pub fn spawn_limits(&self) -> crate::adapters::worker::SpawnLimits {
-        crate::adapters::worker::SpawnLimits {
+    pub fn spawn_limits(&self) -> hark_agent::SpawnLimits {
+        hark_agent::SpawnLimits {
             max_budget_usd: (self.worker_budget_usd > 0.0).then_some(self.worker_budget_usd),
             max_turns: (self.worker_max_turns > 0).then_some(self.worker_max_turns),
         }

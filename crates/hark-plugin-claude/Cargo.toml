@@ -1,0 +1,16 @@
+[package]
+name = "hark-plugin-claude"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hark agent plugin for the Claude Code CLI: spawn, stream-json translation, permissions, session history, statusline bridge and eco-tools."
+
+[dependencies]
+hark-agent = { path = "../hark-agent" }
+hark-core = { path = "../hark-core" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

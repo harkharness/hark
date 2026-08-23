@@ -149,7 +149,7 @@ impl SqliteStore {
         Ok(crate::ports::SpendAgg {
             key: row.get(0)?,
             cost_usd: row.get(1)?,
-            usage: crate::domain::claude_event::TokenUsage {
+            usage: hark_agent::TokenUsage {
                 input: row.get::<_, i64>(2)? as u64,
                 output: row.get::<_, i64>(3)? as u64,
                 cache_read: row.get::<_, i64>(4)? as u64,
@@ -280,7 +280,7 @@ impl crate::ports::SpendLedger for SqliteStore {
         since: &str,
         limit: usize,
     ) -> anyhow::Result<Vec<crate::domain::spend::SpendRow>> {
-        use crate::domain::claude_event::TokenUsage;
+        use hark_agent::TokenUsage;
         use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
         let mut stmt = self.conn.prepare(
             "SELECT ts, kind, source, task_id, label, session_id, workspace, model,
@@ -630,7 +630,7 @@ mod tests {
 
     #[test]
     fn spend_ledger_records_aggregates_and_never_mixes_sources() {
-        use crate::domain::claude_event::TokenUsage;
+        use hark_agent::TokenUsage;
         use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
         use crate::ports::{SpendGroup, SpendLedger, SpendQuery};
 
@@ -732,7 +732,7 @@ mod tests {
 
     #[test]
     fn spend_rows_export_returns_full_rows_since() {
-        use crate::domain::claude_event::TokenUsage;
+        use hark_agent::TokenUsage;
         use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
         use crate::ports::SpendLedger;
 
@@ -778,7 +778,7 @@ mod tests {
 
     #[test]
     fn spend_summary_scopes_to_one_project_by_path_prefix() {
-        use crate::domain::claude_event::TokenUsage;
+        use hark_agent::TokenUsage;
         use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
         use crate::ports::{SpendGroup, SpendLedger, SpendQuery};
 
@@ -828,7 +828,7 @@ mod tests {
 
     #[test]
     fn context_weight_breaks_the_last_turn_into_its_parts() {
-        use crate::domain::claude_event::TokenUsage;
+        use hark_agent::TokenUsage;
         use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
         use crate::ports::SpendLedger;
 

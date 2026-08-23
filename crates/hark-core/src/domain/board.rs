@@ -94,7 +94,7 @@ pub fn plan_to_subtasks(plan: &str) -> Vec<Subtask> {
 
 /// One board change proposed by Claude inside a structured reply
 /// (Portuguese field names to match the response schema).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardUpdate {
     pub titulo: String,
     pub status: TaskStatus,

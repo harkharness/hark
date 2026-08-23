@@ -2,7 +2,7 @@
 //! model) that survive the window closing. Measuring is the precondition
 //! for saving: the whole efficiency story of Hark sits on this table.
 
-use crate::domain::claude_event::{TokenUsage, TurnResult};
+use hark_agent::{TokenUsage, TurnResult};
 
 /// What kind of Hark action spent these tokens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -146,7 +146,7 @@ pub fn rows_from_turn(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::claude_event::ModelUsage;
+    use hark_agent::ModelUsage;
 
     fn turn(usage: Vec<ModelUsage>, cost: Option<f64>, is_error: bool) -> TurnResult {
         TurnResult {

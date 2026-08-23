@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/hark-core", "crates/hark-cli", "src-tauri"]
+members = [
+    "crates/hark-agent",
+    "crates/hark-core",
+    "crates/hark-plugin-claude",
+    "crates/hark-cli",
+    "src-tauri",
+]
 exclude = ["spikes/whisper-spike"]
 
 [workspace.package]

@@ -1,0 +1,10 @@
+[package]
+name = "hark-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Hark agent-plugin contract: the neutral event vocabulary every agent backend speaks."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

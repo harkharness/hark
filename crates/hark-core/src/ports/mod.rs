@@ -1,7 +1,7 @@
 //! Ports: traits implemented by adapters. The domain and app layers depend
 //! only on these abstractions, never on concrete adapters.
 
-use crate::domain::claude_event::{ClaudeEvent, TurnResult};
+use hark_agent::{AgentEvent, TurnResult};
 use crate::domain::prompt::{LiveSession, RepoStatus};
 use crate::domain::snapshot::SessionSummary;
 
@@ -14,13 +14,24 @@ pub struct TurnRequest<'a> {
     pub model: &'a str,
 }
 
-/// Runs one question through Claude, streaming events as they arrive.
+/// Runs one question through the agent backend, streaming events.
 pub trait AgentRunner {
     fn ask(
         &self,
         request: &TurnRequest,
-        on_event: &mut dyn FnMut(&ClaudeEvent),
+        on_event: &mut dyn FnMut(&AgentEvent),
     ) -> anyhow::Result<TurnResult>;
+}
+
+/// Refreshes the on-disk session-history index before a snapshot. The
+/// agent plugin implements this — it is the one that knows the backend's
+/// history layout; the core only consumes neutral SessionEvents.
+pub trait HistoryIndexer {
+    fn refresh(
+        &self,
+        projects_dir: &std::path::Path,
+        store: &mut dyn SessionStore,
+    ) -> anyhow::Result<usize>;
 }
 
 /// The persistent token/cost ledger. Every Claude turn lands here — the
@@ -82,7 +93,7 @@ pub struct ContextWeight {
 pub struct SpendAgg {
     pub key: String,
     pub cost_usd: f64,
-    pub usage: crate::domain::claude_event::TokenUsage,
+    pub usage: hark_agent::TokenUsage,
     pub turns: u64,
     pub errors: u64,
 }

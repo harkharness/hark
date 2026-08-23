@@ -1,6 +1,6 @@
 //! Pure aggregation of session events into the summaries the prompt uses.
 
-use crate::domain::session_log::SessionEvent;
+use hark_agent::SessionEvent;
 
 /// Display cap: how many of the newest prompts the PROMPT RENDER shows.
 /// The index itself stores every prompt (topic search needs full history).
@@ -95,7 +95,7 @@ impl SessionSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::session_log::SessionEvent;
+    use hark_agent::SessionEvent;
 
     fn prompt(ts: &str, text: &str) -> SessionEvent {
         SessionEvent::UserPrompt {

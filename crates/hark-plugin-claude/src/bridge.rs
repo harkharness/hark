@@ -10,7 +10,7 @@
 //! `~/.claude/settings.json` is backed up before the first write; and
 //! uninstall restores exactly what was there.
 
-use crate::domain::statusline::StatusLine;
+use crate::statusline::StatusLine;
 use std::path::{Path, PathBuf};
 
 pub struct BridgePaths {
@@ -173,7 +173,7 @@ pub fn read(paths: &BridgePaths, max_age_secs: u64) -> Option<StatusLine> {
         return None;
     }
     let text = std::fs::read_to_string(&paths.payload).ok()?;
-    crate::domain::statusline::parse(&text)
+    crate::statusline::parse(&text)
 }
 
 #[cfg(test)]

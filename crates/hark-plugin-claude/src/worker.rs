@@ -3,33 +3,27 @@
 //! routes permission requests to a decision callback (terminal y/n today,
 //! voice tomorrow). This is the arm of the orchestrator.
 
-use crate::domain::claude_event::{
-    parse, permission_response, user_message, ClaudeEvent, PermissionDecision, TurnResult,
-};
+use crate::stream::{parse, permission_response, user_message};
+use hark_agent::{AgentEvent, PermissionDecision, TurnResult};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 
-/// Hard ceilings per worker process — the post-$18-incident guardrail.
-/// The CLI aborts the turn with an error result when a cap is hit.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct SpawnLimits {
-    /// `--max-budget-usd`: dollars this process may spend. None = no cap.
-    pub max_budget_usd: Option<f64>,
-    /// `--max-turns`: agentic turns before an early exit. None = no cap.
-    pub max_turns: Option<u32>,
-}
+/// Hard ceilings per worker process (contract type) — the post-$18-incident
+/// guardrail. The CLI aborts the turn with an error result when a cap hits
+/// (`--max-budget-usd` / `--max-turns`).
+pub use hark_agent::SpawnLimits;
 
 #[derive(Clone)]
 pub struct WorkerSpawn {
     pub claude_bin: String,
     pub cwd: PathBuf,
     /// Session to resume; EMPTY starts a brand-new session in `cwd` (the
-    /// real id arrives later via `ClaudeEvent::SessionStarted`).
+    /// real id arrives later via `AgentEvent::SessionStarted`).
     pub session_id: String,
     pub instruction: String,
     /// Session directives (permission mode, effort, model), all optional:
     /// omitted flags keep the user's own Claude Code defaults.
-    pub directives: crate::domain::directives::Directives,
+    pub directives: hark_core::domain::directives::Directives,
     pub limits: SpawnLimits,
     /// Per-PROCESS env vars (eco tools: ponytail/caveman/tokensave modes)
     /// — global settings are never touched.
@@ -90,10 +84,10 @@ impl WorkerSpawn {
         }
         // bypassPermissions never asks, so production tooling is denied
         // outright (the gate's hard floor — see domain::prodgate).
-        if self.directives.mode == Some(crate::domain::directives::Mode::Bypass) {
+        if self.directives.mode == Some(hark_core::domain::directives::Mode::Bypass) {
             args.push("--disallowedTools".into());
             args.extend(
-                crate::domain::prodgate::BYPASS_DENY_RULES
+                hark_core::domain::prodgate::BYPASS_DENY_RULES
                     .iter()
                     .map(|r| r.to_string()),
             );
@@ -183,7 +177,7 @@ pub fn run(
     spawn: &WorkerSpawn,
     on_spawn: &mut dyn FnMut(RunningWorker),
     decide: &mut dyn FnMut(&str, &str) -> PermissionDecision,
-    on_event: &mut dyn FnMut(&ClaudeEvent),
+    on_event: &mut dyn FnMut(&AgentEvent),
 ) -> anyhow::Result<TurnResult> {
     // The stdio permission channel only stays open with stream-json INPUT
     // (spikes/FINDINGS.md): the instruction goes as a user message on stdin,
@@ -218,7 +212,7 @@ pub fn run(
         let event = parse(&line);
         on_event(&event);
         match event {
-            ClaudeEvent::PermissionRequest {
+            AgentEvent::PermissionRequest {
                 ref request_id,
                 ref tool_name,
                 ref input,
@@ -229,7 +223,7 @@ pub fn run(
                 stdin.write_all(b"\n")?;
                 stdin.flush()?;
             }
-            ClaudeEvent::Result(r) => {
+            AgentEvent::Result(r) => {
                 result = Some(r);
                 break;
             }
@@ -261,7 +255,7 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::directives::{Directives, Effort, Mode};
+    use hark_core::domain::directives::{Directives, Effort, Mode};
 
     fn spawn(session: &str, directives: Directives) -> WorkerSpawn {
         WorkerSpawn {

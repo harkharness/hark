@@ -5,32 +5,7 @@
 
 use serde_json::Value;
 
-/// One fact extracted from a session log line.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SessionEvent {
-    UserPrompt {
-        ts: String,
-        text: String,
-        cwd: Option<String>,
-        git_branch: Option<String>,
-    },
-    /// Any assistant output; only the timestamp matters (session freshness).
-    Activity { ts: String },
-    /// Assistant output carrying token usage: the retroactive spend trail
-    /// (session files never carry USD, only tokens).
-    AssistantUsage {
-        ts: String,
-        /// Dedup key: the same message can repeat across lines.
-        request_id: Option<String>,
-        model: Option<String>,
-        usage: crate::domain::claude_event::TokenUsage,
-        is_sidechain: bool,
-    },
-    /// Context compaction record: how many tokens the window dropped.
-    CompactBoundary { ts: String, pre_tokens: u64, post_tokens: u64 },
-    /// User-assigned session title.
-    Title(String),
-}
+pub use hark_agent::SessionEvent;
 
 /// Parse a single jsonl line into an event, if it carries anything we index.
 pub fn parse_line(line: &str) -> Option<SessionEvent> {
@@ -67,7 +42,7 @@ pub fn parse_line(line: &str) -> Option<SessionEvent> {
                     .and_then(|m| m.get("model"))
                     .and_then(Value::as_str)
                     .map(String::from),
-                usage: crate::domain::claude_event::TokenUsage {
+                usage: hark_agent::TokenUsage {
                     input: num("input_tokens"),
                     output: num("output_tokens"),
                     cache_read: num("cache_read_input_tokens"),
@@ -180,7 +155,7 @@ mod tests {
 
     #[test]
     fn assistant_lines_with_usage_become_the_spend_trail() {
-        use crate::domain::claude_event::TokenUsage;
+        use hark_agent::TokenUsage;
         let line = r#"{"type":"assistant","timestamp":"2026-08-14T11:01:00.000Z","requestId":"req_01","isSidechain":false,
             "message":{"role":"assistant","model":"claude-opus-5","content":[],
               "usage":{"input_tokens":2,"output_tokens":1033,"cache_creation_input_tokens":6480,"cache_read_input_tokens":437950}}}"#;

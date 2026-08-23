@@ -1,14 +1,14 @@
 //! Headless driver: `hark ask "..."`, `hark index`, `hark sessions`.
 
-use hark_core::adapters::claude_cli::ClaudeCli;
+use hark_plugin_claude::cli::ClaudeCli;
 use hark_core::adapters::git_collect::GitCli;
-use hark_core::adapters::jsonl_scan::refresh_index;
-use hark_core::adapters::live_sessions::ClaudeAgentsCli;
+use hark_plugin_claude::history::refresh_index;
+use hark_plugin_claude::live::ClaudeAgentsCli;
 use hark_core::adapters::sqlite_store::SqliteStore;
 use hark_core::adapters::state_file;
 use hark_core::app::ask::{ask, build_snapshot, AskDeps};
 use hark_core::config::Config;
-use hark_core::domain::claude_event::ClaudeEvent;
+use hark_plugin_claude::stream::ClaudeEvent;
 
 fn main() {
     // Adopt data written under the old product name before anything reads it.
@@ -60,7 +60,7 @@ fn cmd_spend(rest: &[String]) -> i32 {
         let mut store = open_store(&config)?;
         if has("--rebuild") {
             let scanned =
-                hark_core::adapters::jsonl_scan::rebuild_spend(&config.projects_dir, &mut store)?;
+                hark_plugin_claude::history::rebuild_spend(&config.projects_dir, &mut store)?;
             eprintln!("[rebuild: {scanned} arquivos de sessão varridos]");
         }
         let since = {
@@ -288,6 +288,7 @@ fn cmd_ask(question: &str) -> i32 {
                 work_dir: config.data_dir(),
             },
             config: &config,
+            indexer: &hark_plugin_claude::history::ClaudeHistory,
         };
         ask(question, &mut deps, &mut |event| {
             // StructuredOutput is the schema mechanism, not a real tool.
@@ -301,7 +302,7 @@ fn cmd_ask(question: &str) -> i32 {
 
     match result {
         Ok(turn) if !turn.is_error => {
-            match turn.reply {
+            match hark_core::domain::reply::VoiceReply::from_turn(&turn) {
                 Some(reply) => {
                     println!("🔊 {}\n", reply.fala);
                     println!("{}", reply.detalhes);
@@ -348,6 +349,7 @@ fn cmd_prompt(question: &str) -> i32 {
             repos: &GitCli,
             runner: &NoopRunner,
             config: &config,
+            indexer: &hark_plugin_claude::history::ClaudeHistory,
         };
         let (snapshot, topical) = hark_core::app::ask::snapshot_for_question(&mut deps, question)?;
         let budget = hark_core::domain::prompt::PromptBudget {
@@ -407,6 +409,7 @@ fn cmd_sessions() -> i32 {
             repos: &GitCli,
             runner: &NoopRunner,
             config: &config,
+            indexer: &hark_plugin_claude::history::ClaudeHistory,
         };
         build_snapshot(&mut deps)
     })();
@@ -440,9 +443,10 @@ fn cmd_sessions() -> i32 {
 }
 
 fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
-    use hark_core::adapters::{memory_files, worker};
+    use hark_core::adapters::memory_files;
+    use hark_plugin_claude::worker;
     use hark_core::app::dispatch::{plan, Plan, Planned};
-    use hark_core::domain::claude_event::PermissionDecision;
+    use hark_plugin_claude::stream::PermissionDecision;
     use hark_core::domain::memory::{WorkerRecord, WorkerStatus};
 
     let config = Config::load();
@@ -462,6 +466,7 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
             repos: &GitCli,
             runner: &NoopRunner,
             config: &config,
+            indexer: &hark_plugin_claude::history::ClaudeHistory,
         };
         plan(&mut deps, instruction, session_override)
     })();
@@ -560,8 +565,8 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
         limits: config.spawn_limits(),
         envs: {
             let settings = std::fs::read_to_string(hark_core::config::expand_home("~/.claude/settings.json")).unwrap_or_default();
-            let status = hark_core::adapters::eco_tools::detect(&settings);
-            hark_core::adapters::eco_tools::eco_envs(status, config.assist.ponytail.as_deref(), config.assist.caveman.as_deref(), config.assist.tokensave.as_deref())
+            let status = hark_plugin_claude::eco::detect(&settings);
+            hark_plugin_claude::eco::eco_envs(status, config.assist.ponytail.as_deref(), config.assist.caveman.as_deref(), config.assist.tokensave.as_deref())
         },
         directives: hark_core::domain::directives::parse(instruction),
         claude_bin: config.claude_bin_resolved(),
@@ -849,13 +854,14 @@ fn cmd_ask_spoken(question: &str, tts: &impl hark_core::ports::Tts) -> i32 {
                 work_dir: config.data_dir(),
             },
             config: &config,
+            indexer: &hark_plugin_claude::history::ClaudeHistory,
         };
         ask(question, &mut deps, &mut |_| {})
     })();
 
     match result {
         Ok(turn) if !turn.is_error => {
-            if let Some(reply) = turn.reply {
+            if let Some(reply) = hark_core::domain::reply::VoiceReply::from_turn(&turn) {
                 println!("🔊 {}\n\n{}", reply.fala, reply.detalhes);
                 for item in &reply.itens {
                     println!("  • {item}");
@@ -895,7 +901,7 @@ impl hark_core::ports::AgentRunner for NoopRunner {
         &self,
         _request: &hark_core::ports::TurnRequest,
         _on_event: &mut dyn FnMut(&ClaudeEvent),
-    ) -> anyhow::Result<hark_core::domain::claude_event::TurnResult> {
+    ) -> anyhow::Result<hark_plugin_claude::stream::TurnResult> {
         anyhow::bail!("not used")
     }
 }
