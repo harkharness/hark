@@ -621,15 +621,13 @@ fn worker_start(
         .mode
         .or_else(|| mode.as_deref().and_then(hark_core::domain::directives::Mode::from_flag))
         .or_else(|| config.default_worker_mode());
-    let spawn = hark_plugin_claude::worker::WorkerSpawn {
-        limits: config.spawn_limits(),
-        envs: worker_envs(&config),
-        claude_bin: config.claude_bin_resolved(),
-        cwd: planned.workspace_root.clone(),
-        session_id: planned.session.session_id.clone(),
-        instruction: instruction.clone(),
-        directives: directives.clone(),
-    };
+    let spawn = fresh_spawn(
+        &config,
+        planned.workspace_root.clone(),
+        planned.session.session_id.clone(),
+        instruction.clone(),
+        directives.clone(),
+    );
     let _ = &perms; // permissions are looked up via app.state in the reader
     start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
     Ok(DispatchOut::Started {
@@ -1022,15 +1020,7 @@ fn chat_start(
         .mode
         .or_else(|| mode.as_deref().and_then(hark_core::domain::directives::Mode::from_flag))
         .or_else(|| config.default_worker_mode());
-    let spawn = hark_plugin_claude::worker::WorkerSpawn {
-        limits: config.spawn_limits(),
-        envs: worker_envs(&config),
-        claude_bin: config.claude_bin_resolved(),
-        cwd: root,
-        session_id: String::new(),
-        instruction,
-        directives: directives.clone(),
-    };
+    let spawn = fresh_spawn(&config, root, String::new(), instruction, directives.clone());
     start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
     Ok(DispatchOut::Started { task_id, directives })
 }
@@ -1173,6 +1163,28 @@ fn board_subtask_toggle(title: String, index: usize, done: bool) -> Result<(), S
 }
 
 /// Per-worker eco-tool env vars from what the machine has + `[assist]`.
+/// The ONE way to build a fresh worker spawn. Everything config-derived
+/// (binary path, hard caps, eco envs) comes from here, so the four spawn
+/// paths can never drift apart again; restarts derive from the original
+/// spawn with `..clone()` and inherit the same pieces.
+fn fresh_spawn(
+    config: &Config,
+    cwd: std::path::PathBuf,
+    session_id: String,
+    instruction: String,
+    directives: hark_core::domain::directives::Directives,
+) -> hark_plugin_claude::worker::WorkerSpawn {
+    hark_plugin_claude::worker::WorkerSpawn {
+        claude_bin: config.claude_bin_resolved(),
+        limits: config.spawn_limits(),
+        envs: worker_envs(config),
+        cwd,
+        session_id,
+        instruction,
+        directives,
+    }
+}
+
 pub(crate) fn worker_envs(config: &Config) -> Vec<(String, String)> {
     let settings = std::fs::read_to_string(hark_core::config::expand_home("~/.claude/settings.json"))
         .unwrap_or_default();
@@ -1443,15 +1455,13 @@ fn hark_chat_send(
     let mut directives = hark_core::domain::directives::parse(&text);
     directives.mode = directives.mode.or_else(|| config.default_worker_mode());
     let resumed = session.is_some();
-    let spawn = hark_plugin_claude::worker::WorkerSpawn {
-        limits: config.spawn_limits(),
-        envs: worker_envs(&config),
-        claude_bin: config.claude_bin_resolved(),
-        cwd: config.data_dir(),
-        session_id: session.unwrap_or_default(),
-        instruction: text,
+    let spawn = fresh_spawn(
+        &config,
+        config.data_dir(),
+        session.unwrap_or_default(),
+        text,
         directives,
-    };
+    );
     start_worker(&app, &live, HARK_CHAT_TASK, spawn).map_err(|e| e.to_string())?;
     Ok(HarkChatOut {
         task_id: HARK_CHAT_TASK.into(),
@@ -1667,20 +1677,19 @@ fn dispatch_text(
     });
     let _ = state_file::save(&config.data_dir(), &gstate);
 
-    let spawn = hark_plugin_claude::worker::WorkerSpawn {
-        limits: config.spawn_limits(),
-        envs: worker_envs(&config),
-        claude_bin: config.claude_bin_resolved(),
-        cwd: planned.workspace_root.clone(),
-        session_id: planned.session.session_id.clone(),
-        instruction: instruction.clone(),
-        directives: {
-            // The one-shot path honors the config default mode too.
-            let mut d = hark_core::domain::directives::parse(&instruction);
-            d.mode = d.mode.or_else(|| config.default_worker_mode());
-            d
-        },
+    // The one-shot path honors the config default mode too.
+    let one_shot_directives = {
+        let mut d = hark_core::domain::directives::parse(&instruction);
+        d.mode = d.mode.or_else(|| config.default_worker_mode());
+        d
     };
+    let spawn = fresh_spawn(
+        &config,
+        planned.workspace_root.clone(),
+        planned.session.session_id.clone(),
+        instruction.clone(),
+        one_shot_directives,
+    );
     let label = worker_board_title(Some(&planned.session.session_id), &instruction);
     let result = hark_plugin_claude::worker::run(
         &spawn,
