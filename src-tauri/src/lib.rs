@@ -891,7 +891,7 @@ fn start_worker_titled(
                         let mut map = state.0.lock().unwrap();
                         match map.get_mut(&task2) {
                             Some(entry) if !entry.queue.is_empty() => {
-                                Some(entry.queue.drain(..).collect::<Vec<_>>().join("\n\n"))
+                                Some(std::mem::take(&mut entry.queue).join("\n\n"))
                             }
                             Some(entry) => {
                                 entry.in_flight = false;
