@@ -1439,7 +1439,7 @@ dependencies = [
 
 [[package]]
 name = "hark-agent"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -1447,7 +1447,7 @@ dependencies = [
 
 [[package]]
 name = "hark-app"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "hark-agent",
@@ -1464,7 +1464,7 @@ dependencies = [
 
 [[package]]
 name = "hark-cli"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "hark-agent",
@@ -1475,7 +1475,7 @@ dependencies = [
 
 [[package]]
 name = "hark-core"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1494,7 +1494,7 @@ dependencies = [
 
 [[package]]
 name = "hark-plugin-claude"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "hark-agent",
