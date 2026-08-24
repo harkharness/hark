@@ -49,7 +49,10 @@ pub enum TaskCommand {
 }
 
 /// Words that only glue the sentence together and never name a task.
-const FILLER: &[&str] = &["a", "o", "as", "os", "da", "do", "das", "dos", "de", "task", "tarefa"];
+const FILLER: &[&str] = &[
+    "a", "o", "as", "os", "da", "do", "das", "dos", "de", "task", "tarefa",
+    "the", "of", "for", "to", "on",
+];
 
 fn clean_query(raw: &str) -> String {
     let words: Vec<&str> = raw.split_whitespace().collect();
@@ -65,22 +68,28 @@ const OPEN_VERBS: &[&str] = &[
     "mostra o log", "mostra o histórico", "mostra o historico", "mostra a thread",
     "mostra o chat", "abre o log", "abre o histórico", "abre o historico",
     "ler a thread", "lê a thread",
+    "show the log", "show the history", "show the thread", "open the log",
+    "open the history", "read the thread",
 ];
 
 const SWITCH_VERBS: &[&str] = &[
     "vai pra task", "vai para a task", "vai pra tarefa", "vai para a tarefa",
     "troca para a task", "troca pra task", "muda para a task", "muda pra task",
+    "go to task", "go to the task", "switch to task", "switch to the task",
+    "move to the task", "back to the task", "resume the task",
     // Recovery of finished/hidden tasks: focusing one pulls it back to work.
     "retoma a task", "retomar a task", "retoma a tarefa", "retomar a tarefa",
     "reabre a task", "reabrir a task", "volta pra task", "volta para a task",
     // "abre o chat de X" = go back to WORK on X, not the read-only log.
     "abre o chat", "abre a thread", "abra o chat", "abrir o chat",
 ];
-const RENAME_VERBS: &[&str] = &["renomeia", "renomear", "muda o titulo", "muda o título", "renomeie"];
-const PIN_VERBS: &[&str] = &["fixa ", "fixar ", "prende "];
-const ARCHIVE_VERBS: &[&str] = &["arquiva ", "arquivar "];
+const RENAME_VERBS: &[&str] =
+    &["renomeia", "renomear", "muda o titulo", "muda o título", "renomeie", "rename"];
+const PIN_VERBS: &[&str] = &["fixa ", "fixar ", "prende ", "pin "];
+const ARCHIVE_VERBS: &[&str] = &["arquiva ", "arquivar ", "archive "];
 const OPEN_FILE_VERBS: &[&str] = &[
     "abre o arquivo", "abra o arquivo", "abrir o arquivo", "mostra o arquivo",
+    "open the file", "show the file", "open file",
 ];
 const ADD_PROJECT_VERBS: &[&str] = &[
     "adiciona o projeto", "adiciona projeto", "adicionar o projeto",
@@ -105,15 +114,18 @@ const NEW_CHAT_VERBS: &[&str] = &[
     "novo chat", "inicia um chat", "iniciar um chat", "roda um chat",
     "rode um chat", "executa um chat", "cria um chat", "começa um chat",
     "comeca um chat",
+    "new chat", "start a chat", "open a new chat", "create a chat",
 ];
 /// Ambiguous ("nova task" is usually real work): only a chat command when
 /// the sentence names a project explicitly.
 const NEW_CHAT_GATED_VERBS: &[&str] = &[
     "nova sessão", "nova sessao", "nova task", "nova tarefa",
+    "new session", "new task",
 ];
 const OPEN_PROJECT_VERBS: &[&str] = &[
     "abre o projeto", "abra o projeto", "abrir o projeto",
     "abre a janela do projeto", "abra a janela do projeto",
+    "open the project window", "open the project", "open project",
 ];
 /// (verbs, tab) pairs for the global HQ window.
 const HQ_VERBS: &[(&str, &str)] = &[
@@ -121,6 +133,11 @@ const HQ_VERBS: &[(&str, &str)] = &[
     ("mostra a board", "board"), ("abre o quadro", "board"), ("mostra o quadro", "board"),
     ("abre os custos", "custos"), ("abra os custos", "custos"),
     ("mostra os custos", "custos"), ("abre custos", "custos"),
+    // English. The tab ids stay as they are — they are internal names.
+    ("open the board", "board"), ("show the board", "board"),
+    ("open board", "board"),
+    ("open the costs", "custos"), ("show the costs", "custos"),
+    ("open costs", "custos"), ("show me the spend", "custos"),
 ];
 
 /// Words that point at the focused thing instead of naming another one
@@ -155,6 +172,9 @@ const FIND_SESSION_VERBS: &[&str] = &[
     "continua a sessão", "continua a sessao", "continua o chat",
     "volta pra sessão", "volta para a sessão", "volta pro chat",
     "abre a sessão", "abre a sessao", "abrir a sessão",
+    "there was a chat", "recover the chat", "recover the session",
+    "find the chat", "find the session", "look for the session",
+    "resume the session", "back to the session", "open the session",
 ];
 
 /// Compaction of the FOCUSED chat's context. The object words (contexto/
@@ -164,6 +184,8 @@ const COMPACT_VERBS: &[&str] = &[
     "compacta o chat", "compacta a conversa", "compacta esse chat",
     "compactação do contexto", "compactacao do contexto",
     "faz a compactação", "faz a compactacao",
+    "compact the context", "compact the session", "compact the chat",
+    "compact this chat",
 ];
 
 /// Mid-session permission-mode switch ("muda o modo pra automático").
@@ -172,6 +194,7 @@ const COMPACT_VERBS: &[&str] = &[
 const SET_MODE_VERBS: &[&str] = &[
     "muda o modo", "troca o modo", "coloca no modo", "muda pro modo",
     "troca pro modo", "altera o modo", "modo de permissão", "modo de permissao",
+    "change the mode", "switch the mode", "set the mode", "permission mode",
 ];
 
 /// (needle in the words after the verb, CLI --permission-mode value).
@@ -259,10 +282,14 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
         let rest = after(verb)?;
         // "... para <instrução>" carries the first task of the chat.
         let (place, instruction) = split_once_word(&rest, " para ")
+            .or_else(|| split_once_word(&rest, " to "))
             .map(|(p, i)| (p, Some(i).filter(|s| !s.is_empty())))
             .unwrap_or((rest.trim().to_string(), None));
-        // "no projeto X" | "no X" | "em X" — the project name is what's left.
-        let project = ["no projeto ", "na projeto ", "no ", "na ", "em "]
+        // "no projeto X" | "no X" | "em X" | "in X" — the name is the rest.
+        let project = [
+            "no projeto ", "na projeto ", "no ", "na ", "em ",
+            "in the project ", "in project ", "in ", "on ",
+        ]
             .iter()
             .find_map(|sep| split_once_word(&place, sep).map(|(_, tail)| tail))
             .unwrap_or(place);
@@ -272,6 +299,7 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
         let rest = after(verb)?;
         // "<projeto>" or "<projeto> e <instrução>": open AND dispatch.
         let (query, instruction) = split_once_word(&rest, " e ")
+            .or_else(|| split_once_word(&rest, " and "))
             .map(|(q, i)| (q, Some(i).filter(|s| !s.is_empty())))
             .unwrap_or((rest.trim().to_string(), None));
         return (!query.is_empty()).then_some(TaskCommand::OpenProject { query, instruction });
@@ -284,8 +312,9 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
     const SETTINGS_NOUNS: &[&str] = &[
         "configurações", "configuracoes", "as configuraç", "as configurac",
         "os ajustes", "as preferências", "as preferencias",
+        "settings", "preferences",
     ];
-    if ["abre", "abra", "abrir", "mostra"].iter().any(|v| lower.contains(v))
+    if ["abre", "abra", "abrir", "mostra", "open", "show"].iter().any(|v| lower.contains(v))
         && SETTINGS_NOUNS.iter().any(|n| lower.contains(n))
     {
         return Some(TaskCommand::OpenSettings);
@@ -307,10 +336,17 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
     if let Some(verb) = SWITCH_VERBS.iter().find(|v| lower.contains(**v)) {
         let rest = after(verb)?;
         // "<query>" or "<query> e <instrução>"
-        let (query, instruction) = match rest.to_lowercase().find(" e ") {
-            Some(i) => (
+        // "<query> e <instrução>" | "<query> and <instruction>": whichever
+        // conjunction comes first ends the target and starts the work.
+        let lower_rest = rest.to_lowercase();
+        let cut = [" e ", " and "]
+            .iter()
+            .filter_map(|sep| lower_rest.find(sep).map(|i| (i, sep.len())))
+            .min();
+        let (query, instruction) = match cut {
+            Some((i, len)) => (
                 rest[..i].to_string(),
-                Some(rest[i + " e ".len()..].trim().to_string()).filter(|s| !s.is_empty()),
+                Some(rest[i + len..].trim().to_string()).filter(|s| !s.is_empty()),
             ),
             None => (rest, None),
         };
@@ -744,5 +780,62 @@ mod tests {
         assert_eq!(parse("compactar os arquivos da pasta dist"), None);
         // A switching verb with no recognizable mode has nothing to do.
         assert_eq!(parse("muda o modo"), None);
+    }
+}
+
+#[cfg(test)]
+mod bilingual {
+    use super::*;
+
+    #[test]
+    fn english_hq_tabs() {
+        assert_eq!(parse("open the board"), Some(TaskCommand::OpenHq { tab: "board".into() }));
+        assert_eq!(parse("show the costs"), Some(TaskCommand::OpenHq { tab: "custos".into() }));
+    }
+
+    #[test]
+    fn english_project_windows_and_new_chats() {
+        assert_eq!(
+            parse("open the project webhook-api"),
+            Some(TaskCommand::OpenProject { query: "webhook-api".into(), instruction: None })
+        );
+        assert_eq!(
+            parse("new chat in webhook-api"),
+            Some(TaskCommand::NewChat { project: "webhook-api".into(), instruction: None })
+        );
+    }
+
+    #[test]
+    fn english_switch_carries_the_instruction() {
+        assert_eq!(
+            parse("go to task billing endpoint and run the tests"),
+            Some(TaskCommand::Switch {
+                query: "billing endpoint".into(),
+                instruction: Some("run the tests".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn english_log_viewer_stays_read_only() {
+        assert_eq!(parse("show the log of billing"), Some(TaskCommand::Open("billing".into())));
+    }
+
+    #[test]
+    fn english_settings_and_compaction() {
+        assert_eq!(parse("open the settings"), Some(TaskCommand::OpenSettings));
+        assert_eq!(parse("compact the context"), Some(TaskCommand::Compact));
+    }
+
+    #[test]
+    fn english_session_recovery_and_files() {
+        assert!(matches!(
+            parse("find the session dns cleanup"),
+            Some(TaskCommand::FindSession { .. })
+        ));
+        assert!(matches!(
+            parse("open the file src/main.rs"),
+            Some(TaskCommand::OpenFile { .. })
+        ));
     }
 }

@@ -3,6 +3,7 @@
 //! file size, context weight), so they are always true and always carry
 //! actions — never "MCP caiu" hallucinations.
 
+use crate::domain::lang::Lang;
 use serde::Serialize;
 
 /// Everything the shell knows about a session before dispatching to it.
@@ -40,14 +41,16 @@ pub struct Warning {
 }
 
 /// Derive the warnings a dispatch to this session deserves. Zero tokens.
-pub fn prechecks(facts: &SessionFacts) -> Vec<Warning> {
+pub fn prechecks(facts: &SessionFacts, lang: Lang) -> Vec<Warning> {
     let mut out = Vec::new();
     if facts.size_mb >= 2.0 {
         out.push(Warning {
             kind: WarnKind::BigHistory,
             text: format!(
-                "histórico da sessão tem {:.1} MB — turnos podem ser caros",
-                facts.size_mb
+                "{} {:.1} MB — {}",
+                lang.pick("histórico da sessão tem", "session history is"),
+                facts.size_mb,
+                lang.pick("turnos podem ser caros", "turns here can get expensive"),
             ),
             actions: vec![WarnAction::CompactFirst, WarnAction::Proceed],
         });
@@ -57,8 +60,10 @@ pub fn prechecks(facts: &SessionFacts) -> Vec<Warning> {
             out.push(Warning {
                 kind: WarnKind::FullContext,
                 text: format!(
-                    "contexto em {}% da janela — perto do limite",
-                    (pct * 100.0).round() as u32
+                    "{} {}% {}",
+                    lang.pick("contexto em", "context at"),
+                    (pct * 100.0).round() as u32,
+                    lang.pick("da janela — perto do limite", "of the window — close to the limit"),
                 ),
                 actions: vec![WarnAction::CompactFirst, WarnAction::Proceed],
             });
@@ -73,13 +78,13 @@ mod tests {
 
     #[test]
     fn small_session_yields_no_warnings() {
-        let out = prechecks(&SessionFacts { size_mb: 0.4, context_pct: Some(0.3) });
+        let out = prechecks(&SessionFacts { size_mb: 0.4, context_pct: Some(0.3) }, Lang::Pt);
         assert!(out.is_empty());
     }
 
     #[test]
     fn heavy_history_offers_compact_first() {
-        let out = prechecks(&SessionFacts { size_mb: 3.8, context_pct: None });
+        let out = prechecks(&SessionFacts { size_mb: 3.8, context_pct: None }, Lang::Pt);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].kind, WarnKind::BigHistory);
         assert_eq!(out[0].actions, vec![WarnAction::CompactFirst, WarnAction::Proceed]);
@@ -87,7 +92,7 @@ mod tests {
 
     #[test]
     fn near_full_context_offers_compact_first() {
-        let out = prechecks(&SessionFacts { size_mb: 0.2, context_pct: Some(0.86) });
+        let out = prechecks(&SessionFacts { size_mb: 0.2, context_pct: Some(0.86) }, Lang::Pt);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].kind, WarnKind::FullContext);
         assert_eq!(out[0].actions, vec![WarnAction::CompactFirst, WarnAction::Proceed]);
@@ -95,10 +100,27 @@ mod tests {
 
     #[test]
     fn warning_texts_are_pt_br_and_carry_numbers() {
-        let out = prechecks(&SessionFacts { size_mb: 3.8, context_pct: Some(0.86) });
+        let out = prechecks(&SessionFacts { size_mb: 3.8, context_pct: Some(0.86) }, Lang::Pt);
         assert_eq!(out.len(), 2);
         assert!(out[0].text.contains("3.8"), "size in text: {}", out[0].text);
         assert!(out[0].text.contains("histórico"), "pt-BR: {}", out[0].text);
         assert!(out[1].text.contains("86%"), "pct in text: {}", out[1].text);
+    }
+}
+
+#[cfg(test)]
+mod bilingual {
+    use super::*;
+    use crate::domain::lang::Lang;
+
+    #[test]
+    fn warnings_speak_the_interface_language() {
+        let facts = SessionFacts { size_mb: 3.8, context_pct: Some(0.86) };
+        let en = prechecks(&facts, Lang::En);
+        assert!(en[0].text.contains("3.8"), "number survives: {}", en[0].text);
+        assert!(en[0].text.to_lowercase().contains("history"), "en: {}", en[0].text);
+        assert!(en[1].text.contains("86%"), "pct survives: {}", en[1].text);
+        let pt = prechecks(&facts, Lang::Pt);
+        assert!(pt[0].text.contains("histórico"), "pt: {}", pt[0].text);
     }
 }

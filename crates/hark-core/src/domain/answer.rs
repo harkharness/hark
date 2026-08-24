@@ -9,6 +9,7 @@
 //! Quality guard: anything uncertain falls through to FullAsk. Never
 //! answer locally on a guess.
 
+use crate::domain::lang::Lang;
 use crate::domain::board::{Task, TaskStatus};
 use crate::domain::reply::VoiceReply;
 use crate::domain::memory::{WorkerRecord, WorkerStatus};
@@ -43,6 +44,7 @@ const URL_MARKS: &[&str] = &["http://", "https://", "www."];
 const TOOL_WORDS: &[&str] = &[
     "slack", "thread", "threads", "canal", "canais", "email", "mail", "gmail",
     "jira", "confluence", "github", "gitlab", "notion",
+    "channel", "channels", "inbox",
 ];
 
 /// Verbs that PRODUCE content (drafts, posts, replies). Reading/analysis
@@ -55,6 +57,10 @@ const PRODUCE_VERBS: &[&str] = &[
     "posta", "postar", "poste", "publica", "publicar", "publique", "envia",
     "enviar", "envie", "manda", "mandar", "mande", "responde", "responder",
     "responda", "draft", "rascunho",
+    // English. "create" stays out for the same reason "cria" does: it
+    // collides with local task commands that never reach the ask.
+    "write", "compose", "post", "publish", "send", "reply", "summarize",
+    "summarise", "generate", "produce", "outline",
 ];
 
 /// Decide the surface for a message to global hark.
@@ -76,12 +82,18 @@ pub struct LocalFacts<'a> {
     pub workers: &'a [WorkerRecord],
     pub spend_day_usd: Option<f64>,
     pub spend_week_usd: Option<f64>,
+    /// The language the answer is written in. Recognition takes both;
+    /// the reply has to choose.
+    pub lang: Lang,
 }
 
 /// Phrases that force the full pipeline no matter what ("pensa melhor").
 const FORCE_FULL: &[&str] = &[
     "pensa melhor", "pensa bem", "analisa", "investiga", "por que", "porque",
     "como resolvo", "como faço", "detalha", "explica",
+    "think harder", "think again", "analyze", "analyse", "investigate",
+    "why is", "why did", "why does", "how do i", "how should", "explain",
+    "walk me through",
 ];
 
 /// Decide the cheapest layer that still answers WELL.
@@ -93,10 +105,10 @@ pub fn plan_answer(question: &str, facts: &LocalFacts) -> AnswerPlan {
 
     // Layer 1: deterministic questions with deterministic answers.
     if asks_running(&q) {
-        return AnswerPlan::Local(running_reply(facts.workers));
+        return AnswerPlan::Local(running_reply(facts.workers, facts.lang));
     }
     if asks_board(&q) {
-        return AnswerPlan::Local(board_reply(facts.board));
+        return AnswerPlan::Local(board_reply(facts.board, facts.lang));
     }
     if asks_spend(&q) {
         return AnswerPlan::Local(spend_reply(&q, facts));
@@ -140,13 +152,24 @@ fn asks_running(q: &str) -> bool {
         || q.contains("workers ativos")
         || q.contains("worker ativo")
         || (q.contains("executando") && (q.contains("task") || q.contains("tarefa") || q.contains("o que")))
+        || q.contains("running")
+        || q.contains("in flight")
+        || (q.contains("workers") && (q.starts_with("what") || q.contains("active")))
 }
 
 fn asks_board(q: &str) -> bool {
     let about_board = q.contains("board") || q.contains("quadro");
-    (about_board && (q.starts_with("o que") || q.contains("status") || q.contains("como esta") || q.contains("tem no")))
+    (about_board
+        && (q.starts_with("o que")
+            || q.contains("status")
+            || q.contains("como esta")
+            || q.contains("tem no")
+            || q.starts_with("what")
+            || q.contains("how is")
+            || q.contains("summarize")))
         || q.contains("quantas tasks")
         || q.contains("quantas tarefas")
+        || q.contains("how many tasks")
 }
 
 fn asks_spend(q: &str) -> bool {
@@ -155,12 +178,24 @@ fn asks_spend(q: &str) -> bool {
         || q.contains("quanto custou o dia")
         || q.contains("qual o gasto")
         || q.contains("quanto ja gastei")
+        || q.contains("how much did i spend")
+        || q.contains("how much have i spent")
+        || q.contains("how much did we spend")
+        || q.contains("what did i spend")
+        || q.contains("spend today")
+        || q.contains("spent today")
 }
 
 fn asks_mini_summary(q: &str) -> bool {
-    (q.starts_with("resume") || q.starts_with("resumo") || q.starts_with("me resume"))
+    (q.starts_with("resume")
+        || q.starts_with("resumo")
+        || q.starts_with("me resume")
+        || q.starts_with("summarize")
+        || q.starts_with("summarise")
+        || q.starts_with("give me a summary"))
         && (q.contains("board") || q.contains("quadro") || q.contains("dia")
-            || q.contains("task") || q.contains("tarefa") || q.contains("semana"))
+            || q.contains("task") || q.contains("tarefa") || q.contains("semana")
+            || q.contains("day") || q.contains("week"))
 }
 
 fn running(workers: &[WorkerRecord]) -> Vec<&WorkerRecord> {
@@ -170,26 +205,30 @@ fn running(workers: &[WorkerRecord]) -> Vec<&WorkerRecord> {
         .collect()
 }
 
-fn running_reply(workers: &[WorkerRecord]) -> VoiceReply {
+fn running_reply(workers: &[WorkerRecord], lang: Lang) -> VoiceReply {
     let live = running(workers);
     let fala = match live.len() {
-        0 => "Nenhuma task rodando agora.".to_string(),
-        1 => format!("Uma task rodando: {}.", clip(&live[0].summary, 60)),
-        n => format!("{n} tasks rodando agora."),
+        0 => lang.pick("Nenhuma task rodando agora.", "Nothing running right now.").to_string(),
+        1 => format!(
+            "{} {}.",
+            lang.pick("Uma task rodando:", "One task running:"),
+            clip(&live[0].summary, 60)
+        ),
+        n => format!("{n} {}", lang.pick("tasks rodando agora.", "tasks running right now.")),
     };
     VoiceReply {
         fala,
         detalhes: if live.is_empty() {
-            "Nenhum worker ativo no registro.".into()
+            lang.pick("Nenhum worker ativo no registro.", "No active worker in the registry.").into()
         } else {
-            "Workers ativos, mais recente primeiro.".into()
+            lang.pick("Workers ativos, mais recente primeiro.", "Active workers, newest first.").into()
         },
         itens: live.iter().map(|w| clip(&w.summary, 90)).collect(),
         board: Vec::new(),
     }
 }
 
-fn board_reply(tasks: &[Task]) -> VoiceReply {
+fn board_reply(tasks: &[Task], lang: Lang) -> VoiceReply {
     let count = |s: TaskStatus| tasks.iter().filter(|t| t.status == s).count();
     let (doing, waiting, backlog, done) = (
         count(TaskStatus::Doing),
@@ -198,17 +237,19 @@ fn board_reply(tasks: &[Task]) -> VoiceReply {
         count(TaskStatus::Done),
     );
     let fala = if tasks.is_empty() {
-        "O board está vazio.".to_string()
+        lang.pick("O board está vazio.", "The board is empty.").to_string()
+    } else if lang == Lang::En {
+        format!("On the board: {doing} in progress, {waiting} waiting, {backlog} in the backlog and {done} done.")
     } else {
         format!("No board: {doing} em andamento, {waiting} esperando, {backlog} no backlog e {done} concluídas.")
     };
     VoiceReply {
         fala,
-        detalhes: "Contagem direta do board local.".into(),
+        detalhes: lang.pick("Contagem direta do board local.", "Straight count from the local board.").into(),
         itens: tasks
             .iter()
             .filter(|t| t.status == TaskStatus::Doing || t.status == TaskStatus::Waiting)
-            .map(|t| format!("{} [{}]", clip(&t.title, 70), status_label(t.status)))
+            .map(|t| format!("{} [{}]", clip(&t.title, 70), status_label(t.status, lang)))
             .collect(),
         board: Vec::new(),
     }
@@ -217,47 +258,73 @@ fn board_reply(tasks: &[Task]) -> VoiceReply {
 fn spend_reply(q: &str, facts: &LocalFacts) -> VoiceReply {
     let day = facts.spend_day_usd.unwrap_or(0.0);
     let week = facts.spend_week_usd.unwrap_or(0.0);
-    let fala = if q.contains("semana") {
-        format!("Na semana: {} em turnos medidos.", usd(week))
+    let lang = facts.lang;
+    let fala = if q.contains("semana") || q.contains("this week") || q.contains("the week") {
+        format!(
+            "{} {} {}",
+            lang.pick("Na semana:", "This week:"),
+            usd(week),
+            lang.pick("em turnos medidos.", "in measured turns."),
+        )
     } else {
-        format!("Hoje: {}. Na semana: {}.", usd(day), usd(week))
+        format!(
+            "{} {}. {} {}.",
+            lang.pick("Hoje:", "Today:"),
+            usd(day),
+            lang.pick("Na semana:", "This week:"),
+            usd(week),
+        )
     };
     VoiceReply {
         fala,
-        detalhes: "Valores do ledger local (turnos do Hark medidos pelo CLI).".into(),
-        itens: vec![format!("24h: {}", usd(day)), format!("7 dias: {}", usd(week))],
+        detalhes: lang
+            .pick(
+                "Valores do ledger local (turnos do Hark medidos pelo CLI).",
+                "From the local ledger (Hark turns as the CLI measured them).",
+            )
+            .into(),
+        itens: vec![
+            format!("24h: {}", usd(day)),
+            format!("{}: {}", lang.pick("7 dias", "7 days"), usd(week)),
+        ],
         board: Vec::new(),
     }
 }
 
 /// Minimal context for the phrasing layer: board + running workers.
 fn mini_context(facts: &LocalFacts) -> String {
+    let lang = facts.lang;
     let mut out = String::from("## Board\n");
     for t in facts.board.iter().filter(|t| t.status != TaskStatus::Done) {
         out.push_str(&format!(
             "- {} [{}]{}\n",
             clip(&t.title, 80),
-            status_label(t.status),
+            status_label(t.status, lang),
             t.note.as_deref().map(|n| format!(" — {}", clip(n, 100))).unwrap_or_default(),
         ));
     }
     let live = running(facts.workers);
     if !live.is_empty() {
-        out.push_str("\n## Rodando agora\n");
+        out.push_str(lang.pick("\n## Rodando agora\n", "\n## Running now\n"));
         for w in live {
             out.push_str(&format!("- {}\n", clip(&w.summary, 100)));
         }
     }
     if let (Some(day), Some(week)) = (facts.spend_day_usd, facts.spend_week_usd) {
-        out.push_str(&format!("\n## Gasto medido\n- 24h: {}\n- 7d: {}\n", usd(day), usd(week)));
+        out.push_str(&format!(
+            "\n## {}\n- 24h: {}\n- 7d: {}\n",
+            lang.pick("Gasto medido", "Measured spend"),
+            usd(day),
+            usd(week)
+        ));
     }
     clip(&out, 1500)
 }
 
-fn status_label(status: TaskStatus) -> &'static str {
+fn status_label(status: TaskStatus, lang: Lang) -> &'static str {
     match status {
-        TaskStatus::Doing => "em andamento",
-        TaskStatus::Waiting => "esperando",
+        TaskStatus::Doing => lang.pick("em andamento", "in progress"),
+        TaskStatus::Waiting => lang.pick("esperando", "waiting"),
         TaskStatus::Backlog => "backlog",
         TaskStatus::Done => "concluída",
     }
@@ -310,6 +377,7 @@ mod tests {
             workers,
             spend_day_usd: Some(0.42),
             spend_week_usd: Some(3.10),
+            lang: Lang::Pt,
         }
     }
 
@@ -483,5 +551,57 @@ mod tests {
                     eu preciso analisar oq trabalhei ontem nos chats e gerar um draft \
                     para postar lá seguindo o template";
         assert_eq!(lane(text), AskLane::WorkChat);
+    }
+}
+
+#[cfg(test)]
+mod bilingual {
+    use super::*;
+
+    #[test]
+    fn english_producing_verbs_need_the_work_chat() {
+        assert_eq!(lane("draft the incident summary"), AskLane::WorkChat);
+        assert_eq!(lane("write a reply to the alert"), AskLane::WorkChat);
+        assert_eq!(lane("post it in the channel"), AskLane::WorkChat);
+    }
+
+    #[test]
+    fn english_questions_stay_on_the_cheap_lane() {
+        assert_eq!(lane("what did I ship yesterday"), AskLane::Lean);
+        assert_eq!(lane("how much did I spend today"), AskLane::Lean);
+    }
+
+    fn facts() -> LocalFacts<'static> {
+        LocalFacts {
+            board: &[],
+            workers: &[],
+            spend_day_usd: Some(0.42),
+            spend_week_usd: Some(3.41),
+            lang: crate::domain::lang::Lang::En,
+        }
+    }
+
+    #[test]
+    fn english_spend_questions_cost_nothing() {
+        match plan_answer("how much did I spend today", &facts()) {
+            AnswerPlan::Local(r) => {
+                assert!(r.fala.to_lowercase().contains("today"), "en reply: {}", r.fala);
+                assert!(r.fala.contains("0.42"), "the number is the answer: {}", r.fala);
+            }
+            other => panic!("expected a local answer, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn english_running_question_costs_nothing() {
+        assert!(matches!(
+            plan_answer("what is running right now", &facts()),
+            AnswerPlan::Local(_)
+        ));
+    }
+
+    #[test]
+    fn english_deep_questions_still_pay_full_price() {
+        assert_eq!(plan_answer("why did the deploy fail", &facts()), AnswerPlan::FullAsk);
     }
 }

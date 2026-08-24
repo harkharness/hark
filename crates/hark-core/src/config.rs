@@ -139,6 +139,12 @@ impl Default for Config {
 }
 
 impl Config {
+    /// The language Hark writes and speaks in. Recognition accepts both
+    /// languages regardless; this only picks the output side.
+    pub fn lang(&self) -> crate::domain::lang::Lang {
+        crate::domain::lang::Lang::from_code(&self.ui_language)
+    }
+
     /// Configured default permission mode (None = CLI default).
     pub fn default_worker_mode(&self) -> Option<crate::domain::directives::Mode> {
         crate::domain::directives::Mode::from_flag(&self.worker_mode)

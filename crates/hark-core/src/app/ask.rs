@@ -62,6 +62,7 @@ pub fn ask_with_image(
             workers: &deps.workers,
             spend_day_usd: spent_since(deps, 24),
             spend_week_usd: spent_since(deps, 24 * 7),
+            lang: deps.config.lang(),
         };
         crate::domain::answer::plan_answer(question, &facts)
     };
@@ -104,7 +105,7 @@ pub fn ask_with_image(
         prompt: &prompt,
         images,
         model: &model,
-        system_prompt: prompt::VOICE_SYSTEM_PROMPT,
+        system_prompt: prompt::voice_system_prompt(deps.config.lang()),
         schema: prompt::RESPONSE_SCHEMA,
         effort: "low",
     };

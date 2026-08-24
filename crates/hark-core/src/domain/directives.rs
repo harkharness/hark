@@ -90,22 +90,63 @@ impl Directives {
 const MODE_PHRASES: &[(&[&str], Mode)] = &[
     // Bypass first and only via unambiguous phrases: it disables every guard.
     (
-        &["ignora as permiss", "ignorar as permiss", "sem pedir permiss", "sem trava"],
+        &[
+            "ignora as permiss", "ignorar as permiss", "sem pedir permiss", "sem trava",
+            "without asking permission", "without permission", "no permission prompts",
+            "skip the permissions", "bypass",
+        ],
         Mode::Bypass,
     ),
-    (&["planeja", "plano antes", "faz um plano", "monta um plano", "modo plano"], Mode::Plan),
     (
-        &["aceita as edi", "aceitar as edi", "pode editar direto", "aplica direto"],
+        &[
+            "planeja", "plano antes", "faz um plano", "monta um plano", "modo plano",
+            "plan first", "make a plan", "plan it out", "plan mode",
+        ],
+        Mode::Plan,
+    ),
+    (
+        &[
+            "aceita as edi", "aceitar as edi", "pode editar direto", "aplica direto",
+            "accept the edit", "accept edits", "edit directly", "apply directly",
+        ],
         Mode::AcceptEdits,
     ),
-    (&["pergunta sempre", "me pergunta antes", "modo manual"], Mode::Manual),
-    (&["automático", "automatico", "modo auto"], Mode::Auto),
+    (
+        &[
+            "pergunta sempre", "me pergunta antes", "modo manual",
+            "ask me first", "ask me before", "always ask", "manual mode",
+        ],
+        Mode::Manual,
+    ),
+    (
+        &["automático", "automatico", "modo auto", "auto mode", "automatic mode"],
+        Mode::Auto,
+    ),
 ];
 
 const EFFORT_PHRASES: &[(&[&str], Effort)] = &[
-    (&["capricha", "esforço máximo", "esforco maximo", "mais inteligente"], Effort::Max),
-    (&["pensa bem", "com calma", "caprichado", "bem detalhado"], Effort::High),
-    (&["rápido", "rapido", "rapidinho", "mais rápido", "sem enrolar"], Effort::Low),
+    (
+        &[
+            "capricha", "esforço máximo", "esforco maximo", "mais inteligente",
+            "max effort", "maximum effort", "smartest model", "best model",
+        ],
+        Effort::Max,
+    ),
+    (
+        &[
+            "pensa bem", "com calma", "caprichado", "bem detalhado",
+            "take your time", "think it through", "think hard", "be thorough",
+            "carefully",
+        ],
+        Effort::High,
+    ),
+    (
+        &[
+            "rápido", "rapido", "rapidinho", "mais rápido", "sem enrolar",
+            "quick", "fast pass", "no need to overthink",
+        ],
+        Effort::Low,
+    ),
 ];
 
 /// Extract every directive present in the utterance.
@@ -198,5 +239,30 @@ mod tests {
     fn reports_whether_anything_was_said() {
         assert!(!parse("continua a migração").any());
         assert!(parse("planeja isso").any());
+    }
+}
+
+#[cfg(test)]
+mod bilingual {
+    use super::*;
+
+    #[test]
+    fn english_effort_directives() {
+        assert_eq!(parse("run the tests quickly").effort, Some(Effort::Low));
+        assert_eq!(parse("take your time on this one").effort, Some(Effort::High));
+        assert_eq!(parse("max effort here").effort, Some(Effort::Max));
+    }
+
+    #[test]
+    fn english_mode_directives() {
+        assert_eq!(parse("do it without asking permission").mode, Some(Mode::Bypass));
+        assert_eq!(parse("plan first, then implement").mode, Some(Mode::Plan));
+        assert_eq!(parse("accept the edits"). mode, Some(Mode::AcceptEdits));
+        assert_eq!(parse("ask me first").mode, Some(Mode::Manual));
+    }
+
+    #[test]
+    fn plain_english_work_carries_no_directive() {
+        assert!(!parse("update the readme").any());
     }
 }

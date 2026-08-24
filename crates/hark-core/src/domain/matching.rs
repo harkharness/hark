@@ -49,6 +49,13 @@ const STOPWORDS: &[&str] = &[
     "abre", "abrir", "chat", "com", "como", "continua", "das", "dos", "ele", "ela",
     "essa", "esse", "esta", "para", "pra", "por", "que", "sessao", "sobre", "task",
     "tarefa", "the", "uma", "vamos", "hark",
+    // English structural filler. Same trade as "abre"/"continua": a title
+    // that leans on one of these loses a term, and gains precision on the
+    // ones that actually name a topic.
+    "about", "and", "are", "but", "continue", "for", "from", "has", "have",
+    "into", "its", "not", "open", "our", "out", "please", "session", "sessions",
+    "tasks", "that", "this", "was", "were", "what", "when", "which", "with",
+    "you", "your",
 ];
 
 /// Query words that actually identify a topic (folded, length ≥ 3,
@@ -220,5 +227,16 @@ mod tests {
             ],
         );
         assert_eq!(out, "hit:exact");
+    }
+}
+
+#[cfg(test)]
+mod bilingual {
+    use super::*;
+
+    #[test]
+    fn english_filler_never_counts_as_a_topic_term() {
+        assert_eq!(significant("continue the webhook migration"), ["webhook", "migration"]);
+        assert_eq!(significant("open the chat about billing"), ["billing"]);
     }
 }

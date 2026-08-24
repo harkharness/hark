@@ -2376,7 +2376,10 @@ pub(crate) fn session_facts(session_id: &str) -> hark_core::domain::precheck::Se
 fn dispatch_prechecks(
     session_id: String,
 ) -> Result<Vec<hark_core::domain::precheck::Warning>, String> {
-    Ok(hark_core::domain::precheck::prechecks(&session_facts(&session_id)))
+    Ok(hark_core::domain::precheck::prechecks(
+        &session_facts(&session_id),
+        Config::load().lang(),
+    ))
 }
 
 /// The pre-execution evaluator: one cheap haiku call that decides where a

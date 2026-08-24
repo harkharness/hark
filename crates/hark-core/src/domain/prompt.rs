@@ -1,5 +1,6 @@
 //! Pure prompt assembly: snapshot + question -> the exact text sent to Claude.
 
+use crate::domain::lang::Lang;
 use crate::domain::memory::WorkerRecord;
 use crate::domain::snapshot::SessionSummary;
 
@@ -72,13 +73,27 @@ pub const RESPONSE_SCHEMA: &str = r#"{
   "required": ["fala", "detalhes"]
 }"#;
 
-/// System prompt for the voice assistant persona.
-pub const VOICE_SYSTEM_PROMPT: &str = "Voce e o Hark, assistente de voz de um engenheiro. \
+/// System prompt for the voice assistant persona, in the language the
+/// user reads. The rules are identical; only the prose changes.
+const VOICE_SYSTEM_PROMPT_PT: &str = "Voce e o Hark, assistente de voz de um engenheiro. \
 Responda em portugues brasileiro. Seja direto e pratico. \
 Divisao rigida: 'fala' e so a manchete falada (1 frase, sem listas); \
 a informacao completa vai em 'detalhes' e 'itens', que aparecem na tela. \
 Ouvir e caro, ler e barato: nunca faca a voz recitar o que a tela ja mostra. \
 Se as mensagens mais recentes indicarem que um problema ja foi resolvido, nao o liste como pendencia.";
+
+const VOICE_SYSTEM_PROMPT_EN: &str = "You are Hark, an engineer's voice assistant. \
+Answer in English. Be direct and practical. \
+Hard split: 'fala' is the spoken headline only (one sentence, no lists); \
+everything else goes in 'detalhes' and 'itens', which are shown on screen. \
+Listening is expensive, reading is cheap: never make the voice recite what \
+the screen already shows. \
+If the most recent messages show a problem was already solved, do not list it as pending.";
+
+/// The system prompt for the interface language.
+pub fn voice_system_prompt(lang: Lang) -> &'static str {
+    lang.pick(VOICE_SYSTEM_PROMPT_PT, VOICE_SYSTEM_PROMPT_EN)
+}
 
 /// Sessions rendered into the prompt, newest first. Sized so a full week of
 /// heavy usage still fits at a few cents per question.
@@ -497,5 +512,21 @@ mod tests {
         assert!(required.iter().any(|v| v == "fala"));
         assert!(required.iter().any(|v| v == "detalhes"));
         assert_eq!(schema["properties"]["itens"]["type"], "array");
+    }
+}
+
+#[cfg(test)]
+mod bilingual {
+    use super::*;
+    use crate::domain::lang::Lang;
+
+    #[test]
+    fn the_system_prompt_follows_the_interface_language() {
+        assert!(voice_system_prompt(Lang::Pt).contains("portugues"));
+        assert!(voice_system_prompt(Lang::En).contains("English"));
+        // The split that keeps voice cheap survives translation.
+        for l in [Lang::Pt, Lang::En] {
+            assert!(voice_system_prompt(l).contains("'fala'"));
+        }
     }
 }

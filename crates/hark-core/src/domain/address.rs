@@ -19,8 +19,15 @@ pub struct Address {
 const TASK_MARKERS: &[&str] = &[
     "na task ", "pra task ", "para a task ", "na tarefa ", "na sessão de ",
     "na sessao de ", "no chat de ", "no chat da ", "no chat do ",
+    "in the task ", "on the task ", "in task ", "to the task ",
+    "in the session ", "on the session ", "in the chat ", "on the chat ",
+    "in the thread ",
 ];
-const PROJECT_MARKERS: &[&str] = &["no projeto ", "do projeto ", "no repositório ", "no repositorio "];
+const PROJECT_MARKERS: &[&str] = &[
+    "no projeto ", "do projeto ", "no repositório ", "no repositorio ",
+    "in the project ", "in project ", "on the project ", "on project ",
+    "in the repo ", "in the repository ",
+];
 
 fn find_marker(lower: &str, markers: &[&str]) -> Option<(usize, usize)> {
     markers
@@ -174,5 +181,32 @@ mod tests {
         let a = parse("no projeto workspace codigo roda os testes");
         assert_eq!(a.project.as_deref(), Some("workspace codigo"));
         assert_eq!(a.instruction, "roda os testes");
+    }
+}
+
+#[cfg(test)]
+mod bilingual {
+    use super::*;
+
+    #[test]
+    fn english_task_addressing_stops_at_the_comma() {
+        let a = parse("in the task billing endpoint, run the tests");
+        assert_eq!(a.task.as_deref(), Some("billing endpoint"));
+        assert_eq!(a.project, None);
+        assert_eq!(a.instruction, "run the tests");
+    }
+
+    #[test]
+    fn english_project_addressing_stops_at_the_verb() {
+        let a = parse("in project webhook-api run the migration");
+        assert_eq!(a.project.as_deref(), Some("webhook-api"));
+        assert_eq!(a.instruction, "run the migration");
+    }
+
+    #[test]
+    fn english_session_addressing() {
+        let a = parse("in the session dns cleanup, open the pull request");
+        assert_eq!(a.task.as_deref(), Some("dns cleanup"));
+        assert_eq!(a.instruction, "open the pull request");
     }
 }

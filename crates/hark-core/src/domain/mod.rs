@@ -11,6 +11,7 @@ pub mod gate;
 pub mod dispatch;
 pub mod project;
 pub mod intent;
+pub mod lang;
 pub mod matching;
 pub mod memory;
 pub mod persona;

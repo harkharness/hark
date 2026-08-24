@@ -158,7 +158,10 @@ fn rank_sessions(
 fn session_warnings(session_id: Option<&str>) -> Vec<String> {
     session_id
         .map(|sid| {
-            hark_core::domain::precheck::prechecks(&super::session_facts(sid))
+            hark_core::domain::precheck::prechecks(
+                &super::session_facts(sid),
+                hark_core::config::Config::load().lang(),
+            )
                 .into_iter()
                 .map(|w| w.text)
                 .collect()

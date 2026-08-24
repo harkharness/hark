@@ -34,16 +34,28 @@ pub const ACTION_VERBS: &[&str] = &[
     "corrige", "cria", "crie", "deleta", "deploya", "edita", "executa", "faz", "faça",
     "gera", "implementa", "implemente", "instala", "merge", "mergeia", "migra", "prepara",
     "refatora", "remove", "renomeia", "resolve", "roda", "rode", "sobe", "trabalha", "vamos",
+    // English. Read-only verbs ("show", "check") are deliberately absent:
+    // they read as questions far more often than as work.
+    "add", "apply", "build", "bump", "commit", "continue", "create", "delete",
+    "deploy", "edit", "extract", "finish", "fix", "generate", "implement",
+    "install", "lets", "make", "migrate", "open", "prepare", "publish", "push",
+    "rebase", "refactor", "release", "rename", "resolve", "revert", "rewrite",
+    "run", "ship", "split", "start", "test", "update", "upgrade", "work", "write",
 ];
 
 /// Classify an utterance. Questions win over verbs: "o que falta pra abrir o
 /// PR?" is an Ask even though it mentions an action.
 pub fn route(utterance: &str) -> Route {
     let lower = utterance.to_lowercase();
-    let question = lower.ends_with('?')
-        || ["quais", "qual", "quanto", "quando", "onde", "quem", "o que", "como", "tem "]
-            .iter()
-            .any(|q| lower.starts_with(q));
+    // Question openers in both languages. English "do" is left to the
+    // two-word forms: "do projeto X" is Portuguese for "of project X".
+    const QUESTION_STARTS: &[&str] = &[
+        "quais", "qual", "quanto", "quando", "onde", "quem", "o que", "como", "tem ",
+        "what", "which", "how", "when", "where", "who", "why", "is ", "are ",
+        "can ", "could ", "should ", "does ", "did ", "do i", "do we", "any ",
+    ];
+    let question =
+        lower.ends_with('?') || QUESTION_STARTS.iter().any(|q| lower.starts_with(q));
     if question {
         return Route::Ask;
     }
@@ -103,13 +115,19 @@ pub fn model_for(utterance: &str, models: &Models) -> String {
     const HEAVY: &[&str] = &[
         "investiga", "analisa", "a fundo", "profundo", "compara", "decide", "decisão",
         "trade-off", "arquitetura", "root cause", "causa raiz",
+        "investigate", "analyze", "analyse", "deep dive", "compare", "decision",
+        "architecture", "why is", "why did", "debug",
     ];
     if HEAVY.iter().any(|w| lower.contains(w)) {
         return models.heavy.clone();
     }
 
     // Layer 3: cheap lookups (simple starts + short utterances).
-    const LIGHT_STARTS: &[&str] = &["quais", "qual", "lista", "resumo", "status", "quantos", "quantas"];
+    const LIGHT_STARTS: &[&str] = &[
+        "quais", "qual", "lista", "resumo", "status", "quantos", "quantas",
+        "list", "which", "how many", "how much", "summary", "summarize",
+        "what is", "what's", "whats", "show me",
+    ];
     let word_count = lower.split_whitespace().count();
     if word_count <= 12 && LIGHT_STARTS.iter().any(|w| lower.starts_with(w)) {
         return models.light.clone();
@@ -194,5 +212,53 @@ mod tests {
     #[test]
     fn widest_hint_wins() {
         assert_eq!(window_hours("compara hoje com o resto da semana", 36), 168);
+    }
+}
+
+/// The spoken grammar accepts Portuguese and English side by side. Words
+/// that exist in both with different meanings are handled where they are
+/// read, never by picking one language and losing the other.
+#[cfg(test)]
+mod bilingual {
+    use super::*;
+
+    fn models() -> Models {
+        Models {
+            light: "haiku".into(),
+            standard: "sonnet".into(),
+            heavy: "sonnet-heavy".into(),
+            max: "opus".into(),
+        }
+    }
+
+    #[test]
+    fn english_action_verbs_dispatch() {
+        assert_eq!(route("run the migration tests"), Route::Dispatch);
+        assert_eq!(route("open the pull request"), Route::Dispatch);
+        assert_eq!(route("fix the failing build"), Route::Dispatch);
+        assert_eq!(route("deploy the webhook service"), Route::Dispatch);
+    }
+
+    #[test]
+    fn english_questions_win_over_verbs() {
+        assert_eq!(route("what is running right now"), Route::Ask);
+        assert_eq!(route("which sessions are still open"), Route::Ask);
+        assert_eq!(route("how do I open the PR?"), Route::Ask);
+        assert_eq!(route("where did I leave the migration"), Route::Ask);
+    }
+
+    #[test]
+    fn english_time_windows() {
+        assert_eq!(window_hours("what did I ship yesterday", 36), 48);
+        assert_eq!(window_hours("everything from last week", 36), 168);
+    }
+
+    #[test]
+    fn english_depth_markers_pick_the_tier() {
+        let m = models();
+        assert_eq!(model_for("investigate the root cause of the timeout", &m), m.heavy);
+        assert_eq!(model_for("compare the two approaches", &m), m.heavy);
+        assert_eq!(model_for("list the open sessions", &m), m.light);
+        assert_eq!(model_for("how many workers are running", &m), m.light);
     }
 }
