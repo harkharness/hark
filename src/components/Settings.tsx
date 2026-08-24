@@ -292,6 +292,7 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
                 options={[
                   ["pt", t("lang_pt")],
                   ["en", t("lang_en")],
+                  ["auto", t("lang_auto")],
                 ]}
               />
             </>
