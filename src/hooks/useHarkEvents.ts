@@ -13,7 +13,7 @@ type Handlers = {
   push: (m: Msg) => void;
   setMessages: React.Dispatch<React.SetStateAction<Msg[]>>;
   setLiveWorkers: React.Dispatch<React.SetStateAction<Record<string, LiveWorker>>>;
-  onWorkerExit: (taskId: string) => void;
+  onWorkerExit: (taskId: string, reason?: string | null) => void;
   onSessionStarted: (taskId: string, sessionId: string) => void;
   /** Raw per-thread feed (the task's own "terminal"). */
   pushRaw: (label: string, line: string) => void;
@@ -159,12 +159,17 @@ export function useHarkEvents(h: Handlers) {
         }
         h.refresh();
       } else if (ev.kind === "worker_exit") {
+        // The reason travels with the event now; "encerrado" alone left
+        // the user staring at a dead chat with nothing to act on.
+        const why =
+          ev.reason ??
+          (ev.exit_code != null && ev.exit_code !== 0 ? `exit ${ev.exit_code}` : null);
         h.push({
           who: "sys",
-          text: `worker ${h.labelFor(ev.task_id)} encerrado`,
+          text: `worker ${h.labelFor(ev.task_id)} encerrado${why ? ` — ${why}` : ""}`,
           task: h.labelFor(ev.task_id),
         });
-        h.onWorkerExit(ev.task_id);
+        h.onWorkerExit(ev.task_id, ev.reason);
         h.refresh();
       } else if (ev.kind === "session_started") {
         h.onSessionStarted(ev.task_id, ev.session_id);

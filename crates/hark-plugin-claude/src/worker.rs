@@ -102,10 +102,15 @@ pub struct RunningWorker {
 
 /// A long-lived conversational worker: the claude process stays alive
 /// between turns, accepting follow-up messages over stream-json stdin.
+/// How many stderr lines a worker's exit report keeps.
+const STDERR_TAIL_LINES: usize = 40;
+
 pub struct PersistentWorker {
     pub pid: u32,
     stdin: std::sync::Mutex<Option<std::process::ChildStdin>>,
     child: std::sync::Mutex<std::process::Child>,
+    /// Last stderr lines, kept for the exit report.
+    stderr_tail: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<String>>>,
 }
 
 impl PersistentWorker {
@@ -118,7 +123,10 @@ impl PersistentWorker {
             .args(spawn.cli_args(true))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit())
+            // Piped and KEPT: inherit() sent the CLI's dying words to
+            // whatever terminal launched the app — a worker that exited
+            // showed the user "encerrado" and nothing else.
+            .stderr(std::process::Stdio::piped())
             .spawn()?;
 
         let mut stdin = child.stdin.take().expect("piped stdin");
@@ -126,14 +134,52 @@ impl PersistentWorker {
         stdin.write_all(b"\n")?;
         stdin.flush()?;
         let stdout = child.stdout.take().expect("piped stdout");
+
+        let tail = std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        if let Some(stderr) = child.stderr.take() {
+            let tail = tail.clone();
+            std::thread::spawn(move || {
+                use std::io::BufRead;
+                for line in std::io::BufReader::new(stderr).lines().map_while(Result::ok) {
+                    let mut t = tail.lock().unwrap_or_else(|e| e.into_inner());
+                    if t.len() >= STDERR_TAIL_LINES {
+                        t.pop_front();
+                    }
+                    t.push_back(line);
+                }
+            });
+        }
+
         Ok((
             Self {
                 pid: child.id(),
                 stdin: std::sync::Mutex::new(Some(stdin)),
                 child: std::sync::Mutex::new(child),
+                stderr_tail: tail,
             },
             stdout,
         ))
+    }
+
+    /// Why the process ended: exit code + its final words on stderr.
+    /// Call after stdout closed — the wait is quick, the process is gone.
+    pub fn exit_report(&self) -> (Option<i32>, String) {
+        let code = self
+            .child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .wait()
+            .ok()
+            .and_then(|status| status.code());
+        let tail = self
+            .stderr_tail
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
+        (code, tail)
     }
 
     fn write_line(&self, line: &str) -> anyhow::Result<()> {

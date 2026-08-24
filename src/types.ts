@@ -40,7 +40,7 @@ export type HarkEvent =
       resets_at?: number | null;
       limit_kind?: string | null;
     }
-  | { kind: "worker_exit"; task_id: string }
+  | { kind: "worker_exit"; task_id: string; exit_code?: number | null; reason?: string | null }
   | { kind: "session_started"; task_id: string; session_id: string }
   | { kind: "speaking"; on: boolean }
   | { kind: "hotkey_mic" }

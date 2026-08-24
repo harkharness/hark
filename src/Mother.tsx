@@ -87,6 +87,10 @@ export default function Mother() {
   // The butler offer: a chat finished elsewhere, the NEXT sentence may be
   // about it ("vai lá", "faz X lá"). One at a time — newest wins.
   const followUpRef = useRef<{ label: string; sessionId: string } | null>(null);
+  // The message the chat is answering right now. If the worker dies with
+  // this in flight, it is resent ONCE through the normal respawn path —
+  // a request must never evaporate because a process did.
+  const chatInFlightRef = useRef<{ text: string; retried: boolean } | null>(null);
   // Sessions matching a recovery request, waiting for the user to pick one.
   const [picks, setPicks] = useState<{ query: string; candidates: SessionHit[] } | null>(null);
   // A typed work instruction planned and waiting for the user's confirm.
@@ -250,7 +254,22 @@ export default function Mother() {
     setLiveWorkers: () => {},
     pushRaw: () => {},
     addCost: () => {},
-    onWorkerExit: () => {},
+    onWorkerExit: useCallback((taskId: string, reason?: string | null) => {
+      if (taskId !== HARK_CHAT) return;
+      const inflight = chatInFlightRef.current;
+      if (!inflight || inflight.retried) return;
+      // One retry, announced. hark_chat_send respawns the worker resuming
+      // the same session, so the conversation's memory survives the crash.
+      chatInFlightRef.current = { ...inflight, retried: true };
+      push({
+        who: "sys",
+        text: `o chat caiu no meio da resposta${reason ? ` (${reason})` : ""} — reabrindo a sessão e reenviando`,
+      });
+      ipc
+        .harkChatSend(inflight.text)
+        .then(() => setChatLive(true))
+        .catch((err) => push({ who: "sys", text: `chat hark: ${err}` }));
+    }, []),
     onSessionStarted: () => {},
     onSpeaking: setSpeaking,
     onRateLimit: setRateLimit,
@@ -280,6 +299,8 @@ export default function Mother() {
         );
         if (taskId === HARK_CHAT) {
           setChatLive(true);
+          // The reply landed: nothing is in flight anymore.
+          chatInFlightRef.current = null;
           // Cost comes from the ledger on the refresh this turn triggers.
           if (ctxPct != null) setChatCtx(ctxPct);
           return;
@@ -323,6 +344,9 @@ export default function Mother() {
         work: boolean,
       ) => {
         push({ who: "user", text: question, task: work ? HARK_CHAT : undefined });
+        // Work handed off by the HUD is in flight in the same chat: cover
+        // it with the same crash-resend guarantee as typed messages.
+        if (work) chatInFlightRef.current = { text: question, retried: false };
         if (reply)
           push({ who: "hark", text: reply.fala, cost: reply.cost_usd, model: reply.model });
       },
@@ -762,9 +786,11 @@ export default function Mother() {
 
   async function sendToChat(text: string) {
     try {
+      chatInFlightRef.current = { text, retried: false };
       await ipc.harkChatSend(text);
       setChatLive(true);
     } catch (err) {
+      chatInFlightRef.current = null;
       push({ who: "sys", text: `chat hark: ${err}` });
     }
   }

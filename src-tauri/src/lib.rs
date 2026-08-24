@@ -1007,17 +1007,22 @@ fn start_worker_titled(
             }
         }
         // Only report the exit if nobody restarted this task meanwhile.
-        let restarted = app2
-            .state::<LiveWorkers>()
-            .0
-            .lock()
-            .unwrap()
-            .get(&task2)
-            .is_some_and(|h| h.worker.pid != pid);
+        let handle = app2.state::<LiveWorkers>().0.lock().unwrap().get(&task2).cloned();
+        let restarted = handle.as_ref().is_some_and(|h| h.worker.pid != pid);
         if !restarted {
+            // Why it died travels with the event: exit code + the CLI's
+            // final words on stderr. "encerrado" alone was unactionable.
+            let (exit_code, stderr_tail) = handle
+                .as_ref()
+                .map(|h| h.worker.exit_report())
+                .unwrap_or((None, String::new()));
+            let reason: String = stderr_tail.chars().rev().take(300).collect::<Vec<_>>()
+                .into_iter().rev().collect();
             emit_event(
                 &app2,
-                serde_json::json!({ "kind": "worker_exit", "task_id": task2 }),
+                serde_json::json!({ "kind": "worker_exit", "task_id": task2,
+                    "exit_code": exit_code,
+                    "reason": (!reason.trim().is_empty()).then_some(reason.trim()) }),
             );
             app2.state::<LiveWorkers>().0.lock().unwrap().remove(&task2);
             app2.state::<BatchState>().0.lock().unwrap().remove(&task2);
@@ -1603,13 +1608,19 @@ fn hark_chat_send(
     let mut directives = hark_core::domain::directives::parse(&text);
     directives.mode = directives.mode.or_else(|| config.default_worker_mode());
     let resumed = session.is_some();
-    let spawn = fresh_spawn(
+    let mut spawn = fresh_spawn(
         &config,
         config.data_dir(),
         session.unwrap_or_default(),
         text,
         directives,
     );
+    // The budget ceiling exists for dispatched workers, whose runaway is
+    // the risk it guards. The assistant is the product's front door and
+    // long-lived by design: with the cap it died at the $2 process line,
+    // MID-TURN, showing "worker encerrado" and eating the message. Its
+    // spend stays visible in the chat header; the ceiling does not apply.
+    spawn.limits = hark_agent::SpawnLimits::default();
     start_worker(&app, &live, HARK_CHAT_TASK, spawn).map_err(|e| e.to_string())?;
     Ok(HarkChatOut {
         task_id: HARK_CHAT_TASK.into(),
