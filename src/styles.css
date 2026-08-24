@@ -1902,3 +1902,46 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .turnstatus .ts-dot { opacity: .5; }
 .turnstatus .ts-tokens { font-variant-numeric: tabular-nums; }
 @keyframes ts-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* Live code block in the composer: a mirror paints the fenced runs, the
+   textarea above it keeps the caret and renders transparent glyphs. Both
+   MUST share every metric that affects wrapping. */
+.composer-mirror,
+.composer textarea {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px 14px;
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  tab-size: 2;
+}
+.composer-field { position: relative; }
+.composer-mirror {
+  position: absolute; inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--text);
+  border-radius: 14px;
+}
+/* Both sides go monospace together. Mixing proportional prose with a
+   monospace block would make the mirror wrap differently from the
+   textarea, and the caret would drift away from the glyphs under it —
+   a prettier composer nobody can type in. */
+.composer textarea.has-fence,
+.composer-mirror.has-fence {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12.5px;
+}
+.composer textarea.has-fence { color: transparent; caret-color: var(--text); }
+.composer textarea.has-fence::selection { background: rgba(122,162,247,.35); color: transparent; }
+.composer-mirror .cm-fence {
+  display: inline;
+  background: var(--code-bg, #10151d);
+  box-shadow: 0 0 0 1px var(--border);
+  border-radius: 6px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--code-fg, #c8d3f5);
+}

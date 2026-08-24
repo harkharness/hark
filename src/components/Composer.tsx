@@ -26,6 +26,39 @@ const NATIVE_SLASH: SlashHit[] = [
 /** A pasted screenshot: thumbnail on top, "[image N]" reference in prose. */
 export type Attachment = { dataUrl: string };
 
+/** Does the draft contain a fenced block at all? Drives the monospace
+ *  switch: prose stays proportional until code is actually present. */
+export function hasFence(text: string): boolean {
+  return /(^|\n)```/.test(text);
+}
+
+/** Split a draft into fenced and unfenced runs, IN ORDER, keeping every
+ *  character — the mirror must be glyph-for-glyph identical to the
+ *  textarea or the caret drifts away from the text under it. */
+export function fenceSegments(text: string): { text: string; fenced: boolean }[] {
+  const out: { text: string; fenced: boolean }[] = [];
+  const fence = /(^|\n)```[^\n]*\n?/g;
+  let at = 0;
+  let open: number | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = fence.exec(text))) {
+    if (open === null) {
+      open = m.index + (m[1] ? 1 : 0);
+      if (open > at) out.push({ text: text.slice(at, open), fenced: false });
+    } else {
+      const end = m.index + m[0].length;
+      out.push({ text: text.slice(open, end), fenced: true });
+      at = end;
+      open = null;
+    }
+  }
+  // An unterminated fence is still a code block being written — that is
+  // the whole point: the box appears while you type inside it.
+  if (open !== null) out.push({ text: text.slice(open), fenced: true });
+  else if (at < text.length) out.push({ text: text.slice(at), fenced: false });
+  return out;
+}
+
 /** data URL → (media_type, base64) pair the backend expects. */
 export function toImagePair(a: Attachment): [string, string] {
   return [a.dataUrl.slice(5, a.dataUrl.indexOf(";")), a.dataUrl.split(",")[1]];
@@ -70,6 +103,7 @@ export default function Composer({
   const [mention, setMention] = useState<Mention | null>(null);
   const [slash, setSlash] = useState<Slash | null>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const mirrorRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<number>(0);
   /** CLI slash list, fetched once per composer (cheap local lookup). */
   const cliSlash = useRef<string[] | null>(null);
@@ -348,8 +382,35 @@ export default function Composer({
             ))}
           </div>
         )}
+        {/* The mirror is positioned against THIS box, not the composer:
+            with thumbnails attached the textarea no longer starts at the
+            composer's top edge, and inset:0 would offset every line. */}
+        <div className="composer-field">
+        {/* A textarea cannot style part of its own text, so the code
+            block is painted by a mirror behind it: identical font,
+            padding and wrapping, fenced regions boxed. The textarea
+            itself renders transparent glyphs and keeps the caret, the
+            selection and every native editing behaviour. */}
+        <div
+          className={`composer-mirror ${hasFence(text) ? "has-fence" : ""}`}
+          aria-hidden="true"
+          ref={mirrorRef}
+        >
+          {fenceSegments(text).map((seg, i) =>
+            seg.fenced ? (
+              <span key={i} className="cm-fence">
+                {seg.text}
+              </span>
+            ) : (
+              <span key={i}>{seg.text}</span>
+            ),
+          )}
+          {/* Trailing newline needs a glyph or the mirror ends short. */}
+          {text.endsWith("\n") ? " " : ""}
+        </div>
         <textarea
           ref={areaRef}
+          className={hasFence(text) ? "has-fence" : ""}
           rows={1}
           placeholder={placeholder}
           value={text}
@@ -358,10 +419,15 @@ export default function Composer({
             detectMention(e.target.value, e.target.selectionStart ?? e.target.value.length);
             detectSlash(e.target.value);
           }}
+          onScroll={(e) => {
+            const m = mirrorRef.current;
+            if (m) m.scrollTop = e.currentTarget.scrollTop;
+          }}
           onPaste={onPaste}
           onKeyDown={onKeyDown}
           disabled={disabled}
         />
+        </div>
       </div>
       <div className="inputbar-row">
         <div className="inputbar-chips">{children}</div>
