@@ -258,6 +258,29 @@ export default function Composer({
       onAnswerPermission(pendingPermissionId, e.key !== "n", e.key === "a");
       return;
     }
+    // "```" then space or Enter opens a fenced block, cursor inside, the
+    // way every chat input the user already types in behaves. Without it
+    // Enter just sent three backticks as a message.
+    if (e.key === "Enter" || e.key === " ") {
+      const el = areaRef.current;
+      const caret = el?.selectionStart ?? 0;
+      const before = text.slice(0, caret);
+      const fence = before.match(/(^|\n)```([a-zA-Z0-9+-]*)$/);
+      if (el && fence && caret === (el.selectionEnd ?? caret)) {
+        e.preventDefault();
+        const after = text.slice(caret);
+        const opened = `${before}\n`;
+        setText(`${opened}\n\`\`\`${after}`);
+        // Land between the fences on the next paint.
+        const at = opened.length;
+        requestAnimationFrame(() => {
+          el.selectionStart = at;
+          el.selectionEnd = at;
+          el.focus();
+        });
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();

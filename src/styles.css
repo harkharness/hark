@@ -1889,3 +1889,16 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   align-items: center;
   gap: 12px;
 }
+
+/* Live turn status: elapsed + phase + streamed estimate. Replaces a
+   pulsing orb that told the user only that something, somewhere, was
+   happening. */
+.turnstatus {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 14px 3px; font-size: 12px; color: var(--dim);
+}
+.turnstatus .ts-spark { color: var(--accent); animation: ts-pulse 1.6s ease-in-out infinite; }
+.turnstatus .ts-time { font-variant-numeric: tabular-nums; color: var(--text); }
+.turnstatus .ts-dot { opacity: .5; }
+.turnstatus .ts-tokens { font-variant-numeric: tabular-nums; }
+@keyframes ts-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }

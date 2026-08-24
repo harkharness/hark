@@ -23,6 +23,7 @@ import TerminalPane, { TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
 import WorkerChips from "./components/WorkerChips";
+import TurnStatus, { type TurnState } from "./components/TurnStatus";
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import * as ipc from "./lib/ipc";
 import type {
@@ -51,6 +52,8 @@ export default function App({
   // Every Claude Code session of this project (index), newest first.
   const [chats, setChats] = useState<SessionHit[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  // What the running turn is doing, for the status line above the input.
+  const [turn, setTurn] = useState<TurnState | null>(null);
   const [recording, setRecording] = useState(false);
   // The global Esc handler must see the live value (no stale closure).
   const recordingRef = useRef(false);
@@ -236,7 +239,26 @@ export default function App({
     setLiveWorkers,
     pushRaw,
     addCost,
+    // The turn landed: the clock stops.
+    onWorkerTurn: useCallback(() => setTurn(null), []),
     onSpeaking: setSpeaking,
+    // Real events drive the status; nothing here is inferred from timers.
+    onTurnActivity: useCallback(
+      (phase: "thinking" | "writing" | "tool", detail?: string, chars?: number) =>
+        setTurn((old) =>
+          old
+            ? {
+                ...old,
+                phase:
+                  phase === "tool"
+                    ? { kind: "tool", name: detail ?? "tool" }
+                    : { kind: phase },
+                chars: old.chars + (chars ?? 0),
+              }
+            : old,
+        ),
+      [],
+    ),
     onRateLimit: setRateLimit,
     autoAllow: useCallback(
       (ask: import("./types").PermissionAsk) => {
@@ -254,6 +276,7 @@ export default function App({
     speakRef,
     refresh,
     onWorkerExit: useCallback((taskId: string) => {
+      setTurn(null);
       setLiveWorkers((old) => {
         const next = { ...old };
         delete next[taskId];
@@ -804,6 +827,7 @@ export default function App({
     // Explicit questions always go to ask, focused or not.
     if (!isQuestion && focused) {
       push({ who: "user", text, images: images.map((i) => i.dataUrl), task: focused && labelFor(focused) });
+      beginTurn();
       await ipc
         .workerSend(focused, text, images.map(toImagePair))
         .then((directives) =>
@@ -815,49 +839,44 @@ export default function App({
       return;
     }
     if (!isQuestion && focusedTask) {
-      // THE GATE (mismatch detection, LLM) + local PRECHECKS (size and
-      // context numbers from THIS machine) run together: the gate can no
-      // longer invent cost warnings, the prechecks can't be wrong.
-      setBusy("avaliando…");
-      const [gate, warnings] = await Promise.all([
-        ipc.evaluate(text, focusedTask.title, focusedTask.sessionId).catch(() => null),
-        ipc.dispatchPrechecks(focusedTask.sessionId).catch(() => []),
-      ]);
-      setBusy(null);
-      if (gate) {
-        if (gate.cost_usd) addCost("avaliador", gate.cost_usd);
-        push({
-          who: "sys",
-          text: `avaliador: ${gate.acao} (${Math.round(gate.confianca * 100)}%) · ${gate.motivo}${gate.aviso ? ` · ⚠ ${gate.aviso}` : ""} · $${(gate.cost_usd ?? 0).toFixed(4)}`,
-          task: focusedTask.title,
-        });
-        if (gate.acao === "meta_hark" || gate.acao === "pergunta") {
-          push({ who: "user", text });
-          runAsk(text, images);
-          return;
-        }
-        if (gate.acao === "trocar_task" && gate.task_alvo) {
-          push({
-            who: "sys",
-            text: `o avaliador sugere a task "${gate.task_alvo}"; use a sidebar ou "vai pra task ${gate.task_alvo}"`,
-          });
-          say(st("sp_gate_task", { t: gate.task_alvo }));
-          return;
-        }
-      }
-      if (gate?.needs_confirmation || warnings.length > 0) {
+      // Echo FIRST. Everything below can take a round trip, and a chat
+      // that swallows what you typed until the backend answers reads as
+      // broken — you cannot even tell whether Enter registered.
+      push({
+        who: "user",
+        text,
+        images: images.map((i) => i.dataUrl),
+        task: focusedTask.title,
+      });
+      // NO evaluator here any more. Its job is catching a dispatch that
+      // landed in the wrong session — which only exists when the target
+      // was INFERRED. Typing into a chat you opened is not a guess: you
+      // picked it. Running it here cost real money per message (one turn
+      // billed $0.14), delayed every send behind "avaliando…", and read
+      // a pasted ArgoCD error as a "meta-complaint about the rename MCP",
+      // hijacking the message into the global ask.
+      //
+      // Worse, its mismatch rule fired on a legitimate, PERMANENT state:
+      // a board card the user renamed never matches the session's own
+      // auto-generated title, so it would have nagged — and charged —
+      // on every message forever.
+      //
+      // The local prechecks stay: their numbers come from this machine,
+      // they cannot hallucinate, and they cost nothing.
+      const warnings = await ipc.dispatchPrechecks(focusedTask.sessionId).catch(() => []);
+      if (warnings.length > 0) {
         // The modal announces itself out loud and listens for the
         // verdict (the voice loop above) — no extra say() here.
         setPending({
           kind: "confirm-dispatch",
           instruction: text,
           sessionId: focusedTask.sessionId,
-          warning: gate?.aviso ?? undefined,
           warnings,
         });
         return;
       }
-      await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text, images);
+      beginTurn();
+      await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text, images, false);
       return;
     }
     const route = await ipc.routeText(text);
@@ -959,6 +978,11 @@ export default function App({
    * window and drop the command into a real shell — running it (execute)
    * or just leaving it typed for the user to review and hit Enter.
    */
+  /** A turn starts: the clock and the phase start with it. */
+  function beginTurn() {
+    setTurn({ startedAt: Date.now(), phase: { kind: "thinking" }, chars: 0 });
+  }
+
   function runInTerminal(cmd: string, execute: boolean) {
     ensureRail("terminal");
     const existing = shells.includes(termTab) ? termTab : shells[0];
@@ -1264,10 +1288,12 @@ export default function App({
     sessionId: string,
     text: string,
     images: Attachment[] = [],
+    /** The submit path echoes before it starts, so it opts out here. */
+    echo = true,
   ) {
     await reactivateIfDone(title);
     const liveEntry = Object.entries(liveWorkers).find(([, w]) => w.label === title);
-    push({ who: "user", text, images: images.map((i) => i.dataUrl), task: title });
+    if (echo) push({ who: "user", text, images: images.map((i) => i.dataUrl), task: title });
     if (liveEntry) {
       await ipc
         .workerSend(liveEntry[0], text, images.map(toImagePair))
@@ -1666,6 +1692,7 @@ export default function App({
                   onRunCommand={runInTerminal}
                 />
               )}
+              {turn && <TurnStatus state={turn} />}
               <Composer
                 disabled={!!busy}
                 recording={recording}
