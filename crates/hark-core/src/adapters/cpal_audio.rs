@@ -54,21 +54,48 @@ impl AudioIn for CpalMic {
 
         let mut raw: Vec<f32> = Vec::new();
         let max_raw = src_rate * self.max_seconds;
+        // Loudest sample seen. A denied microphone does NOT stop the
+        // callbacks — CoreAudio keeps delivering buffers of zeros, so the
+        // 2s timeout never fires and the VAD never sees speech to end.
+        // Without this the capture just ran the full 30s on nothing.
+        let mut peak = 0.0f32;
+        let mut last_check = std::time::Instant::now();
         loop {
             let Ok(chunk) = rx.recv_timeout(std::time::Duration::from_secs(2)) else {
                 anyhow::bail!("microphone produced no audio (permission denied?)");
             };
+            peak = chunk.iter().fold(peak, |m, s| m.max(s.abs()));
             raw.extend(chunk);
-            let resampled = resample_to_16k(&raw, src_rate);
+
+            // The manual cut is checked on EVERY chunk: Esc has to land
+            // within a chunk, not within a VAD window.
             if self.stop.swap(false, Ordering::SeqCst) {
                 drop(stream);
-                return Ok(resampled);
+                return Ok(resample_to_16k(&raw, src_rate));
             }
+
+            let full = raw.len() >= max_raw;
+            // Resampling the whole buffer on every callback was O(n²) over
+            // a 30s capture — costly exactly on the slow machines. A VAD
+            // decision every 250ms is as good and ~40x cheaper.
+            if !full && last_check.elapsed() < std::time::Duration::from_millis(250) {
+                continue;
+            }
+            last_check = std::time::Instant::now();
+
+            if peak < 1e-4 && raw.len() >= src_rate * 3 {
+                drop(stream);
+                anyhow::bail!(
+                    "microphone is delivering silence — check System Settings › Privacy & Security › Microphone"
+                );
+            }
+
+            let resampled = resample_to_16k(&raw, src_rate);
             if let Some(end) = end_of_speech(&resampled, &self.vad) {
                 drop(stream);
                 return Ok(resampled[..end].to_vec());
             }
-            if raw.len() >= max_raw {
+            if full {
                 drop(stream);
                 return Ok(resampled);
             }

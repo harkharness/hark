@@ -381,6 +381,16 @@ export default function Hud() {
           hide();
           return;
         }
+      } else if (String(err).includes("mic_loading")) {
+        // The 466MB model is still being read. Say so and step aside —
+        // an Intel Mac takes long enough that silence read as broken.
+        setStage({ s: "note", text: t("mic_loading"), tone: "warn" });
+        setTimeout(hide, 2600);
+        return;
+      } else if (String(err).includes("mic_no_model")) {
+        setStage({ s: "note", text: t("mic_no_model"), tone: "warn" });
+        setTimeout(hide, 3600);
+        return;
       } else {
         hide();
         return;

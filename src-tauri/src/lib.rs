@@ -49,25 +49,63 @@ struct WorkerPermissions(Mutex<HashMap<String, String>>);
 /// OnceLock<Result<..>> then answered "missing" for the rest of the
 /// process — including the mic step right after the download finished.
 static STT: OnceLock<WhisperStt> = OnceLock::new();
-/// Serializes the load so two callers never read a 466MB model at once.
-static STT_LOADING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// A load is in flight (or finished). Not a mutex on purpose: the UI path
+/// must never WAIT behind a 466MB read. It waited, once — on an Intel Mac
+/// the boot warmup was still going when the user pressed the mic, and
+/// hear_once blocked on the lock: no beep, no capture, and Esc inert
+/// because the stop flag is only read inside the capture loop.
+static STT_LOADING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The model file itself is absent (nothing to load until it downloads).
+static STT_ABSENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn stt(config: &Config) -> Option<&'static WhisperStt> {
-    if let Some(loaded) = STT.get() {
-        return Some(loaded);
+/// What the microphone can count on right now.
+enum Speech {
+    Ready(&'static WhisperStt),
+    /// Being read into memory; the caller should say so, not block.
+    Loading,
+    /// No model on disk yet.
+    Absent,
+}
+
+/// Start reading the model, at most once at a time. Returns immediately.
+fn ensure_speech_loading() {
+    use std::sync::atomic::Ordering::SeqCst;
+    if STT.get().is_some() || STT_LOADING.swap(true, SeqCst) {
+        return;
     }
-    let _one_at_a_time = STT_LOADING.lock().ok()?;
+    STT_ABSENT.store(false, SeqCst);
+    std::thread::spawn(|| {
+        let config = Config::load();
+        match WhisperStt::load(
+            &config.whisper_model_path(),
+            &config.stt_language(),
+            &config.vocab,
+        ) {
+            Ok(loaded) => {
+                loaded.warmup();
+                let _ = STT.set(loaded);
+            }
+            Err(err) => {
+                eprintln!("hark: modelo de voz nao carregou: {err}");
+                STT_ABSENT.store(true, SeqCst);
+                // Let a later attempt retry — the file may be downloading.
+                STT_LOADING.store(false, SeqCst);
+            }
+        }
+    });
+}
+
+/// Never blocks and never loads inline: the mic path asks and reacts.
+fn speech() -> Speech {
+    use std::sync::atomic::Ordering::SeqCst;
     if let Some(loaded) = STT.get() {
-        return Some(loaded);
+        return Speech::Ready(loaded);
     }
-    let stt = WhisperStt::load(
-        &config.whisper_model_path(),
-        &config.stt_language(),
-        &config.vocab,
-    )
-    .ok()?;
-    stt.warmup();
-    Some(STT.get_or_init(|| stt))
+    ensure_speech_loading();
+    match STT_ABSENT.load(SeqCst) {
+        true => Speech::Absent,
+        false => Speech::Loading,
+    }
 }
 
 fn now_iso() -> String {
@@ -400,20 +438,20 @@ fn hear_once(lease: State<'_, MicLease>, owner: Option<String>) -> Result<String
     }
     let _guard = MicGuard(&lease);
     let config = Config::load();
-    let stt = stt(&config).ok_or_else(|| {
-        config
-            .lang()
-            .pick(
-                "modelo de voz ainda não baixado",
-                "the speech model has not been downloaded yet",
-            )
-            .to_string()
-    })?;
+    // Clear the manual cut BEFORE anything slow, so an Esc pressed while
+    // the model is still loading is not silently swallowed by a later
+    // reset — and so the flag means "cut the capture I am about to start".
+    let stop = mic_stop_flag();
+    stop.store(false, std::sync::atomic::Ordering::SeqCst);
+    let stt = match speech() {
+        Speech::Ready(loaded) => loaded,
+        // Codes, not prose: the window turns these into its own words.
+        Speech::Loading => return Err("mic_loading".into()),
+        Speech::Absent => return Err("mic_no_model".into()),
+    };
     let tts = SayTts {
         voice: config.voice.clone(),
     };
-    let stop = mic_stop_flag();
-    stop.store(false, std::sync::atomic::Ordering::SeqCst);
     tts.beep(hark_core::ports::Cue::Listening);
     let audio = CpalMic {
         stop,
@@ -1379,8 +1417,7 @@ fn setup_download_model(app: AppHandle, key: String) -> Result<(), String> {
                     let _ = std::fs::write(hark_core::config::config_path(), out);
                 }
                 // Warm whisper so the mic works right after the wizard.
-                let config = Config::load();
-                let _ = stt(&config);
+                ensure_speech_loading();
                 emit(serde_json::json!({ "key": model.key, "pct": 100, "done": true }));
             }
             Err(err) => {
@@ -2985,12 +3022,9 @@ pub fn run() {
             // The chat's soul file exists from the first boot (settings can
             // open it before the chat ever spawns).
             ensure_persona(&Config::load());
-            // Warm whisper in the background so the first mic use is instant.
-            let _handle = app.handle().clone();
-            std::thread::spawn(|| {
-                let config = Config::load();
-                let _ = stt(&config);
-            });
+            // Warm whisper so the first mic use is instant. Fire and
+            // forget: the mic path reports "loading" instead of waiting.
+            ensure_speech_loading();
             // Register the global mic hotkey (config `hotkey`).
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;

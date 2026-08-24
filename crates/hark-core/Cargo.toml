@@ -14,9 +14,18 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 toml = "0.8"
 cpal = "0.15"
-whisper-rs = { version = "0.14", features = ["metal"] }
 toml_edit = "0.22"
 sha2 = "0.10"
+
+# Metal only where it is a win: Apple Silicon. On Intel Macs whisper.cpp's
+# Metal path runs on an iGPU/AMD card, where it is slower and less stable
+# than the CPU build — and a slow model load is what made the microphone
+# look broken there.
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+whisper-rs = { version = "0.14", features = ["metal"] }
+
+[target.'cfg(not(all(target_os = "macos", target_arch = "aarch64")))'.dependencies]
+whisper-rs = { version = "0.14" }
 
 [dev-dependencies]
 tempfile = "3"

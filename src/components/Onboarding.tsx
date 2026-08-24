@@ -69,7 +69,15 @@ export default function Onboarding({
       const text = await ipc.hearOnce("setup");
       setMic(text ? { kind: "heard", text } : { kind: "fail", text: "—" });
     } catch (err) {
-      setMic({ kind: "fail", text: String(err) });
+      // The model states are codes, not prose: translate them here rather
+      // than showing the wizard's user a raw "mic_loading".
+      const raw = String(err);
+      const known = raw.includes("mic_loading")
+        ? t("mic_loading")
+        : raw.includes("mic_no_model")
+          ? t("mic_no_model")
+          : raw;
+      setMic({ kind: "fail", text: known });
     }
   };
 
