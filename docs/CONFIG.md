@@ -64,7 +64,10 @@ tokensave = "off"
 
 **`language` vs `ui_language`.** They are deliberately separate: plenty of
 people speak Portuguese to an English interface. `language` tunes the speech
-model; `ui_language` only changes labels.
+model; `ui_language` picks the language Hark writes and speaks in — including
+what the system prompt tells the agent to answer in. Neither one restricts what
+Hark *understands*: the spoken grammar accepts Portuguese and English at the
+same time.
 
 **`worker_budget_usd`.** The guardrail. Every worker process spawns with a
 dollar ceiling and stops itself when it hits it. `0` disables it — do that

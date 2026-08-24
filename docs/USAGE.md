@@ -23,17 +23,27 @@ install:
 Everything the wizard writes lands in `~/.config/hark/config.toml`, in plain
 text, with your comments preserved on later edits.
 
-## A note on language
+## Two languages, at the same time
 
-Hark's **spoken command grammar is Brazilian Portuguese today.** The interface
-speaks pt and en, and the speech model transcribes whatever language you
-configure — but the verbs Hark understands as commands ("abre", "continua",
-"roda"), and the words it accepts as confirmation ("sim", "pode", "não"), are
-pt-BR. English command grammar is on the roadmap.
+Hark's spoken grammar accepts **Portuguese and English simultaneously** — you
+never pick one. `abre a board` and `open the board` both switch tabs. `sim` and
+`yes` both confirm; `não` and `no` both refuse. `a primeira` and `the first one`
+both pick the first candidate. `capricha` and `take your time` both raise the
+effort of the turn.
 
-Everything else — typing into the chat, dispatching by text, the board, the
-permission cards, the ledger — is language-agnostic: your instruction goes to
-the agent verbatim.
+Words that mean different things in each language are disambiguated rather than
+dropped. A bare "no" is a refusal; "no projeto webhook" addresses a target and
+is never read as one.
+
+Two separate settings control the rest:
+
+| Setting | What it decides |
+|---|---|
+| `language` | what the speech model expects to **hear** |
+| `ui_language` | what Hark **writes and says** — interface, local answers, warnings, and the language the agent is told to answer in |
+
+They are separate on purpose: plenty of people speak Portuguese to an English
+interface, or the other way around. Recognition does not care either way.
 
 ## The voice loop
 
