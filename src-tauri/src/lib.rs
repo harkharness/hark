@@ -44,16 +44,30 @@ struct LiveWorkers(Mutex<HashMap<String, std::sync::Arc<WorkerHandle>>>);
 struct WorkerPermissions(Mutex<HashMap<String, String>>);
 
 /// Whisper loads once per process (heavy); everything else is per-call.
-static STT: OnceLock<anyhow::Result<WhisperStt>> = OnceLock::new();
+/// Only a LOADED model is cached. Caching the failure was the wizard bug:
+/// the first call happens on a machine with no model yet, and a
+/// OnceLock<Result<..>> then answered "missing" for the rest of the
+/// process — including the mic step right after the download finished.
+static STT: OnceLock<WhisperStt> = OnceLock::new();
+/// Serializes the load so two callers never read a 466MB model at once.
+static STT_LOADING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn stt(config: &Config) -> Option<&'static WhisperStt> {
-    STT.get_or_init(|| {
-        let stt = WhisperStt::load(&config.whisper_model_path(), &config.stt_language(), &config.vocab)?;
-        stt.warmup();
-        Ok(stt)
-    })
-    .as_ref()
-    .ok()
+    if let Some(loaded) = STT.get() {
+        return Some(loaded);
+    }
+    let _one_at_a_time = STT_LOADING.lock().ok()?;
+    if let Some(loaded) = STT.get() {
+        return Some(loaded);
+    }
+    let stt = WhisperStt::load(
+        &config.whisper_model_path(),
+        &config.stt_language(),
+        &config.vocab,
+    )
+    .ok()?;
+    stt.warmup();
+    Some(STT.get_or_init(|| stt))
 }
 
 fn now_iso() -> String {
@@ -386,7 +400,15 @@ fn hear_once(lease: State<'_, MicLease>, owner: Option<String>) -> Result<String
     }
     let _guard = MicGuard(&lease);
     let config = Config::load();
-    let stt = stt(&config).ok_or("whisper model missing (run: hark setup)")?;
+    let stt = stt(&config).ok_or_else(|| {
+        config
+            .lang()
+            .pick(
+                "modelo de voz ainda não baixado",
+                "the speech model has not been downloaded yet",
+            )
+            .to_string()
+    })?;
     let tts = SayTts {
         voice: config.voice.clone(),
     };
