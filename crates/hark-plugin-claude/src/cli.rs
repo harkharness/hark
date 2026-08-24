@@ -48,7 +48,8 @@ impl AgentRunner for ClaudeCli {
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .spawn()?;
+            .spawn()
+            .map_err(|e| anyhow::anyhow!(crate::health::spawn_error(&self.claude_bin, &e)))?;
 
         let mut stdin = child.stdin.take().expect("piped stdin");
         stdin.write_all(user_message(request.prompt, request.images).as_bytes())?;
@@ -86,10 +87,13 @@ impl AgentRunner for ClaudeCli {
         let status = child.wait()?;
         match result {
             Some(r) => Ok(r),
-            None => anyhow::bail!(
-                "claude exited ({status}) without a result event; stderr: {}",
-                stderr_tail.trim()
-            ),
+            // No result event means the turn never happened. WHY it never
+            // happened is the only useful thing we can say.
+            None => anyhow::bail!(crate::health::exit_error(
+                &self.claude_bin,
+                &status.to_string(),
+                &stderr_tail
+            )),
         }
     }
 }

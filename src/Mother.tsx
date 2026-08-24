@@ -9,6 +9,7 @@ import Transcript from "./components/Transcript";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { Settings as SettingsIcon } from "lucide-react";
 import { useHarkEvents } from "./hooks/useHarkEvents";
+import { agentError } from "./lib/format";
 import * as ipc from "./lib/ipc";
 import { checkForUpdate, restartIntoUpdate } from "./lib/updater";
 import type { BoardTask, Msg, Overview, Project, RateLimitState, SessionHit } from "./types";
@@ -661,7 +662,7 @@ export default function Mother() {
       push({ who: "hark", text: reply.fala, cost: reply.cost_usd, model: reply.model });
       say(reply.fala);
     } catch (err) {
-      push({ who: "sys", text: `erro: ${err}` });
+      push({ who: "sys", text: `erro: ${agentError(err)}` });
     } finally {
       setBusy(null);
       refresh();
@@ -791,7 +792,7 @@ export default function Mother() {
       setChatLive(true);
     } catch (err) {
       chatInFlightRef.current = null;
-      push({ who: "sys", text: `chat hark: ${err}` });
+      push({ who: "sys", text: `chat hark: ${agentError(err)}` });
     }
   }
 

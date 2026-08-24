@@ -25,6 +25,7 @@ import EmptyProject from "./components/EmptyProject";
 import WorkerChips from "./components/WorkerChips";
 import TurnStatus, { type TurnState } from "./components/TurnStatus";
 import { useHarkEvents } from "./hooks/useHarkEvents";
+import { agentError } from "./lib/format";
 import * as ipc from "./lib/ipc";
 import type {
   BoardTask,
@@ -658,7 +659,7 @@ export default function App({
       push({ who: "user", text, task: labelFor(focused) });
       await ipc
         .workerSend(focused, text, [])
-        .catch((err) => push({ who: "sys", text: `worker: ${err}` }));
+        .catch((err) => push({ who: "sys", text: `worker: ${agentError(err)}` }));
       return;
     }
     if (focusedTask) {
@@ -835,7 +836,7 @@ export default function App({
             old[focused] ? { ...old, [focused]: { ...old[focused], directives } } : old,
           ),
         )
-        .catch((err) => push({ who: "sys", text: `worker: ${err}` }));
+        .catch((err) => push({ who: "sys", text: `worker: ${agentError(err)}` }));
       return;
     }
     if (!isQuestion && focusedTask) {
@@ -1085,7 +1086,7 @@ export default function App({
       await ipc.workerSend(liveEntry[0], "/compact", []).catch(() => {});
       await ipc
         .workerSend(liveEntry[0], instruction, [])
-        .catch((err) => push({ who: "sys", text: `worker: ${err}` }));
+        .catch((err) => push({ who: "sys", text: `worker: ${agentError(err)}` }));
       return;
     }
     // Dead session: the resume opens on "/compact" (a resume inherits the
@@ -1102,7 +1103,7 @@ export default function App({
       adoptWorker(out.task_id, label, out.directives, sessionId ?? "");
       await ipc
         .workerSend(out.task_id, instruction, [])
-        .catch((err) => push({ who: "sys", text: `worker: ${err}` }));
+        .catch((err) => push({ who: "sys", text: `worker: ${agentError(err)}` }));
       return;
     }
     push({ who: "sys", text: "não consegui compactar antes; despachando direto" });
@@ -1303,7 +1304,7 @@ export default function App({
             [liveEntry[0]]: { ...old[liveEntry[0]], directives },
           })),
         )
-        .catch((err) => push({ who: "sys", text: `worker: ${err}` }));
+        .catch((err) => push({ who: "sys", text: `worker: ${agentError(err)}` }));
       return;
     }
     await runDispatch(text, sessionId);

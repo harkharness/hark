@@ -8,6 +8,7 @@
 pub mod bridge;
 pub mod cli;
 pub mod eco;
+pub mod health;
 pub mod history;
 pub mod live;
 pub mod log;

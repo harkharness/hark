@@ -35,9 +35,15 @@ pub struct ClaudeAgentsCli {
 
 impl LiveSessions for ClaudeAgentsCli {
     fn list(&self) -> anyhow::Result<Vec<LiveSession>> {
-        let out = std::process::Command::new(&self.claude_bin)
+        // A missing or failing CLI means "no live sessions", not a broken
+        // app: this feeds a status panel, and the install problem is
+        // reported by the paths that actually need the binary.
+        let Ok(out) = std::process::Command::new(&self.claude_bin)
             .args(["agents", "--json"])
-            .output()?;
+            .output()
+        else {
+            return Ok(Vec::new());
+        };
         Ok(parse_agents_json(&String::from_utf8_lossy(&out.stdout)))
     }
 }

@@ -127,7 +127,8 @@ impl PersistentWorker {
             // whatever terminal launched the app — a worker that exited
             // showed the user "encerrado" and nothing else.
             .stderr(std::process::Stdio::piped())
-            .spawn()?;
+            .spawn()
+            .map_err(|e| anyhow::anyhow!(crate::health::spawn_error(&spawn.claude_bin, &e)))?;
 
         let mut stdin = child.stdin.take().expect("piped stdin");
         stdin.write_all(user_message(&spawn.instruction, &[]).as_bytes())?;
@@ -235,7 +236,8 @@ pub fn run(
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .spawn()?;
+        .spawn()
+        .map_err(|e| anyhow::anyhow!(crate::health::spawn_error(&spawn.claude_bin, &e)))?;
 
     on_spawn(RunningWorker { pid: child.id() });
     let mut stdin = child.stdin.take().expect("piped stdin");
