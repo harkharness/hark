@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Vox listens to your voice commands locally (whisper.cpp). Audio never leaves this machine.</string>
+    <string>Hark listens to your voice commands locally (whisper.cpp). Audio never leaves this machine.</string>
 </dict>
 </plist>

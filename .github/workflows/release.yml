@@ -31,6 +31,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: The tag must match the app version
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          CONF=$(sed -n 's/.*"version": "\(.*\)",.*/\1/p' src-tauri/tauri.conf.json | head -1)
+          CRATE=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "tag=${TAG} tauri.conf=${CONF} Cargo=${CRATE}"
+          [ "${TAG}" = "${CONF}" ] && [ "${TAG}" = "${CRATE}" ] || {
+            echo "::error::tag ${TAG} disagrees with the app version — bump src-tauri/tauri.conf.json and Cargo.toml before tagging (v0.2.1 shipped an app reporting 0.2.0)."
+            exit 1
+          }
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
