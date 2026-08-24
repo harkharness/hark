@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useReducer, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Check, Copy, Lock, Square, Volume2 } from "lucide-react";
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput, toolHint, toolLabel } from "./ToolCall";
@@ -7,6 +8,72 @@ import { directiveLabels, shortModel } from "../lib/format";
 import type { Directives, Msg } from "../types";
 import { t } from "../lib/i18n";
 import * as ipc from "../lib/ipc";
+
+/**
+ * Who is talking, tracked from the AUDIO, not from the call.
+ *
+ * `speak` returns the moment it spawns its thread, so awaiting it said
+ * nothing about whether the voice had finished — the button flipped back
+ * to "play" while the sentence was still being read, and a second click
+ * started the message over instead of stopping it. The backend already
+ * announces speaking on/off; that is the only honest source.
+ *
+ * One listener for the whole transcript: a subscription per message row
+ * would mean dozens of them.
+ */
+let speakingOwner: string | null = null;
+/** Has the audio actually STARTED since the current owner claimed it?
+ *  Without this, the "off" event fired by stopping the previous message
+ *  would immediately clear the owner that just claimed. */
+let audioStarted = false;
+const speakSubs = new Set<() => void>();
+let speakWired = false;
+
+function notifySpeakSubs() {
+  speakSubs.forEach((fn) => fn());
+}
+
+function wireSpeakEvents() {
+  if (speakWired) return;
+  speakWired = true;
+  listen<{ kind?: string; on?: boolean }>("hark", (e) => {
+    if (e.payload?.kind !== "speaking") return;
+    if (e.payload.on) {
+      audioStarted = true;
+    } else if (audioStarted) {
+      speakingOwner = null;
+      audioStarted = false;
+    }
+    notifySpeakSubs();
+  });
+}
+
+/** Is THIS row the one being read, and how to claim or release it. */
+function useSpeaking(id: string) {
+  const [, bump] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    wireSpeakEvents();
+    speakSubs.add(bump);
+    return () => {
+      speakSubs.delete(bump);
+    };
+  }, []);
+  return {
+    speaking: speakingOwner === id,
+    claim: () => {
+      speakingOwner = id;
+      audioStarted = false;
+      notifySpeakSubs();
+    },
+    release: () => {
+      if (speakingOwner === id) {
+        speakingOwner = null;
+        audioStarted = false;
+        notifySpeakSubs();
+      }
+    },
+  };
+}
 
 /** Deliverable-style tools stay visible on their own — never grouped. */
 const STANDALONE_TOOLS = new Set(["SendUserFile", "ExitPlanMode"]);
@@ -65,22 +132,22 @@ function MsgActions({
   ts?: number;
 }) {
   const [copied, setCopied] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
+  const rowId = useId();
+  const { speaking, claim, release } = useSpeaking(rowId);
 
-  async function listen() {
+  async function toggleSpeech() {
     if (speaking) {
-      ipc.speakStop().catch(() => {});
-      setSpeaking(false);
+      // Cutting also drops whatever was queued behind it — the mutex in
+      // the backend serialises reads, which is why a second click used to
+      // QUEUE another full reading instead of interrupting.
+      await ipc.speakStop().catch(() => {});
+      release();
       return;
     }
     // Kill any other message still talking before starting this one.
     await ipc.speakStop().catch(() => {});
-    setSpeaking(true);
-    try {
-      await ipc.speak(speakText ?? "");
-    } finally {
-      setSpeaking(false);
-    }
+    claim();
+    ipc.speak(speakText ?? "").catch(() => release());
   }
 
   return (
@@ -99,7 +166,7 @@ function MsgActions({
         <button
           className={speaking ? "speaking" : ""}
           title={speaking ? t("msg_stop") : t("msg_listen")}
-          onClick={listen}
+          onClick={toggleSpeech}
         >
           {speaking ? <Square size={13} /> : <Volume2 size={13} />}
         </button>
