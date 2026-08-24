@@ -22,7 +22,8 @@ heavy    = "sonnet"
 max      = "opus"
 
 # --- voice ----------------------------------------------------------------
-language      = "pt"             # what the MICROPHONE expects to hear
+language      = "pt"             # what the MICROPHONE expects to hear;
+                                 #   "auto" detects it per utterance
 ui_language   = "pt"             # what the SCREEN shows: "pt" | "en"
 voice         = "Luciana"        # a macOS `say` voice
 whisper_model = ""               # empty = <data dir>/models/ggml-small.bin
@@ -61,6 +62,11 @@ tokensave = "off"
 ```
 
 ## The keys worth understanding
+
+**`language = "auto"`.** Lets the speech model detect the language of each
+utterance. That is what someone who genuinely switches languages mid-session
+wants; a fixed code (`"pt"`, `"en"`) is more accurate on very short ones, so it
+stays the default. Either way the spoken command grammar understands both.
 
 **`language` vs `ui_language`.** They are deliberately separate: plenty of
 people speak Portuguese to an English interface. `language` tunes the speech

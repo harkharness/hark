@@ -39,7 +39,7 @@ Two separate settings control the rest:
 
 | Setting | What it decides |
 |---|---|
-| `language` | what the speech model expects to **hear** |
+| `language` | what the speech model expects to **hear** — a fixed code, or `auto` to detect each utterance |
 | `ui_language` | what Hark **writes and says** — interface, local answers, warnings, and the language the agent is told to answer in |
 
 They are separate on purpose: plenty of people speak Portuguese to an English
