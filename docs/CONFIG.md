@@ -50,6 +50,10 @@ worker_mode       = ""           # "" | "manual" | "acceptEdits" | "plan"
                                  #    | "auto" | "bypass"
 batch_messages    = false        # queue follow-ups and send them as one turn
 
+# --- updates ----------------------------------------------------------------
+auto_update = true               # poll this repo for new builds; a ready
+                                 #   update waits for your click to restart
+
 # --- the assistant --------------------------------------------------------
 assistant_name = "Hark"          # what the work chat calls itself
 theme          = "hark"          # code color scheme: "hark" | "dracula"
@@ -91,6 +95,12 @@ topical to your question first.
 **`[contexts]`.** Focus areas keyed by cwd prefix. `hark use <name>` switches
 the active one, and questions get filtered to those sessions and repos. Mention
 another context in a question and it applies just for that turn.
+
+**`auto_update`.** The only network call Hark makes on its own: a GET against
+this repository's `latest.json`. A new build downloads in the background and
+its minisign signature is verified against a key compiled into the app —
+then it waits. Nothing restarts without your click. `false` turns the check
+off entirely; `install.sh` always works as the manual path.
 
 **`[assist]`.** Hark can pass per-process environment variables to community
 token-savers so their behaviour is set **per worker**, never in your global

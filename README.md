@@ -148,8 +148,10 @@ Details and the current state of the contract: [docs/PLUGINS.md](docs/PLUGINS.md
 
 ## Privacy
 
-- Hark makes **no network calls of its own**. The only process it ever spawns is
-  the agent CLI you chose, under your own account.
+- Hark makes **one network call of its own**: an update check against this
+  repository (a plain GET, nothing identifying sent; `auto_update = false`
+  turns it off). Updates install only when you click restart. Everything else
+  runs through the agent CLI you chose, under your own account.
 - The speech model runs **locally**; audio never leaves the machine.
 - The local index and the spend ledger contain fragments of your prompts and
   session titles. They live in your user data directory and stay there.

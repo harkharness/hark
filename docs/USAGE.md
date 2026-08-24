@@ -180,6 +180,25 @@ hark use <context> | hark contexts            # kubectl-style focus areas
 hark board                                    # the board, as text
 ```
 
+## Updates
+
+Hark keeps itself current without ever surprising you. When a new release
+lands, the app downloads it in the background, verifies its signature, and
+shows one quiet pill in the mother window: **restart to update**. Click it and
+the app closes and reopens on the new version. Ignore it and nothing happens —
+next launch checks again.
+
+The check is a single GET against this repository (the only network call Hark
+makes on its own; nothing identifying is sent). Turn it off with
+`auto_update = false`, and update by hand whenever you like:
+
+```bash
+curl -fsSL https://harkharness.web.app/install.sh | bash
+```
+
+The `hark` CLI in `~/.local/bin` is updated by that same script — the in-app
+updater replaces only the app bundle.
+
 ## Where things live
 
 | Path | What |
