@@ -172,6 +172,12 @@ const FIND_SESSION_VERBS: &[&str] = &[
     "continua a sessão", "continua a sessao", "continua o chat",
     "volta pra sessão", "volta para a sessão", "volta pro chat",
     "abre a sessão", "abre a sessao", "abrir a sessão",
+    // "busca" was missing while its three synonyms were present — same
+    // verb, same intent, and the sentence fell through to a prose answer.
+    "busca a sessão", "busca a sessao", "busca o chat", "buscar o chat",
+    "busca no histórico", "busca no historico", "buscar no histórico",
+    "procura no histórico", "procura no historico", "acha no histórico",
+    "acha no historico", "encontra no histórico", "encontra no historico",
     "there was a chat", "recover the chat", "recover the session",
     "find the chat", "find the session", "look for the session",
     "resume the session", "back to the session", "open the session",
@@ -218,7 +224,16 @@ const TOPIC_FILLER: &[&str] = &[
 
 /// Drop the words before the topic itself, keeping everything after.
 fn clean_topic(raw: &str) -> String {
-    let words: Vec<&str> = raw.split_whitespace().collect();
+    // A spoken lookup ends with what to DO with the hit: "…last version e
+    // abra ele". That tail is punctuation, not part of the session's name.
+    let lower = raw.to_lowercase();
+    let head = ["  e abre", " e abre", " e abra", " e abrir", " e mostra", " e vai"]
+        .iter()
+        .filter_map(|tail| lower.find(tail))
+        .min()
+        .map_or(raw, |cut| &raw[..cut]);
+
+    let words: Vec<&str> = head.split_whitespace().collect();
     let start = words
         .iter()
         .position(|w| !TOPIC_FILLER.contains(&w.to_lowercase().as_str()))
@@ -837,5 +852,36 @@ mod bilingual {
             parse("open the file src/main.rs"),
             Some(TaskCommand::OpenFile { .. })
         ));
+    }
+}
+
+#[cfg(test)]
+mod incident_2408 {
+    use super::*;
+
+    #[test]
+    fn buscar_finds_a_session_the_way_procurar_does() {
+        // "busca" was simply absent from the list while "procura", "acha"
+        // and "encontra" were there. Same verb, same intent, no command.
+        for verb in ["busca", "procura", "acha", "encontra"] {
+            let said = format!("{verb} no histórico o chat pin vigia chart");
+            assert!(
+                matches!(parse(&said), Some(TaskCommand::FindSession { .. })),
+                "{said:?} should look up a session"
+            );
+        }
+    }
+
+    #[test]
+    fn a_trailing_open_clause_is_not_part_of_the_topic() {
+        // Spoken: "…chamado pin vigia chart last version E ABRA ELE".
+        // The tail is punctuation, not the session's name.
+        match parse("busca o chat pin vigia chart last version e abra ele") {
+            Some(TaskCommand::FindSession { query }) => {
+                assert!(!query.contains("abra"), "tail leaked into the query: {query:?}");
+                assert!(query.contains("vigia"), "topic survived: {query:?}");
+            }
+            other => panic!("expected a session lookup, got {other:?}"),
+        }
     }
 }

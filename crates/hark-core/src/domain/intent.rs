@@ -43,6 +43,27 @@ pub const ACTION_VERBS: &[&str] = &[
     "run", "ship", "split", "start", "test", "update", "upgrade", "work", "write",
 ];
 
+/// Is this word an order? Portuguese imperatives come in pairs — "atualiza"
+/// and "atualize", "resolve" and "resolva" — and a list of word forms holds
+/// one of each pair by accident. Half of ordinary speech then fell through
+/// to a prose answer. Swapping the final vowel covers the other half
+/// without listing every conjugation of every verb.
+pub fn is_action_verb(word: &str) -> bool {
+    let word = word.trim_matches(|c: char| !c.is_alphabetic());
+    if ACTION_VERBS.contains(&word) {
+        return true;
+    }
+    let mut chars: Vec<char> = word.chars().collect();
+    let swapped = match chars.pop() {
+        Some('a') => 'e',
+        Some('e') => 'a',
+        _ => return false,
+    };
+    chars.push(swapped);
+    let other: String = chars.into_iter().collect();
+    ACTION_VERBS.contains(&other.as_str())
+}
+
 /// Classify an utterance. Questions win over verbs: "o que falta pra abrir o
 /// PR?" is an Ask even though it mentions an action.
 pub fn route(utterance: &str) -> Route {
@@ -59,10 +80,11 @@ pub fn route(utterance: &str) -> Route {
     if question {
         return Route::Ask;
     }
-    let first_words: Vec<&str> = lower.split_whitespace().take(4).collect();
-    let acts = first_words
-        .iter()
-        .any(|w| ACTION_VERBS.contains(&w.trim_matches(|c: char| !c.is_alphabetic())));
+    // The WHOLE utterance, not the first four words: "eu quero que você
+    // faça essa alteração" buries the verb in fifth place, and speech is
+    // full of that. Questions were already handled above, so scanning
+    // everything cannot turn a question into work.
+    let acts = lower.split_whitespace().any(is_action_verb);
     if acts {
         Route::Dispatch
     } else {
@@ -260,5 +282,47 @@ mod bilingual {
         assert_eq!(model_for("compare the two approaches", &m), m.heavy);
         assert_eq!(model_for("list the open sessions", &m), m.light);
         assert_eq!(model_for("how many workers are running", &m), m.light);
+    }
+}
+
+/// The 24/08 voice session: three steps, none of them executed. Every
+/// utterance below was a command the router read as small talk, and the
+/// mother answered each one with prose at four cents a turn.
+#[cfg(test)]
+mod incident_2408 {
+    use super::*;
+
+    #[test]
+    fn the_other_imperative_of_a_listed_verb_still_acts() {
+        // Portuguese imperatives come in pairs: atualiza/atualize,
+        // resolve/resolva. The list had one of each pair, chosen by
+        // accident, so half of normal speech fell through to Ask.
+        assert_eq!(route("atualize o último artefato da conversa"), Route::Dispatch);
+        assert_eq!(route("atualiza o último artefato da conversa"), Route::Dispatch);
+        assert_eq!(route("resolva o conflito do rebase"), Route::Dispatch);
+        assert_eq!(route("implemente o cache no endpoint"), Route::Dispatch);
+    }
+
+    #[test]
+    fn a_buried_verb_is_still_a_command() {
+        // Only the first four words were scanned. Nobody speaks like that:
+        // "eu quero que você faça X" puts the verb fifth.
+        assert_eq!(
+            route("eu quero que você faça essa alteração dentro da sessão"),
+            Route::Dispatch
+        );
+        assert_eq!(
+            route("então o que eu preciso é que você atualize o chart"),
+            Route::Dispatch
+        );
+    }
+
+    #[test]
+    fn questions_still_win_over_a_buried_verb() {
+        // The whole-utterance scan must not turn questions into work.
+        assert_eq!(route("o que falta pra abrir o PR?"), Route::Ask);
+        assert_eq!(route("quais tarefas estão rodando agora"), Route::Ask);
+        assert_eq!(route("quanto gastei hoje"), Route::Ask);
+        assert_eq!(route("como está o board"), Route::Ask);
     }
 }

@@ -20,7 +20,11 @@ impl Default for VadConfig {
             sample_rate: 16_000,
             window_ms: 30,
             threshold: 0.015,
-            hangover_ms: 900,
+            // 900ms cut people off mid-sentence: a pause to think while
+            // dictating an instruction is longer than that, and losing
+            // half a sentence costs a whole turn. Dictation is not a
+            // wake-word — waiting a beat longer is cheaper than a retry.
+            hangover_ms: 1_700,
         }
     }
 }
@@ -62,8 +66,25 @@ fn rms(chunk: &[f32]) -> f32 {
 mod tests {
     use super::*;
 
+    /// These tests describe the ALGORITHM, so they pin their own hangover
+    /// instead of riding on the shipped default — tuning the product
+    /// should not make the maths look broken.
     fn cfg() -> VadConfig {
-        VadConfig::default()
+        VadConfig {
+            hangover_ms: 900,
+            ..VadConfig::default()
+        }
+    }
+
+    #[test]
+    fn the_shipped_hangover_leaves_room_to_think() {
+        // 900ms cut people off mid-sentence while they were dictating an
+        // instruction. The product default is a separate decision from
+        // the algorithm, and it is deliberately generous.
+        assert!(
+            VadConfig::default().hangover_ms >= 1_500,
+            "a dictation pause is longer than a wake-word pause"
+        );
     }
 
     fn silence(ms: usize) -> Vec<f32> {

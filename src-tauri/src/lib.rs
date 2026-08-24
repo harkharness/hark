@@ -58,6 +58,31 @@ static STT_LOADING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBoo
 /// The model file itself is absent (nothing to load until it downloads).
 static STT_ABSENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Whisper's initial prompt, built from what THIS machine talks about:
+/// registered project names and the titles of recent sessions, on top of
+/// the configured vocabulary. A generic list is why "Gladius Hydrator"
+/// came back as "o gladus de dreater".
+fn speech_bias(config: &Config) -> String {
+    let data_dir = config.data_dir();
+    let state = hark_core::adapters::state_file::load(&data_dir);
+    let projects: Vec<String> = state.projects.iter().map(|p| p.name.clone()).collect();
+
+    // Session titles are a nice-to-have: a missing index must never stop
+    // the microphone from loading.
+    use hark_core::ports::SessionStore;
+    let titles: Vec<String> = SqliteStore::open(&data_dir.join("index.db"))
+        .ok()
+        .and_then(|store| {
+            let since = (Utc::now() - hark_core::chrono::Duration::days(30)).to_rfc3339();
+            store.sessions_since(&since).ok()
+        })
+        .map(|sessions| sessions.iter().filter_map(|s| s.title.clone()).collect())
+        .unwrap_or_default();
+
+    // Whisper truncates its prompt around 224 tokens; stay well under.
+    hark_core::domain::vocab::speech_bias(&config.vocab, &projects, &titles, 600)
+}
+
 /// What the microphone can count on right now.
 enum Speech {
     Ready(&'static WhisperStt),
@@ -79,7 +104,7 @@ fn ensure_speech_loading() {
         match WhisperStt::load(
             &config.whisper_model_path(),
             &config.stt_language(),
-            &config.vocab,
+            &[speech_bias(&config)],
         ) {
             Ok(loaded) => {
                 loaded.warmup();

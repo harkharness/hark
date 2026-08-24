@@ -26,3 +26,4 @@ pub mod task_command;
 pub mod transcript;
 pub mod vad;
 pub mod verdict;
+pub mod vocab;
