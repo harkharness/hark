@@ -9,6 +9,23 @@ on:
   pull_request:
 
 jobs:
+  # Secret scanning is a paid feature for private repos, so the control
+  # lives here instead: the whole history, every push, pinned binary.
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks over the full history
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          set -euo pipefail
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          ./gitleaks git --no-banner --redact --exit-code 1 -c .gitleaks.toml
+
   test:
     runs-on: macos-14
     steps:

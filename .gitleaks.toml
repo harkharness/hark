@@ -1,0 +1,21 @@
+# Secret scanning for the private repo. GitHub's own scanner needs Advanced
+# Security, which this plan does not have, so the check lives in CI here.
+#
+# Runs over the FULL history: a key committed months ago and later deleted
+# is still a key that leaked.
+
+[extend]
+useDefault = true
+
+[[rules]]
+# The default generic-api-key rule reads pinned download checksums as
+# secrets. They are the opposite of secrets: a checksum is published so
+# that everyone can verify the same bytes.
+id = "generic-api-key"
+description = "Generic API key, minus our published checksums"
+regex = '''(?i)(?:key|api[_-]?key|secret|token|password|passwd|pwd)(?:.|[\n]){0,20}?['"]([0-9a-zA-Z\-_=]{16,64})['"]'''
+keywords = ["key", "secret", "token", "password"]
+
+[rules.allowlist]
+paths = ['''crates/hark-core/src/adapters/model_fetch\.rs''']
+description = "sha256 of the public whisper model downloads"
