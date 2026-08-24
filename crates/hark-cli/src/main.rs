@@ -35,13 +35,13 @@ fn main() {
         Some((cmd, rest)) if cmd == "ps" => cmd_ps(rest.first().is_some_and(|f| f == "--clear")),
         Some((cmd, rest)) if cmd == "spend" => cmd_spend(rest),
         Some((cmd, _)) if cmd == "board" => cmd_board(),
-        Some((cmd, _)) if cmd == "setup" => cmd_setup(),
+        Some((cmd, rest)) if cmd == "setup" => cmd_setup(rest),
         Some((cmd, _)) if cmd == "update" => cmd_update(),
         Some((cmd, _)) if cmd == "hear" => cmd_hear(),
         Some((cmd, _)) if cmd == "listen" => cmd_listen(),
         _ => {
             eprintln!(
-                "usage: hark listen | hark hear | hark setup | hark update | hark ask \"<q>\" | hark dispatch [--session <id>] \"<instruction>\" | hark ps | hark spend [--day|--week|--project] [--rebuild] [--export csv|json] | hark index | hark sessions | hark use <context> | hark contexts"
+                "usage: hark listen | hark hear | hark setup [--model small|large-v3-turbo] | hark update | hark ask \"<q>\" | hark dispatch [--session <id>] \"<instruction>\" | hark ps | hark spend [--day|--week|--project] [--rebuild] [--export csv|json] | hark index | hark sessions | hark use <context> | hark contexts"
             );
             2
         }
@@ -719,16 +719,30 @@ fn cmd_update() -> i32 {
     }
 }
 
-fn cmd_setup() -> i32 {
+fn cmd_setup(rest: &[String]) -> i32 {
     use hark_core::adapters::model_fetch;
     let config = Config::load();
+    // `--model <key>` downloads a specific model and points the config at
+    // it. Without it, setup only ensures the configured one exists.
+    let wanted = rest
+        .iter()
+        .position(|a| a == "--model")
+        .and_then(|i| rest.get(i + 1))
+        .map(String::as_str);
     let path = config.whisper_model_path();
-    if path.exists() {
+    if wanted.is_none() && path.exists() {
         println!("whisper model ok: {}", path.display());
         return 0;
     }
-    let model = model_fetch::whisper_model("small").expect("known model");
-    let dir = path.parent().expect("model dir");
+    let key = wanted.unwrap_or("small");
+    let Some(model) = model_fetch::whisper_model(key) else {
+        eprintln!("hark: modelo desconhecido: {key}");
+        return 2;
+    };
+    let dir = config
+        .data_dir()
+        .join("models");
+    let dir = &dir;
     println!("downloading {} ({})…", model.url, model.size_label);
     let mut last = 255u8;
     match model_fetch::download_model(model, dir, |pct| {
@@ -741,7 +755,28 @@ fn cmd_setup() -> i32 {
     }) {
         Ok(path) => {
             println!("\ndone (sha256 verified): {}", path.display());
-            0
+            // Point the config at what was actually downloaded, or asking
+            // for large-v3-turbo would leave the mic on the old model.
+            let cfg_path = hark_core::config::config_path();
+            let text = std::fs::read_to_string(&cfg_path).unwrap_or_default();
+            let patch = serde_json::json!({ "whisper_model": path.display().to_string() });
+            match hark_core::config::patch_toml(&text, &patch) {
+                Ok(out) => {
+                    if let Some(parent) = cfg_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if let Err(err) = std::fs::write(&cfg_path, out) {
+                        eprintln!("hark: config nao atualizado: {err}");
+                    } else {
+                        println!("config aponta para {key}");
+                    }
+                    0
+                }
+                Err(err) => {
+                    eprintln!("hark: config nao atualizado: {err}");
+                    1
+                }
+            }
         }
         Err(err) => {
             eprintln!("\nhark: {err}");

@@ -2347,6 +2347,155 @@ struct GateOut {
     cost_usd: Option<f64>,
 }
 
+/// One spoken sentence, classified into an action. Serialized flat so the
+/// windows can switch on `kind` the way they already switch on plans.
+#[derive(Serialize, Default)]
+struct IntentOut {
+    kind: String,
+    project: Option<String>,
+    session_id: Option<String>,
+    session_title: Option<String>,
+    instruction: Option<String>,
+    question: Option<String>,
+    options: Vec<IntentOption>,
+    cost_usd: Option<f64>,
+}
+
+#[derive(Serialize)]
+struct IntentOption {
+    session_id: String,
+    title: String,
+    project: Option<String>,
+}
+
+/// The fallback that used to be prose.
+///
+/// When the zero-token grammar does not recognise a sentence, this asks
+/// the LIGHT model to place it — with a catalog of the projects and
+/// sessions that actually exist, plus the last lines of the conversation.
+/// It answers with an action or an honest question, never a paragraph.
+/// Cheaper than being wrong: a misrouted sentence used to cost a full
+/// ask (~$0.04) and accomplish nothing.
+#[tauri::command(async)]
+fn classify_utterance(
+    app: AppHandle,
+    utterance: String,
+    recent: Vec<String>,
+) -> Result<IntentOut, String> {
+    use hark_core::domain::voice_intent as vi;
+    use hark_core::ports::SessionStore;
+
+    let config = Config::load();
+    let data_dir = config.data_dir();
+    let store = SqliteStore::open(&data_dir.join("index.db")).map_err(|e| e.to_string())?;
+
+    // Only sessions Hark can actually resume are offered as targets.
+    let since = (Utc::now() - hark_core::chrono::Duration::days(30)).to_rfc3339();
+    let sessions: Vec<vi::CatalogSession> = store
+        .sessions_since(&since)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|s| {
+            s.title.clone().map(|title| vi::CatalogSession {
+                id: s.session_id,
+                title,
+                // The folder name is how a person refers to the project.
+                project: s.cwd.as_deref().map(hark_core::domain::project::derive_name),
+            })
+        })
+        .take(20)
+        .collect();
+
+    // The focus comes from the SAME ledger the spoken plan uses — "nesse
+    // chat" has to mean the window the person actually worked in last,
+    // not whatever the calling window happened to remember.
+    let focus = app
+        .state::<voice::ActiveContext>()
+        .0
+        .lock()
+        .unwrap()
+        .current()
+        .cloned()
+        .unwrap_or_default();
+
+    let catalog = vi::IntentCatalog {
+        projects: state_file::load(&data_dir)
+            .projects
+            .iter()
+            .map(|p| p.name.clone())
+            .collect(),
+        sessions,
+        focused_project: focus.project_name,
+        focused_session: focus.session_id,
+        recent_exchange: recent,
+    };
+
+    let runner = hark_plugin_claude::cli::ClaudeCli {
+        claude_bin: config.claude_bin_resolved(),
+        work_dir: data_dir.clone(),
+    };
+    let prompt = vi::build_prompt(&utterance, &catalog);
+    let request = hark_core::ports::TurnRequest {
+        prompt: &prompt,
+        images: &[],
+        model: &config.models().light,
+        system_prompt: vi::INTENT_SYSTEM_PROMPT,
+        schema: vi::INTENT_SCHEMA,
+        effort: "low",
+    };
+    let turn = runner.ask(&request, &mut |_| {}).map_err(|e| e.to_string())?;
+    let decision = serde_json::from_str::<vi::IntentDecision>(&turn.raw).unwrap_or_default();
+    let plan = vi::resolve(&decision, &catalog);
+
+    record_live_spend(
+        &config,
+        hark_core::domain::spend::SpendKind::Gate,
+        &hark_core::domain::spend::SpendMeta {
+            label: Some("roteador de voz"),
+            outcome: Some(&format!("intent:{}", decision.kind)),
+            ..Default::default()
+        },
+        &turn,
+    );
+
+    let mut out = IntentOut {
+        cost_usd: turn.cost_usd,
+        ..Default::default()
+    };
+    match plan {
+        vi::SpokenPlan::OpenProject { project, instruction } => {
+            out.kind = "open_project".into();
+            out.project = Some(project);
+            out.instruction = instruction;
+        }
+        vi::SpokenPlan::OpenSession { session_id, title, instruction } => {
+            out.kind = "open_session".into();
+            out.session_id = Some(session_id);
+            out.session_title = Some(title);
+            out.instruction = instruction;
+        }
+        vi::SpokenPlan::Dispatch { session_id, instruction } => {
+            out.kind = "dispatch".into();
+            out.session_id = session_id;
+            out.instruction = Some(instruction);
+        }
+        vi::SpokenPlan::Clarify { question, options } => {
+            out.kind = "clarify".into();
+            out.question = Some(question);
+            out.options = options
+                .into_iter()
+                .map(|o| IntentOption {
+                    session_id: o.id,
+                    title: o.title,
+                    project: o.project,
+                })
+                .collect();
+        }
+        vi::SpokenPlan::Question => out.kind = "question".into(),
+    }
+    Ok(out)
+}
+
 /// The user's config as the settings UI sees it: current values + where
 /// the file lives. The file itself stays the source of truth.
 #[tauri::command]
@@ -3102,6 +3251,7 @@ pub fn run() {
             slash_commands,
             interpret_verdict,
             dispatch_prechecks,
+            classify_utterance,
             config_read,
             config_write,
             tts_voices,

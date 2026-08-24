@@ -27,3 +27,4 @@ pub mod transcript;
 pub mod vad;
 pub mod verdict;
 pub mod vocab;
+pub mod voice_intent;

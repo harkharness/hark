@@ -103,6 +103,21 @@ export const boardSubtaskToggle = (title: string, index: number, done: boolean) 
 /** Which surface a message to global hark belongs to (zero tokens). */
 export const askLane = (text: string) => invoke<"lean" | "work">("ask_lane", { text });
 
+/** One spoken sentence placed by the light model, with the local catalog
+ *  in the prompt. The fallback that used to be a prose answer. */
+export type SpokenIntent = {
+  kind: "open_project" | "open_session" | "dispatch" | "question" | "clarify";
+  project?: string | null;
+  session_id?: string | null;
+  session_title?: string | null;
+  instruction?: string | null;
+  question?: string | null;
+  options: { session_id: string; title: string; project?: string | null }[];
+  cost_usd?: number | null;
+};
+export const classifyUtterance = (utterance: string, recent: string[]) =>
+  invoke<SpokenIntent>("classify_utterance", { utterance, recent });
+
 /** Send to the mother's persistent work chat (full settings + MCP);
  *  spawns/resumes the chat worker as needed. Events arrive with
  *  task_id "hark-chat". */

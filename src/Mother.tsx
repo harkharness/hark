@@ -562,6 +562,10 @@ export default function Mother() {
         await sendToChat(text);
         return;
       }
+      // Before giving up on a target, let the classifier look at the
+      // catalog: "atualiza o artefato daquela conversa" has a target, it
+      // just is not spelled the way the grammar expects.
+      if (await tryIntent(text)) return;
       push({ who: "sys", text: "sem alvo — fale \"na task X\" ou abra a janela do projeto" });
       say("Não achei o alvo pra esse trabalho.");
       return;
@@ -571,6 +575,10 @@ export default function Mother() {
       await sendToChat(text);
       return;
     }
+    // A sentence the grammar did not recognise is not automatically a
+    // question. Placing it costs ~$0.01 on the light tier; answering the
+    // wrong thing cost ~$0.04 and accomplished nothing, ten times over.
+    if (await tryIntent(text)) return;
     setBusy("perguntando…");
     try {
       const reply = await ipc.askText(text);
@@ -588,6 +596,93 @@ export default function Mother() {
   /** Hand real work to the persistent chat worker; its turns stream back
    *  into the same thread as events (task_id "hark-chat"). Non-blocking:
    *  the input stays free while the worker runs. */
+  /**
+   * The fallback that used to be prose.
+   *
+   * Word lists cannot read natural speech: you cannot predict word order,
+   * which conjugation someone reaches for, or how much context a request
+   * carries. Anything they missed became a paraphrase at four cents. This
+   * asks the LIGHT model to PLACE the sentence against the real catalog
+   * of projects and sessions, then acts. Returns true when it acted.
+   */
+  async function tryIntent(text: string): Promise<boolean> {
+    // The last exchanges are what make "eu disse sim" resolvable at all.
+    const recent = messages
+      .slice(-6)
+      // Tool rows are machinery, not conversation.
+      .map((m: Msg) => `${m.who}: ${("text" in m ? m.text : "").slice(0, 200)}`);
+    const intent = await ipc.classifyUtterance(text, recent).catch(() => null);
+    if (!intent || intent.kind === "question") return false;
+
+    if (intent.kind === "clarify" && intent.options.length > 0) {
+      setTab("voz");
+      setPicks({
+        query: text,
+        candidates: intent.options.map((o) => ({
+          session_id: o.session_id,
+          title: o.title,
+          cwd: o.project ?? undefined,
+        })),
+      });
+      const question = intent.question ?? st("sp_found_dests", { n: intent.options.length });
+      push({ who: "hark", text: question, cost: intent.cost_usd ?? undefined });
+      say(question);
+      return true;
+    }
+
+    if (intent.kind === "open_project" && intent.project) {
+      const project = (overview?.projects ?? []).find(
+        (p) => p.name.toLowerCase() === intent.project!.toLowerCase(),
+      );
+      if (!project) return false;
+      openProject(project);
+      if (intent.instruction) {
+        try {
+          await ipc.chatStart(project.path, intent.instruction);
+          say(st("sp_opening_and_work", { t: project.name }));
+        } catch (err) {
+          push({ who: "sys", text: `chat: ${err}` });
+        }
+      } else {
+        say(st("sp_opening_project", { t: project.name }));
+      }
+      return true;
+    }
+
+    if (intent.kind === "open_session" && intent.session_id) {
+      await recoverSession({
+        session_id: intent.session_id,
+        title: intent.session_title ?? text,
+      });
+      // Opening AND working is one sentence for the user, so it is one
+      // step here: the instruction rides into the session just opened.
+      if (intent.instruction) {
+        await ipc
+          .voiceExecute({
+            instruction: intent.instruction,
+            session_id: intent.session_id,
+            new_task: false,
+          })
+          .catch((err) => push({ who: "sys", text: `dispatch: ${err}` }));
+      }
+      return true;
+    }
+
+    if (intent.kind === "dispatch" && intent.instruction && intent.session_id) {
+      await ipc
+        .voiceExecute({
+          instruction: intent.instruction,
+          session_id: intent.session_id,
+          new_task: false,
+        })
+        .catch((err) => push({ who: "sys", text: `dispatch: ${err}` }));
+      say(st("sp_confirm_to", { target: intent.session_title ?? "a sessão em foco" }));
+      return true;
+    }
+
+    return false;
+  }
+
   async function sendToChat(text: string) {
     try {
       await ipc.harkChatSend(text);
