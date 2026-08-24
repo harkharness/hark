@@ -965,8 +965,16 @@ export default function App({
     const target = existing ?? addShell();
     if (existing) setTermTab(existing);
     const payload = cmd.replace(/\s+$/, "") + (execute ? "\r" : "");
-    // A fresh shell needs a beat to spawn and print its prompt.
-    setTimeout(() => ipc.termWrite(target, payload).catch(() => {}), existing ? 120 : 700);
+    // A fresh shell needs a beat to spawn and print its prompt — and a
+    // swallowed write is a phantom click, so failure retries once and
+    // then says so instead of pretending.
+    const write = (attempt: number) => {
+      ipc.termWrite(target, payload).catch((err) => {
+        if (attempt === 0) setTimeout(() => write(1), 600);
+        else push({ who: "sys", text: `terminal: ${err}` });
+      });
+    };
+    setTimeout(() => write(0), existing ? 120 : 700);
   }
 
   async function stopWorker(taskId: string) {

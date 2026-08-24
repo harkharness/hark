@@ -41,8 +41,10 @@ function instance(id: string, cwd?: string) {
   term.onResize(({ cols, rows }) => ipc.termResize(id, cols, rows).catch(() => {}));
   entry = { term, fit };
   cache.set(id, entry);
-  // Spawn the shell (idempotent on the Rust side).
-  ipc.termOpen(id, cwd, term.cols, term.rows).catch(() => {});
+  // NO spawn here. The shell prints its prompt the instant it is born,
+  // and the "term-out" listener does not exist yet at this point — the
+  // prompt bytes were emitted into the void and the pane stayed black
+  // forever. The mount effect spawns AFTER the listener is live.
   return entry;
 }
 
@@ -72,6 +74,7 @@ export default function ShellTerminal({
       fit.fit();
       term.focus();
     }
+    let cancelled = false;
     const un = listen<TermOut>("term-out", (e) => {
       if (e.payload.id !== id) return;
       if (e.payload.exit) {
@@ -79,6 +82,13 @@ export default function ShellTerminal({
         return;
       }
       if (e.payload.data) term.write(e.payload.data);
+    });
+    // Only spawn once the listener above is REGISTERED: the first bytes a
+    // shell emits are its prompt, and bytes emitted before the listener
+    // exists are simply gone. Idempotent on the Rust side, so remounts of
+    // a live shell are a no-op. Real cols/rows: fit() already ran.
+    un.then(() => {
+      if (!cancelled) ipc.termOpen(id, cwd, term.cols, term.rows).catch(() => {});
     });
     const ro = new ResizeObserver(() => {
       try {
@@ -89,6 +99,7 @@ export default function ShellTerminal({
     });
     if (holder.current) ro.observe(holder.current);
     return () => {
+      cancelled = true;
       un.then((f) => f());
       ro.disconnect();
       // No dispose here: the pane may just be hidden. disposeShell() is

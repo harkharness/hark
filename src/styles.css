@@ -670,11 +670,23 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .shellterm .xterm { height: 100%; }
 .filetab.feedtab { margin-left: auto; opacity: .75; }
 
-/* Shell code blocks in the chat: run / insert / copy on hover. */
+/* Shell code blocks in the chat: a COMMAND, visibly — prompt glyph,
+   accent edge, and the run/insert/copy actions always present (full
+   strength on hover). Hidden-until-hover read as "just a gray line". */
 .codeblock { position: relative; }
+.codeblock > pre {
+  border-left: 2px solid var(--accent);
+  padding-left: 12px;
+  padding-right: 88px; /* the actions never sit on top of the command */
+}
+.codeblock > pre > code::before {
+  content: "❯ ";
+  color: var(--ok);
+  user-select: none;
+}
 .codeblock .code-actions {
   position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
-  opacity: 0; transition: opacity .12s ease;
+  opacity: .5; transition: opacity .12s ease;
 }
 .codeblock:hover .code-actions { opacity: 1; }
 .codeblock .code-actions button {
@@ -828,17 +840,24 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 
 /* ---- markdown ---- */
+.md {
+  /* The transcript row is pre-wrap for plain text; markdown output must
+     NOT inherit that — source newlines between blocks became literal
+     blank lines stacked on the block margins (screenshot: 24/08). */
+  white-space: normal;
+}
 .md > *:first-child { margin-top: 0; }
 .md > *:last-child { margin-bottom: 0; }
-.md p { margin: 6px 0; line-height: 1.55; }
+.md p { margin: 5px 0; line-height: 1.55; }
 .md h1, .md h2, .md h3, .md h4 {
-  color: var(--accent); margin: 14px 0 6px; line-height: 1.3;
+  color: var(--accent); margin: 12px 0 4px; line-height: 1.3;
 }
 .md h1 { font-size: 16px; }
 .md h2 { font-size: 15px; }
 .md h3, .md h4 { font-size: 13px; }
-.md ul, .md ol { margin: 6px 0; padding-left: 20px; }
-.md li { margin: 3px 0; line-height: 1.5; }
+.md ul, .md ol { margin: 4px 0; padding-left: 20px; }
+.md li { margin: 2px 0; line-height: 1.5; }
+.md li > p { margin: 2px 0; }
 .md strong { color: #fff; }
 .md em { color: var(--warn); font-style: normal; }
 .md a { color: var(--accent); }
