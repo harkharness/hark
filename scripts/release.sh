@@ -37,6 +37,10 @@ git fetch -q origin main
 perl -0pi -e "s/version = \"\\d+\\.\\d+\\.\\d+\"/version = \"$VERSION\"/" Cargo.toml
 perl -0pi -e "s/\"version\": \"\\d+\\.\\d+\\.\\d+\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
 
+# The lockfile pins the workspace crates' own versions; without this the
+# release commit leaves a dirty Cargo.lock behind (v0.2.4 did).
+cargo update -q --workspace
+
 CONF="$(sed -n 's/.*"version": "\(.*\)",.*/\1/p' src-tauri/tauri.conf.json | head -1)"
 CRATE="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 [ "$CONF" = "$VERSION" ] && [ "$CRATE" = "$VERSION" ] \

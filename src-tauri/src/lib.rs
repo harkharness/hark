@@ -3072,6 +3072,11 @@ pub fn run() {
             statusline_bridge_uninstall,
             approve
         ])
+        // Self-update: check() hits the public releases repo's latest.json,
+        // the minisign signature is verified against the pubkey baked into
+        // tauri.conf.json, and process::relaunch is the "restart now" click.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         // Global hotkey (default cmd+shift+space, config `hotkey`): from
         // ANY app, the voice button.
         .plugin(

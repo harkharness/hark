@@ -75,6 +75,11 @@ pub struct Config {
     /// Which agent plugin drives the sessions. Only "claude" ships today;
     /// the field exists so a second backend is a config change, not a fork.
     pub agent: AgentTable,
+    /// Check the public releases repo for a newer build (a GET against
+    /// github.com — the ONLY network call Hark makes on its own; nothing
+    /// identifying is sent). Updates never install themselves: the app
+    /// downloads, verifies the signature, and waits for the user's click.
+    pub auto_update: bool,
     /// Queue follow-up messages while a worker turn is in flight and
     /// deliver them as ONE message when it ends (fewer, fatter turns).
     /// Off by default; directive changes are not applied to queued text.
@@ -136,6 +141,7 @@ impl Default for Config {
             assistant_name: "Hark".into(),
             agent: AgentTable::default(),
             assist: AssistTable::default(),
+            auto_update: true,
             batch_messages: false,
         }
     }

@@ -27,7 +27,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -37,6 +40,15 @@
     ],
     "macOS": {
       "minimumSystemVersion": "12.0"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ3MUREODg0MjIzNjI2RTIKUldUaUpqWWloTmdkMXdvZ0hBZ2dibTI5OUF0TjdMN3BkYlFOc3pjb2lQRUdzMDZEQjZ2OU1WNHUK",
+      "endpoints": [
+        "https://github.com/harkharness/hark/releases/latest/download/latest.json"
+      ]
     }
   }
 }

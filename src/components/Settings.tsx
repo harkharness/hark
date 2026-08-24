@@ -40,7 +40,7 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
   const v = snap.values;
 
   /** Save one key now; the check mark confirms, errors show inline. */
-  async function save(key: string, value: string | number) {
+  async function save(key: string, value: string | number | boolean) {
     setError(null);
     try {
       await ipc.configWrite({ [key]: value });
@@ -258,6 +258,18 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
                   ["en", t("lang_en")],
                 ]}
               />
+              <div className="set-row">
+                <div className="set-label">
+                  <b>{t("set_auto_update")} {saved("auto_update")}</b>
+                  <span>{t("set_auto_update_hint")}</span>
+                </div>
+                <input
+                  type="checkbox"
+                  className="set-check"
+                  checked={v.auto_update}
+                  onChange={(e) => save("auto_update", e.target.checked)}
+                />
+              </div>
               <Field
                 label={t("set_hotkey")}
                 hint={t("set_hotkey_hint")}

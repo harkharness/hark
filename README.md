@@ -156,6 +156,7 @@ theme = "hark"                 # code color scheme: "hark" | "dracula"
 hotkey = "cmd+shift+space"    # global push-to-talk
 worker_budget_usd = 2.0       # hard ceiling per worker process
 worker_mode = "acceptEdits"   # default permission mode for new workers
+auto_update = true            # check the releases repo; install on click
 
 [models]                      # router tiers (all optional)
 light = "haiku"
@@ -171,8 +172,10 @@ prefer short answers" and it writes that down — durable across sessions.
 - The local index and spend ledger contain fragments of your prompts and
   session titles. They live in your user data directory and never leave the
   machine.
-- Hark makes no network calls of its own; the only external process is the
-  `claude` CLI under your existing account.
+- Hark makes one network call of its own: an update check against the public
+  releases repo (a GET to github.com, nothing identifying sent, updates only
+  install on your click — `auto_update = false` turns it off). Everything
+  else goes through the `claude` CLI under your existing account.
 - No telemetry, no analytics, nothing phones home.
 
 ## License

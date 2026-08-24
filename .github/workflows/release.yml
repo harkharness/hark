@@ -59,6 +59,12 @@ jobs:
       - run: npm ci
 
       - name: Build app bundles (.app + .dmg)
+        env:
+          # Signs the updater artifact (minisign). The pubkey lives in
+          # tauri.conf.json; installed apps refuse an update whose
+          # signature this key did not produce.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: npx tauri build --target ${{ matrix.target }}
 
       - name: Build hark CLI
@@ -75,8 +81,11 @@ jobs:
           # Version-less names: the release tag carries the version, and
           # /releases/latest/download/<name> keeps working forever.
           cp "${BUNDLE}"/dmg/*.dmg "out/hark-app-${TARGET}.dmg"
-          tar -czf "out/hark-app-${TARGET}.app.tar.gz" \
-            -C "${BUNDLE}/macos" hark.app
+          # The updater's tar.gz, NOT a re-tar: the .sig covers these
+          # exact bytes. Same layout (hark.app at the root), so install.sh
+          # keeps working unchanged.
+          cp "${BUNDLE}/macos/hark.app.tar.gz" "out/hark-app-${TARGET}.app.tar.gz"
+          cp "${BUNDLE}/macos/hark.app.tar.gz.sig" "out/hark-app-${TARGET}.app.tar.gz.sig"
           tar -czf "out/hark-cli-${TARGET}.tar.gz" \
             -C "target/${TARGET}/release" hark
           echo "built ${VERSION} for ${TARGET}"
@@ -93,3 +102,34 @@ jobs:
           body: >
             Hark ${{ github.ref_name }} — free beta. Install:
             `curl -fsSL https://harkharness.web.app/install.sh | bash`
+
+  # latest.json is what installed apps poll. Built AFTER both targets so
+  # it can never point at an asset that does not exist yet.
+  manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      REPO: harkharness/hark
+    steps:
+      - name: Compose and upload latest.json
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          mkdir sigs && cd sigs
+          gh release download "${TAG}" --repo "${REPO}" --pattern '*.sig'
+          url() { echo "https://github.com/${REPO}/releases/download/${TAG}/hark-app-$1.app.tar.gz"; }
+          jq -n \
+            --arg version "${VERSION}" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg sig_arm "$(cat hark-app-aarch64-apple-darwin.app.tar.gz.sig)" \
+            --arg sig_x64 "$(cat hark-app-x86_64-apple-darwin.app.tar.gz.sig)" \
+            --arg url_arm "$(url aarch64-apple-darwin)" \
+            --arg url_x64 "$(url x86_64-apple-darwin)" \
+            '{version: $version, pub_date: $pub_date, platforms: {
+               "darwin-aarch64": {signature: $sig_arm, url: $url_arm},
+               "darwin-x86_64":  {signature: $sig_x64, url: $url_x64}}}' \
+            > latest.json
+          jq . latest.json
+          gh release upload "${TAG}" latest.json --clobber --repo "${REPO}"

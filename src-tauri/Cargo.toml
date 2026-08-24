@@ -23,3 +23,5 @@ urlencoding = "2"
 tauri-plugin-global-shortcut = "2.3.2"
 # Real PTY for the in-app terminal (the user's own shell, interactive).
 portable-pty = "0.9"
+tauri-plugin-updater = "2.10.1"
+tauri-plugin-process = "2.3.1"

@@ -10,6 +10,7 @@ import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { Settings as SettingsIcon } from "lucide-react";
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import * as ipc from "./lib/ipc";
+import { prepareUpdate, restartIntoUpdate } from "./lib/updater";
 import type { BoardTask, Msg, Overview, Project, RateLimitState, SessionHit } from "./types";
 
 type MotherTab = "voz" | "board" | "custos";
@@ -81,6 +82,8 @@ export default function Mother() {
   const [spentToday, setSpentToday] = useState<number | null>(null);
   const [input, setInput] = useState("");
   const [tab, setTab] = useState<MotherTab>("voz");
+  // A downloaded-and-verified update waiting for the user's click.
+  const [updateReady, setUpdateReady] = useState<string | null>(null);
   // Sessions matching a recovery request, waiting for the user to pick one.
   const [picks, setPicks] = useState<{ query: string; candidates: SessionHit[] } | null>(null);
   // A typed work instruction planned and waiting for the user's confirm.
@@ -139,6 +142,24 @@ export default function Mother() {
         if (!s.onboarded && (!s.config_exists || !s.whisper_ok || !s.claude_ok)) setSetup(s);
       })
       .catch(() => {});
+  }, []);
+
+  // Update poll: on boot and every 6h, gated by config. The download runs
+  // in the background; only the pill's click ever restarts anything.
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      const cfg = await ipc.configRead().catch(() => null);
+      if (!cfg?.values.auto_update) return;
+      const v = await prepareUpdate();
+      if (alive && v) setUpdateReady(v);
+    };
+    poll();
+    const id = setInterval(poll, 6 * 60 * 60 * 1000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
   }, []);
 
   // On boot, the stored chat session repaints the thread: the chat is
@@ -786,6 +807,15 @@ export default function Mother() {
       }
     >
       {setup && <Onboarding status={setup} onClose={() => setSetup(null)} />}
+      {updateReady && (
+        <button
+          className="update-pill"
+          title={t("up_restart")}
+          onClick={() => restartIntoUpdate().catch(() => setUpdateReady(null))}
+        >
+          {t("up_ready", { v: updateReady })} · {t("up_restart")}
+        </button>
+      )}
       <nav className="tabs mother-tabs">
         <button className={tab === "voz" ? "active" : ""} onClick={() => setTab("voz")}>
           {t("tab_voice")}
