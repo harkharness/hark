@@ -36,11 +36,12 @@ fn main() {
         Some((cmd, rest)) if cmd == "spend" => cmd_spend(rest),
         Some((cmd, _)) if cmd == "board" => cmd_board(),
         Some((cmd, _)) if cmd == "setup" => cmd_setup(),
+        Some((cmd, _)) if cmd == "update" => cmd_update(),
         Some((cmd, _)) if cmd == "hear" => cmd_hear(),
         Some((cmd, _)) if cmd == "listen" => cmd_listen(),
         _ => {
             eprintln!(
-                "usage: hark listen | hark hear | hark setup | hark ask \"<q>\" | hark dispatch [--session <id>] \"<instruction>\" | hark ps | hark spend [--day|--week|--project] [--rebuild] [--export csv|json] | hark index | hark sessions | hark use <context> | hark contexts"
+                "usage: hark listen | hark hear | hark setup | hark update | hark ask \"<q>\" | hark dispatch [--session <id>] \"<instruction>\" | hark ps | hark spend [--day|--week|--project] [--rebuild] [--export csv|json] | hark index | hark sessions | hark use <context> | hark contexts"
             );
             2
         }
@@ -696,6 +697,28 @@ fn cmd_board() -> i32 {
 }
 
 /// Download the default whisper model into the data dir.
+/// Update both halves in one step: the CLI and the app bundle. The app
+/// updates ITSELF from 0.2.5 on (it offers a restart when a build is
+/// ready), so this exists for two cases — the hop from a build that
+/// predates the updater, and anyone who turned auto_update off.
+fn cmd_update() -> i32 {
+    // The same public installer the docs point at, over TLS from our own
+    // domain: one place decides how Hark is laid out on disk.
+    const INSTALLER: &str = "curl -fsSL https://harkharness.web.app/install.sh | bash";
+    println!("rodando o instalador publico: {INSTALLER}");
+    match std::process::Command::new("/bin/bash").arg("-c").arg(INSTALLER).status() {
+        Ok(status) if status.success() => 0,
+        Ok(status) => {
+            eprintln!("hark: instalador saiu com {status}");
+            1
+        }
+        Err(err) => {
+            eprintln!("hark: nao consegui rodar o instalador: {err}");
+            1
+        }
+    }
+}
+
 fn cmd_setup() -> i32 {
     use hark_core::adapters::model_fetch;
     let config = Config::load();
