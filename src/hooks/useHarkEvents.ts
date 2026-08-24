@@ -47,6 +47,7 @@ type Handlers = {
     taskId?: string,
     contextPct?: number | null,
     costUsd?: number,
+    sessionId?: string | null,
   ) => void;
   /**
    * Whether THIS window announces events out loud (turn done, permission
@@ -56,7 +57,12 @@ type Handlers = {
   announce?: boolean;
   /** Override WHAT a finished turn says (the hark chat speaks its actual
    *  reply, not "task done"). Return null/undefined for the default. */
-  turnSpeech?: (taskId: string, text: string, isError: boolean) => string | null | undefined;
+  turnSpeech?: (
+    taskId: string,
+    text: string,
+    isError: boolean,
+    label: string,
+  ) => string | null | undefined;
   /**
    * Standing "sempre permitir" rules: return true to auto-approve this
    * ask without interrupting anyone (the card lands already decided).
@@ -133,10 +139,17 @@ export function useHarkEvents(h: Handlers) {
               }
             : old,
         );
-        h.onWorkerTurn?.(ev.label ?? label, ev.is_error, ev.task_id, ev.context_pct, ev.cost_usd);
+        h.onWorkerTurn?.(
+          ev.label ?? label,
+          ev.is_error,
+          ev.task_id,
+          ev.context_pct,
+          ev.cost_usd,
+          ev.session_id,
+        );
         if (h.announce && h.speakRef.current) {
           const spoken = ev.label ?? label;
-          const custom = h.turnSpeech?.(ev.task_id, ev.text, ev.is_error);
+          const custom = h.turnSpeech?.(ev.task_id, ev.text, ev.is_error, spoken);
           ipc.speak(
             custom ??
               (ev.is_error

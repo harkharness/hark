@@ -105,11 +105,19 @@ pub fn download_model(
                 on_progress(100);
                 return Ok(final_path);
             }
-            None => "checksum não confere".to_string(),
+            None => {
+                // The bytes are wrong: resuming on top of them would only
+                // rebuild the same corrupt file. This is the ONE case
+                // where the partial dies.
+                let _ = std::fs::remove_file(&part);
+                "checksum não confere".to_string()
+            }
+            // A network drop keeps the partial: `-C -` resumes it on the
+            // next attempt (or the next click). Deleting it here threw
+            // away a gigabyte of progress on every flaky connection.
             Some(err) => err,
         };
-        if attempts >= 2 {
-            let _ = std::fs::remove_file(&part);
+        if attempts >= 3 {
             anyhow::bail!("download do modelo falhou: {why}");
         }
     }
@@ -125,7 +133,13 @@ fn run_curl(
 ) -> anyhow::Result<Option<String>> {
     let mut child = std::process::Command::new("curl")
         // No progress meter: stderr carries only the error, if any.
-        .args(["-fSL", "--no-progress-meter", "-C", "-", "-o"])
+        // HTTP/1.1 on purpose: the model host's HTTP/2 front kills long
+        // streams with CANCEL mid-gigabyte; 1.1 goes the distance.
+        .args([
+            "-fSL", "--http1.1", "--no-progress-meter",
+            "--retry", "3", "--retry-delay", "2",
+            "-C", "-", "-o",
+        ])
         .arg(part)
         .arg(url)
         .stderr(std::process::Stdio::piped())

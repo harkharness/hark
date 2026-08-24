@@ -332,6 +332,32 @@ export default function Hud() {
     } else if (plan.kind === "candidates") {
       await offerCandidates(text, plan.instruction, plan.options);
     } else {
+      // The grammar found no target. Before admitting that, let the
+      // light classifier read the sentence against the real catalog —
+      // free when it is clearly not an order, ~1¢ when it could be.
+      const intent = await ipc.classifyUtterance(text, []).catch(() => null);
+      if (intent && intent.kind === "open_session" && intent.session_id) {
+        await pickCandidate(intent.instruction ?? "", {
+          title: intent.session_title ?? text,
+          session_id: intent.session_id,
+        });
+        return;
+      }
+      if (intent && intent.kind === "dispatch" && intent.instruction && intent.session_id) {
+        await pickCandidate(intent.instruction, {
+          title: intent.session_title ?? "sessão em foco",
+          session_id: intent.session_id,
+        });
+        return;
+      }
+      if (intent && intent.kind === "clarify" && intent.options.length > 0) {
+        await offerCandidates(
+          text,
+          intent.instruction ?? "",
+          intent.options.map((o) => ({ title: o.title, session_id: o.session_id })),
+        );
+        return;
+      }
       // No project target: work that needs tools still has a home — the
       // mother's chat (the Slack case). Only then admit "no target".
       const lane = await ipc.askLane(text).catch(() => "lean");

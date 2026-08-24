@@ -964,6 +964,7 @@ fn start_worker_titled(
                         &app2,
                         serde_json::json!({ "kind": "worker_turn", "task_id": task2,
                             "label": board_title,
+                            "session_id": (!current_session.is_empty()).then_some(current_session.as_str()),
                             "text": turn.raw, "cost_usd": turn.cost_usd, "model": turn.model, "is_error": turn.is_error,
                             "usage": { "input": usage.input, "output": usage.output,
                                        "cache_read": usage.cache_read, "cache_created": usage.cache_created },
@@ -2403,7 +2404,7 @@ fn classify_utterance(
                 project: s.cwd.as_deref().map(hark_core::domain::project::derive_name),
             })
         })
-        .take(20)
+        .take(hark_core::domain::voice_intent::MAX_SESSIONS)
         .collect();
 
     // The focus comes from the SAME ledger the spoken plan uses — "nesse
@@ -2429,6 +2430,14 @@ fn classify_utterance(
         focused_session: focus.session_id,
         recent_exchange: recent,
     };
+
+    // The free gate: plain questions and small talk never pay the model.
+    if !vi::should_classify(&utterance, &catalog) {
+        return Ok(IntentOut {
+            kind: "question".into(),
+            ..Default::default()
+        });
+    }
 
     let runner = hark_plugin_claude::cli::ClaudeCli {
         claude_bin: config.claude_bin_resolved(),
@@ -2491,10 +2500,30 @@ fn classify_utterance(
                 })
                 .collect();
         }
+        vi::SpokenPlan::Status { session_id } => {
+            out.kind = "status".into();
+            out.session_id = session_id;
+        }
         vi::SpokenPlan::Question => out.kind = "question".into(),
     }
     Ok(out)
 }
+
+/// Pure passthrough to the follow-up grammar: what did the user's reply
+/// to "terminei lá — quer que eu faça algo?" actually mean.
+#[tauri::command]
+fn interpret_followup(utterance: String, label: String) -> Result<serde_json::Value, String> {
+    use hark_core::domain::followup::{interpret, FollowUp};
+    Ok(match interpret(&utterance, &label) {
+        FollowUp::GoThere => serde_json::json!({ "kind": "go" }),
+        FollowUp::StayHere => serde_json::json!({ "kind": "stay" }),
+        FollowUp::DoThere(instruction) => {
+            serde_json::json!({ "kind": "do", "instruction": instruction })
+        }
+        FollowUp::Unrelated => serde_json::json!({ "kind": "unrelated" }),
+    })
+}
+
 
 /// The user's config as the settings UI sees it: current values + where
 /// the file lives. The file itself stays the source of truth.
@@ -3252,6 +3281,7 @@ pub fn run() {
             interpret_verdict,
             dispatch_prechecks,
             classify_utterance,
+            interpret_followup,
             config_read,
             config_write,
             tts_voices,

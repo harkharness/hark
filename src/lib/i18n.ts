@@ -895,6 +895,15 @@ const spt = {
   sp_shown_confirm: "Mostrei sua mensagem na tela para {t}. Você confirma?",
   sp_shown_confirm_bare: "Mostrei sua mensagem na tela. Você confirma?",
   sp_found_options: "Achei {n} opções. Qual delas?",
+  sp_fu_offer: "No chat de {t}, terminei a demanda. Quer que eu faça algo lá, ou seguimos aqui?",
+  sp_fu_stay: "Fechado, seguimos aqui.",
+  sp_fu_going: "Abrindo {t}.",
+  sp_fu_doing: "Mandei pra {t}.",
+  sp_status_none: "Nada rodando agora.",
+  sp_status_one: "{t}: {s}.",
+  sp_status_running: "rodando",
+  sp_status_done: "último turno concluído",
+  sp_status_many: "{n} rodando: {list}.",
 };
 
 const sen: Record<keyof typeof spt, string> = {
@@ -959,6 +968,15 @@ const sen: Record<keyof typeof spt, string> = {
   sp_shown_confirm: "Your message is on screen for {t}. Confirm?",
   sp_shown_confirm_bare: "Your message is on screen. Confirm?",
   sp_found_options: "Found {n} options. Which one?",
+  sp_fu_offer: "Over in {t}, the task is done. Want me to do something there, or carry on here?",
+  sp_fu_stay: "Alright, carrying on here.",
+  sp_fu_going: "Opening {t}.",
+  sp_fu_doing: "Sent to {t}.",
+  sp_status_none: "Nothing running right now.",
+  sp_status_one: "{t}: {s}.",
+  sp_status_running: "running",
+  sp_status_done: "last turn finished",
+  sp_status_many: "{n} running: {list}.",
 };
 
 let speech: Lang = "pt";

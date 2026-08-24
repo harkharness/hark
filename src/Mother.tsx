@@ -84,6 +84,9 @@ export default function Mother() {
   const [tab, setTab] = useState<MotherTab>("voz");
   // A downloaded-and-verified update waiting for the user's click.
   const [updateReady, setUpdateReady] = useState<string | null>(null);
+  // The butler offer: a chat finished elsewhere, the NEXT sentence may be
+  // about it ("vai lá", "faz X lá"). One at a time — newest wins.
+  const followUpRef = useRef<{ label: string; sessionId: string } | null>(null);
   // Sessions matching a recovery request, waiting for the user to pick one.
   const [picks, setPicks] = useState<{ query: string; candidates: SessionHit[] } | null>(null);
   // A typed work instruction planned and waiting for the user's confirm.
@@ -260,7 +263,14 @@ export default function Mother() {
     // A finished turn flips the feed row of its task: dispatched → done.
     // Hark-chat turns also feed the chat header (session cost + context).
     onWorkerTurn: useCallback(
-      (label: string, isError: boolean, taskId?: string, ctxPct?: number | null, cost?: number) => {
+      (
+        label: string,
+        isError: boolean,
+        taskId?: string,
+        ctxPct?: number | null,
+        cost?: number,
+        sessionId?: string | null,
+      ) => {
         setActions((old) =>
           old.map((a) =>
             a.target?.toLowerCase() === label.toLowerCase() && a.status === "despachado"
@@ -272,6 +282,13 @@ export default function Mother() {
           setChatLive(true);
           // Cost comes from the ledger on the refresh this turn triggers.
           if (ctxPct != null) setChatCtx(ctxPct);
+          return;
+        }
+        // A chat finished elsewhere: the next sentence here may answer
+        // the offer. Failures announce but never offer — "faz algo lá"
+        // on a broken turn is a decision, not a follow-up.
+        if (!isError && sessionId) {
+          followUpRef.current = { label, sessionId };
         }
       },
       [],
@@ -286,10 +303,16 @@ export default function Mother() {
       if (t === "settings") setSettingsOpen(true);
     }, []),
     // The chat speaks its ACTUAL reply (first sentence), not "task done".
-    turnSpeech: useCallback((taskId: string, text: string, isError: boolean) => {
-      if (taskId !== HARK_CHAT || isError) return undefined;
-      const sentence = firstSentence(text);
-      return sentence || undefined;
+    // Other chats finishing get the butler's offer — spoken through the
+    // same serialized TTS, so it always waits for the current sentence.
+    turnSpeech: useCallback((taskId: string, text: string, isError: boolean, label: string) => {
+      if (taskId === HARK_CHAT) {
+        if (isError) return undefined;
+        const sentence = firstSentence(text);
+        return sentence || undefined;
+      }
+      if (isError) return undefined;
+      return st("sp_fu_offer", { t: label });
     }, []),
     // Spoken turns handled by the HUD land in the unified thread too:
     // the question always; the lean reply when the ask answered it.
@@ -525,6 +548,34 @@ export default function Mother() {
         return;
       }
     }
+    // A pending butler offer owns the NEXT sentence — and only it. An
+    // unrelated sentence clears the offer and flows on untouched.
+    {
+      const offer = followUpRef.current;
+      if (offer) {
+        followUpRef.current = null;
+        const fu = await ipc.interpretFollowup(text, offer.label).catch(() => null);
+        if (fu?.kind === "go") {
+          push({ who: "user", text });
+          say(st("sp_fu_going", { t: offer.label }));
+          await recoverSession({ session_id: offer.sessionId, title: offer.label });
+          return;
+        }
+        if (fu?.kind === "do" && fu.instruction) {
+          push({ who: "user", text });
+          await ipc
+            .voiceExecute({ instruction: fu.instruction, session_id: offer.sessionId, new_task: false })
+            .catch((err) => push({ who: "sys", text: `dispatch: ${err}` }));
+          say(st("sp_fu_doing", { t: offer.label }));
+          return;
+        }
+        if (fu?.kind === "stay") {
+          push({ who: "user", text });
+          say(st("sp_fu_stay"));
+          return;
+        }
+      }
+    }
     if (await runCommand(text)) return;
     // ACTION verbs never fall into the ask pipeline (the 19/08 incident:
     // "roda essa verificação de DNS" burned tokens on a refusal). Plan
@@ -627,6 +678,32 @@ export default function Mother() {
       const question = intent.question ?? st("sp_found_dests", { n: intent.options.length });
       push({ who: "hark", text: question, cost: intent.cost_usd ?? undefined });
       say(question);
+      return true;
+    }
+
+    if (intent.kind === "status") {
+      const workers = overview?.workers ?? [];
+      const running = workers.filter((w) => w.status === "running");
+      const line = (() => {
+        if (intent.session_id) {
+          const w = workers.find((x) => x.session_id === intent.session_id);
+          return w
+            ? st("sp_status_one", {
+                t: w.summary,
+                s: w.status === "running" ? st("sp_status_running") : st("sp_status_done"),
+              })
+            : st("sp_status_none");
+        }
+        if (running.length === 0) return st("sp_status_none");
+        if (running.length === 1)
+          return st("sp_status_one", { t: running[0].summary, s: st("sp_status_running") });
+        return st("sp_status_many", {
+          n: running.length,
+          list: running.map((w) => w.summary).slice(0, 3).join("; "),
+        });
+      })();
+      push({ who: "hark", text: line, cost: intent.cost_usd ?? undefined });
+      say(line);
       return true;
     }
 

@@ -25,6 +25,8 @@ export type HarkEvent =
       task_id: string;
       /** Human name of the task (session title), for announcements. */
       label?: string;
+      /** The session this turn wrote to — the butler offer's target. */
+      session_id?: string | null;
       text: string;
       cost_usd?: number;
       model?: string;
