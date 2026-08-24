@@ -32,10 +32,22 @@ clears the quarantine bit (the app is not code-signed yet).
 After installing: `hark setup` downloads the whisper speech model (~466MB),
 and the first mic use asks for microphone permission.
 
-Releases are cut by tagging: `git tag v0.x.y && git push --tags` builds both
-macOS targets and publishes `.dmg`, `.app.tar.gz`, the CLI tarball and
-checksums to a Release on `harkharness/hark` (version-less asset names, so
-`releases/latest/download` links never break). Needs the `RELEASE_TOKEN`
+Releases are cut with one command, never by hand:
+
+```bash
+scripts/release.sh 0.2.4
+```
+
+It refuses a dirty tree, a branch that is not `main`, or a `HEAD` that
+disagrees with `origin/main`; then it bumps `Cargo.toml` and
+`tauri.conf.json`, commits, tags and pushes together. Bumping and tagging as
+two separate acts is how v0.2.2 and v0.2.3 both shipped without fixes that
+were already written — work landed in the window between them.
+
+The tag builds both macOS targets and publishes `.dmg`, `.app.tar.gz`, the CLI
+tarball and checksums to a Release on `harkharness/hark` (version-less asset
+names, so `releases/latest/download` links never break). The workflow refuses
+to build when the tag and the app version disagree. Needs the `RELEASE_TOKEN`
 secret — a PAT with write access to that public repo.
 
 ## What it does
