@@ -1391,7 +1391,7 @@ pub(crate) fn ensure_persona(config: &Config) {
     let _ = std::fs::create_dir_all(config.data_dir());
     let _ = std::fs::write(
         &path,
-        hark_core::domain::persona::template(&config.assistant_name),
+        hark_core::domain::persona::template(&config.assistant_name, config.lang()),
     );
 }
 

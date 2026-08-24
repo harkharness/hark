@@ -6,7 +6,11 @@
 
 /// First-boot soul file. NEVER overwrites an existing one: after this,
 /// the file belongs to the user and to the model's own learnings.
-pub fn template(assistant_name: &str) -> String {
+pub fn template(assistant_name: &str, lang: crate::domain::lang::Lang) -> String {
+    // The seed prose stays Portuguese — the model reads both — but the
+    // language DIRECTIVE has to agree with the interface, or the mother
+    // chat answers in one language while the screen speaks the other.
+    let language = lang.pick("o do usuário (português brasileiro)", "English");
     format!(
         r#"# {assistant_name} — personalidade e aprendizados
 
@@ -29,7 +33,7 @@ trate-o como a sua identidade e a sua memória durável.
 ## Estilo
 - Tom: direto e caloroso; humor leve quando cabe.
 - Detalhe: comece pela resposta; aprofunde só o que muda a decisão.
-- Idioma: o do usuário (pt-BR por padrão).
+- Idioma: {language}.
 
 ## Sobre o usuário
 - (aprenda e registre aqui)
@@ -69,10 +73,11 @@ pub fn excerpt(doc: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::lang::Lang;
 
     #[test]
     fn excerpt_takes_identity_and_style_only() {
-        let doc = template("Aria");
+        let doc = template("Aria", Lang::Pt);
         let ex = excerpt(&doc);
         assert!(ex.contains("Aria"), "identity survives");
         assert!(ex.contains("Tom:"), "style survives");
@@ -90,14 +95,14 @@ mod tests {
 
     #[test]
     fn template_carries_the_assistant_name() {
-        let doc = template("Aria");
+        let doc = template("Aria", Lang::Pt);
         assert!(doc.contains("Aria"), "identity must name the assistant");
         assert!(!doc.contains("{name}"), "no leftover placeholders");
     }
 
     #[test]
     fn template_has_the_learning_sections() {
-        let doc = template("Hark");
+        let doc = template("Hark", Lang::Pt);
         for section in [
             "## Como aprender",
             "## Identidade",
@@ -111,7 +116,7 @@ mod tests {
 
     #[test]
     fn template_instructs_self_update_and_limits() {
-        let doc = template("Hark");
+        let doc = template("Hark", Lang::Pt);
         assert!(doc.contains("registre"), "must tell the model to record learnings");
         assert!(doc.to_lowercase().contains("neste arquivo"));
         assert!(doc.contains("100 linhas"), "growth cap stated");
@@ -123,7 +128,7 @@ mod tests {
 
     #[test]
     fn template_stays_cheap_for_the_context_window() {
-        let doc = template("Hark");
+        let doc = template("Hark", Lang::Pt);
         assert!(!doc.is_empty());
         assert!(doc.chars().count() < 4000, "the soul enters every turn — keep it small");
     }
