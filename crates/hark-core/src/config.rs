@@ -381,6 +381,21 @@ pub fn patch_toml(text: &str, patch: &serde_json::Value) -> anyhow::Result<Strin
 mod tests {
     use super::*;
 
+    /// A config file written before a field existed must still get that
+    /// field's shipped default. Anything else means a new feature arrives
+    /// switched off for everyone who already installed — silently.
+    #[test]
+    fn a_config_written_before_a_field_existed_gets_its_default() {
+        let old_file = "model = \"sonnet\"\nlanguage = \"pt\"\n";
+        let config: Config = toml::from_str(old_file).expect("parses");
+        assert!(config.auto_update, "auto_update must default to on");
+        assert_eq!(config.worker_budget_usd, 2.0, "the $2 guardrail survives");
+        assert_eq!(config.assistant_name, "Hark");
+        assert_eq!(config.hotkey, "cmd+shift+space");
+        // What the file DID say still wins.
+        assert_eq!(config.model, "sonnet");
+    }
+
     #[test]
     fn patch_preserves_comments_and_unknown_keys() {
         let original = "# my precious comment\nmodel = \"sonnet\"\nmystery = true\n";
