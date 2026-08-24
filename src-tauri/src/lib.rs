@@ -48,7 +48,7 @@ static STT: OnceLock<anyhow::Result<WhisperStt>> = OnceLock::new();
 
 fn stt(config: &Config) -> Option<&'static WhisperStt> {
     STT.get_or_init(|| {
-        let stt = WhisperStt::load(&config.whisper_model_path(), &config.language, &config.vocab)?;
+        let stt = WhisperStt::load(&config.whisper_model_path(), &config.stt_language(), &config.vocab)?;
         stt.warmup();
         Ok(stt)
     })

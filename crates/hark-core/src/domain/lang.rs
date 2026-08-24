@@ -32,9 +32,33 @@ impl Lang {
     }
 }
 
+/// The language code handed to the speech model. `"auto"` (or an empty
+/// setting) lets it detect per utterance — the only way someone who mixes
+/// Portuguese and English mid-sentence gets a clean transcription, at the
+/// cost of a little accuracy on very short ones. Region suffixes are
+/// dropped: the model knows "pt", not "pt-BR".
+pub fn stt_code(configured: &str) -> String {
+    let code = configured.trim().to_lowercase();
+    match code.split(['-', '_']).next() {
+        None | Some("") | Some("auto") => "auto".to_string(),
+        Some(base) => base.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stt_codes_drop_regions_and_pass_auto_through() {
+        assert_eq!(stt_code("pt"), "pt");
+        assert_eq!(stt_code("pt-BR"), "pt");
+        assert_eq!(stt_code("en_US"), "en");
+        assert_eq!(stt_code(" EN "), "en");
+        // Empty and "auto" both mean: detect it per utterance.
+        assert_eq!(stt_code("auto"), "auto");
+        assert_eq!(stt_code(""), "auto");
+    }
 
     #[test]
     fn unknown_codes_fall_back_to_portuguese() {

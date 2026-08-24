@@ -137,7 +137,7 @@ made through the settings UI:
 ```toml
 assistant_name = "Hark"        # what the chat calls itself
 model = "sonnet"
-language = "pt"               # what the mic expects to hear
+language = "pt"               # what the mic expects to hear ("auto" detects)
 ui_language = "pt"            # what the screen shows ("pt" | "en")
 voice = "Luciana"             # macOS `say` voice
 theme = "hark"                 # code color scheme: "hark" | "dracula"

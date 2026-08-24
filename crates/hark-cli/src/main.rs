@@ -730,7 +730,7 @@ fn cmd_setup() -> i32 {
 fn load_voice(config: &Config) -> anyhow::Result<(hark_core::adapters::whisper_stt::WhisperStt, hark_core::adapters::say_tts::SayTts, hark_core::adapters::cpal_audio::CpalMic)> {
     use hark_core::adapters::{cpal_audio::CpalMic, say_tts::SayTts, whisper_stt::WhisperStt};
     eprint!("loading whisper… ");
-    let stt = WhisperStt::load(&config.whisper_model_path(), &config.language, &config.vocab)?;
+    let stt = WhisperStt::load(&config.whisper_model_path(), &config.stt_language(), &config.vocab)?;
     stt.warmup();
     eprintln!("ready");
     Ok((stt, SayTts { voice: config.voice.clone() }, CpalMic::default()))

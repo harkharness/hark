@@ -32,7 +32,10 @@ pub struct Config {
     pub default_context: String,
     /// Named focus areas, kubectl-context style.
     pub contexts: BTreeMap<String, ContextTable>,
-    /// STT language (whisper) — what the mic EXPECTS TO HEAR.
+    /// STT language (whisper) — what the mic EXPECTS TO HEAR. "auto"
+    /// detects per utterance (for people who mix languages mid-sentence);
+    /// a fixed code is more accurate on short ones. The spoken COMMAND
+    /// grammar understands Portuguese and English either way.
     pub language: String,
     /// UI language ("pt" | "en") — what the SCREEN shows. Separate on
     /// purpose: plenty of people speak pt-BR to an English interface.
@@ -143,6 +146,12 @@ impl Config {
     /// languages regardless; this only picks the output side.
     pub fn lang(&self) -> crate::domain::lang::Lang {
         crate::domain::lang::Lang::from_code(&self.ui_language)
+    }
+
+    /// Language code for the speech model. "auto" (or empty) makes it
+    /// detect per utterance, which is what mixing languages needs.
+    pub fn stt_language(&self) -> String {
+        crate::domain::lang::stt_code(&self.language)
     }
 
     /// Configured default permission mode (None = CLI default).
