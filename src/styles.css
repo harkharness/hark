@@ -1865,3 +1865,8 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   accent-color: var(--accent);
   cursor: pointer;
 }
+.set-update {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}

@@ -10,7 +10,7 @@ import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { Settings as SettingsIcon } from "lucide-react";
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import * as ipc from "./lib/ipc";
-import { prepareUpdate, restartIntoUpdate } from "./lib/updater";
+import { checkForUpdate, restartIntoUpdate } from "./lib/updater";
 import type { BoardTask, Msg, Overview, Project, RateLimitState, SessionHit } from "./types";
 
 type MotherTab = "voz" | "board" | "custos";
@@ -151,8 +151,8 @@ export default function Mother() {
     const poll = async () => {
       const cfg = await ipc.configRead().catch(() => null);
       if (!cfg?.values.auto_update) return;
-      const v = await prepareUpdate();
-      if (alive && v) setUpdateReady(v);
+      const st = await checkForUpdate();
+      if (alive && st.kind === "ready") setUpdateReady(st.version);
     };
     poll();
     const id = setInterval(poll, 6 * 60 * 60 * 1000);

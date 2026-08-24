@@ -3,6 +3,12 @@ import { Bot, Check, Mic2, Plug, Settings2, Wrench, X } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import PluginsPanel from "./PluginsPanel";
 import { t } from "../lib/i18n";
+import {
+  checkForUpdate,
+  currentVersion,
+  lastStatus,
+  type UpdateStatus,
+} from "../lib/updater";
 
 type Section = "geral" | "plugins" | "voz" | "workers" | "avancado";
 
@@ -25,6 +31,9 @@ const MODE_OPTIONS: [string, string][] = [
 export default function Settings({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [section, setSection] = useState<Section>("geral");
   const [snap, setSnap] = useState<ipc.ConfigSnapshot | null>(null);
+  const [upState, setUpState] = useState<UpdateStatus>(lastStatus());
+  const [version, setVersion] = useState("?");
+  const [busy, setBusy] = useState(false);
   const [voices, setVoices] = useState<[string, string][]>([]);
   const [savedKey, setSavedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,10 +43,38 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
     if (!open) return;
     ipc.configRead().then(setSnap).catch(() => {});
     ipc.ttsVoices().then(setVoices).catch(() => setVoices([]));
+    currentVersion().then(setVersion);
+    setUpState(lastStatus());
   }, [open]);
 
   if (!open || !snap) return null;
   const v = snap.values;
+
+  /** Look for an update right now instead of waiting for the next poll. */
+  async function lookNow() {
+    setBusy(true);
+    setUpState({ kind: "checking" });
+    setUpState(await checkForUpdate());
+    setBusy(false);
+  }
+
+  // One line that says where this build stands. Silence was the bug.
+  const updateLine = (() => {
+    switch (upState.kind) {
+      case "dev":
+        return t("up_dev");
+      case "checking":
+        return t("up_checking");
+      case "ready":
+        return t("up_ready", { v: upState.version });
+      case "current":
+        return t("up_current", { v: version });
+      case "error":
+        return t("up_error", { err: upState.message.slice(0, 90) });
+      default:
+        return t("up_idle", { v: version });
+    }
+  })();
 
   /** Save one key now; the check mark confirms, errors show inline. */
   async function save(key: string, value: string | number | boolean) {
@@ -261,14 +298,19 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
               <div className="set-row">
                 <div className="set-label">
                   <b>{t("set_auto_update")} {saved("auto_update")}</b>
-                  <span>{t("set_auto_update_hint")}</span>
+                  <span>{updateLine}</span>
                 </div>
-                <input
-                  type="checkbox"
-                  className="set-check"
-                  checked={v.auto_update}
-                  onChange={(e) => save("auto_update", e.target.checked)}
-                />
+                <div className="set-update">
+                  <button className="set-open" onClick={lookNow} disabled={busy}>
+                    {busy ? t("up_checking") : t("up_check_now")}
+                  </button>
+                  <input
+                    type="checkbox"
+                    className="set-check"
+                    checked={v.auto_update}
+                    onChange={(e) => save("auto_update", e.target.checked)}
+                  />
+                </div>
               </div>
               <Field
                 label={t("set_hotkey")}
