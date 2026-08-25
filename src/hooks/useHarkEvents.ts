@@ -118,10 +118,13 @@ export function useHarkEvents(h: Handlers) {
         if (ev.cost_usd) h.addCost(label, ev.cost_usd);
         // The final assistant_text often equals the result: don't show twice.
         h.setMessages((old) => {
+          // A compaction turn was already folded away on arrival; matching
+          // it here too keeps the summary from being pasted a second time.
           const lastHark = [...old]
             .reverse()
-            .find((m) => m.who === "hark" && m.task === label);
+            .find((m) => (m.who === "hark" || m.who === "compact") && m.task === label);
           if (lastHark && "text" in lastHark && lastHark.text === ev.text) {
+            if (lastHark.who === "compact") return old;
             return old.map((m) =>
               m === lastHark
                 ? { ...m, cost: ev.cost_usd, model: ev.model, usage: ev.usage }

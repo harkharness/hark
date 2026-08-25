@@ -11,6 +11,10 @@ pub enum Role {
     Assistant,
     ToolUse,
     ToolResult,
+    /// The summary the CLI writes to itself when it compacts. A plain
+    /// `user` line in the log, and pages long: it belongs to the history
+    /// but not to the conversation, so the reader folds it away.
+    Compaction,
 }
 
 /// One readable line of a past conversation.
@@ -43,6 +47,9 @@ pub fn parse_entry(line: &str) -> Option<Entry> {
     };
 
     match v.get("type")?.as_str()? {
+        "user" if v.get("isCompactSummary").and_then(Value::as_bool) == Some(true) => {
+            entry(Role::Compaction, content.as_str().unwrap_or_default().to_string(), None, false)
+        }
         "user" => match content {
             // Human prompt, unless it is an injected command/skill payload.
             Value::String(text) if !text.trim_start().starts_with('<') => {
@@ -139,6 +146,39 @@ mod tests {
             tool: None,
             is_error: false,
         }
+    }
+
+    /// A compaction is a wall of text the CLI writes to itself: the log
+    /// line is a plain `user` message, so reopening a chat pasted the
+    /// whole summary into the conversation as if the user had typed it.
+    /// Line shape taken from a real session (v2.1.220).
+    #[test]
+    fn a_compaction_summary_is_marked_not_mistaken_for_the_user() {
+        let line = r#"{"type":"user","isCompactSummary":true,"timestamp":"2026-08-25T11:35:40.000Z",
+            "message":{"role":"user","content":"This session is being continued from a previous conversation that ran out of context. The summary below covers …"}}"#;
+        let entry = parse_entry(line).expect("the summary is part of the history");
+        assert_eq!(entry.role, Role::Compaction);
+        assert!(entry.text.contains("continued from a previous"), "text is kept, just folded");
+    }
+
+    #[test]
+    fn the_boundary_line_and_command_echo_stay_out() {
+        // The boundary carries no prose (the summary above is the record).
+        assert_eq!(
+            parse_entry(
+                r#"{"type":"system","subtype":"compact_boundary","content":"Conversation compacted",
+                "timestamp":"2026-08-25T11:35:39.737Z","compactMetadata":{"preTokens":659311}}"#
+            ),
+            None
+        );
+        // The CLI's own echo of the command is markup, not conversation.
+        assert_eq!(
+            parse_entry(
+                r#"{"type":"user","timestamp":"2026-08-25T11:35:41.000Z","message":{"role":"user",
+                "content":"<command-name>/compact</command-name>"}}"#
+            ),
+            None
+        );
     }
 
     #[test]

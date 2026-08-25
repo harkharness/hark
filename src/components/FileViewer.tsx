@@ -113,6 +113,16 @@ export default function FileViewer({
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const underRef = useRef<HTMLPreElement>(null);
+  const codeRef = useRef<HTMLPreElement>(null);
+
+  // "foo.rs:38" clicked in the chat: land ON the line, a third of the way
+  // down the view, once the content is actually there to scroll through.
+  useEffect(() => {
+    const pre = codeRef.current;
+    if (!pre || !file.line || !content) return;
+    const lh = parseFloat(getComputedStyle(pre).lineHeight) || 18;
+    pre.scrollTop = Math.max(0, (file.line - 1) * lh - pre.clientHeight / 3);
+  }, [file.line, content]);
 
   const dirty = editing && draft !== content;
   const liveHighlight = draft.length < HIGHLIGHT_EDIT_MAX;
@@ -229,7 +239,7 @@ export default function FileViewer({
       ) : isCsv(file.rel) ? (
         <CsvTable text={content} rel={file.rel} />
       ) : (
-        <pre className="viewer-code">
+        <pre className="viewer-code" ref={codeRef}>
           <code dangerouslySetInnerHTML={{ __html: highlightFile(file.rel, content) }} />
         </pre>
       )}

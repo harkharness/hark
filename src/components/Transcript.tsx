@@ -1,7 +1,7 @@
 import { useEffect, useId, useReducer, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Check, Copy, Lock, Square, Volume2 } from "lucide-react";
+import { Check, Copy, Lock, RefreshCw, Square, Volume2 } from "lucide-react";
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput, toolHint, toolLabel } from "./ToolCall";
 import { directiveLabels, shortModel } from "../lib/format";
@@ -203,6 +203,18 @@ export default function Transcript({
     <div key={i} className={`msg ${m.who}`}>
       {m.who === "sys" ? (
         <span>{m.text}</span>
+      ) : m.who === "compact" ? (
+        // The CLI's compaction: pages of summary it wrote to itself. It
+        // belongs to the record — you can read what it kept — but not to
+        // the conversation, so it arrives folded.
+        <details className="compaction">
+          <summary>
+            <RefreshCw size={11} /> {t("compaction_folded")}
+          </summary>
+          <div className="cmp-body">
+            <Markdown onOpenPath={onOpenPath}>{m.text}</Markdown>
+          </div>
+        </details>
       ) : m.who === "tool" ? (
         <ToolCall name={m.name} input={m.input} onOpenPath={onOpenPath} />
       ) : m.who === "output" ? (
@@ -231,7 +243,11 @@ export default function Transcript({
             </div>
           </details>
         ) : (
-          <div className={`permission waiting ${m.prodRisk ? "prod" : ""}`}>
+          <div
+            className={`permission ${m.expired ? "expired" : "waiting"} ${
+              m.prodRisk ? "prod" : ""
+            }`}
+          >
             <div className="perm-title">
               <Lock size={13} /> <b className="perm-who">{m.label ?? m.task ?? t("perm_worker")}</b>{" "}
               {t("perm_asks")} <b>{toolLabel(m.tool).label}</b>
@@ -241,6 +257,9 @@ export default function Transcript({
               <div className="perm-prod">⚠ {t("perm_prod", { reason: m.prodRisk })}</div>
             )}
             <ToolCall name={m.tool} input={m.input} onOpenPath={onOpenPath} defaultOpen />
+            {m.expired ? (
+              <div className="perm-expired">{t("perm_expired")}</div>
+            ) : (
             <div className="perm-actions">
               <span className="perm-voice-hint">{t("perm_voice_hint")}</span>
               <button
@@ -265,6 +284,7 @@ export default function Transcript({
                 {t("perm_once")} <kbd>y</kbd>
               </button>
             </div>
+            )}
           </div>
         )
       ) : (

@@ -108,8 +108,13 @@ export type Msg =
       prodRisk?: string | null;
       /** Human name of the asker (assistant/session title) for the card. */
       label?: string;
+      /** The worker died before anyone answered: the buttons would talk to
+       *  a process that no longer exists. */
+      expired?: boolean;
       task?: string;
     }
+  /** The CLI's compaction summary: history, not conversation — folded. */
+  | { who: "compact"; text: string; task?: string }
   | { who: "sys"; text: string; task?: string };
 
 export type Directives = {
@@ -136,7 +141,7 @@ export type DispatchOutcome =
 
 export type TranscriptEntry = {
   ts: string;
-  role: "user" | "assistant" | "tool_use" | "tool_result";
+  role: "user" | "assistant" | "tool_use" | "tool_result" | "compaction";
   text: string;
   tool?: string;
   is_error: boolean;
@@ -290,6 +295,8 @@ export type RateLimitState = {
 export type OpenFile = {
   /** Absolute path (what the backend reads/saves). */
   abs: string;
+  /** 1-based line to scroll to, when the path carried one ("foo.rs:38"). */
+  line?: number;
   /** Path relative to the project root (what the UI shows). */
   rel: string;
   project: Project;

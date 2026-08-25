@@ -97,6 +97,11 @@ export default function App({
   const allowAlways = useRef<Map<string, Set<string>>>(new Map());
   /** Stand-in for "every tool" in a task's standing allow rules. */
   const ANY_TOOL = "*";
+  /** How much of a chat comes back when you open it. Twelve entries — and
+   *  a tool call plus its result are two — meant four real messages: a
+   *  reopened chat showed almost nothing of the work it contained. Reading
+   *  the log is local and free; only the DOM pays. */
+  const HISTORY_TAIL = 150;
 
   // Mode chosen on the selector for NEW tasks (null = config default).
   const [modeDefault, setModeDefault] = useState<string | null>(null);
@@ -178,12 +183,18 @@ export default function App({
     if (live) return workersRef.current[live]?.label ?? live;
     return focusedTaskRef.current?.title ?? null;
   }, []);
+  /** Threads whose next agent turn IS a compaction (we sent "/compact").
+   *  The summary is pages long and the CLI writes it as ordinary prose. */
+  const compacting = useRef<Set<string>>(new Set());
+  /** The CLI's own opening line for a compaction, in case one arrives
+   *  without us having asked (a session that compacted itself). */
+  const COMPACTION_HEAD = /^This session is being continued from a previous conversation/;
   const push = useCallback(
     (m: Msg) =>
       setMessages((old) => [
         ...old,
         {
-          ...m,
+          ...asCompaction(m),
           // An untagged message belongs to the general chat, so with a task
           // focused it is pushed straight out of view. Whatever is added
           // while a chat is open belongs to that chat unless the caller
@@ -196,6 +207,18 @@ export default function App({
       ]),
     [currentThread],
   );
+  /** Turn an agent reply that is really a compaction summary into the
+   *  folded kind. Live, the only tell is that we asked for it; a session
+   *  that compacted itself is caught by the CLI's fixed opening line. */
+  const asCompaction = useCallback((m: Msg): Msg => {
+    if (m.who !== "hark") return m;
+    const thread = m.task ?? currentThread() ?? "";
+    const asked = compacting.current.delete(thread);
+    if (!asked && !COMPACTION_HEAD.test(m.text)) return m;
+    return { who: "compact", text: m.text, task: m.task };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** Thread key for worker events: the task LABEL, stable and readable. */
   const labelFor = useCallback(
     (taskId: string) => workersRef.current[taskId]?.label ?? taskId,
@@ -327,6 +350,16 @@ export default function App({
     refresh,
     onWorkerExit: useCallback((taskId: string) => {
       endTurn(null, taskId);
+      // Its open asks can never be answered now: approving would reach a
+      // process that is gone. They say so instead of offering buttons.
+      const label = labelFor(taskId);
+      setMessages((old) =>
+        old.map((m) =>
+          m.who === "permission" && !m.decision && !m.expired && m.task === label
+            ? { ...m, expired: true }
+            : m,
+        ),
+      );
       setLiveWorkers((old) => {
         const next = { ...old };
         delete next[taskId];
@@ -583,7 +616,10 @@ export default function App({
       const existing = old.findIndex((f) => f.abs === file.abs);
       if (existing >= 0) {
         setActiveFile(existing);
-        return old;
+        // Same file, new line: the tab is reused and jumps.
+        return file.line && old[existing].line !== file.line
+          ? old.map((f, i) => (i === existing ? { ...f, line: file.line } : f))
+          : old;
       }
       if (old.length < 5) {
         setActiveFile(old.length);
@@ -655,9 +691,11 @@ export default function App({
       ipc.openExternal(path).catch(() => {});
       return;
     }
-    // "src/lib.rs:38" is how every tool prints a location. The viewer has
-    // no line jump yet, so the file opens and the number is dropped.
-    path = path.replace(/:\d+(?::\d+)?$/, "");
+    // "src/lib.rs:38" is how every tool prints a location: the number
+    // travels to the viewer, which scrolls there.
+    const at = /:(\d+)(?::\d+)?$/.exec(path);
+    const line = at ? Number(at[1]) : undefined;
+    if (at) path = path.slice(0, at.index);
     if (!path.startsWith("/") && !path.startsWith("~")) {
       // A relative path is relative to where the AGENT runs, which is the
       // task's workspace — often a repository inside the project, not the
@@ -681,7 +719,7 @@ export default function App({
       (p) => np === norm(p.path) || np.startsWith(`${norm(p.path)}/`),
     );
     if (project) {
-      openFile({ abs: path, rel: np.slice(norm(project.path).length + 1), project });
+      openFile({ abs: path, rel: np.slice(norm(project.path).length + 1), project, line });
       return;
     }
     const parts = path.split("/");
@@ -689,6 +727,7 @@ export default function App({
       abs: path,
       rel: parts[parts.length - 1] ?? path,
       project: { name: parts[parts.length - 2] ?? "", path: parts.slice(0, -1).join("/") },
+      line,
     });
   }
 
@@ -734,6 +773,12 @@ export default function App({
   /** Deliver a "/comando" verbatim to the focused chat's session, skipping
    *  the evaluator (typed slash = explicit intent, nothing to gate). */
   async function sendSlash(text: string) {
+    // The reply to "/compact" is the summary itself: mark the thread so it
+    // arrives folded instead of pasted into the conversation.
+    if (/^\/compact\b/.test(text)) {
+      const thread = focused ? labelFor(focused) : focusedTask?.title;
+      if (thread) compacting.current.add(thread);
+    }
     if (focused) {
       push({ who: "user", text, task: labelFor(focused) });
       // "/compact" is a turn like any other: it thinks, it costs, it takes
@@ -1268,6 +1313,7 @@ export default function App({
     // heavy-session warning offers looked exactly like a dead window.
     const thread = currentThread() ?? GENERAL;
     beginTurn(thread);
+    compacting.current.add(thread);
     const liveEntry =
       focusedTask && sessionId === focusedTask.sessionId
         ? Object.entries(liveWorkers).find(([, w]) => w.label === focusedTask.title)
@@ -1446,7 +1492,7 @@ export default function App({
     if (loadedTasks.current.has(title)) return; // thread already built once
     loadedTasks.current.add(title);
     try {
-      const out = await ipc.readTranscript(sessionId, 12).catch(async (err) => {
+      const out = await ipc.readTranscript(sessionId, HISTORY_TAIL).catch(async (err) => {
         // Linked session vanished from disk (os error 2): fall back to the
         // best topic match instead of a dead end.
         const hit = await ipc.findSession(title).catch(() => null);
@@ -1457,13 +1503,18 @@ export default function App({
           text: `sessão vinculada sumiu; usando "${hit.title ?? hit.session_id.slice(0, 8)}"`,
           task: title,
         });
-        return ipc.readTranscript(hit.session_id, 12);
+        return ipc.readTranscript(hit.session_id, HISTORY_TAIL);
       });
       for (const e of out.entries) {
         if (e.role === "user") push({ who: "user", text: e.text, task: title });
         else if (e.role === "assistant") push({ who: "hark", text: e.text, task: title });
         else if (e.role === "tool_use")
           push({ who: "tool", name: e.tool ?? "tool", input: e.text, task: title });
+        // Results were dropped, so a reopened chat lost every ✓/✗ and read
+        // differently from the same chat live.
+        else if (e.role === "tool_result")
+          push({ who: "output", content: e.text, error: e.is_error, task: title });
+        else if (e.role === "compaction") push({ who: "compact", text: e.text, task: title });
       }
       push({
         who: "sys",
