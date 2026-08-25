@@ -336,7 +336,12 @@ export default function Transcript({
   // A tool and its output are ONE unit: the output fuses into the tool's
   // fold (✓/✗ on the line, "resultado · N linhas" inside). Orphan outputs
   // render on their own.
-  type Unit = { m: Msg; i: number; result?: { content: string; error: boolean } };
+  type Unit = {
+    m: Msg;
+    i: number;
+    result?: { content: string; error: boolean };
+    decision?: "allow" | "deny";
+  };
   const units: Unit[] = [];
   messages.forEach((m, i) => {
     if (m.who === "output") {
@@ -351,13 +356,53 @@ export default function Transcript({
         return;
       }
     }
+    // Same fusion the other way round: an auto-approved card can land
+    // after the tool row it belongs to.
+    if (m.who === "permission" && m.decision) {
+      const twin = units.find(
+        (u) =>
+          u.m.who === "tool" &&
+          !u.decision &&
+          u.m.name === m.tool &&
+          u.m.input === m.input,
+      );
+      if (twin) {
+        twin.decision = m.decision;
+        return;
+      }
+    }
+    // The ask and the call it authorized are the same event twice: the
+    // card arrives when the CLI asks, the tool row when the block lands.
+    // Seven MCP reads showed fourteen rows. Same tool, same payload, one
+    // line — the decision rides along as a badge.
+    if (m.who === "tool") {
+      const twin = units.findIndex(
+        (u) =>
+          u.m.who === "permission" &&
+          !!u.m.decision &&
+          u.m.tool === m.name &&
+          u.m.input === m.input,
+      );
+      if (twin >= 0) {
+        const decision = (units[twin].m as { decision?: "allow" | "deny" }).decision;
+        units.splice(twin, 1);
+        units.push({ m, i, decision });
+        return;
+      }
+    }
     units.push({ m, i });
   });
 
-  const renderUnit = ({ m, i, result }: Unit): ReactNode =>
+  const renderUnit = ({ m, i, result, decision }: Unit): ReactNode =>
     m.who === "tool" ? (
       <div key={i} className={`msg ${m.who}`}>
-        <ToolCall name={m.name} input={m.input} onOpenPath={onOpenPath} result={result} />
+        <ToolCall
+          name={m.name}
+          input={m.input}
+          onOpenPath={onOpenPath}
+          result={result}
+          decision={decision}
+        />
       </div>
     ) : (
       renderOne(m, i)

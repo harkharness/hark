@@ -67,6 +67,7 @@ export default function ToolCall({
   onOpenPath,
   defaultOpen = false,
   result,
+  decision,
 }: {
   name: string;
   input: string;
@@ -77,6 +78,9 @@ export default function ToolCall({
   /** The tool's OUTPUT, fused into this unit: a ✓/✗ tick on the summary
    *  line and a folded "resultado · N linhas" inside the body. */
   result?: { content: string; error: boolean };
+  /** The permission this call already got, fused in as a badge — the card
+   *  for it does not need a row of its own. */
+  decision?: "allow" | "deny";
 }) {
   let parsed: Record<string, unknown>;
   try {
@@ -230,14 +234,23 @@ export default function ToolCall({
       <span className="toolname">{pretty.label}</span>
     </>
   );
-  const tick = result && (
-    <span className={`tool-tick ${result.error ? "err" : "ok"}`}>
-      {result.error ? "✗" : "✓"}
-    </span>
+  const tick = (result || decision) && (
+    <>
+      {decision && (
+        <span className={`perm-how ${decision}`}>
+          {decision === "allow" ? t("perm_allowed") : t("perm_denied")}
+        </span>
+      )}
+      {result && (
+        <span className={`tool-tick ${result.error ? "err" : "ok"}`}>
+          {result.error ? "✗" : "✓"}
+        </span>
+      )}
+    </>
   );
 
   // No body and no result = one quiet line; otherwise fold it.
-  if (!body && !result) {
+  if (!body && !result && !decision) {
     return (
       <div className="toolcall inline">
         {nameEl}
