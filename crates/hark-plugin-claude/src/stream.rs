@@ -5,7 +5,7 @@
 use serde_json::Value;
 
 pub use hark_agent::{
-    AgentEvent, ModelUsage, PermissionDecision, RateLimitInfo, TokenUsage, TurnResult,
+    AgentEvent, AgentPhase, ModelUsage, PermissionDecision, RateLimitInfo, TokenUsage, TurnResult,
 };
 
 /// Historical alias — this crate's parser used to own the event enum.
@@ -23,27 +23,52 @@ pub fn parse(line: &str) -> AgentEvent {
         Some("user") => parse_tool_result(&v).unwrap_or(ClaudeEvent::Ignored),
         Some("result") => parse_result(&v).map(ClaudeEvent::Result).unwrap_or(ClaudeEvent::Ignored),
         Some("control_request") => parse_permission(&v).unwrap_or(ClaudeEvent::Ignored),
-        Some("system") => v
-            .get("subtype")
-            .and_then(Value::as_str)
-            .filter(|s| *s == "init")
-            .and_then(|_| v.get("session_id").and_then(Value::as_str))
-            .map(|s| ClaudeEvent::SessionStarted {
-                session_id: s.to_string(),
-                slash_commands: v
-                    .get("slash_commands")
-                    .and_then(Value::as_array)
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(Value::as_str)
-                            .map(str::to_string)
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-            })
-            .unwrap_or(ClaudeEvent::Ignored),
+        Some("system") => match v.get("subtype").and_then(Value::as_str) {
+            Some("init") => parse_init(&v).unwrap_or(ClaudeEvent::Ignored),
+            Some("status") => parse_status(&v).unwrap_or(ClaudeEvent::Ignored),
+            _ => ClaudeEvent::Ignored,
+        },
+        Some("stream_event") => parse_stream_phase(&v).unwrap_or(ClaudeEvent::Ignored),
         Some("rate_limit_event") => parse_rate_limit(&v).unwrap_or(ClaudeEvent::Ignored),
         _ => ClaudeEvent::Ignored,
+    }
+}
+
+fn parse_init(v: &Value) -> Option<ClaudeEvent> {
+    Some(ClaudeEvent::SessionStarted {
+        session_id: v.get("session_id")?.as_str()?.to_string(),
+        slash_commands: v
+            .get("slash_commands")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .unwrap_or_default(),
+    })
+}
+
+/// The CLI's own status line. Only the states Hark can state as fact are
+/// mapped; a new one the CLI invents stays Ignored rather than guessed.
+fn parse_status(v: &Value) -> Option<ClaudeEvent> {
+    match v.get("status")?.as_str()? {
+        "requesting" | "stream_request_start" => {
+            Some(ClaudeEvent::Status(AgentPhase::Requesting))
+        }
+        _ => None,
+    }
+}
+
+/// Partial-message deltas, which is where a long turn spends its life:
+/// reasoning tokens arrive as `thinking_delta` for as long as the model
+/// thinks, and prose as `text_delta`. Content is deliberately dropped —
+/// this is a heartbeat, and the full blocks arrive on their own lines.
+fn parse_stream_phase(v: &Value) -> Option<ClaudeEvent> {
+    let event = v.get("event")?;
+    if event.get("type")?.as_str()? != "content_block_delta" {
+        return None;
+    }
+    match event.get("delta")?.get("type")?.as_str()? {
+        "thinking_delta" => Some(ClaudeEvent::Status(AgentPhase::Thinking)),
+        "text_delta" => Some(ClaudeEvent::Status(AgentPhase::Writing)),
+        _ => None,
     }
 }
 
@@ -324,6 +349,49 @@ mod tests {
         assert_eq!(msg["message"]["content"][1]["type"], "image");
         assert_eq!(msg["message"]["content"][1]["source"]["data"], "d29ybGQ=");
         assert_eq!(msg["message"]["content"][2]["type"], "text");
+    }
+
+    /// Lines captured from CLI v2.1.220 with --include-partial-messages.
+    /// Before this, a turn that thought for a minute emitted NOTHING the
+    /// window could see: the first `assistant` line only lands once the
+    /// whole block is finished, so the chat sat dead while the model
+    /// worked. The CLI says what it is doing the entire time.
+    #[test]
+    fn the_cli_announces_what_it_is_doing() {
+        assert_eq!(
+            parse(r#"{"type":"system","subtype":"status","status":"requesting","uuid":"57fe","session_id":"ae17"}"#),
+            AgentEvent::Status(AgentPhase::Requesting)
+        );
+        assert_eq!(
+            parse(
+                r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,
+                "delta":{"type":"thinking_delta","thinking":"","estimated_tokens":null}},
+                "session_id":"ae17"}"#
+            ),
+            AgentEvent::Status(AgentPhase::Thinking)
+        );
+        assert_eq!(
+            parse(
+                r#"{"type":"stream_event","event":{"type":"content_block_delta","index":1,
+                "delta":{"type":"text_delta","text":"391"}},"session_id":"ae17"}"#
+            ),
+            AgentEvent::Status(AgentPhase::Writing)
+        );
+    }
+
+    /// Nothing is invented from a partial stream: only the two deltas that
+    /// name a phase count, and an unknown status stays unknown.
+    #[test]
+    fn partial_stream_noise_stays_ignored() {
+        for line in [
+            r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{}}}}"#,
+            r#"{"type":"stream_event","event":{"type":"content_block_stop","index":0}}"#,
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"x"}}}"#,
+            r#"{"type":"system","subtype":"post_turn_summary","status_category":"review_ready"}"#,
+            r#"{"type":"system","subtype":"status","status":"something_new"}"#,
+        ] {
+            assert_eq!(parse(line), AgentEvent::Ignored, "line: {line}");
+        }
     }
 
     #[test]

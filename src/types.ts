@@ -40,6 +40,9 @@ export type HarkEvent =
       resets_at?: number | null;
       limit_kind?: string | null;
     }
+  /** What a worker is doing while it is quiet, straight from the CLI's
+   *  own status line and its partial-message deltas. */
+  | { kind: "phase"; task_id: string; phase: "requesting" | "thinking" | "writing" }
   | { kind: "worker_exit"; task_id: string; exit_code?: number | null; reason?: string | null }
   | { kind: "session_started"; task_id: string; session_id: string }
   | { kind: "speaking"; on: boolean }

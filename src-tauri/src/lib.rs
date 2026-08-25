@@ -773,6 +773,9 @@ fn start_worker_titled(
         })
     };
     let mut current_session = spawn.session_id.clone();
+    // Last phase reported to the window. The CLI streams its status many
+    // times a second; only the transitions are worth an event.
+    let mut last_phase: Option<hark_agent::AgentPhase> = None;
     // Which eco tools this spawn runs with — every turn's ledger row
     // carries it, so the costs panel can compare real per-tool averages.
     let eco_outcome = eco_fingerprint(&spawn.envs);
@@ -920,6 +923,9 @@ fn start_worker_titled(
                     );
                 }
                 ClaudeEvent::Result(turn) => {
+                    // The next turn starts from scratch: re-announce its
+                    // first phase even if it matches this turn's last.
+                    last_phase = None;
                     // Turn done, worker stays alive for the next message.
                     update_worker_summary(&config, &task2, &turn.raw);
                     if task2 != HARK_CHAT_TASK {
@@ -1003,6 +1009,20 @@ fn start_worker_titled(
                     serde_json::json!({ "kind": "rate_limit", "status": info.status,
                         "resets_at": info.resets_at, "limit_kind": info.kind }),
                 ),
+                // What the agent is doing while it is quiet. A turn spends
+                // most of a minute here — reasoning, or waiting on the API
+                // — and the window used to show nothing at all until the
+                // first finished block arrived.
+                ClaudeEvent::Status(phase) => {
+                    if last_phase != Some(phase) {
+                        last_phase = Some(phase);
+                        emit_event(
+                            &app2,
+                            serde_json::json!({ "kind": "phase",
+                                "task_id": task2, "phase": phase }),
+                        );
+                    }
+                }
                 _ => {}
             }
         }

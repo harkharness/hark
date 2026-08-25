@@ -92,8 +92,26 @@ pub enum AgentEvent {
     },
     /// Quota window status, when the backend emits one.
     RateLimit(RateLimitInfo),
+    /// What the agent is doing RIGHT NOW — no content, just the phase.
+    /// A turn can spend a minute reasoning before it emits a single word,
+    /// and a window with nothing on screen reads as a window that broke.
+    /// A backend that cannot report this simply never sends it.
+    Status(AgentPhase),
     /// Anything Hark doesn't react to (kept so streams stay auditable).
     Ignored,
+}
+
+/// Coarse phases of a running turn. Deliberately few: each one must be
+/// something a backend can state as fact, never guessed from a timer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentPhase {
+    /// Request in flight, nothing back yet.
+    Requesting,
+    /// Reasoning tokens arriving.
+    Thinking,
+    /// Prose arriving.
+    Writing,
 }
 
 /// User's verdict on a permission request.

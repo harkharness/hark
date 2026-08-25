@@ -171,6 +171,13 @@ export function useHarkEvents(h: Handlers) {
           ).catch(() => {});
         }
         h.refresh();
+      } else if (ev.kind === "phase") {
+        // "requesting" and "thinking" are both waiting as far as the user
+        // is concerned; the status line escalates its wording by elapsed.
+        h.onTurnActivity?.(
+          h.labelFor(ev.task_id),
+          ev.phase === "writing" ? "writing" : "thinking",
+        );
       } else if (ev.kind === "worker_exit") {
         // The reason travels with the event now; "encerrado" alone left
         // the user staring at a dead chat with nothing to act on.

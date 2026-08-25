@@ -478,6 +478,8 @@ export default function App({
 
   /** Register a started worker in the UI and focus its thread. */
   function adoptWorker(taskId: string, label: string, directives: Directives, sessionId: string) {
+    // The dispatch's clock was started before this task had a name.
+    rekeyTurn(currentThread() ?? GENERAL, label);
     setLiveWorkers((old) => ({ ...old, [taskId]: { label, status: "running", directives } }));
     setFocused(taskId);
     setFocusedTask((old) => (old?.title === label ? old : { title: label, sessionId }));
@@ -491,7 +493,14 @@ export default function App({
 
   async function runDispatch(instruction: string, sessionId?: string) {
     setBusy("despachando…");
+    const from = currentThread() ?? GENERAL;
     push({ who: "sys", text: `dispatch: ${instruction}` });
+    // Spawning a worker takes seconds before the first event: the clock
+    // starts with the dispatch, not with the agent's first word.
+    beginTurn(from);
+    // Only a live worker keeps the clock: every other outcome ends here,
+    // and a clock nobody stops ticks forever.
+    let live = false;
     try {
       const out = await ipc.workerStart(instruction, sessionId ?? null, modeDefault ?? undefined);
       if (out.status === "started") {
@@ -500,6 +509,7 @@ export default function App({
             ? focusedTask.title
             : instruction.split(/\s+/).slice(0, 5).join(" ");
         adoptWorker(out.task_id, label, out.directives, sessionId ?? "");
+        live = true;
       } else if (out.status === "done") {
         push({ who: "hark", text: out.summary, cost: out.cost_usd });
         say("Tarefa concluída.");
@@ -521,6 +531,7 @@ export default function App({
     } catch (err) {
       push({ who: "sys", text: `erro: ${err}` });
     } finally {
+      if (!live) endTurn(from);
       setBusy(null);
       refresh();
     }
@@ -529,19 +540,24 @@ export default function App({
   /** First message of a "+" draft: opens a brand-new session in the project. */
   async function runNewChat(project: Project, instruction: string) {
     setBusy("abrindo sessão nova…");
+    const from = currentThread() ?? GENERAL;
     push({ who: "sys", text: `novo chat em ${project.name}` });
+    beginTurn(from);
+    let live = false;
     try {
       const out = await ipc.chatStart(project.path, instruction, modeDefault ?? undefined);
       if (out.status === "started") {
         const label = instruction.split(/\s+/).slice(0, 5).join(" ");
         push({ who: "user", text: instruction, task: label });
         adoptWorker(out.task_id, label, out.directives, "");
+        live = true;
       } else {
         push({ who: "sys", text: `não abriu: ${JSON.stringify(out)}` });
       }
     } catch (err) {
       push({ who: "sys", text: `erro: ${err}` });
     } finally {
+      if (!live) endTurn(from);
       setDraftChat(null);
       setBusy(null);
       refresh();
@@ -705,9 +721,13 @@ export default function App({
   async function sendSlash(text: string) {
     if (focused) {
       push({ who: "user", text, task: labelFor(focused) });
-      await ipc
-        .workerSend(focused, text, [])
-        .catch((err) => push({ who: "sys", text: `worker: ${agentError(err)}` }));
+      // "/compact" is a turn like any other: it thinks, it costs, it takes
+      // a minute. It showed no clock because this path never started one.
+      beginTurn(labelFor(focused));
+      await ipc.workerSend(focused, text, []).catch((err) => {
+        endTurn(labelFor(focused));
+        push({ who: "sys", text: `worker: ${agentError(err)}` });
+      });
       return;
     }
     if (focusedTask) {
@@ -894,7 +914,10 @@ export default function App({
             old[focused] ? { ...old, [focused]: { ...old[focused], directives } } : old,
           ),
         )
-        .catch((err) => push({ who: "sys", text: `worker: ${agentError(err)}` }));
+        .catch((err) => {
+          endTurn(labelFor(focused));
+          push({ who: "sys", text: `worker: ${agentError(err)}` });
+        });
       return;
     }
     if (focusedTask && !toHark) {
@@ -934,7 +957,6 @@ export default function App({
         });
         return;
       }
-      beginTurn();
       await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text, images, false);
       return;
     }
@@ -1037,13 +1059,28 @@ export default function App({
    * window and drop the command into a real shell — running it (execute)
    * or just leaving it typed for the user to review and hit Enter.
    */
-  /** A turn starts in the thread on screen: its clock and phase start. */
-  function beginTurn() {
-    const thread = currentThread() ?? GENERAL;
+  /** A turn starts: its clock and phase start with it. Defaults to the
+   *  thread on screen; voice and follow-ups name another one. */
+  function beginTurn(thread: string | null = currentThread()) {
+    const key = thread ?? GENERAL;
     setTurns((old) => ({
       ...old,
-      [thread]: { startedAt: Date.now(), phase: { kind: "thinking" }, chars: 0 },
+      [key]: { startedAt: Date.now(), phase: { kind: "thinking" }, chars: 0 },
     }));
+  }
+
+  /** Same turn, new thread: a dispatch from the general chat creates the
+   *  task it runs in, so the clock moves over keeping its start time. */
+  function rekeyTurn(from: string, to: string) {
+    if (from === to) return;
+    setTurns((old) => {
+      const running = old[from];
+      if (!running || old[to]) return old;
+      const next = { ...old };
+      delete next[from];
+      next[to] = running;
+      return next;
+    });
   }
 
   /** A turn ended: drop its clock. Called with whatever names it — the
@@ -1374,6 +1411,10 @@ export default function App({
     /** The submit path echoes before it starts, so it opts out here. */
     echo = true,
   ) {
+    // Slash commands, spoken follow-ups and compact-then-send all land
+    // here. "/compact" showed no clock at all because only the two typed
+    // paths above started one.
+    beginTurn(title);
     await reactivateIfDone(title);
     const liveEntry = Object.entries(liveWorkers).find(([, w]) => w.label === title);
     if (echo) push({ who: "user", text, images: images.map((i) => i.dataUrl), task: title });
@@ -1386,7 +1427,10 @@ export default function App({
             [liveEntry[0]]: { ...old[liveEntry[0]], directives },
           })),
         )
-        .catch((err) => push({ who: "sys", text: `worker: ${agentError(err)}` }));
+        .catch((err) => {
+          endTurn(title);
+          push({ who: "sys", text: `worker: ${agentError(err)}` });
+        });
       return;
     }
     await runDispatch(text, sessionId);
