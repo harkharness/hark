@@ -275,7 +275,7 @@ export const termClose = (id: string) => invoke("term_close", { id });
 
 /** Switch a live worker's permission mode (restarts it, sends no text). */
 export const workerSetMode = (taskId: string, mode: string) =>
-  invoke<Directives>("worker_set_mode", { taskId, mode });
+  invoke<{ directives: Directives; restarted: boolean }>("worker_set_mode", { taskId, mode });
 
 /* ---- global voice (HUD) ---- */
 export const planUtterance = (text: string) =>

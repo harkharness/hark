@@ -371,7 +371,9 @@ export default function Transcript({
   let run: Unit[] = [];
   const flush = () => {
     if (run.length === 0) return;
-    const tools = run.filter(({ m }) => m.who === "tool").length;
+    const tools = run.filter(
+      ({ m }) => m.who === "tool" || (m.who === "permission" && m.decision),
+    ).length;
     if (tools >= 2) {
       nodes.push(
         <details key={`group-${run[0].i}`} className="tool-group">
@@ -387,6 +389,10 @@ export default function Transcript({
   units.forEach((u) => {
     const groupable =
       (u.m.who === "tool" && !STANDALONE_TOOLS.has(u.m.name)) ||
+      // A DECIDED permission is a record, not a request: it folds into the
+      // run like the tool call it belongs to. An open ask breaks the run —
+      // it is the one thing on screen waiting for the user.
+      (u.m.who === "permission" && !!u.m.decision) ||
       (u.m.who === "output" && run.length > 0);
     if (groupable) run.push(u);
     else {

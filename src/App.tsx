@@ -95,6 +95,9 @@ export default function App({
   // Standing "sempre permitir" rules: task label → tools auto-approved.
   // Window-scoped by design: closing the window forgets every rule.
   const allowAlways = useRef<Map<string, Set<string>>>(new Map());
+  /** Stand-in for "every tool" in a task's standing allow rules. */
+  const ANY_TOOL = "*";
+
   // Mode chosen on the selector for NEW tasks (null = config default).
   const [modeDefault, setModeDefault] = useState<string | null>(null);
   // Per-thread raw worker feed (the task's "terminal") and window spend.
@@ -305,7 +308,12 @@ export default function App({
     autoAllow: useCallback(
       (ask: import("./types").PermissionAsk) => {
         const label = workersRef.current[ask.task_id]?.label ?? ask.label ?? ask.task_id;
-        return allowAlways.current.get(label)?.has(ask.tool_name) ?? false;
+        const rules = allowAlways.current.get(label);
+        // ANY_TOOL is what relaxing the mode mid-turn installs: the CLI
+        // keeps its old flags until the process reopens, so the window
+        // answers in its place. The production gate still overrides it —
+        // that check lives before autoAllow is ever consulted.
+        return !!rules && (rules.has(ask.tool_name) || rules.has(ANY_TOOL));
       },
       [],
     ),
@@ -983,25 +991,76 @@ export default function App({
     modeDefault ??
     (overview?.default_mode || "manual");
 
+  /** Modes that mean "stop asking me": relaxing one mid-turn is answered
+   *  by the window itself, since the process keeps its flags until it
+   *  reopens. Restrictive modes only ever wait for the reopen. */
+  const RELAXED = new Set(["auto", "bypassPermissions"]);
+
   /**
-   * Selector change: a focused live worker switches mode NOW (process
-   * restart on the same session — flags are per-process, no text is
-   * sent); with nothing focused it becomes this window's default.
+   * Selector change: a focused live worker switches mode (process restart
+   * on the same session — flags are per-process, no text is sent); with
+   * nothing focused it becomes this window's default.
+   *
+   * A turn in flight is never interrupted for it. Switching to "auto"
+   * mid-turn used to shut the process down under a running tool call and
+   * take the whole turn — seven tool calls — with it.
    */
   function selectMode(flag: string) {
-    if (focused && liveWorkers[focused]) {
+    const taskId = focused;
+    if (taskId && liveWorkers[taskId]) {
+      const label = labelFor(taskId);
       ipc
-        .workerSetMode(focused, flag)
-        .then((directives) =>
+        .workerSetMode(taskId, flag)
+        .then((out) => {
           setLiveWorkers((old) =>
-            old[focused] ? { ...old, [focused]: { ...old[focused], directives } } : old,
-          ),
-        )
+            old[taskId] ? { ...old, [taskId]: { ...old[taskId], directives: out.directives } } : old,
+          );
+          if (out.restarted) {
+            allowAlways.current.get(label)?.delete(ANY_TOOL);
+            return;
+          }
+          // The turn keeps running with the old flags, and it stays that
+          // way: forcing a restart when the turn lands would re-cache the
+          // whole context for nothing. The window answering in the CLI's
+          // place is free, and identical from where the user sits.
+          const rules = allowAlways.current.get(label) ?? new Set<string>();
+          if (RELAXED.has(flag)) rules.add(ANY_TOOL);
+          else rules.delete(ANY_TOOL);
+          allowAlways.current.set(label, rules);
+          if (RELAXED.has(flag)) {
+            const answered = approveOpenAsks(label);
+            push({
+              who: "sys",
+              text:
+                `modo ${flag}: as permissões desta task passam sem perguntar` +
+                (answered ? ` (${answered} liberada${answered > 1 ? "s" : ""})` : "") +
+                " — produção continua pedindo confirmação",
+              task: label,
+            });
+          } else {
+            push({
+              who: "sys",
+              text: `modo ${flag} vale a partir da próxima abertura da thread`,
+              task: label,
+            });
+          }
+        })
         .catch((err) => push({ who: "sys", text: `modo: ${err}` }));
       return;
     }
     setModeDefault(flag);
     push({ who: "sys", text: `novas tasks desta janela nascem no modo ${flag}` });
+  }
+
+  /** Answer every permission still open in a thread. Returns how many. */
+  function approveOpenAsks(label: string): number {
+    const open = messages.filter(
+      (m) => m.who === "permission" && !m.decision && m.task === label && !m.prodRisk,
+    );
+    for (const ask of open) {
+      if (ask.who === "permission") void answerPermission(ask.requestId, true);
+    }
+    return open.length;
   }
 
   const railHas = (id: RailItem) => rail.some((s) => s.id === id);

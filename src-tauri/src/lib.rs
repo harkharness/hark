@@ -1743,16 +1743,26 @@ fn describe(d: &hark_core::domain::directives::Directives) -> String {
     .join(" · ")
 }
 
+/// Outcome of a mode switch: whether the process was actually reopened.
+/// `restarted: false` means the flag is stored for the next spawn and the
+/// window has to cover this turn's permissions itself.
+#[derive(Serialize)]
+struct SetModeOut {
+    directives: hark_core::domain::directives::Directives,
+    restarted: bool,
+}
+
 /// Switch a live worker's permission mode WITHOUT sending a message: the
 /// UI selector. Flags are per-process, so this restarts the worker on the
-/// same session (context re-cached, no text reaches the model).
+/// same session (context re-cached, no text reaches the model) — but never
+/// while a turn is running.
 #[tauri::command]
 fn worker_set_mode(
     app: AppHandle,
     live: State<'_, LiveWorkers>,
     task_id: String,
     mode: String,
-) -> Result<hark_core::domain::directives::Directives, String> {
+) -> Result<SetModeOut, String> {
     let Some(mode) = hark_core::domain::directives::Mode::from_flag(&mode) else {
         return Err(format!("modo desconhecido: {mode}"));
     };
@@ -1765,9 +1775,34 @@ fn worker_set_mode(
         .ok_or("worker não está mais ativo")?;
     let mut next = handle.spawn.directives.clone();
     if next.mode == Some(mode) {
-        return Ok(next);
+        return Ok(SetModeOut { directives: next, restarted: false });
     }
     next.mode = Some(mode);
+    // A turn in flight OWNS the process. Reopening it here destroyed a
+    // turn with seven tool calls in it: the shutdown cut the transport
+    // mid-call, and the resume landed on a transcript whose last entry was
+    // an unanswered tool_use, so the new process died on arrival too. The
+    // flag waits for the next spawn; the window relaxes this turn's
+    // permissions on its own, which is what the user actually asked for.
+    let in_flight = app
+        .state::<BatchState>()
+        .0
+        .lock()
+        .unwrap()
+        .get(&task_id)
+        .is_some_and(|e| e.in_flight);
+    if in_flight {
+        // Nothing is stored here on purpose: the window owns the intent and
+        // re-applies it the moment the turn lands, when a restart is free
+        // of consequence.
+        emit_event(
+            &app,
+            serde_json::json!({ "kind": "status",
+                "text": format!("{} — sem reabrir a thread: o turno em voo continua",
+                    describe(&next)) }),
+        );
+        return Ok(SetModeOut { directives: next, restarted: false });
+    }
     emit_event(
         &app,
         serde_json::json!({ "kind": "status",
@@ -1779,7 +1814,7 @@ fn worker_set_mode(
         ..handle.spawn.clone()
     };
     start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
-    Ok(next)
+    Ok(SetModeOut { directives: next, restarted: true })
 }
 
 /// End the conversation: EOF + kill, board moves to waiting.
