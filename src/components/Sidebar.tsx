@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderTree, MoreVertical, Pin, Plus, SquareKanban } from "lucide-react";
+import { FolderTree, MessageSquare, MoreVertical, Pin, Plus, SquareKanban } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 
@@ -41,6 +41,8 @@ export default function Sidebar({
   onOpenChat,
   boardOpen,
   onToggleBoard,
+  onOpenGeneral,
+  generalActive,
   onRename,
   onPin,
   onArchive,
@@ -63,6 +65,10 @@ export default function Sidebar({
   boardOpen?: boolean;
   /** Toggle the board panel — the prominent spot the topbar tab had. */
   onToggleBoard?: () => void;
+  /** Back to the window's general chat — the way out of a task now that
+   *  clicking the chat you are already in no longer closes it. */
+  onOpenGeneral?: () => void;
+  generalActive?: boolean;
   onRename: (task: BoardTask, title: string) => void;
   onPin: (task: BoardTask) => void;
   onArchive: (task: BoardTask) => void;
@@ -168,6 +174,15 @@ export default function Sidebar({
           title={t("side_board_hint")}
         >
           <SquareKanban size={13} /> {t("side_board")}
+        </button>
+      )}
+      {onOpenGeneral && (
+        <button
+          className={`side-board ${generalActive ? "on" : ""}`}
+          onClick={onOpenGeneral}
+          title={t("side_general_hint")}
+        >
+          <MessageSquare size={13} /> {t("side_general")}
         </button>
       )}
       {projects.map((p) => {

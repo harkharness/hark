@@ -1756,6 +1756,8 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .side-board:hover { border-color: var(--accent); color: var(--accent); }
 .side-board.on { color: var(--accent); border-color: var(--accent); background: rgba(122,162,247,.08); }
+/* Board and the general chat sit as a pair: half the gap between them. */
+.side-board + .side-board { margin-top: -6px; }
 
 /* ============ first-run wizard (Onboarding.tsx) ============ */
 .ob-backdrop {

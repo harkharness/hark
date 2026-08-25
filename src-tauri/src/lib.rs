@@ -1476,6 +1476,18 @@ fn setup_mark_done() -> Result<(), String> {
 pub(crate) fn ensure_persona(config: &Config) {
     let path = config.data_dir().join("CLAUDE.md");
     if path.exists() {
+        // One exception to "never overwritten": the lines that name the
+        // assistant. The vox → hark rename moved the data dir and left
+        // this file behind, so the soul kept saying "Você é Vox … no Vox"
+        // and the assistant introduced itself by a product name that no
+        // longer exists. Learnings are copied through untouched.
+        if let Ok(doc) = std::fs::read_to_string(&path) {
+            if let Some(fixed) =
+                hark_core::domain::persona::retitle(&doc, &config.assistant_name)
+            {
+                let _ = std::fs::write(&path, fixed);
+            }
+        }
         return;
     }
     let _ = std::fs::create_dir_all(config.data_dir());

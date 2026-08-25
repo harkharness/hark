@@ -44,6 +44,34 @@ trate-o como a sua identidade e a sua memória durável.
     )
 }
 
+/// Bring a soul file's identity back in line with the configured name.
+/// Only the three lines that NAME the assistant are rewritten; every other
+/// line — the learnings above all — is copied byte for byte. Returns None
+/// when the file already agrees, so an untouched file is never rewritten.
+pub fn retitle(doc: &str, assistant_name: &str) -> Option<String> {
+    let title = format!("# {assistant_name} — personalidade e aprendizados");
+    let intro =
+        format!("Você é {assistant_name}, o assistente pessoal de trabalho do usuário no Hark");
+    let name_line = format!("- Nome: {assistant_name}");
+    let mut out = String::with_capacity(doc.len());
+    let mut changed = false;
+    for line in doc.lines() {
+        let fixed = if line.starts_with("# ") && line.contains("personalidade") {
+            title.as_str()
+        } else if line.starts_with("Você é ") {
+            intro.as_str()
+        } else if line.starts_with("- Nome: ") {
+            name_line.as_str()
+        } else {
+            line
+        };
+        changed |= fixed != line;
+        out.push_str(fixed);
+        out.push('\n');
+    }
+    changed.then_some(out)
+}
+
 /// The identity the CHEAP ask carries: only "## Identidade" and
 /// "## Estilo" from the soul file, hard-clipped — a few hundred chars of
 /// tone, never the learnings (those belong to the full chat).
@@ -91,6 +119,30 @@ mod tests {
         assert!(excerpt(&long).chars().count() <= 620, "hard clip");
         assert_eq!(excerpt(""), "");
         assert_eq!(excerpt("# sem seções\ntexto"), "");
+    }
+
+    /// The vox → hark rename moved the directories and left the soul file
+    /// alone — correctly, since it holds the user's learnings. So every
+    /// turn kept introducing the assistant as Vox, in a product called
+    /// Vox, and it said so out loud to the user.
+    #[test]
+    fn retitle_fixes_the_identity_and_keeps_the_learnings() {
+        let stale = template("Vox", Lang::Pt).replace("no Hark", "no Vox");
+        let doc = format!("{stale}- 2026-08-20: prefere respostas curtas\n");
+        let fixed = retitle(&doc, "Hark").expect("a stale name must be rewritten");
+        assert!(fixed.starts_with("# Hark — personalidade"));
+        assert!(fixed.contains("Você é Hark, o assistente"));
+        assert!(fixed.contains("no Hark"), "the product name travels with it");
+        assert!(fixed.contains("- Nome: Hark"));
+        assert!(!fixed.contains("Vox"), "no trace of the old name");
+        assert!(fixed.contains("prefere respostas curtas"), "learnings survive");
+    }
+
+    #[test]
+    fn retitle_leaves_an_agreeing_file_alone() {
+        assert!(retitle(&template("Hark", Lang::Pt), "Hark").is_none());
+        // A different name is the user's choice, not a stale file.
+        assert!(retitle(&template("Aria", Lang::Pt), "Aria").is_none());
     }
 
     #[test]

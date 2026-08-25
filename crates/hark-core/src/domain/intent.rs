@@ -33,7 +33,8 @@ pub const ACTION_VERBS: &[&str] = &[
     "abre", "abra", "ajusta", "aplica", "atualiza", "commita", "conserta", "continua",
     "corrige", "cria", "crie", "deleta", "deploya", "edita", "executa", "faz", "faça",
     "gera", "implementa", "implemente", "instala", "merge", "mergeia", "migra", "prepara",
-    "refatora", "remove", "renomeia", "resolve", "roda", "rode", "sobe", "trabalha", "vamos",
+    "organiza", "refatora", "remove", "renomeia", "resolve", "roda", "rode", "sobe",
+    "trabalha", "vamos",
     // English. Read-only verbs ("show", "check") are deliberately absent:
     // they read as questions far more often than as work.
     "add", "apply", "build", "bump", "commit", "continue", "create", "delete",
@@ -43,13 +44,25 @@ pub const ACTION_VERBS: &[&str] = &[
     "run", "ship", "split", "start", "test", "update", "upgrade", "work", "write",
 ];
 
-/// Is this word an order? Portuguese imperatives come in pairs — "atualiza"
-/// and "atualize", "resolve" and "resolva" — and a list of word forms holds
-/// one of each pair by accident. Half of ordinary speech then fell through
-/// to a prose answer. Swapping the final vowel covers the other half
-/// without listing every conjugation of every verb.
+/// Is this word an order? Two forms of the same order fall outside a list
+/// of imperatives, and both are everywhere in ordinary speech:
+///
+/// - the sibling imperative ("atualiza" / "atualize", "resolve" / "resolva"),
+///   since a hand-written list holds one of each pair by accident;
+/// - the infinitive after a modal ("pode commitar", "preciso atualizar"),
+///   which is the same order with a soft edge.
+///
+/// Dropping a final "r" turns the infinitive back into the imperative. It
+/// also turns a handful of English nouns into verbs ("resolver", "updater"),
+/// which at worst opens a confirmation the user can read and refuse.
 pub fn is_action_verb(word: &str) -> bool {
     let word = word.trim_matches(|c: char| !c.is_alphabetic());
+    let stem = word.strip_suffix('r').unwrap_or(word);
+    listed_verb(word) || (stem.len() != word.len() && listed_verb(stem))
+}
+
+/// A word form in the list, or its sibling imperative.
+fn listed_verb(word: &str) -> bool {
     if ACTION_VERBS.contains(&word) {
         return true;
     }
@@ -64,26 +77,35 @@ pub fn is_action_verb(word: &str) -> bool {
     ACTION_VERBS.contains(&other.as_str())
 }
 
-/// Classify an utterance. Questions win over verbs: "o que falta pra abrir o
-/// PR?" is an Ask even though it mentions an action.
+/// Openers that ask for an explanation, in both languages. These veto the
+/// verb scan: "o que falta pra abrir o PR?" asks ABOUT work, it does not
+/// order it.
+const WH_STARTS: &[&str] = &[
+    "quais", "qual", "quanto", "quando", "onde", "quem", "o que", "oq ", "que que",
+    "como", "por que", "porque", "pq ",
+    "what", "which", "how", "when", "where", "who", "why",
+];
+
+/// Classify an utterance. An opening interrogative wins over verbs; a
+/// question MARK does not.
+///
+/// A question mark used to end the discussion, and it was wrong twice over:
+/// "vc pode verificar e organizar os commits?" is an order asked politely
+/// (Portuguese does this constantly, English too — "can you run the
+/// tests?"), and the yes/no openers that carried it ("pode", "dá pra",
+/// "can", "could") are exactly the modals people put in FRONT of an order.
+/// Read as questions, they reached the global ask, which cannot touch a
+/// repository and answered with a menu of options instead of working.
 pub fn route(utterance: &str) -> Route {
     let lower = utterance.to_lowercase();
-    // Question openers in both languages. English "do" is left to the
-    // two-word forms: "do projeto X" is Portuguese for "of project X".
-    const QUESTION_STARTS: &[&str] = &[
-        "quais", "qual", "quanto", "quando", "onde", "quem", "o que", "como", "tem ",
-        "what", "which", "how", "when", "where", "who", "why", "is ", "are ",
-        "can ", "could ", "should ", "does ", "did ", "do i", "do we", "any ",
-    ];
-    let question =
-        lower.ends_with('?') || QUESTION_STARTS.iter().any(|q| lower.starts_with(q));
-    if question {
+    if WH_STARTS.iter().any(|q| lower.starts_with(q)) {
         return Route::Ask;
     }
     // The WHOLE utterance, not the first four words: "eu quero que você
     // faça essa alteração" buries the verb in fifth place, and speech is
-    // full of that. Questions were already handled above, so scanning
-    // everything cannot turn a question into work.
+    // full of that. Anything opening with an interrogative already
+    // returned, so this scan only sees sentences that state or ask for
+    // something — and an order is the likelier of the two.
     let acts = lower.split_whitespace().any(is_action_verb);
     if acts {
         Route::Dispatch
@@ -180,6 +202,47 @@ mod tests {
         // Parallel dispatch while another worker runs.
         assert_eq!(route("enquanto isso faz a task dos alertas"), Route::Dispatch);
         assert_eq!(route("em paralelo roda a migração de pagamentos"), Route::Dispatch);
+    }
+
+    /// Incident 24/08: typed into a project chat, this exact sentence was
+    /// read as a question (it ends in "?") and answered by the global ask
+    /// with two options instead of being executed. Politeness is not a
+    /// question: "pode fazer X?" is an order with a soft edge.
+    #[test]
+    fn polite_requests_are_work_even_with_a_question_mark() {
+        assert_eq!(
+            route(
+                "temos muitas coisas para commitar no workspace-fabrica, vc pode \
+                 verificar oq temos e organizar em commits semânticos?"
+            ),
+            Route::Dispatch
+        );
+        assert_eq!(route("você pode rodar os testes?"), Route::Dispatch);
+        assert_eq!(route("can you run the tests?"), Route::Dispatch);
+        assert_eq!(route("dá pra atualizar o chart do vigia?"), Route::Dispatch);
+    }
+
+    /// Every order in the list is an imperative ("commita", "roda"), but
+    /// speech puts the verb in the infinitive right after a modal —
+    /// "preciso commitar", "quero organizar". Same order, no match.
+    #[test]
+    fn infinitives_are_orders_too() {
+        assert!(is_action_verb("commitar"));
+        assert!(is_action_verb("organizar"));
+        assert!(is_action_verb("resolver"));
+        assert!(is_action_verb("atualizar"));
+        assert_eq!(route("preciso commitar isso tudo"), Route::Dispatch);
+        assert_eq!(route("quero organizar os commits por tema"), Route::Dispatch);
+    }
+
+    /// The veto that survives: a sentence that OPENS with an interrogative
+    /// wants an answer, whatever verbs it carries.
+    #[test]
+    fn wh_questions_still_win_over_verbs() {
+        assert_eq!(route("quais commits faltam?"), Route::Ask);
+        assert_eq!(route("como eu organizo os commits?"), Route::Ask);
+        assert_eq!(route("por que o deploy quebrou?"), Route::Ask);
+        assert_eq!(route("tem alguma coisa pendente?"), Route::Ask);
     }
 
     #[test]

@@ -163,15 +163,30 @@ export default function App({
   // Tasks whose history was already injected once (avoid re-loading on refocus).
   const loadedTasks = useRef(new Set<string>());
 
+  /** The thread on screen right now — the label of the focused worker, or
+   *  of the focused task, or null for the window's general chat. */
+  const currentThread = useCallback((): string | null => {
+    const live = focusedRef.current;
+    if (live) return workersRef.current[live]?.label ?? live;
+    return focusedTaskRef.current?.title ?? null;
+  }, []);
   const push = useCallback(
     (m: Msg) =>
       setMessages((old) => [
         ...old,
-        (m.who === "user" || m.who === "hark") && m.ts == null
-          ? { ...m, ts: Date.now() }
-          : m,
+        {
+          ...m,
+          // An untagged message belongs to the general chat, so with a task
+          // focused it is pushed straight out of view. Whatever is added
+          // while a chat is open belongs to that chat unless the caller
+          // named another thread.
+          ...(m.task == null ? { task: currentThread() ?? undefined } : {}),
+          ...((m.who === "user" || m.who === "hark") && m.ts == null
+            ? { ts: Date.now() }
+            : {}),
+        },
       ]),
-    [],
+    [currentThread],
   );
   /** Thread key for worker events: the task LABEL, stable and readable. */
   const labelFor = useCallback(
@@ -635,8 +650,12 @@ export default function App({
     say("Não achei esse arquivo.");
   }
 
-  const QUESTION_START =
-    /^(quais|qual|como|o que|onde|quando|por que|porque|quem|quanto|lista|resumo|status)\b/i;
+  /** "hark, quanto gastei hoje?" — a vocative at the front is how you talk
+   *  to hark from inside a chat. It takes a comma (or an interjection)
+   *  precisely because this project is NAMED hark: "hark precisa de um fix
+   *  no composer" is a message about the code, not a summons. "vox" still
+   *  answers — the product was renamed, the habit was not. */
+  const TO_HARK = /^(?:(?:ei|oi|opa|olha)\s+(?:hark|vox)\b[\s,:.!?]*|(?:hark|vox)\s*[,:]\s*)/i;
 
   /** "/modo <palavra>" → CLI --permission-mode flag. */
   const MODE_WORDS: Record<string, string> = {
@@ -818,15 +837,25 @@ export default function App({
       return;
     }
 
+    // Calling hark by name is the ONE exit from an open chat. Everything
+    // else typed into a chat belongs to that chat: you chose the target by
+    // opening it. The rule used to be "anything shaped like a question goes
+    // to hark", and a real message — "temos muitas coisas para commitar, vc
+    // pode verificar e organizar em commits semânticos?" — left the thread
+    // because of its final "?": it vanished from the chat on screen and was
+    // answered by the global ask, which has no shell and could only offer
+    // to dispatch the work back.
+    const aside = TO_HARK.exec(text);
+    if (aside) text = text.slice(aside[0].length).trim() || text;
+    const toHark = !!aside;
+
     // A pending "+" draft: this message opens the new session.
-    const isQuestion = /\?\s*$/.test(text) || QUESTION_START.test(text.trim());
-    if (draftChat && !isQuestion) {
+    if (draftChat && !toHark) {
       await runNewChat(draftChat, text);
       return;
     }
 
-    // Explicit questions always go to ask, focused or not.
-    if (!isQuestion && focused) {
+    if (focused && !toHark) {
       push({ who: "user", text, images: images.map((i) => i.dataUrl), task: focused && labelFor(focused) });
       beginTurn();
       await ipc
@@ -839,7 +868,7 @@ export default function App({
         .catch((err) => push({ who: "sys", text: `worker: ${agentError(err)}` }));
       return;
     }
-    if (!isQuestion && focusedTask) {
+    if (focusedTask && !toHark) {
       // Echo FIRST. Everything below can take a round trip, and a chat
       // that swallows what you typed until the backend answers reads as
       // broken — you cannot even tell whether Enter registered.
@@ -1312,8 +1341,7 @@ export default function App({
 
   function startDraftChat(project: Project) {
     setDraftChat(project);
-    setFocusedTask(null);
-    setFocused(null);
+    leaveChat();
     push({
       who: "sys",
       text: `novo chat em ${project.name} (${project.path}): a próxima mensagem abre a sessão`,
@@ -1339,16 +1367,21 @@ export default function App({
     await focusTask(title, session, note);
   }
 
-  /** Sidebar click: open the task — or release it when already focused
-   *  (the chip that used to do this was redundant with the sidebar). */
-  const openTaskFromSidebar = (t: BoardTask) => {
-    if (focusedTask?.title === t.title) {
-      setFocusedTask(null);
-      setFocused(null);
-      return Promise.resolve();
-    }
-    return openTaskByTitle(t.title, t.session_ids.at(-1), t.note);
-  };
+  /** Sidebar click: open the task. Always — clicking the chat you are
+   *  already in never takes you somewhere else. */
+  const openTaskFromSidebar = (t: BoardTask) =>
+    focusedTask?.title === t.title
+      ? Promise.resolve()
+      : openTaskByTitle(t.title, t.session_ids.at(-1), t.note);
+
+  /** Back to the window's general chat with hark (the sidebar's own row).
+   *  Refs first: state arrives a render later and push() reads the refs. */
+  function leaveChat() {
+    focusedRef.current = null;
+    focusedTaskRef.current = null;
+    setFocusedTask(null);
+    setFocused(null);
+  }
 
   /**
    * Recover an existing session: it becomes a board task named after the
@@ -1614,6 +1647,8 @@ export default function App({
               liveTitles={Object.values(liveWorkers).map((w) => w.label)}
               onOpen={openTaskFromSidebar}
               onOpenChat={recoverSession}
+              onOpenGeneral={leaveChat}
+              generalActive={!focusedTask && !draftChat}
               boardOpen={railHas("board")}
               onToggleBoard={() =>
                 railHas("board") ? removeRail("board") : ensureRail("board")
@@ -1718,8 +1753,7 @@ export default function App({
                   focused={focused}
                   onToggleFocus={(taskId) => {
                     if (focused === taskId) {
-                      setFocused(null);
-                      setFocusedTask(null);
+                      leaveChat();
                     } else {
                       setFocused(taskId);
                       const session = overview?.workers.find(
