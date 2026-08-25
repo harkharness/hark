@@ -29,3 +29,8 @@ spikes/out/
 # Generated mobile icon sets (desktop app only)
 src-tauri/icons/android/
 src-tauri/icons/ios/
+
+# Design canvases: os artboards (.dc.html) e o layout SÃO fonte; o arquivo
+# publicado é 2 MB de editor empacotado, regenerável com um comando.
+.design/**/*.html
+!.design/**/*.dc.html

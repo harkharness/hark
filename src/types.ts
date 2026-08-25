@@ -139,6 +139,16 @@ export type DispatchOutcome =
   | { status: "busy"; session_id: string }
   | { status: "no_match" };
 
+/** A session held by a human at a terminal — nobody else may write it. */
+export type SessionOwner = {
+  session_id: string;
+  /** The CLI's own name for the session ("workspace-fabrica-c7"). */
+  name: string;
+  cwd: string;
+  pid?: number | null;
+  started_at?: number | null;
+};
+
 export type TranscriptEntry = {
   ts: string;
   role: "user" | "assistant" | "tool_use" | "tool_result" | "compaction";

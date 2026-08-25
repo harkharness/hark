@@ -23,6 +23,11 @@ pub fn parse_agents_json(json: &str) -> Vec<LiveSession> {
                     .get("sessionId")
                     .and_then(Value::as_str)
                     .map(String::from),
+                // Ownership signals: which process holds the session, and
+                // whether a human is sitting at it.
+                pid: item.get("pid").and_then(Value::as_i64).map(|p| p as i32),
+                kind: item.get("kind").and_then(Value::as_str).map(String::from),
+                started_at: item.get("startedAt").and_then(Value::as_i64),
             })
         })
         .collect()
@@ -54,15 +59,22 @@ mod tests {
 
     #[test]
     fn parses_agents_payload() {
+        // Real payload from v2.1.220 (`claude agents --json`), which is
+        // also how Hark learns that a session is held at a terminal:
+        // pid + kind decide, so both have to survive the parse.
         let json = r#"[
-            {"pid":1,"cwd":"/home/dev/proj","kind":"interactive","sessionId":"s1","name":"proj-96","status":"idle"},
+            {"pid":3702,"cwd":"/home/dev/proj","kind":"interactive","startedAt":1787664465560,"sessionId":"s1","name":"proj-96","status":"idle"},
             {"pid":2,"cwd":"/home/dev/other","kind":"interactive","sessionId":"s2","name":"other-b2"}
         ]"#;
         let live = parse_agents_json(json);
         assert_eq!(live.len(), 2);
         assert_eq!(live[0].name, "proj-96");
         assert_eq!(live[0].status.as_deref(), Some("idle"));
+        assert_eq!(live[0].pid, Some(3702));
+        assert_eq!(live[0].kind.as_deref(), Some("interactive"));
+        assert_eq!(live[0].started_at, Some(1_787_664_465_560));
         assert_eq!(live[1].status, None);
+        assert_eq!(live[1].started_at, None);
     }
 
     #[test]

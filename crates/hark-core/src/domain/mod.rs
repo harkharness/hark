@@ -15,6 +15,7 @@ pub mod intent;
 pub mod lang;
 pub mod matching;
 pub mod memory;
+pub mod owner;
 pub mod persona;
 pub mod prodgate;
 pub mod reply;

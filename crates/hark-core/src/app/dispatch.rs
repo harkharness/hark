@@ -67,12 +67,11 @@ pub fn plan(
 
     // Refuse sessions currently open in an interactive terminal: two writers
     // on one session file is undefined behavior (see spikes/FINDINGS.md).
-    let busy = deps
-        .live
-        .list()
-        .unwrap_or_default()
-        .iter()
-        .any(|l| l.session_id.as_deref() == Some(session.session_id.as_str()));
+    // ONE rule decides who holds a session (domain::owner) — matching any
+    // listed session also caught our own headless runs, which hold nothing.
+    let live = deps.live.list().unwrap_or_default();
+    let owners = crate::domain::owner::terminal_owners(&live, &[]);
+    let busy = crate::domain::owner::owner_of(&owners, &session.session_id).is_some();
     let Some(cwd) = session.cwd.clone() else {
         return Ok(Plan::NoMatch);
     };

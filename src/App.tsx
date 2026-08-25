@@ -36,6 +36,7 @@ import type {
   Overview,
   Project,
   SessionHit,
+  SessionOwner,
   TranscriptEntry,
 } from "./types";
 
@@ -68,6 +69,11 @@ export default function App({
   // Read-only thread being viewed (board tab), never executes anything.
   /** Threads whose log has no more history above what is loaded. */
   const [historyDone, setHistoryDone] = useState<Record<string, boolean>>({});
+  /** Sessions a human is holding at a terminal — ours or any other app's.
+   *  While one is held, Hark reads its log and writes nothing. */
+  const [owners, setOwners] = useState<SessionOwner[]>([]);
+  /** Where each thread's mirror has read up to, in bytes of its log. */
+  const mirror = useRef<Map<string, number>>(new Map());
   const [reading, setReading] = useState<{
     sessionId: string;
     title: string;
@@ -261,6 +267,95 @@ export default function App({
   }, []);
 
   useEffect(refresh, [refresh]);
+
+  // Who is holding a session right now. One question, asked on a timer,
+  // answered from the CLI's own listing — so a terminal opened OUTSIDE
+  // Hark (iTerm, tmux, another machine's app) counts exactly the same.
+  useEffect(() => {
+    let alive = true;
+    const tick = () =>
+      ipc
+        .sessionOwners()
+        .then((list) => {
+          if (alive) setOwners(list);
+        })
+        .catch(() => {});
+    tick();
+    const id = setInterval(tick, 2500);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  /** The terminal session holding the chat on screen, if any. */
+  const heldBy = focusedTask
+    ? owners.find((o) => o.session_id === focusedTask.sessionId)
+    : undefined;
+  const heldByRef = useRef(heldBy);
+  const previouslyHeld = heldByRef.current;
+  heldByRef.current = heldBy;
+
+  // Mirror: while the terminal owns the session, follow its log. The file
+  // is append-only and `--resume` writes to the SAME one, so reading what
+  // grew IS the mirror — no process, no tokens, no cooperation needed from
+  // whoever is typing over there.
+  useEffect(() => {
+    const task = focusedTask;
+    if (!task || !heldBy) return;
+    let alive = true;
+    const tick = () => {
+      const at = mirror.current.get(task.title) ?? 0;
+      ipc
+        .transcriptSince(task.sessionId, at)
+        .then((out) => {
+          if (!alive) return;
+          mirror.current.set(task.title, out.offset);
+          for (const e of out.entries) {
+            const msg = entryToMsg(e, task.title);
+            if (msg) push(msg);
+          }
+        })
+        .catch(() => {});
+    };
+    const id = setInterval(tick, 1500);
+    tick();
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedTask?.title, focusedTask?.sessionId, heldBy?.pid]);
+
+  // The boundary, said out loud in the thread: the wheel changing hands is
+  // the one thing that must never be silent.
+  useEffect(() => {
+    const title = focusedTask?.title;
+    if (!title) return;
+    if (heldBy && !previouslyHeld) {
+      push({ who: "sys", text: `o volante passou pro terminal (${heldBy.name})`, task: title });
+    }
+    if (!heldBy && previouslyHeld) {
+      // One last read: the final turns land before the chat unlocks.
+      const at = mirror.current.get(title) ?? 0;
+      ipc
+        .transcriptSince(previouslyHeld.session_id, at)
+        .then((out) => {
+          mirror.current.set(title, out.offset);
+          for (const e of out.entries) {
+            const msg = entryToMsg(e, title);
+            if (msg) push(msg);
+          }
+          push({
+            who: "sys",
+            text: `volante de volta — ${out.entries.length} entradas novas do terminal`,
+            task: title,
+          });
+        })
+        .catch(() => push({ who: "sys", text: "volante de volta", task: title }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heldBy?.session_id, heldBy?.pid]);
 
   // This window was opened by a card click: the chat of that task is the
   // landing screen, history already loaded, ready to keep working.
@@ -1221,6 +1316,19 @@ export default function App({
     });
   }
 
+  /**
+   * Put the focused chat's resume command on a shell prompt — and stop
+   * there. No Enter: the line is editable, and until it runs nothing is
+   * held, so there is no state to unwind if you change your mind. What
+   * locks the chat is the session EXISTING, which Hark detects; this
+   * button is convenience, never the source of truth.
+   */
+  function pasteResume() {
+    const session = focusedTask?.sessionId;
+    if (!session) return;
+    runInTerminal(`claude --resume ${session}`, false);
+  }
+
   function runInTerminal(cmd: string, execute: boolean) {
     ensureRail("terminal");
     const existing = shells.includes(termTab) ? termTab : shells[0];
@@ -1254,6 +1362,15 @@ export default function App({
    *  this window is focused (the ledger) — speech lands here anyway, and
    *  the confirm chip + candidates come along for free. */
   async function onMic() {
+    if (heldBy) {
+      push({
+        who: "sys",
+        text: `a voz mandaria mensagem pra esta sessão, e ela está no terminal (${heldBy.name})`,
+        task: focusedTask?.title,
+      });
+      say("Essa sessão está aberta no terminal. Fecha lá ou abre um fork.");
+      return;
+    }
     await ipc.hudShow().catch((err) => push({ who: "sys", text: `voz: ${err}` }));
   }
 
@@ -1493,6 +1610,15 @@ export default function App({
    * Focus a task INSIDE the chat: pull the tail of its real history into
    * the transcript (free, straight from the log file).
    */
+  /** "há 6 min" from an epoch-ms timestamp; blank when unreported. */
+  function sinceLabel(startedAt?: number | null): string {
+    if (!startedAt) return "";
+    const mins = Math.max(0, Math.round((Date.now() - startedAt) / 60000));
+    if (mins < 1) return "agora";
+    if (mins < 60) return `há ${mins} min`;
+    return `há ${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}`;
+  }
+
   /** A log entry as a chat message. The two loaders share it so a paged
    *  page looks exactly like the first one. */
   function entryToMsg(e: TranscriptEntry, title: string): Msg | null {
@@ -1551,7 +1677,24 @@ export default function App({
   async function focusTask(title: string, sessionId: string, note?: string) {
     setDraftChat(null);
     setFocusedTask({ title, sessionId, note });
-    if (loadedTasks.current.has(title)) return; // thread already built once
+    if (loadedTasks.current.has(title)) {
+      // Built once already — but the session may have moved on since, in a
+      // terminal or in another window. Catch up on whatever the log grew.
+      const at = mirror.current.get(title);
+      if (at != null) {
+        ipc
+          .transcriptSince(sessionId, at)
+          .then((out) => {
+            mirror.current.set(title, out.offset);
+            for (const e of out.entries) {
+              const msg = entryToMsg(e, title);
+              if (msg) push(msg);
+            }
+          })
+          .catch(() => {});
+      }
+      return;
+    }
     loadedTasks.current.add(title);
     try {
       const out = await ipc.readTranscript(sessionId, HISTORY_TAIL).catch(async (err) => {
@@ -1573,6 +1716,7 @@ export default function App({
         const msg = entryToMsg(e, title);
         if (msg) push(msg);
       }
+      mirror.current.set(title, out.offset);
       if (out.entries[0]) {
         history.current.set(title, {
           count: out.entries.length,
@@ -1759,6 +1903,8 @@ export default function App({
           onActivate={setTermTab}
           onAddShell={addShell}
           onCloseShell={closeShell}
+          onResumeSession={focusedTask?.sessionId ? pasteResume : undefined}
+          resumeSpent={!!heldBy}
         />
       }
       expanded={expanded === "terminal"}
@@ -1816,7 +1962,9 @@ export default function App({
     </PanelFrame>
   );
 
-  const placeholder = draftChat
+  const placeholder = heldBy
+    ? t("composer_held")
+    : draftChat
     ? t("composer_draft", { name: draftChat.name })
     : focused
       ? t("composer_worker", { name: labelFor(focused) })
@@ -2025,8 +2173,39 @@ export default function App({
               {turns[focusedTask?.title ?? GENERAL] && (
                 <TurnStatus state={turns[focusedTask?.title ?? GENERAL]} />
               )}
+              {heldBy && (
+                <div className="held">
+                  <div className="held-head">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="3" y="11" width="18" height="11" rx="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                    <div>
+                      <b>{t("held_title")}</b>
+                      <div className="held-why">
+                        {t("held_why", {
+                          name: heldBy.name,
+                          pid: String(heldBy.pid ?? "?"),
+                          since: sinceLabel(heldBy.started_at),
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="held-actions">
+                    <button
+                      onClick={() => {
+                        ensureRail("terminal");
+                        if (shells[0]) setTermTab(shells[0]);
+                        else addShell();
+                      }}
+                    >
+                      {t("held_goto")}
+                    </button>
+                  </div>
+                </div>
+              )}
               <Composer
-                disabled={!!busy}
+                disabled={!!busy || !!heldBy}
                 recording={recording}
                 placeholder={placeholder}
                 projects={projects}

@@ -141,8 +141,19 @@ export const harkChatStatus = () =>
 export const chatStart = (projectPath: string, instruction: string, mode?: string) =>
   invoke<DispatchOutcome>("chat_start", { projectPath, instruction, mode: mode ?? null });
 
+/** Sessions a human is holding at a terminal (ours or any other app). */
+export const sessionOwners = () =>
+  invoke<import("../types").SessionOwner[]>("session_owners");
+
+/** Follow a session's log from a byte offset — the terminal mirror. */
+export const transcriptSince = (sessionId: string, offset: number) =>
+  invoke<{ entries: import("../types").TranscriptEntry[]; offset: number }>(
+    "transcript_since",
+    { sessionId, offset },
+  );
+
 export const readTranscript = (sessionId: string, limit?: number) =>
-  invoke<{ session_title: string | null; entries: TranscriptEntry[] }>("read_transcript", {
+  invoke<{ session_title: string | null; entries: TranscriptEntry[]; offset: number }>("read_transcript", {
     sessionId,
     limit,
   });

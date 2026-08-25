@@ -11,6 +11,13 @@ pub struct LiveSession {
     pub cwd: String,
     pub status: Option<String>,
     pub session_id: Option<String>,
+    /// OS process holding the session, when the backend reports one.
+    pub pid: Option<i32>,
+    /// How the session runs: "interactive" is a human at a terminal.
+    /// Anything else is a headless run — Hark's own workers included.
+    pub kind: Option<String>,
+    /// Epoch millis the session was opened, when reported.
+    pub started_at: Option<i64>,
 }
 
 /// Working-tree status of one configured repository.
@@ -364,6 +371,9 @@ mod tests {
                 cwd: "/home/dev/beta".into(),
                 status: Some("idle".into()),
                 session_id: Some("live1".into()),
+                pid: Some(4242),
+                kind: Some("interactive".into()),
+                started_at: None,
             }],
             repos: vec![RepoStatus {
                 path: "/home/dev/beta".into(),

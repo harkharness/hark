@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, SquareChevronRight } from "lucide-react";
 import ShellTerminal, { disposeShell } from "./ShellTerminal";
 import { t } from "../lib/i18n";
 
@@ -10,12 +10,19 @@ export function TerminalTabs({
   onActivate,
   onAddShell,
   onCloseShell,
+  onResumeSession,
+  resumeSpent,
 }: {
   shells: string[];
   active: string;
   onActivate: (id: string) => void;
   onAddShell: () => void;
   onCloseShell: (id: string) => void;
+  /** Paste the focused chat's resume command into the shell. Absent when
+   *  no chat is focused — there would be no session to name. */
+  onResumeSession?: () => void;
+  /** The session is already running here: the button has nothing to do. */
+  resumeSpent?: boolean;
 }) {
   return (
     <>
@@ -51,6 +58,16 @@ export function TerminalTabs({
       >
         feed
       </span>
+      {onResumeSession && (
+        <button
+          className={`term-resume ${resumeSpent ? "spent" : ""}`}
+          title={t("term_resume_hint")}
+          disabled={resumeSpent}
+          onClick={onResumeSession}
+        >
+          <SquareChevronRight size={12} /> {t("term_resume")}
+        </button>
+      )}
     </>
   );
 }

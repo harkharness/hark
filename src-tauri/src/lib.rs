@@ -2198,11 +2198,102 @@ fn session_stats(session_id: String) -> Result<SessionStats, String> {
     })
 }
 
+/// Sessions a human is holding at a terminal, ours or anyone's.
+///
+/// `claude agents --json` costs a subprocess, and every window asks the
+/// same question while a takeover is on screen, so the answer is shared
+/// for a beat. The listing is the whole signal: a session that ended
+/// leaves it.
+#[tauri::command(async)]
+fn session_owners(
+    live: State<'_, LiveWorkers>,
+) -> Result<Vec<hark_core::domain::owner::Owner>, String> {
+    use hark_core::ports::LiveSessions;
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<Option<(std::time::Instant, Vec<hark_core::domain::owner::Owner>)>>,
+    > = std::sync::OnceLock::new();
+    const TTL: std::time::Duration = std::time::Duration::from_millis(1200);
+
+    // Sessions Hark is driving itself are not takeovers.
+    let ours: Vec<String> = live
+        .0
+        .lock()
+        .unwrap()
+        .values()
+        .map(|h| h.spawn.session_id.clone())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let cell = CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    let mut slot = cell.lock().unwrap();
+    if let Some((at, owners)) = slot.as_ref() {
+        if at.elapsed() < TTL {
+            let cached = owners.clone();
+            return Ok(cached
+                .into_iter()
+                .filter(|o| !ours.contains(&o.session_id))
+                .collect());
+        }
+    }
+    let config = Config::load();
+    let listing = hark_plugin_claude::live::ClaudeAgentsCli {
+        claude_bin: config.claude_bin_resolved(),
+    }
+    .list()
+    .unwrap_or_default();
+    let owners = hark_core::domain::owner::terminal_owners(&listing, &ours);
+    *slot = Some((std::time::Instant::now(), owners.clone()));
+    Ok(owners)
+}
+
+#[derive(Serialize)]
+struct MirrorOut {
+    entries: Vec<hark_core::domain::transcript::Entry>,
+    /// Bytes consumed so far — pass it back to read only what is new.
+    offset: u64,
+}
+
+/// Follow a session's log from a byte offset: the terminal takeover's
+/// mirror. The log is append-only and `--resume` writes to the SAME file
+/// (verified), so reading what grew is the whole mechanism. Zero tokens,
+/// no process, works no matter who is writing.
+#[tauri::command(async)]
+fn transcript_since(session_id: String, offset: u64) -> Result<MirrorOut, String> {
+    use hark_core::ports::SessionStore;
+    use std::io::{Read, Seek};
+    let config = Config::load();
+    let store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let path = store
+        .session_path(&session_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("sessão não está no índice")?;
+    let mut file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    let len = file.metadata().map_err(|e| e.to_string())?.len();
+    // Truncated or replaced under us: start over rather than read garbage.
+    let from = if offset > len { 0 } else { offset };
+    file.seek(std::io::SeekFrom::Start(from)).map_err(|e| e.to_string())?;
+    let mut buf = String::new();
+    file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
+    // A line still being written has no newline yet: leave it for next time.
+    let complete = buf.rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let entries = buf[..complete]
+        .lines()
+        .filter_map(hark_core::domain::transcript::parse_entry)
+        .collect();
+    Ok(MirrorOut {
+        entries,
+        offset: from + complete as u64,
+    })
+}
+
 #[derive(Serialize)]
 struct TranscriptOut {
     /// The session's own title, as shown in Claude Code.
     session_title: Option<String>,
     entries: Vec<hark_core::domain::transcript::Entry>,
+    /// Byte length of the log at read time: where a mirror starts from.
+    offset: u64,
 }
 
 /// Read-only history of a past session, straight from its log file.
@@ -2226,6 +2317,7 @@ fn read_transcript(session_id: String, limit: Option<usize>) -> Result<Transcrip
     Ok(TranscriptOut {
         session_title,
         entries: hark_core::domain::transcript::tail_entries(content.lines(), limit.unwrap_or(200)),
+        offset: content.len() as u64,
     })
 }
 
@@ -3349,6 +3441,8 @@ pub fn run() {
             file_read,
             file_save,
             read_transcript,
+            session_owners,
+            transcript_since,
             find_session,
             session_stats,
             spend_summary,

@@ -1,0 +1,153 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0; background: #0b0e12; color: #d7dde6;
+      font-family: -apple-system, "SF Pro Text", system-ui, sans-serif; font-size: 13px;
+    }
+    a { color: #7aa2f7; } a:hover { color: #9ece6a; }
+    .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+    .box {
+      border: 1px solid rgba(255,255,255,.13); border-radius: 9px;
+      padding: 9px 12px; background: #11151b; display: flex; flex-direction: column; gap: 3px;
+    }
+    .cap { color: #7a8698; font-size: 10.5px; letter-spacing: 1px; }
+    .card {
+      border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 12px 14px;
+      display: flex; flex-direction: column; gap: 7px; background: #0d1116;
+    }
+  </style>
+</helmet>
+
+<div style="width: 1240px; height: 760px; background: #0b0e12; padding: 24px 26px; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box">
+
+  <div style="display: flex; align-items: baseline; gap: 12px">
+    <h1 style="margin: 0; font-size: 19px; font-weight: 600">Passar o volante pro terminal</h1>
+    <span class="mono" style="color: #7a8698; font-size: 11.5px">quem é o dono da sessão, e como o Hark descobre</span>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 10px">
+    <div class="box" style="border-color: rgba(158,206,106,.4)">
+      <span class="cap" style="color: #9ece6a">ESTADO A</span>
+      <b style="font-size: 13px">livre</b>
+      <span class="mono" style="color: #7a8698; font-size: 11px">o Hark escreve · mic e envio ligados</span>
+    </div>
+    <svg width="26" height="14" viewBox="0 0 26 14" fill="none" stroke="#7a8698" stroke-width="1.6"><path d="M1 7h22M18 2l5 5-5 5"/></svg>
+    <div style="display: flex; flex-direction: column; gap: 7px">
+      <div class="box" style="border-color: rgba(224,175,104,.45)">
+        <span class="cap" style="color: #e0af68">GATILHO 1 · NOSSO</span>
+        <b style="font-size: 12.5px">"abrir no terminal"</b>
+        <span class="mono" style="color: #7a8698; font-size: 11px">abre a aba e DIGITA claude --resume &lt;id&gt;<br>o Enter é teu — sem Enter, nada trava</span>
+      </div>
+      <div class="box" style="border-color: rgba(224,175,104,.45)">
+        <span class="cap" style="color: #e0af68">GATILHO 2 · DE FORA</span>
+        <b style="font-size: 12.5px">iTerm, tmux, outro app</b>
+        <span class="mono" style="color: #7a8698; font-size: 11px">ninguém avisa o Hark — ele descobre</span>
+      </div>
+    </div>
+    <svg width="26" height="14" viewBox="0 0 26 14" fill="none" stroke="#7a8698" stroke-width="1.6"><path d="M1 7h22M18 2l5 5-5 5"/></svg>
+    <div class="box" style="border-color: rgba(224,175,104,.6); background: rgba(224,175,104,.07)">
+      <span class="cap" style="color: #e0af68">ESTADO B</span>
+      <b style="font-size: 13px">espelhando (read-only)</b>
+      <span class="mono" style="color: #7a8698; font-size: 11px">chat segue o arquivo · envio e mic travados</span>
+    </div>
+    <svg width="26" height="14" viewBox="0 0 26 14" fill="none" stroke="#7a8698" stroke-width="1.6"><path d="M1 7h22M18 2l5 5-5 5"/></svg>
+    <div class="box" style="border-color: rgba(158,206,106,.4)">
+      <span class="cap" style="color: #9ece6a">ESTADO C</span>
+      <b style="font-size: 13px">devolvido</b>
+      <span class="mono" style="color: #7a8698; font-size: 11px">resumo do que entrou · rascunho volta</span>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 14px; flex-grow: 1; min-height: 0">
+
+    <div class="card" style="width: 560px">
+      <b style="font-size: 12.5px">os quatro sinais</b>
+      <div style="display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 9px">
+        <div style="display: flex; gap: 10px; align-items: flex-start">
+          <span class="mono" style="color: #9ece6a; font-size: 11px; flex-shrink: 0; width: 14px">1</span>
+          <div>
+            <div class="mono" style="font-size: 11.5px; color: #7dcfff">claude agents --json</div>
+            <div style="color: #7a8698; font-size: 11.5px; line-height: 1.45">pid · cwd · sessionId · kind:"interactive" · startedAt. Lista sessão de QUALQUER app, sem TTY. Poll de 2s enquanto houver dono, 30s em repouso. Zero token.</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: flex-start">
+          <span class="mono" style="color: #9ece6a; font-size: 11px; flex-shrink: 0; width: 14px">2</span>
+          <div>
+            <div class="mono" style="font-size: 11.5px; color: #7dcfff">kill(pid, 0)</div>
+            <div style="color: #7a8698; font-size: 11.5px; line-height: 1.45">o dono ainda existe? Corrige o atraso da listagem — sessão que morreu sai na hora, sem esperar o próximo poll.</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: flex-start">
+          <span class="mono" style="color: #9ece6a; font-size: 11px; flex-shrink: 0; width: 14px">3</span>
+          <div>
+            <div class="mono" style="font-size: 11.5px; color: #7dcfff">term-out { exit: true }</div>
+            <div style="color: #7a8698; font-size: 11.5px; line-height: 1.45">o PTY morreu. Só existe quando o terminal é nosso — é o caminho instantâneo, os outros são a rede de segurança.</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: flex-start">
+          <span class="mono" style="color: #9ece6a; font-size: 11px; flex-shrink: 0; width: 14px">4</span>
+          <div>
+            <div class="mono" style="font-size: 11.5px; color: #7dcfff">tail do jsonl por byte_offset</div>
+            <div style="color: #7a8698; font-size: 11.5px; line-height: 1.45">--resume faz append no MESMO arquivo (verificado: 8 → 14 linhas, sem fork). Ler o que cresceu é o espelho. Zero token.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 14px; flex-grow: 1; min-width: 0">
+
+      <div class="card" style="border-color: rgba(122,162,247,.35)">
+        <b style="font-size: 12.5px">trabalhar em paralelo</b>
+        <div style="display: flex; gap: 10px; align-items: flex-start">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f7768e" stroke-width="2.2" style="flex-shrink: 0; margin-top: 2px"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          <div style="font-size: 11.5px; line-height: 1.45"><b>na mesma sessão, não.</b> <span style="color: #7a8698">Dois escritores no mesmo transcript é exatamente o que matou um turno de 7 ferramentas hoje. O Hark recusa e diz quem é o dono.</span></div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: flex-start">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ece6a" stroke-width="2.2" style="flex-shrink: 0; margin-top: 2px"><path d="M20 6 9 17l-5-5"/></svg>
+          <div style="font-size: 11.5px; line-height: 1.45"><b>com fork, sim.</b> <span style="color: #7a8698">
+            <span class="mono" style="color: #7dcfff">--fork-session</span> abre uma sessão NOVA a partir do mesmo histórico. Você segue no terminal, o Hark trabalha no fork, e os dois viram cards irmãos no board.</span></div>
+        </div>
+      </div>
+
+      <div class="card" style="border-color: rgba(224,175,104,.3)">
+        <b style="font-size: 12.5px">o botão não é a fonte da verdade</b>
+        <div style="color: #7a8698; font-size: 11.5px; line-height: 1.45">O travamento vem da <b style="color: #d7dde6">detecção</b>, nunca do clique: a aba de shell continua sendo só uma aba, e "abrir no terminal" só deixa o comando pronto. Quem trava o chat é a sessão existir de verdade — por Enter aqui, ou por iTerm lá.</div>
+      </div>
+
+      <div class="card">
+        <b style="font-size: 12.5px">o que trava, e só isso</b>
+        <div class="mono" style="display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #7a8698">
+          <div><span style="color: #f7768e">trava</span> · enviar mensagem nesta task · mic nesta task · dispatch por voz nesta task</div>
+          <div><span style="color: #9ece6a">livre</span> · ler o histórico · board · custos · arquivos · outras tasks · outros projetos</div>
+        </div>
+      </div>
+
+      <div class="card" style="border-color: rgba(158,206,106,.3)">
+        <b style="font-size: 12.5px">prova, nesta máquina, agora</b>
+        <div class="mono" style="background: #07090d; border-radius: 7px; padding: 9px 11px; font-size: 10.5px; line-height: 1.6; color: #7a8698; overflow: hidden">
+          <div><span style="color: #9ece6a">❯</span> claude agents --json</div>
+          <div>[{ "pid": <span style="color: #e0af68">3702</span>, "cwd": ".../workspace-fabrica",</div>
+          <div>&nbsp;&nbsp;&nbsp;"kind": "<span style="color: #7dcfff">interactive</span>", "name": "workspace-fabrica-c7" },</div>
+          <div>&nbsp;{ "pid": <span style="color: #e0af68">21272</span>, "cwd": ".../vox", … }]</div>
+        </div>
+        <div style="color: #7a8698; font-size: 11px; line-height: 1.45">Nenhum dos dois foi aberto pelo Hark. O primeiro é o teu terminal do workspace-fabrica; o segundo é a sessão que está escrevendo isto.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
