@@ -36,6 +36,7 @@ import type {
   Overview,
   Project,
   SessionHit,
+  TranscriptEntry,
 } from "./types";
 
 type RailItem = "arquivo" | "terminal" | "arquivos" | "board";
@@ -65,6 +66,8 @@ export default function App({
   const recordingRef = useRef(false);
   const [pending, setPending] = useState<Pending>(null);
   // Read-only thread being viewed (board tab), never executes anything.
+  /** Threads whose log has no more history above what is loaded. */
+  const [historyDone, setHistoryDone] = useState<Record<string, boolean>>({});
   const [reading, setReading] = useState<{
     sessionId: string;
     title: string;
@@ -102,6 +105,10 @@ export default function App({
    *  reopened chat showed almost nothing of the work it contained. Reading
    *  the log is local and free; only the DOM pays. */
   const HISTORY_TAIL = 150;
+  /** How much further back one click reaches. */
+  const HISTORY_PAGE = 200;
+  /** What each thread has loaded so far, and where its window starts. */
+  const history = useRef<Map<string, { count: number; firstKey: string }>>(new Map());
 
   // Mode chosen on the selector for NEW tasks (null = config default).
   const [modeDefault, setModeDefault] = useState<string | null>(null);
@@ -1486,6 +1493,61 @@ export default function App({
    * Focus a task INSIDE the chat: pull the tail of its real history into
    * the transcript (free, straight from the log file).
    */
+  /** A log entry as a chat message. The two loaders share it so a paged
+   *  page looks exactly like the first one. */
+  function entryToMsg(e: TranscriptEntry, title: string): Msg | null {
+    if (e.role === "user") return { who: "user", text: e.text, task: title };
+    if (e.role === "assistant") return { who: "hark", text: e.text, task: title };
+    if (e.role === "tool_use")
+      return { who: "tool", name: e.tool ?? "tool", input: e.text, task: title };
+    if (e.role === "tool_result")
+      return { who: "output", content: e.text, error: e.is_error, task: title };
+    if (e.role === "compaction") return { who: "compact", text: e.text, task: title };
+    return null;
+  }
+
+  /** Identity of a log entry, for finding where the loaded window starts
+   *  again in a longer read (the file may have grown meanwhile). */
+  const entryKey = (e: TranscriptEntry) => `${e.ts}|${e.role}|${e.text.slice(0, 80)}`;
+
+  /**
+   * Older history, on demand: re-read a longer tail and splice in only
+   * what is new, ABOVE the thread's first message. Live messages of other
+   * threads sit elsewhere in the array and never move.
+   */
+  async function loadOlderHistory() {
+    const task = focusedTask;
+    const state = task ? history.current.get(task.title) : undefined;
+    if (!task || !state || historyDone[task.title]) return;
+    const want = state.count + HISTORY_PAGE;
+    let out: { entries: TranscriptEntry[] };
+    try {
+      out = await ipc.readTranscript(task.sessionId, want);
+    } catch (err) {
+      push({ who: "sys", text: `histórico: ${err}`, task: task.title });
+      return;
+    }
+    const at = out.entries.findIndex((e) => entryKey(e) === state.firstKey);
+    const older = at > 0 ? out.entries.slice(0, at) : [];
+    if (older.length === 0) {
+      setHistoryDone((old) => ({ ...old, [task.title]: true }));
+      push({ who: "sys", text: "começo do histórico", task: task.title });
+      return;
+    }
+    const msgs = older.map((e) => entryToMsg(e, task.title)).filter(Boolean) as Msg[];
+    setMessages((old) => {
+      const first = old.findIndex((m) => (m.task ?? null) === task.title);
+      return first < 0 ? [...msgs, ...old] : [...old.slice(0, first), ...msgs, ...old.slice(first)];
+    });
+    history.current.set(task.title, {
+      count: out.entries.length,
+      firstKey: entryKey(out.entries[0]),
+    });
+    if (out.entries.length < want) {
+      setHistoryDone((old) => ({ ...old, [task.title]: true }));
+    }
+  }
+
   async function focusTask(title: string, sessionId: string, note?: string) {
     setDraftChat(null);
     setFocusedTask({ title, sessionId, note });
@@ -1505,16 +1567,20 @@ export default function App({
         });
         return ipc.readTranscript(hit.session_id, HISTORY_TAIL);
       });
+      // Results used to be dropped, so a reopened chat lost every ✓/✗ and
+      // read differently from the same chat live.
       for (const e of out.entries) {
-        if (e.role === "user") push({ who: "user", text: e.text, task: title });
-        else if (e.role === "assistant") push({ who: "hark", text: e.text, task: title });
-        else if (e.role === "tool_use")
-          push({ who: "tool", name: e.tool ?? "tool", input: e.text, task: title });
-        // Results were dropped, so a reopened chat lost every ✓/✗ and read
-        // differently from the same chat live.
-        else if (e.role === "tool_result")
-          push({ who: "output", content: e.text, error: e.is_error, task: title });
-        else if (e.role === "compaction") push({ who: "compact", text: e.text, task: title });
+        const msg = entryToMsg(e, title);
+        if (msg) push(msg);
+      }
+      if (out.entries[0]) {
+        history.current.set(title, {
+          count: out.entries.length,
+          firstKey: entryKey(out.entries[0]),
+        });
+        if (out.entries.length < HISTORY_TAIL) {
+          setHistoryDone((old) => ({ ...old, [title]: true }));
+        }
       }
       push({
         who: "sys",
@@ -1947,6 +2013,13 @@ export default function App({
                   onAnswerPermission={answerPermission}
                   onOpenPath={openAbsolutePath}
                   onRunCommand={runInTerminal}
+                  onLoadOlder={
+                    focusedTask &&
+                    history.current.has(focusedTask.title) &&
+                    !historyDone[focusedTask.title]
+                      ? loadOlderHistory
+                      : undefined
+                  }
                 />
               )}
               {turns[focusedTask?.title ?? GENERAL] && (

@@ -258,8 +258,12 @@ export default function ToolCall({
       </div>
     );
   }
+  // A failed call reads red end to end. Scanning a fold of seven MCP
+  // calls, the tick in the far corner is the last thing the eye finds;
+  // the name is the first.
+  const failed = !!result?.error || decision === "deny";
   return (
-    <details className="toolcall fold" open={defaultOpen}>
+    <details className={`toolcall fold ${failed ? "failed" : ""}`} open={defaultOpen}>
       <summary>
         {nameEl}
         <span className="tool-hint">{hint}</span>

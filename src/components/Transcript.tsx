@@ -186,6 +186,7 @@ export default function Transcript({
   onAnswerPermission,
   onOpenPath,
   onRunCommand,
+  onLoadOlder,
 }: {
   messages: Msg[];
   directivesFor: (taskLabel?: string) => Directives | undefined;
@@ -193,9 +194,19 @@ export default function Transcript({
   onOpenPath: (path: string) => void;
   /** ▶ on shell blocks: send the command to the in-app terminal. */
   onRunCommand?: (cmd: string, execute: boolean) => void;
+  /** Reach further back in this thread's log. Absent at the beginning of
+   *  the history, or with no thread focused. */
+  onLoadOlder?: () => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
+  const lastRef = useRef<Msg | null>(null);
+  // Follow the conversation only when something was ADDED to the end.
+  // Loading older history prepends, and jumping to the bottom right after
+  // would throw away exactly what the click asked to see.
   useEffect(() => {
+    const last = messages.at(-1) ?? null;
+    if (last === lastRef.current) return;
+    lastRef.current = last;
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -469,6 +480,11 @@ export default function Transcript({
 
   return (
     <div className="transcript">
+      {onLoadOlder && (
+        <button className="load-older" onClick={onLoadOlder}>
+          {t("history_older")}
+        </button>
+      )}
       {nodes}
       <div ref={endRef} />
     </div>
