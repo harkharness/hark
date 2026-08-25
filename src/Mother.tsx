@@ -119,6 +119,22 @@ export default function Mother() {
   const micRef = useRef<() => void>(() => {});
   const recordingRef = useRef(false);
 
+  /** A path clicked in the mother's chat. This window has no editor tabs,
+   *  so the OS opens it — but a RELATIVE path has no meaning here (the
+   *  hark chat runs in the data dir), and silently doing nothing is worse
+   *  than not being clickable. It says which project window to use. */
+  function openChatPath(raw: string) {
+    const path = raw.trim();
+    if (!/^(https?:|[~/])/i.test(path)) {
+      push({
+        who: "sys",
+        text: `"${path}" é relativo: abra na janela do projeto pra ver o arquivo`,
+      });
+      return;
+    }
+    void ipc.openExternal(path).catch(() => {});
+  }
+
   const push = useCallback(
     (m: Msg) =>
       setMessages((old) =>
@@ -1067,7 +1083,7 @@ export default function Mother() {
               messages={chatMsgs}
               directivesFor={() => undefined}
               onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
-              onOpenPath={(p) => void ipc.openExternal(p).catch(() => {})}
+              onOpenPath={openChatPath}
             />
             <div className="chat-composer">
               <input

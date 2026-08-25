@@ -17,6 +17,24 @@ import * as ipc from "../lib/ipc";
 // Only the grammars this workflow actually shows, to keep the bundle small.
 const languages = { bash, json, yaml, rust, typescript, python, diff, sql };
 
+/** Extensions that make an inline code span a FILE, not a word. A closed
+ *  list on purpose: prose is full of things shaped like paths that are
+ *  not files — branch names ("feat/x"), "and/or", "example.com", versions
+ *  ("v0.2.7"). Only these open an editor tab. */
+const FILE_EXT =
+  /\.(md|markdown|txt|rst|rs|ts|tsx|js|jsx|mjs|cjs|json|jsonc|toml|ya?ml|tf|tfvars|hcl|py|go|sh|bash|zsh|fish|sql|css|scss|html|xml|svg|lock|env|cfg|conf|ini|properties|gradle|mod|sum|java|kt|kts|rb|php|pl|lua|c|h|cc|cpp|hpp|cs|swift|m|proto|csv|tsv|log|patch|diff|dockerfile|makefile|mk|bazel|bzl|nix|vue|svelte|astro|ipynb|plist|entitlements)$/i;
+
+/** A path with a real file at the end of it, optionally with :line:col.
+ *  Absolute and ./~ forms are unambiguous and pass without an extension. */
+export function looksLikePath(raw: string): boolean {
+  const text = raw.trim();
+  if (!text || /\s/.test(text) || text.length > 240) return false;
+  const bare = text.replace(/:\d+(?::\d+)?$/, "");
+  if (!/^[\w@~./+-]+(?:\/[\w@.+-]+)*$/.test(bare)) return false;
+  if (/^[~.]?\//.test(bare)) return true; // /abs, ~/home, ./rel
+  return FILE_EXT.test(bare);
+}
+
 /** Plain text of a rendered code block (highlight spans flattened). */
 function textOf(node: ReactNode): string {
   if (node == null) return "";
@@ -71,6 +89,39 @@ export default function Markdown({
                   else ipc.openExternal(path).catch(() => {});
                 }}
               />
+            );
+          },
+          // An inline `docs/oncall/guia.md` is a file the user can open,
+          // and it read as dead text: only markdown LINKS were wired to
+          // the path router. Prose names files far more often in backticks
+          // than in link syntax.
+          code(props) {
+            const { children, className, node: _node, ...rest } = props;
+            const text = textOf(children);
+            if (className || !onOpenPath || !looksLikePath(text)) {
+              return (
+                <code className={className} {...rest}>
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <code
+                className="code-path"
+                role="link"
+                tabIndex={0}
+                title={t("code_open_path", { p: text })}
+                {...rest}
+                onClick={() => onOpenPath(text.trim())}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onOpenPath(text.trim());
+                  }
+                }}
+              >
+                {children}
+              </code>
             );
           },
           pre(props) {

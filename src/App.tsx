@@ -647,8 +647,15 @@ export default function App({
       ipc.openExternal(path).catch(() => {});
       return;
     }
+    // "src/lib.rs:38" is how every tool prints a location. The viewer has
+    // no line jump yet, so the file opens and the number is dropped.
+    path = path.replace(/:\d+(?::\d+)?$/, "");
     if (!path.startsWith("/") && !path.startsWith("~")) {
-      const base = activeProject?.path;
+      // A relative path is relative to where the AGENT runs, which is the
+      // task's workspace — often a repository inside the project, not the
+      // project root. The registered project is the fallback.
+      const base =
+        board.find((t) => t.title === focusedTask?.title)?.workspace || activeProject?.path;
       if (!base) {
         push({ who: "sys", text: `${path}: caminho relativo sem projeto ativo` });
         return;

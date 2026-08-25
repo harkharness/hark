@@ -869,6 +869,16 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   background: rgba(122,162,247,.12); color: var(--accent);
   padding: 1px 5px; border-radius: 4px; font-size: 12px;
 }
+/* An inline path opens the file: dotted underline says "clickable" without
+   turning prose into a field of blue links. */
+.md code.code-path {
+  cursor: pointer;
+  border-bottom: 1px dotted rgba(122,162,247,.55);
+}
+.md code.code-path:hover,
+.md code.code-path:focus-visible {
+  background: rgba(122,162,247,.22); border-bottom-style: solid; outline: none;
+}
 .md pre {
   background: #10151d; border: 1px solid var(--border); border-radius: 10px;
   padding: 11px 13px; overflow-x: auto; margin: 8px 0;

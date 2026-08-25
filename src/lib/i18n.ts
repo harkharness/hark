@@ -26,6 +26,7 @@ const pt = {
   // sidebar
   side_board: "Board",
   side_board_hint: "board do projeto (abre como painel ao lado do chat)",
+  code_open_path: "abrir {p}",
   side_general: "Chat do hark",
   side_general_hint: "conversa geral desta janela: não entra em nenhuma task",
   side_new_chat: "novo chat em {name}",
@@ -437,6 +438,7 @@ const en: Record<keyof typeof pt, string> = {
 
   side_board: "Board",
   side_board_hint: "project board (opens as a panel beside the chat)",
+  code_open_path: "open {p}",
   side_general: "Hark chat",
   side_general_hint: "this window's general conversation: belongs to no task",
   side_new_chat: "new chat in {name}",
