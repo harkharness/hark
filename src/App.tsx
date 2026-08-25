@@ -53,8 +53,13 @@ export default function App({
   // Every Claude Code session of this project (index), newest first.
   const [chats, setChats] = useState<SessionHit[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
-  // What the running turn is doing, for the status line above the input.
-  const [turn, setTurn] = useState<TurnState | null>(null);
+  // Key for the window's general chat, which has no task title.
+  const GENERAL = "";
+  // What each running turn is doing, keyed by thread — the status line
+  // belongs to ONE chat, not to the window. A single global one showed
+  // "1m 35s · quase terminando de pensar…" above every chat you opened,
+  // and the first worker to finish wiped the clock of every other.
+  const [turns, setTurns] = useState<Record<string, TurnState>>({});
   const [recording, setRecording] = useState(false);
   // The global Esc handler must see the live value (no stale closure).
   const recordingRef = useRef(false);
@@ -255,24 +260,45 @@ export default function App({
     setLiveWorkers,
     pushRaw,
     addCost,
-    // The turn landed: the clock stops.
-    onWorkerTurn: useCallback(() => setTurn(null), []),
+    // The turn landed: that chat's clock stops, and only that one. The
+    // event's own label and the worker registry's can disagree (a renamed
+    // card), so both keys are cleared.
+    onWorkerTurn: useCallback(
+      (label: string, _err: boolean, taskId?: string) =>
+        endTurn(label, taskId),
+      [],
+    ),
     onSpeaking: setSpeaking,
     // Real events drive the status; nothing here is inferred from timers.
+    // Each event names the thread it belongs to, so a busy worker never
+    // moves the clock of the chat you are reading.
     onTurnActivity: useCallback(
-      (phase: "thinking" | "writing" | "tool", detail?: string, chars?: number) =>
-        setTurn((old) =>
-          old
-            ? {
-                ...old,
-                phase:
-                  phase === "tool"
-                    ? { kind: "tool", name: detail ?? "tool" }
-                    : { kind: phase },
-                chars: old.chars + (chars ?? 0),
-              }
-            : old,
-        ),
+      (
+        thread: string,
+        phase: "thinking" | "writing" | "tool",
+        detail?: string,
+        chars?: number,
+      ) =>
+        setTurns((old) => {
+          // A turn this window did not start — dispatched by voice, or by
+          // another window — still deserves a status the moment it speaks.
+          // Its clock counts from the first event seen HERE; no earlier
+          // timestamp exists on this side.
+          const running = old[thread] ?? {
+            startedAt: Date.now(),
+            phase: { kind: "thinking" as const },
+            chars: 0,
+          };
+          return {
+            ...old,
+            [thread]: {
+              ...running,
+              phase:
+                phase === "tool" ? { kind: "tool", name: detail ?? "tool" } : { kind: phase },
+              chars: running.chars + (chars ?? 0),
+            },
+          };
+        }),
       [],
     ),
     onRateLimit: setRateLimit,
@@ -292,7 +318,7 @@ export default function App({
     speakRef,
     refresh,
     onWorkerExit: useCallback((taskId: string) => {
-      setTurn(null);
+      endTurn(null, taskId);
       setLiveWorkers((old) => {
         const next = { ...old };
         delete next[taskId];
@@ -425,6 +451,8 @@ export default function App({
 
   async function runAsk(question: string, images: Attachment[]) {
     setBusy("perguntando…");
+    const thread = currentThread() ?? GENERAL;
+    beginTurn();
     try {
       // The focused project scopes the snapshot: clicking a chat or
       // starting one IS the context selection (no manual picker).
@@ -442,6 +470,7 @@ export default function App({
     } catch (err) {
       push({ who: "sys", text: `erro: ${err}` });
     } finally {
+      endTurn(thread);
       setBusy(null);
       refresh();
     }
@@ -1008,9 +1037,33 @@ export default function App({
    * window and drop the command into a real shell — running it (execute)
    * or just leaving it typed for the user to review and hit Enter.
    */
-  /** A turn starts: the clock and the phase start with it. */
+  /** A turn starts in the thread on screen: its clock and phase start. */
   function beginTurn() {
-    setTurn({ startedAt: Date.now(), phase: { kind: "thinking" }, chars: 0 });
+    const thread = currentThread() ?? GENERAL;
+    setTurns((old) => ({
+      ...old,
+      [thread]: { startedAt: Date.now(), phase: { kind: "thinking" }, chars: 0 },
+    }));
+  }
+
+  /** A turn ended: drop its clock. Called with whatever names it — the
+   *  event's label, the worker's registered label, or both. */
+  function endTurn(label: string | null, taskId?: string) {
+    const keys = [label, taskId ? labelFor(taskId) : null].filter(
+      (k): k is string => k != null,
+    );
+    if (keys.length === 0) return;
+    setTurns((old) => {
+      const next = { ...old };
+      let hit = false;
+      for (const k of keys) {
+        if (k in next) {
+          delete next[k];
+          hit = true;
+        }
+      }
+      return hit ? next : old;
+    });
   }
 
   function runInTerminal(cmd: string, execute: boolean) {
@@ -1728,7 +1781,9 @@ export default function App({
                   onRunCommand={runInTerminal}
                 />
               )}
-              {turn && <TurnStatus state={turn} />}
+              {turns[focusedTask?.title ?? GENERAL] && (
+                <TurnStatus state={turns[focusedTask?.title ?? GENERAL]} />
+              )}
               <Composer
                 disabled={!!busy}
                 recording={recording}

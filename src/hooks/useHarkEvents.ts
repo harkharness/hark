@@ -21,9 +21,11 @@ type Handlers = {
   addCost: (label: string, usd: number) => void;
   /** TTS started/stopped (drives the voice orb). */
   onSpeaking: (on: boolean) => void;
-  /** What the running turn is doing right now, from real stream events:
-   *  prose arriving, a tool starting, a tool finishing. */
+  /** What a running turn is doing right now, from real stream events:
+   *  prose arriving, a tool starting, a tool finishing. The thread comes
+   *  first — the status belongs to one chat, and several can run. */
   onTurnActivity?: (
+    thread: string,
     phase: "thinking" | "writing" | "tool",
     detail?: string,
     chars?: number,
@@ -87,16 +89,16 @@ export function useHarkEvents(h: Handlers) {
     const un1 = listen<HarkEvent>("hark", (e) => {
       const ev = e.payload;
       if (ev.kind === "assistant_text") {
-        h.onTurnActivity?.("writing", undefined, ev.text.length);
+        h.onTurnActivity?.(h.labelFor(ev.task_id), "writing", undefined, ev.text.length);
         h.push({ who: "hark", text: ev.text, task: h.labelFor(ev.task_id) });
         h.pushRaw(h.labelFor(ev.task_id), `${ts()} ${clip(ev.text, 400)}`);
       } else if (ev.kind === "worker") {
-        h.onTurnActivity?.("tool", ev.name);
+        h.onTurnActivity?.(h.labelFor(ev.task_id), "tool", ev.name);
         h.push({ who: "tool", name: ev.name, input: ev.input, task: h.labelFor(ev.task_id) });
         h.pushRaw(h.labelFor(ev.task_id), `${ts()} ⚙ ${ev.name} ${clip(ev.input, 400)}`);
       } else if (ev.kind === "tool_result") {
         // The tool answered; the model is thinking about it again.
-        h.onTurnActivity?.("thinking");
+        h.onTurnActivity?.(h.labelFor(ev.task_id), "thinking");
         h.push({
           who: "output",
           content: ev.content,
