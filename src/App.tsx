@@ -1197,15 +1197,21 @@ export default function App({
    *  right behind it — the heavy-session warning's remedy, one click/word. */
   async function dispatchCompactFirst(instruction: string, sessionId?: string) {
     push({ who: "sys", text: "compactando o contexto antes de despachar…" });
+    // TWO turns run from here — the compaction and then the message —
+    // and this was the last path with no clock at all: the remedy the
+    // heavy-session warning offers looked exactly like a dead window.
+    const thread = currentThread() ?? GENERAL;
+    beginTurn(thread);
     const liveEntry =
       focusedTask && sessionId === focusedTask.sessionId
         ? Object.entries(liveWorkers).find(([, w]) => w.label === focusedTask.title)
         : undefined;
     if (liveEntry) {
       await ipc.workerSend(liveEntry[0], "/compact", []).catch(() => {});
-      await ipc
-        .workerSend(liveEntry[0], instruction, [])
-        .catch((err) => push({ who: "sys", text: `worker: ${agentError(err)}` }));
+      await ipc.workerSend(liveEntry[0], instruction, []).catch((err) => {
+        endTurn(thread);
+        push({ who: "sys", text: `worker: ${agentError(err)}` });
+      });
       return;
     }
     // Dead session: the resume opens on "/compact" (a resume inherits the
@@ -1220,9 +1226,10 @@ export default function App({
           ? focusedTask.title
           : instruction.split(/\s+/).slice(0, 5).join(" ");
       adoptWorker(out.task_id, label, out.directives, sessionId ?? "");
-      await ipc
-        .workerSend(out.task_id, instruction, [])
-        .catch((err) => push({ who: "sys", text: `worker: ${agentError(err)}` }));
+      await ipc.workerSend(out.task_id, instruction, []).catch((err) => {
+        endTurn(label);
+        push({ who: "sys", text: `worker: ${agentError(err)}` });
+      });
       return;
     }
     push({ who: "sys", text: "não consegui compactar antes; despachando direto" });
