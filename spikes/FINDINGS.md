@@ -133,3 +133,47 @@ Retest with `initial_prompt` vocabulary biasing
 **Decision: default model = `small` (466MB) with `initial_prompt` vocabulary bias.**
 Beats turbo on accuracy for our domain AND is 4x faster. Model stays configurable;
 the bias list should be user-extendable in config.
+
+## Spike 4: whisper on an Intel Mac (no Metal)
+
+Machine: MacBook Pro, Intel i5-1038NG7 (4 physical / 8 logical), macOS 26.6.1,
+x86_64. `whisper-rs` builds WITHOUT the `metal` feature here (see hark-core's
+Cargo.toml), so whisper runs on the CPU — the log says `using BLAS backend`.
+
+Measured with `cargo run --release -p hark-core --example stt_bench`
+(`examples/mic_probe.rs` answers the other question: is the mic delivering
+audio at all, or zeros because macOS denied this binary).
+
+| Model | 4.7s clip | 13.6s clip | Model load |
+|---|---|---|---|
+| large-v3-turbo | 14.2s (RTF 3.1x) | 13.9s (RTF 1.0x) | 2.0s |
+| small | 3.0s (RTF 0.7x) | — | 0.6s |
+
+**The cost per utterance is FIXED, not proportional.** 4.7s of speech and 13.6s
+of speech both cost ~14s on turbo, because whisper.cpp always runs the encoder
+over a padded 30s window. Consequences:
+
+- Speaking longer is free. Three short commands cost 3x; the same content in one
+  sentence costs 1x. On CPU, dictating in one go is the cheap path.
+- Parameter tuning cannot fix it: `n_threads = 8` (all logical cores),
+  `single_segment`, `no_context` and `temperature_inc = 0` together moved turbo
+  14.7s -> 14.2s and made `small` slightly WORSE (2.8s -> 3.6s; hyperthread
+  contention on GEMM). Reverted — the encoder size is the cost, not the params.
+- The vocabulary bias is free: 13.9s with a 25-term bias vs 14.2s with none.
+  No reason to trim `speech_bias` for speed.
+
+Accuracy, same phrase and bias as spike 2 (`say -v Luciana`):
+
+| Model + bias | Result |
+|---|---|
+| small | "…migração do **eboque** e prepara o pull request." |
+| large-v3-turbo | "…migração do **e-book** e prepara o pull request." |
+
+Both miss exactly one word ("webhook"), everything else correct. Turbo buys NO
+measurable accuracy here and costs 4.4x the wall clock — which confirms spike 2's
+decision on this hardware too. Note synthetic voices are a weak accuracy probe:
+`say -v Flo` produced garbage from BOTH models where `-v Luciana` produced near
+misses, so the voice dominated the result. Only human speech settles quality.
+
+Therefore `domain::speech_model` recommends `small` wherever Metal is absent, and
+the onboarding explains why instead of labelling turbo "recommended" everywhere.

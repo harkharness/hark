@@ -46,6 +46,10 @@ export type HarkEvent =
   | { kind: "worker_exit"; task_id: string; exit_code?: number | null; reason?: string | null }
   | { kind: "session_started"; task_id: string; session_id: string }
   | { kind: "speaking"; on: boolean }
+  /** What hear_once is doing right now. The promise alone can't say: on
+   *  CPU the transcription grinds long after the capture ended, and a UI
+   *  stuck on "listening" the whole way read as frozen. */
+  | { kind: "mic"; phase: "capturing" | "transcribing"; owner: string }
   | { kind: "hotkey_mic" }
   | { kind: "main_tab"; tab: string }
   | { kind: "focus_task"; title: string; session_id?: string | null }

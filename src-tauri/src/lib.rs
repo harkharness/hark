@@ -437,6 +437,19 @@ fn mic_stop_flag() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
         .clone()
 }
 
+/// Kill-the-turn flag: `hear_abort` flips it and whatever `hear_once` is
+/// doing — capturing OR transcribing — dies with `mic_aborted` instead of
+/// delivering text. Separate from the stop flag on purpose: stop means
+/// "I'm done talking, transcribe it"; abort means "forget the whole thing".
+/// The distinction exists because on CPU (Intel) whisper grinds for tens
+/// of seconds, and Esc used to be inert exactly there.
+fn mic_abort_flag() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+    static FLAG: std::sync::OnceLock<std::sync::Arc<std::sync::atomic::AtomicBool>> =
+        std::sync::OnceLock::new();
+    FLAG.get_or_init(|| std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))
+        .clone()
+}
+
 /// ONE microphone, one owner at a time. Concurrent hear_once calls used
 /// to record in parallel over a single global stop flag; now the second
 /// caller gets "mic_busy:<owner>" and decides (the HUD takes over with a
@@ -452,14 +465,18 @@ impl Drop for MicGuard<'_> {
 }
 
 #[tauri::command(async)]
-fn hear_once(lease: State<'_, MicLease>, owner: Option<String>) -> Result<String, String> {
+fn hear_once(
+    app: AppHandle,
+    lease: State<'_, MicLease>,
+    owner: Option<String>,
+) -> Result<String, String> {
     let owner = owner.unwrap_or_else(|| "janela".into());
     {
         let mut current = lease.0.lock().unwrap();
         if let Some(holder) = current.as_deref() {
             return Err(format!("mic_busy:{holder}"));
         }
-        *current = Some(owner);
+        *current = Some(owner.clone());
     }
     let _guard = MicGuard(&lease);
     let config = Config::load();
@@ -468,24 +485,61 @@ fn hear_once(lease: State<'_, MicLease>, owner: Option<String>) -> Result<String
     // reset — and so the flag means "cut the capture I am about to start".
     let stop = mic_stop_flag();
     stop.store(false, std::sync::atomic::Ordering::SeqCst);
+    let abort = mic_abort_flag();
+    abort.store(false, std::sync::atomic::Ordering::SeqCst);
     let stt = match speech() {
         Speech::Ready(loaded) => loaded,
         // Codes, not prose: the window turns these into its own words.
-        Speech::Loading => return Err("mic_loading".into()),
+        // Loading carries the size so the UI can explain the wait — on a
+        // cold Intel Mac "loading" lasts long enough to read as broken.
+        Speech::Loading => {
+            let wanted = config.whisper_model_path();
+            let size = wanted
+                .file_name()
+                .and_then(|f| f.to_str())
+                .and_then(|name| {
+                    hark_core::adapters::model_fetch::whisper_models()
+                        .iter()
+                        .find(|m| m.filename == name)
+                })
+                .map(|m| m.size_label);
+            return Err(match size {
+                Some(label) => format!("mic_loading:{label}"),
+                None => "mic_loading".into(),
+            });
+        }
         Speech::Absent => return Err("mic_no_model".into()),
+    };
+    // Phase events let the UI say what the mic is DOING. The promise alone
+    // can't: on CPU the transcription runs tens of seconds after the
+    // capture ended, and "listening" the whole way read as frozen.
+    let phase = |name: &str| {
+        emit_event(
+            &app,
+            serde_json::json!({ "kind": "mic", "phase": name, "owner": owner }),
+        );
     };
     let tts = SayTts {
         voice: config.voice.clone(),
     };
     tts.beep(hark_core::ports::Cue::Listening);
+    phase("capturing");
     let audio = CpalMic {
         stop,
         ..CpalMic::default()
     }
     .record_utterance()
     .map_err(|e| e.to_string())?;
+    if abort.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("mic_aborted".into());
+    }
     tts.beep(hark_core::ports::Cue::Captured);
-    stt.transcribe(&audio).map_err(|e| e.to_string())
+    phase("transcribing");
+    match stt.transcribe_with_abort(&audio, abort) {
+        Ok(Some(text)) => Ok(text),
+        Ok(None) => Err("mic_aborted".into()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// Spoken verdict on whatever is pending (confirm modal, picker, warning
@@ -528,6 +582,15 @@ fn interpret_verdict(
 /// already said (the VAD can be slow in a noisy room).
 #[tauri::command]
 fn hear_stop() {
+    mic_stop_flag().store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Esc once the words no longer matter: kill the in-flight `hear_once`
+/// wherever it is. The stop flag rides along so a still-running capture
+/// ends immediately instead of waiting out the VAD.
+#[tauri::command]
+fn hear_abort() {
+    mic_abort_flag().store(true, std::sync::atomic::Ordering::SeqCst);
     mic_stop_flag().store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
@@ -1408,6 +1471,13 @@ fn setup_status() -> Result<serde_json::Value, String> {
     let whisper = config.whisper_model_path();
     let (claude_ok, claude) = claude_detected(&config);
     let state = hark_core::adapters::state_file::load(&config.data_dir());
+    // "Recommended" depends on the machine, not on the catalog: without
+    // Metal (Intel) the strong model transcribes at ~3x real time and the
+    // mic feels frozen — there the fast model is the honest default.
+    let recommended = hark_core::domain::speech_model::recommended_stt_model(
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    );
     let models: Vec<serde_json::Value> = hark_core::adapters::model_fetch::whisper_models()
         .iter()
         .map(|m| {
@@ -1415,6 +1485,7 @@ fn setup_status() -> Result<serde_json::Value, String> {
                 "key": m.key,
                 "filename": m.filename,
                 "size_label": m.size_label,
+                "recommended": m.key == recommended,
             })
         })
         .collect();
@@ -1427,6 +1498,12 @@ fn setup_status() -> Result<serde_json::Value, String> {
         "claude_ok": claude_ok,
         "projects_dir_ok": config.projects_dir.exists(),
         "models": models,
+        // Non-null only when the recommendation is a downgrade the wizard
+        // should justify ("no_metal_cpu" on Intel).
+        "stt_reco_reason": hark_core::domain::speech_model::recommendation_reason(
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+        ),
         "language": config.language,
         "assistant_name": config.assistant_name,
         "hotkey": config.hotkey,
@@ -3416,6 +3493,7 @@ pub fn run() {
             speak_stop,
             hear_once,
             hear_stop,
+            hear_abort,
             ask_text,
             dispatch_text,
             worker_start,

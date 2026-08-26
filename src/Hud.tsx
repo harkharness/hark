@@ -7,6 +7,12 @@ import type { VoiceCandidate, VoicePlan, HarkEvent } from "./types";
 
 type Stage =
   | { s: "listening" }
+  /** The model file is still being read — say so, with the clock running:
+   *  on a cold Intel Mac this lasts long enough to read as broken. */
+  | { s: "loading"; size: string | null; secs: number }
+  /** Capture ended, whisper is grinding. On CPU this takes ~3x the length
+   *  of the utterance, so it needs its own face and its own Esc. */
+  | { s: "transcribing"; secs: number }
   | { s: "thinking"; text: string }
   | { s: "confirm"; text: string; plan: Extract<VoicePlan, { kind: "work" }> }
   /** Target too close to call: numbered options, never a silent guess.
@@ -38,6 +44,11 @@ export default function Hud() {
   // Esc during a verdict listen: abort the round, not just the capture.
   const cancelRef = useRef(false);
   const verdictListening = useRef(false);
+  // Each start() gets a generation; a stale loading-wait loop that wakes
+  // up after a re-arm sees a newer generation and steps aside.
+  const runSeq = useRef(0);
+  // The 1s clock behind the transcribing stage; self-clears on stage change.
+  const phaseTimer = useRef<number>(0);
 
   const hide = useCallback(() => {
     window.clearTimeout(timer.current);
@@ -98,7 +109,9 @@ export default function Hud() {
             heard = (await ipc.hearOnce("hud")).trim();
           } catch (err) {
             if (String(err).includes("mic_busy")) {
-              await ipc.hearStop().catch(() => {});
+              // Taking over means the other surface's turn is dead — abort
+              // it whole (its transcription would only waste the CPU).
+              await ipc.hearAbort().catch(() => {});
               await sleep(180);
               continue;
             }
@@ -392,38 +405,54 @@ export default function Hud() {
     if (busyRef.current) return;
     busyRef.current = true;
     cancelRef.current = false;
+    const mine = ++runSeq.current;
     setStage({ s: "listening" });
     let text = "";
-    try {
-      text = (await ipc.hearOnce("hud")).trim();
-    } catch (err) {
-      // Another surface holds the mic: take over once (cut + retry).
-      if (String(err).includes("mic_busy")) {
-        await ipc.hearStop().catch(() => {});
-        await sleep(180);
-        try {
-          text = (await ipc.hearOnce("hud")).trim();
-        } catch {
+    const opened = Date.now();
+    let busyRetries = 0;
+    for (;;) {
+      try {
+        text = (await ipc.hearOnce("hud")).trim();
+        break;
+      } catch (err) {
+        const raw = String(err);
+        if (raw.includes("mic_busy")) {
+          // Another surface holds the mic: take the turn over (abort it —
+          // its transcription would only waste the CPU) and retry. The
+          // abort lands between whisper's compute blocks, which on a slow
+          // CPU is a matter of seconds — so retry for a while, not once.
+          if (busyRetries++ >= 8) {
+            hide();
+            return;
+          }
+          await ipc.hearAbort().catch(() => {});
+          await sleep(250);
+        } else if (raw.includes("mic_loading")) {
+          // Not an error — a wait. Keep asking with the clock on screen:
+          // when the model lands, the very next call starts the capture.
+          const size = raw.split("mic_loading:")[1]?.trim() || null;
+          setStage({
+            s: "loading",
+            size,
+            secs: Math.floor((Date.now() - opened) / 1000),
+          });
+          await sleep(1000);
+        } else if (raw.includes("mic_no_model")) {
+          setStage({ s: "note", text: t("mic_no_model"), tone: "warn" });
+          setTimeout(hide, 3600);
+          return;
+        } else {
+          // mic_aborted lands here too: Esc already closed the HUD.
           hide();
           return;
         }
-      } else if (String(err).includes("mic_loading")) {
-        // The 466MB model is still being read. Say so and step aside —
-        // an Intel Mac takes long enough that silence read as broken.
-        setStage({ s: "note", text: t("mic_loading"), tone: "warn" });
-        setTimeout(hide, 2600);
-        return;
-      } else if (String(err).includes("mic_no_model")) {
-        setStage({ s: "note", text: t("mic_no_model"), tone: "warn" });
-        setTimeout(hide, 3600);
-        return;
-      } else {
-        hide();
-        return;
+        if (cancelRef.current || runSeq.current !== mine) {
+          return; // Esc or a re-arm took over while we waited
+        }
       }
     }
-    if (!text) {
-      hide();
+    if (cancelRef.current || runSeq.current !== mine || !text) {
+      if (runSeq.current === mine) hide();
       return;
     }
     await handle(text);
@@ -439,19 +468,50 @@ export default function Hud() {
     ipc.configRead().then((s) => { setLang(s.values.ui_language); setSpeechLang(s.values.language); }).catch(() => {});
     startRef.current();
     const un = listen<HarkEvent>("hark", (e) => {
-      if (e.payload.kind !== "hud_listen") return;
-      // Hotkey while something lingers (note/answer/candidates/confirm):
-      // the user wants to talk again — drop the leftover and re-arm.
+      const p = e.payload;
+      if (p.kind === "mic" && p.owner === "hud") {
+        // Backend phase events drive the mic's face — but only while OUR
+        // capture owns the screen (a verdict listen keeps its own stage).
+        const s = stageRef.current.s;
+        if (p.phase === "capturing" && (s === "listening" || s === "loading")) {
+          setStage({ s: "listening" });
+        } else if (p.phase === "transcribing" && s === "listening") {
+          const started = Date.now();
+          window.clearInterval(phaseTimer.current);
+          setStage({ s: "transcribing", secs: 0 });
+          phaseTimer.current = window.setInterval(() => {
+            if (stageRef.current.s !== "transcribing") {
+              window.clearInterval(phaseTimer.current);
+              return;
+            }
+            setStage({
+              s: "transcribing",
+              secs: Math.floor((Date.now() - started) / 1000),
+            });
+          }, 1000);
+        }
+        return;
+      }
+      if (p.kind !== "hud_listen") return;
+      // Hotkey while something lingers (note/answer/candidates/confirm) or
+      // while whisper still grinds a dead turn: the user wants to talk
+      // again — drop the leftover whole and re-arm.
       const s = stageRef.current.s;
-      if (s === "note" || s === "answer" || s === "candidates" || s === "confirm") {
+      if (
+        s === "note" || s === "answer" || s === "candidates" ||
+        s === "confirm" || s === "transcribing"
+      ) {
         window.clearTimeout(timer.current);
         cancelRef.current = true;
-        if (verdictListening.current) ipc.hearStop().catch(() => {});
+        if (verdictListening.current || s === "transcribing") {
+          ipc.hearAbort().catch(() => {});
+        }
         busyRef.current = false;
       }
       startRef.current();
     });
     return () => {
+      window.clearInterval(phaseTimer.current);
       un.then((f) => f());
     };
   }, []);
@@ -462,10 +522,18 @@ export default function Hud() {
       if (e.key === "Escape") {
         if (verdictListening.current) {
           cancelRef.current = true;
-          ipc.hearStop().catch(() => {});
+          ipc.hearAbort().catch(() => {});
           hide();
         } else if (st.s === "listening") {
+          // Still capturing: Esc ends the capture and KEEPS the words —
+          // that is the promise printed next to the waveform.
           ipc.hearStop().catch(() => {});
+        } else if (st.s === "transcribing" || st.s === "loading") {
+          // The words no longer matter (or never existed): kill the turn
+          // wherever it is and free the CPU.
+          cancelRef.current = true;
+          ipc.hearAbort().catch(() => {});
+          hide();
         } else {
           hide();
         }
@@ -473,7 +541,7 @@ export default function Hud() {
       if (e.key === "Enter" && st.s === "confirm") {
         window.clearTimeout(timer.current);
         cancelRef.current = true;
-        if (verdictListening.current) ipc.hearStop().catch(() => {});
+        if (verdictListening.current) ipc.hearAbort().catch(() => {});
         execute(st.plan);
       }
       // Digits pick a candidate (1-based on screen).
@@ -481,7 +549,7 @@ export default function Hud() {
         const cand = st.options[Number(e.key) - 1];
         if (cand) {
           cancelRef.current = true;
-          if (verdictListening.current) ipc.hearStop().catch(() => {});
+          if (verdictListening.current) ipc.hearAbort().catch(() => {});
           pickRef.current(st.instruction, cand);
         }
       }
@@ -502,6 +570,22 @@ export default function Hud() {
         <div className="hud-row">
           {waveform}
           <span className="hud-live">{t("hud_listening")}</span>
+        </div>
+      )}
+      {stage.s === "loading" && (
+        <div className="hud-row">
+          {waveform}
+          <span className="hud-text warn">
+            {stage.size
+              ? t("mic_loading_sized", { size: stage.size, secs: stage.secs })
+              : t("mic_loading_plain", { secs: stage.secs })}
+          </span>
+        </div>
+      )}
+      {stage.s === "transcribing" && (
+        <div className="hud-row">
+          {waveform}
+          <span className="hud-live">{t("hud_transcribing", { secs: stage.secs })}</span>
         </div>
       )}
       {stage.s === "thinking" && (

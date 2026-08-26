@@ -23,6 +23,7 @@ pub mod prompt;
 pub mod savings;
 pub mod precheck;
 pub mod snapshot;
+pub mod speech_model;
 pub mod spend;
 pub mod task_command;
 pub mod transcript;

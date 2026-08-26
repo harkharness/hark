@@ -1588,8 +1588,10 @@ export default function App({
     })();
     return () => {
       dead = true;
-      // Cut only OUR orphan capture — never a capture the HUD owns.
-      if (capturing) ipc.hearStop().catch(() => {});
+      // Abort only OUR orphan turn — never one the HUD owns. Abort, not
+      // stop: nobody reads this transcription, and on CPU it would hold
+      // the mic lease for many seconds after the modal died.
+      if (capturing) ipc.hearAbort().catch(() => {});
     };
     // Re-arm on modal KIND changes only: edits to the same modal (voice
     // rephrase, typing in the textarea) must not restart the announce.

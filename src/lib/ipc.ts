@@ -24,6 +24,9 @@ export const hearOnce = (owner?: string) =>
   invoke<string>("hear_once", { owner: owner ?? null });
 /** Esc while recording: cut the capture and transcribe what was said. */
 export const hearStop = () => invoke("hear_stop");
+/** Esc once the words no longer matter: kill the in-flight hear_once —
+ *  capturing or transcribing — and reject it with "mic_aborted". */
+export const hearAbort = () => invoke("hear_abort");
 
 /** Spoken verdict on whatever is pending — the domain grammar decides. */
 export type VerdictOut =
@@ -369,7 +372,9 @@ export type SetupStatus = {
   claude_bin: string;
   claude_ok: boolean;
   projects_dir_ok: boolean;
-  models: { key: string; filename: string; size_label: string }[];
+  models: { key: string; filename: string; size_label: string; recommended: boolean }[];
+  /** Why the recommended model is the small one, when it is ("no_metal_cpu"). */
+  stt_reco_reason: string | null;
   language: string;
   assistant_name: string;
   hotkey: string;

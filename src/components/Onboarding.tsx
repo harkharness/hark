@@ -157,7 +157,8 @@ export default function Onboarding({
                       <Download size={13} /> {m.key}
                     </span>
                     <span className="ob-model-sub">
-                      {m.key === "small" ? t("ob_s3_small") : t("ob_s3_turbo")} · {m.size_label}
+                      {m.key === "small" ? t("ob_s3_small") : t("ob_s3_turbo")}
+                      {m.recommended ? ` — ${t("ob_s3_reco")}` : ""} · {m.size_label}
                     </span>
                   </button>
                 ))}
@@ -173,6 +174,9 @@ export default function Onboarding({
             )}
             {dl.kind === "error" && (
               <div className="ob-warn">{t("ob_s3_error", { err: dl.err })}</div>
+            )}
+            {status.stt_reco_reason === "no_metal_cpu" && (
+              <div className="ob-hint">{t("ob_s3_cpu_note")}</div>
             )}
           </section>
         )}
