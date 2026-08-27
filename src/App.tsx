@@ -63,8 +63,11 @@ export default function App({
   // and the first worker to finish wiped the clock of every other.
   const [turns, setTurns] = useState<Record<string, TurnState>>({});
   const [recording, setRecording] = useState(false);
+  /** Capture ended, whisper still grinding — seconds of it without Metal. */
+  const [transcribing, setTranscribing] = useState(false);
   // The global Esc handler must see the live value (no stale closure).
   const recordingRef = useRef(false);
+  const transcribingRef = useRef(false);
   const [pending, setPending] = useState<Pending>(null);
   // Read-only thread being viewed (board tab), never executes anything.
   /** Threads whose log has no more history above what is loaded. */
@@ -397,6 +400,13 @@ export default function App({
       [],
     ),
     onSpeaking: setSpeaking,
+    onMicPhase: useCallback((phase: "capturing" | "transcribing" | "idle") => {
+      const live = phase === "capturing";
+      recordingRef.current = live;
+      transcribingRef.current = phase === "transcribing";
+      setRecording(live);
+      setTranscribing(phase === "transcribing");
+    }, []),
     // Real events drive the status; nothing here is inferred from timers.
     // Each event names the thread it belongs to, so a busy worker never
     // moves the clock of the chat you are reading.
@@ -535,6 +545,12 @@ export default function App({
         // the transcription of what was said proceed. Nothing else.
         if (recordingRef.current) {
           ipc.hearStop().catch(() => {});
+          return;
+        }
+        // Already transcribing? The words are not coming — kill the turn
+        // rather than make the user wait out a whisper pass on the CPU.
+        if (transcribingRef.current) {
+          ipc.hearAbort().catch(() => {});
           return;
         }
         ipc.speakStop().catch(() => {});
@@ -2020,14 +2036,20 @@ export default function App({
       >
         {speak ? <Volume2 size={13} /> : <VolumeX size={13} />}
       </button>
-      <span className="composer-orb" title={busy ?? (recording ? "ouvindo…" : "pronto")}>
+      <span
+        className="composer-orb"
+        title={
+          busy ??
+          (recording ? "ouvindo…" : transcribing ? "transcrevendo… (Esc cancela)" : "pronto")
+        }
+      >
         <VoiceOrb
           mode={
             (recording
               ? "listening"
               : speaking
                 ? "speaking"
-                : busy
+                : transcribing || busy
                   ? "busy"
                   : "idle") as OrbMode
           }

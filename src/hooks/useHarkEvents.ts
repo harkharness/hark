@@ -21,6 +21,10 @@ type Handlers = {
   addCost: (label: string, usd: number) => void;
   /** TTS started/stopped (drives the voice orb). */
   onSpeaking: (on: boolean) => void;
+  /** What the ONE microphone is doing, whoever asked for it. The mic
+   *  button and the orb live in these windows but the capture runs in the
+   *  HUD, so without this they never lit up at all. */
+  onMicPhase?: (phase: "capturing" | "transcribing" | "idle") => void;
   /** What a running turn is doing right now, from real stream events:
    *  prose arriving, a tool starting, a tool finishing. The thread comes
    *  first — the status belongs to one chat, and several can run. */
@@ -199,6 +203,8 @@ export function useHarkEvents(h: Handlers) {
         h.refresh();
       } else if (ev.kind === "speaking") {
         h.onSpeaking(ev.on);
+      } else if (ev.kind === "mic") {
+        h.onMicPhase?.(ev.phase);
       } else if (ev.kind === "hotkey_mic") {
         h.onHotkeyMic?.();
       } else if (ev.kind === "main_tab") {

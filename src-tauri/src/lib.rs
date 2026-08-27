@@ -21,7 +21,7 @@ use hark_core::config::Config;
 use hark_core::domain::reply::VoiceReply;
 use hark_plugin_claude::stream::{ClaudeEvent, PermissionDecision};
 use hark_core::domain::memory::{WorkerRecord, WorkerStatus};
-use hark_core::ports::{AgentRunner, AudioIn, Stt, Tts};
+use hark_core::ports::{AgentRunner, AudioIn, Tts};
 
 /// Permission requests waiting for a click, keyed by request_id.
 struct Pending(Mutex<HashMap<String, mpsc::Sender<PermissionDecision>>>);
@@ -464,6 +464,31 @@ impl Drop for MicGuard<'_> {
     }
 }
 
+/// Narrates what the microphone is doing to every window. The windows own
+/// a mic button and an orb but had no way to know: the phase used to be
+/// implicit in a promise nobody could see, so the button stayed dead while
+/// the machine listened. Dropping it says "idle" — so an error, an abort
+/// or an early return can never leave a window stuck on "listening".
+struct MicPhase {
+    app: AppHandle,
+    owner: String,
+}
+
+impl MicPhase {
+    fn say(&self, phase: &str) {
+        emit_event(
+            &self.app,
+            serde_json::json!({ "kind": "mic", "phase": phase, "owner": self.owner }),
+        );
+    }
+}
+
+impl Drop for MicPhase {
+    fn drop(&mut self) {
+        self.say("idle");
+    }
+}
+
 #[tauri::command(async)]
 fn hear_once(
     app: AppHandle,
@@ -513,17 +538,12 @@ fn hear_once(
     // Phase events let the UI say what the mic is DOING. The promise alone
     // can't: on CPU the transcription runs tens of seconds after the
     // capture ended, and "listening" the whole way read as frozen.
-    let phase = |name: &str| {
-        emit_event(
-            &app,
-            serde_json::json!({ "kind": "mic", "phase": name, "owner": owner }),
-        );
-    };
+    let phase = MicPhase { app, owner };
     let tts = SayTts {
         voice: config.voice.clone(),
     };
     tts.beep(hark_core::ports::Cue::Listening);
-    phase("capturing");
+    phase.say("capturing");
     let audio = CpalMic {
         stop,
         ..CpalMic::default()
@@ -534,7 +554,7 @@ fn hear_once(
         return Err("mic_aborted".into());
     }
     tts.beep(hark_core::ports::Cue::Captured);
-    phase("transcribing");
+    phase.say("transcribing");
     match stt.transcribe_with_abort(&audio, abort) {
         Ok(Some(text)) => Ok(text),
         Ok(None) => Err("mic_aborted".into()),

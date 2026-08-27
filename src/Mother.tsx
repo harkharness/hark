@@ -78,6 +78,9 @@ export default function Mother() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  /** Capture ended, whisper still grinding — without Metal that is seconds
+   *  of apparent silence, and "ouvindo…" there is a lie. */
+  const [transcribing, setTranscribing] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [rateLimit, setRateLimit] = useState<RateLimitState | null>(null);
   const [spentToday, setSpentToday] = useState<number | null>(null);
@@ -118,6 +121,7 @@ export default function Mother() {
   // The global hotkey/Esc handlers must see fresh state.
   const micRef = useRef<() => void>(() => {});
   const recordingRef = useRef(false);
+  const transcribingRef = useRef(false);
 
   /** A path clicked in the mother's chat. This window has no editor tabs,
    *  so the OS opens it — but a RELATIVE path has no meaning here (the
@@ -257,7 +261,10 @@ export default function Mother() {
       }
       if (e.key !== "Escape") return;
       if (settingsOpenRef.current) setSettingsOpen(false);
+      // Still capturing: keep the words. Already transcribing: the words
+      // are not coming, so kill the turn instead of waiting it out.
       else if (recordingRef.current) ipc.hearStop().catch(() => {});
+      else if (transcribingRef.current) ipc.hearAbort().catch(() => {});
       else ipc.speakStop().catch(() => {});
     }
     window.addEventListener("keydown", onKey);
@@ -289,6 +296,13 @@ export default function Mother() {
     }, []),
     onSessionStarted: () => {},
     onSpeaking: setSpeaking,
+    onMicPhase: useCallback((phase: "capturing" | "transcribing" | "idle") => {
+      const live = phase === "capturing";
+      recordingRef.current = live;
+      transcribingRef.current = phase === "transcribing";
+      setRecording(live);
+      setTranscribing(phase === "transcribing");
+    }, []),
     onRateLimit: setRateLimit,
     announce: true,
     onVoiceAction: useCallback(
@@ -818,7 +832,15 @@ export default function Mother() {
   }
   micRef.current = onMic;
 
-  const mode: OrbMode = recording ? "listening" : speaking ? "speaking" : busy ? "busy" : "idle";
+  // Transcribing reads as "busy", not "listening": talking at it then is
+  // shouting into a mic that already closed.
+  const mode: OrbMode = recording
+    ? "listening"
+    : speaking
+      ? "speaking"
+      : transcribing || busy
+        ? "busy"
+        : "idle";
   const liveWorkers = (overview?.workers ?? []).filter((w) => w.status === "running").length;
 
   // Shared blocks: the compact column and the expanded split reuse them.
@@ -838,7 +860,14 @@ export default function Mother() {
   );
   const statusBlock = (
     <div className="mother-status">
-      {busy ?? (recording ? "ouvindo… (Esc corta)" : speaking ? "falando…" : "pronto")}
+      {busy ??
+        (recording
+          ? "ouvindo… (Esc corta)"
+          : transcribing
+            ? "transcrevendo… (Esc cancela)"
+            : speaking
+              ? "falando…"
+              : "pronto")}
       {spentToday != null && (
         <span className="mother-spend"> · hoje ${spentToday.toFixed(2)}</span>
       )}
