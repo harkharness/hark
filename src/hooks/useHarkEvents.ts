@@ -5,7 +5,7 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import * as ipc from "../lib/ipc";
-import { st } from "../lib/i18n";
+import { st, t } from "../lib/i18n";
 import type { LiveWorker, Msg, PermissionAsk, HarkEvent } from "../types";
 
 type Handlers = {
@@ -116,6 +116,14 @@ export function useHarkEvents(h: Handlers) {
         );
       } else if (ev.kind === "worker_turn") {
         const label = h.labelFor(ev.task_id);
+        // An auth failure ships its own remedy as a runnable block: the
+        // ▶ on the fence opens the terminal pane and runs it (26/08 —
+        // prose telling the user what to type helped nobody).
+        const fence = "```";
+        const turnText =
+          ev.error_code === "agent_auth"
+            ? `${ev.text}\n\n${t("auth_fix")}\n\n${fence}bash\nclaude /login\n${fence}`
+            : ev.text;
         h.pushRaw(
           label,
           `${ts()} ── turno ${ev.is_error ? "FALHOU " : ""}${ev.model ?? ""} $${(ev.cost_usd ?? 0).toFixed(4)}`,
@@ -128,7 +136,7 @@ export function useHarkEvents(h: Handlers) {
           const lastHark = [...old]
             .reverse()
             .find((m) => (m.who === "hark" || m.who === "compact") && m.task === label);
-          if (lastHark && "text" in lastHark && lastHark.text === ev.text) {
+          if (lastHark && "text" in lastHark && lastHark.text === turnText) {
             if (lastHark.who === "compact") return old;
             return old.map((m) =>
               m === lastHark
@@ -140,7 +148,7 @@ export function useHarkEvents(h: Handlers) {
             ...old,
             {
               who: "hark",
-              text: ev.text,
+              text: turnText,
               cost: ev.cost_usd,
               model: ev.model,
               usage: ev.usage,

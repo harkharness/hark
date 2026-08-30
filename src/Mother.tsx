@@ -100,8 +100,17 @@ export default function Mother() {
   // this in flight, it is resent ONCE through the normal respawn path —
   // a request must never evaporate because a process did.
   const chatInFlightRef = useRef<{ text: string; retried: boolean } | null>(null);
-  /** One typed `claude` per window: auth failure repeats on every call. */
+  /** One fix block per window: auth failure repeats on every call. */
   const loginNudgedRef = useRef(false);
+  /** The remedy as a message: a runnable `claude /login` block — the ▶
+   *  opens the terminal beside the chat and runs it. */
+  function pushLoginFix() {
+    if (loginNudgedRef.current) return;
+    loginNudgedRef.current = true;
+    const fence = "```";
+    push({ who: "hark", text: `${t("auth_fix")}\n\n${fence}bash\nclaude /login\n${fence}` });
+    void ipc.speak(st("sp_login_needed")).catch(() => {});
+  }
   // Sessions matching a recovery request, waiting for the user to pick one.
   const [picks, setPicks] = useState<{ query: string; candidates: SessionHit[] } | null>(null);
   // A typed work instruction planned and waiting for the user's confirm.
@@ -176,14 +185,15 @@ export default function Mother() {
   }
   /** Open the terminal pane with a command TYPED, Enter the user's —
    *  the same grammar the project windows use. */
-  function motherTerminal(cmd?: string) {
+  function motherTerminal(cmd?: string, execute = false) {
     setChatExpanded(true); // the panels live in the split view
     setTermOpen(true);
     const target = shells[0] ?? addShell();
     if (shells[0]) setShellTab(shells[0]);
     if (!cmd) return;
+    const payload = cmd.replace(/\s+$/, "") + (execute ? "\r" : "");
     const write = (attempt: number) => {
-      ipc.termWrite(target, cmd).catch(() => {
+      ipc.termWrite(target, payload).catch(() => {
         if (attempt === 0) setTimeout(() => write(1), 700);
       });
     };
@@ -400,9 +410,10 @@ export default function Mother() {
         // fatal on top: open the terminal with `claude` typed and say so.
         if (isError) {
           chatInFlightRef.current = null;
+          // The message itself carries the runnable `claude /login` block
+          // (useHarkEvents appends it): the ▶ opens the terminal beside.
           if (errorCode === "agent_auth" && !loginNudgedRef.current) {
             loginNudgedRef.current = true;
-            motherTerminal("claude");
             void ipc.speak(st("sp_login_needed")).catch(() => {});
           }
         }
@@ -778,7 +789,7 @@ export default function Mother() {
       say(reply.fala);
     } catch (err) {
       push({ who: "sys", text: `erro: ${agentError(err)}` });
-      if (String(err).startsWith("agent_auth:")) motherTerminal("claude");
+      if (String(err).startsWith("agent_auth:")) pushLoginFix();
     } finally {
       setBusy(null);
       refresh();
@@ -909,7 +920,7 @@ export default function Mother() {
     } catch (err) {
       chatInFlightRef.current = null;
       push({ who: "sys", text: `chat hark: ${agentError(err)}` });
-      if (String(err).startsWith("agent_auth:")) motherTerminal("claude");
+      if (String(err).startsWith("agent_auth:")) pushLoginFix();
     }
   }
 
@@ -1210,6 +1221,7 @@ export default function Mother() {
               directivesFor={() => undefined}
               onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
               onOpenPath={openChatPath}
+              onRunCommand={(cmd, execute) => motherTerminal(cmd, execute)}
             />
             <div className="chat-composer">
               <input

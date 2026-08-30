@@ -219,7 +219,10 @@ export default function App({
   function nudgeLogin(err: unknown) {
     if (!String(err).startsWith("agent_auth:") || loginNudged.current) return;
     loginNudged.current = true;
-    runInTerminalRef.current("claude", false);
+    // The remedy as a message: a runnable block — its ▶ opens the
+    // terminal pane beside and executes (user-asked shape, 26/08).
+    const fence = "```";
+    push({ who: "hark", text: `${t("auth_fix")}\n\n${fence}bash\nclaude /login\n${fence}` });
   }
   const nudgeRef = useRef(nudgeLogin);
   nudgeRef.current = nudgeLogin;
