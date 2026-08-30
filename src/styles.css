@@ -1092,10 +1092,13 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    chat header next to "recolher" and lights up while open. */
 .chat-head button.on { color: var(--accent); border-color: var(--accent); }
 .split-tools {
-  display: flex; flex-direction: column; gap: 10px; min-width: 0;
+  display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0;
   flex: 0 0 42%; max-width: 42%;
 }
-.split-tools .panelframe { flex: 1; min-height: 0; }
+/* The root class is .frame — the old .panelframe selector matched NOTHING,
+   the column never got a height, and xterm fit() saw 0 rows: the "blank
+   terminal that still executes" bug (26/08). */
+.split-tools .frame { flex: 1; min-height: 0; margin: 8px 0; }
 .mo-shells { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .mo-shell { flex: 1; min-height: 0; }
 

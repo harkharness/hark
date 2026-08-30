@@ -172,6 +172,14 @@ export default function Mother() {
   const [dirtyPaths, setDirtyPaths] = useState<Set<string>>(new Set());
   const [termOpen, setTermOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  /** Where mother shells are born: the app's own data dir — the hark chat
+   *  already runs there, so `claude` already trusts it. A shell in $HOME
+   *  made `claude /login` scan the user's world and macOS asked for
+   *  Photos/Documents/everything (26/08). */
+  const [shellHome, setShellHome] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    ipc.configRead().then((snap) => setShellHome(snap.data_dir)).catch(() => {});
+  }, []);
 
   function addShell(): string {
     const id = `mo-sh-${shellSeq.current++}-${Date.now() % 1e6}`;
@@ -1272,7 +1280,7 @@ export default function Mother() {
                         className="mo-shell"
                         style={{ display: id === shellTab ? "flex" : "none" }}
                       >
-                        <ShellTerminal id={id} onExit={() => closeShell(id)} />
+                        <ShellTerminal id={id} cwd={shellHome} onExit={() => closeShell(id)} />
                       </div>
                     ))}
                     {shells.length === 0 && <div className="vc-empty">{t("mo_term_empty")}</div>}
