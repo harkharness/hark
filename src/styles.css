@@ -348,6 +348,9 @@ body {
 .hark-chat-head button:hover, .chat-head button:hover {
   color: var(--text); border-color: var(--border-strong);
 }
+/* Two auto margins would split the leftover space and strand the first
+   button mid-header: only the first of the cluster pushes right. */
+.hark-chat-head button + button, .chat-head button + button { margin-left: 0; }
 /* The digest: labels left (você/hark), question one line, reply two. */
 .hark-digest {
   display: flex; flex-direction: column; gap: 9px; padding: 11px 14px 13px;
@@ -1087,14 +1090,9 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .term-resume.spent {
   border-color: var(--border); color: var(--dim); opacity: .5; cursor: default;
 }
-/* Mother tools: terminal + file viewer beside the chat (26/08). */
-.mother-tools { display: flex; gap: 6px; justify-content: flex-end; margin: 2px 0 6px; }
-.mother-tools button {
-  background: none; border: 1px solid var(--border); border-radius: 6px;
-  color: var(--dim); padding: 4px 8px; cursor: pointer;
-}
-.mother-tools button.on, .mother-tools button:hover { color: var(--accent); border-color: var(--accent); }
-.mother-tools button:disabled { opacity: .4; cursor: default; }
+/* Mother tools: panels beside the chat; the terminal toggle lives in the
+   chat header next to "recolher" and lights up while open. */
+.chat-head button.on { color: var(--accent); border-color: var(--accent); }
 .split-tools {
   display: flex; flex-direction: column; gap: 10px; min-width: 0;
   flex: 0 0 42%; max-width: 42%;

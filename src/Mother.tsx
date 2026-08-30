@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, FileText, Lock, Maximize2, Mic, Minimize2, SquareChevronRight } from "lucide-react";
+import { ExternalLink, Lock, Maximize2, Mic, Minimize2, SquareChevronRight } from "lucide-react";
 import Board from "./components/Board";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import CostsPanel from "./components/CostsPanel";
@@ -960,6 +960,16 @@ export default function Mother() {
         {chatCost > 0 && ` · $${chatCost.toFixed(2)} ${t("proj_today")}`}
         {chatCtx != null && ` · ${t("chat_ctx", { n: Math.round(chatCtx * 100) })}`}
       </span>
+      {expanded && (
+        <button
+          className={termOpen ? "on" : ""}
+          title={t("mo_term")}
+          onClick={() => (termOpen ? setTermOpen(false) : motherTerminal())}
+        >
+          <SquareChevronRight size={11} />
+          {t("mo_term")}
+        </button>
+      )}
       <button onClick={() => setChatExpanded(!expanded)}>
         {expanded ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
         {expanded ? t("chat_collapse") : t("chat_expand")}
@@ -1173,23 +1183,6 @@ export default function Mother() {
           </div>
           <div className="split-right">
             {chatHead(true)}
-            <div className="mother-tools">
-              <button
-                className={termOpen ? "on" : ""}
-                title={t("mo_term")}
-                onClick={() => (termOpen ? setTermOpen(false) : motherTerminal())}
-              >
-                <SquareChevronRight size={13} />
-              </button>
-              <button
-                className={filesOpen ? "on" : ""}
-                title={t("mo_files")}
-                onClick={() => setFilesOpen((v) => !v)}
-                disabled={openFiles.length === 0 && !filesOpen}
-              >
-                <FileText size={13} />
-              </button>
-            </div>
             <Transcript
               messages={chatMsgs}
               directivesFor={() => undefined}
