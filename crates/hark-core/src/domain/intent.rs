@@ -180,9 +180,36 @@ pub fn model_for(utterance: &str, models: &Models) -> String {
     models.standard.clone()
 }
 
+/// Model hint for a WORKER's opening instruction (FASE 8.6): route UP,
+/// never down. "investiga a causa raiz do webhook" deserves the heavy
+/// tier without the user naming a model; nothing here ever downgrades
+/// work to the light tier — a cheap-looking instruction still edits code.
+/// Explicit overrides ("usa o haiku") are parsed by directives.rs first
+/// and win; this only fills the gap when no model was named.
+pub fn worker_model_hint(instruction: &str, models: &Models) -> Option<String> {
+    let chosen = model_for(instruction, models);
+    (chosen == models.heavy || chosen == models.max).then_some(chosen)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worker_hint_routes_up_and_never_down() {
+        let m = Models::default();
+        assert_eq!(
+            worker_model_hint("investiga a causa raiz do webhook cair", &m),
+            Some(m.heavy.clone())
+        );
+        assert_eq!(
+            worker_model_hint("usa o melhor modelo e analisa a arquitetura", &m),
+            Some(m.max.clone())
+        );
+        // A cheap-LOOKING instruction still edits code: never the light tier.
+        assert_eq!(worker_model_hint("lista os arquivos e apaga os órfãos", &m), None);
+        assert_eq!(worker_model_hint("roda os testes do webhook", &m), None);
+    }
 
     #[test]
     fn routes_questions_to_ask() {

@@ -80,6 +80,8 @@ export default function App({
   /** Armed by the held banner: the next message forks the held session
    *  into a NEW one and works there — the owner's transcript untouched. */
   const [forkDraft, setForkDraft] = useState<{ title: string; sessionId: string } | null>(null);
+  /** Tasks auto-compacted on this climb of the context window. */
+  const autoCompacted = useRef<Set<string>>(new Set());
   const [reading, setReading] = useState<{
     sessionId: string;
     title: string;
@@ -398,8 +400,34 @@ export default function App({
     // event's own label and the worker registry's can disagree (a renamed
     // card), so both keys are cleared.
     onWorkerTurn: useCallback(
-      (label: string, _err: boolean, taskId?: string) =>
-        endTurn(label, taskId),
+      (
+        label: string,
+        _err: boolean,
+        taskId?: string,
+        contextPct?: number | null,
+      ) => {
+        endTurn(label, taskId);
+        // FASE 8.6: act on context pressure instead of only warning. At
+        // 85% the next turns degrade and a forced summary is coming
+        // anyway; compacting NOW is the cheap version of that. Once per
+        // climb — the flag re-arms when the window drops back.
+        if (taskId && contextPct != null) {
+          if (contextPct >= 0.85 && !autoCompacted.current.has(taskId)) {
+            autoCompacted.current.add(taskId);
+            compacting.current.add(label);
+            push({
+              who: "sys",
+              text: `contexto em ${Math.round(contextPct * 100)}% — compactando sozinho`,
+              task: label,
+            });
+            beginTurn(label);
+            ipc.workerSend(taskId, "/compact", []).catch(() => endTurn(label));
+          } else if (contextPct < 0.7) {
+            autoCompacted.current.delete(taskId);
+          }
+        }
+      },
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       [],
     ),
     onSpeaking: setSpeaking,

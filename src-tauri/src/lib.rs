@@ -804,6 +804,13 @@ fn worker_start(
         .mode
         .or_else(|| mode.as_deref().and_then(hark_core::domain::directives::Mode::from_flag))
         .or_else(|| config.default_worker_mode());
+    // Route UP when the instruction asks for depth and no model was named
+    // (FASE 8.6): "investiga a causa raiz" gets the heavy tier by itself.
+    // Never down — a cheap-looking instruction still edits code.
+    if directives.model.is_none() {
+        directives.model =
+            hark_core::domain::intent::worker_model_hint(&instruction, &config.models());
+    }
     let mut spawn = fresh_spawn(
         &config,
         planned.workspace_root.clone(),
@@ -1386,7 +1393,9 @@ fn fresh_spawn(
 ) -> hark_plugin_claude::worker::WorkerSpawn {
     hark_plugin_claude::worker::WorkerSpawn {
         claude_bin: config.claude_bin_resolved(),
-        limits: config.spawn_limits(),
+        // The project's own ceiling when configured — the cap follows the
+        // workspace the worker actually runs in (FASE 8.6).
+        limits: config.spawn_limits_for(&cwd),
         envs: worker_envs(config),
         cwd,
         session_id,

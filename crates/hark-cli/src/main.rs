@@ -563,7 +563,7 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
     let _ = state_file::save(&config.data_dir(), &state);
 
     let spawn = worker::WorkerSpawn {
-        limits: config.spawn_limits(),
+        limits: config.spawn_limits_for(&planned.workspace_root),
         envs: {
             let settings = std::fs::read_to_string(hark_core::config::expand_home("~/.claude/settings.json")).unwrap_or_default();
             let status = hark_plugin_claude::eco::detect(&settings);

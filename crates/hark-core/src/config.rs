@@ -67,6 +67,11 @@ pub struct Config {
     pub worker_budget_usd: f64,
     /// Optional turn ceiling per worker process (`--max-turns`); 0 = off.
     pub worker_max_turns: u32,
+    /// Per-project budget overrides: workspace path (~/ ok) → USD ceiling.
+    /// A path prefix wins over the global `worker_budget_usd`; 0 disables
+    /// the cap for that project. TOML: `[project_budgets]` table.
+    #[serde(default)]
+    pub project_budgets: BTreeMap<String, f64>,
     /// Default permission mode of new workers when the instruction names
     /// none ("manual" | "acceptEdits" | "plan" | "auto" | "bypass").
     /// Empty = the CLI's own default (ask for everything).
@@ -148,6 +153,7 @@ impl Default for Config {
             hotkey: "cmd+shift+space".into(),
             worker_budget_usd: 2.0,
             worker_max_turns: 0,
+            project_budgets: BTreeMap::new(),
             worker_mode: String::new(),
             assistant_name: "Hark".into(),
             agent: AgentTable::default(),
@@ -181,6 +187,26 @@ impl Config {
         hark_agent::SpawnLimits {
             max_budget_usd: (self.worker_budget_usd > 0.0).then_some(self.worker_budget_usd),
             max_turns: (self.worker_max_turns > 0).then_some(self.worker_max_turns),
+        }
+    }
+
+    /// Spawn limits for a worker in `workspace`: the project's own ceiling
+    /// when one is configured (longest matching path prefix wins; 0 turns
+    /// the cap off for that project), else the global one.
+    pub fn spawn_limits_for(&self, workspace: &std::path::Path) -> hark_agent::SpawnLimits {
+        let ws = workspace.to_string_lossy();
+        let hit = self
+            .project_budgets
+            .iter()
+            .map(|(path, usd)| (expand_home(path), usd))
+            .filter(|(p, _)| *ws == **p || ws.starts_with(&format!("{p}/")))
+            .max_by_key(|(p, _)| p.len());
+        match hit {
+            Some((_, usd)) => hark_agent::SpawnLimits {
+                max_budget_usd: (*usd > 0.0).then_some(*usd),
+                max_turns: (self.worker_max_turns > 0).then_some(self.worker_max_turns),
+            },
+            None => self.spawn_limits(),
         }
     }
 }
@@ -401,6 +427,17 @@ mod tests {
         let config: Config = toml::from_str(old_file).expect("parses");
         assert!(config.auto_update, "auto_update must default to on");
         assert_eq!(config.worker_budget_usd, 2.0, "the $2 guardrail survives");
+        // FASE 8.6: a project's own ceiling beats the global one — longest
+        // prefix wins, and 0 switches the cap off for that project only.
+        let mut cfg = Config::default();
+        cfg.project_budgets.insert("~/Projects/caro".into(), 8.0);
+        cfg.project_budgets.insert("~/Projects/caro/sub".into(), 0.0);
+        let at =
+            |p: &str| cfg.spawn_limits_for(std::path::Path::new(&expand_home(p))).max_budget_usd;
+        assert_eq!(at("~/Projects/caro"), Some(8.0));
+        assert_eq!(at("~/Projects/caro/api"), Some(8.0), "prefix covers children");
+        assert_eq!(at("~/Projects/caro/sub"), None, "0 = uncapped, longest prefix wins");
+        assert_eq!(at("~/Projects/outro"), Some(2.0), "global default elsewhere");
         assert_eq!(config.assistant_name, "Hark");
         assert_eq!(config.hotkey, "cmd+shift+space");
         // What the file DID say still wins.
