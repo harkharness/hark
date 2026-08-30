@@ -3,6 +3,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { CircleQuestionMark, FolderPlus, Mic, ShieldCheck, Target } from "lucide-react";
 import * as ipc from "./lib/ipc";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
+import { agentError } from "./lib/format";
 import type { VoiceCandidate, VoicePlan, HarkEvent } from "./types";
 
 type Stage =
@@ -340,7 +341,21 @@ export default function Hud() {
         window.clearTimeout(timer.current);
         timer.current = window.setTimeout(hide, 6000);
       } catch (err) {
-        finish(`erro: ${err}`, "warn", 2800);
+        // The spoken question is a conversation turn even when it fails:
+        // it lands in the mother's thread with the coded error, instead of
+        // evaporating with this toast (caught live 26/08 — an expired
+        // OAuth left "nothing happened" and no trace).
+        const text_err = agentError(err);
+        emit("hark", {
+          kind: "chat_echo",
+          question: text,
+          reply: { fala: text_err },
+          work: false,
+        }).catch(() => {});
+        if (String(err).startsWith("agent_auth:")) {
+          ipc.speak(st("sp_login_needed")).catch(() => {});
+        }
+        finish(text_err, "warn", 3600);
       }
     } else if (plan.kind === "work") {
       setStage({ s: "confirm", text, plan });

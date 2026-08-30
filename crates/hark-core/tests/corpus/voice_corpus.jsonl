@@ -30,3 +30,4 @@
 {"say": "roda os testes", "expect": "no_target", "note": "sem contexto e sem endereço: pedir destino, nunca chutar"}
 {"say": "continua a migração", "expect": "candidates", "note": "duas sessões de migração empatam: opções na tela, nunca chute silencioso (19/08)"}
 {"say": "bom dia", "expect": "question", "classify": false, "note": "conversa não paga classificador nem vira dispatch"}
+{"say": "Quais foram as atividades da semana passada e quais pendências ficaram?", "expect": "question", "classify": false, "note": "falado 26/08 na mãe; morreu num OAuth expirado sem deixar rastro — o erro agora ecoa na thread"}
