@@ -100,6 +100,8 @@ export default function Mother() {
   // this in flight, it is resent ONCE through the normal respawn path —
   // a request must never evaporate because a process did.
   const chatInFlightRef = useRef<{ text: string; retried: boolean } | null>(null);
+  /** One typed `claude` per window: auth failure repeats on every call. */
+  const loginNudgedRef = useRef(false);
   // Sessions matching a recovery request, waiting for the user to pick one.
   const [picks, setPicks] = useState<{ query: string; candidates: SessionHit[] } | null>(null);
   // A typed work instruction planned and waiting for the user's confirm.
@@ -345,6 +347,13 @@ export default function Mother() {
       if (taskId !== HARK_CHAT) return;
       const inflight = chatInFlightRef.current;
       if (!inflight || inflight.retried) return;
+      // A worker that died unauthenticated will die again: resending is
+      // noise. The turn handler above usually cleared this already; this
+      // covers an exit that arrives first or without a result.
+      if (reason && reason.includes("agent_auth")) {
+        chatInFlightRef.current = null;
+        return;
+      }
       // One retry, announced. hark_chat_send respawns the worker resuming
       // the same session, so the conversation's memory survives the crash.
       chatInFlightRef.current = { ...inflight, retried: true };
@@ -383,7 +392,20 @@ export default function Mother() {
         ctxPct?: number | null,
         cost?: number,
         sessionId?: string | null,
+        errorCode?: string | null,
       ) => {
+        // An error RESULT is an answer, not a crash: whatever is in
+        // flight was delivered and failed — replaying it would fail the
+        // same way (three identical bubbles, caught live 26/08). Auth is
+        // fatal on top: open the terminal with `claude` typed and say so.
+        if (isError) {
+          chatInFlightRef.current = null;
+          if (errorCode === "agent_auth" && !loginNudgedRef.current) {
+            loginNudgedRef.current = true;
+            motherTerminal("claude");
+            void ipc.speak(st("sp_login_needed")).catch(() => {});
+          }
+        }
         setActions((old) =>
           old.map((a) =>
             a.target?.toLowerCase() === label.toLowerCase() && a.status === "despachado"

@@ -61,6 +61,7 @@ type Handlers = {
     contextPct?: number | null,
     costUsd?: number,
     sessionId?: string | null,
+    errorCode?: string | null,
   ) => void;
   /**
    * Whether THIS window announces events out loud (turn done, permission
@@ -166,6 +167,7 @@ export function useHarkEvents(h: Handlers) {
           ev.context_pct,
           ev.cost_usd,
           ev.session_id,
+          ev.error_code,
         );
         if (h.announce && h.speakRef.current) {
           const spoken = ev.label ?? label;

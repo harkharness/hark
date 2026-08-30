@@ -1072,11 +1072,19 @@ fn start_worker_titled(
                             / w as f64)
                             .min(1.0)
                     });
+                    // A failed turn carries its CLASS, so the windows can
+                    // act (auth → open a terminal with `claude` typed) and
+                    // know it is fatal — the crash-resend must never replay
+                    // a message into a session that cannot authenticate.
+                    let error_code = (turn.is_error
+                        && hark_plugin_claude::health::looks_unauthenticated(&turn.raw))
+                    .then_some("agent_auth");
                     emit_event(
                         &app2,
                         serde_json::json!({ "kind": "worker_turn", "task_id": task2,
                             "label": board_title,
                             "session_id": (!current_session.is_empty()).then_some(current_session.as_str()),
+                            "error_code": error_code,
                             "text": turn.raw, "cost_usd": turn.cost_usd, "model": turn.model, "is_error": turn.is_error,
                             "usage": { "input": usage.input, "output": usage.output,
                                        "cache_read": usage.cache_read, "cache_created": usage.cache_created },
@@ -1144,11 +1152,18 @@ fn start_worker_titled(
                 .unwrap_or((None, String::new()));
             let reason: String = stderr_tail.chars().rev().take(300).collect::<Vec<_>>()
                 .into_iter().rev().collect();
+            // Classify the death so the windows can refuse a doomed
+            // resend: an unauthenticated worker dies again identically.
+            let reason = if hark_plugin_claude::health::looks_unauthenticated(&reason) {
+                format!("agent_auth: {}", reason.trim())
+            } else {
+                reason.trim().to_string()
+            };
             emit_event(
                 &app2,
                 serde_json::json!({ "kind": "worker_exit", "task_id": task2,
                     "exit_code": exit_code,
-                    "reason": (!reason.trim().is_empty()).then_some(reason.trim()) }),
+                    "reason": (!reason.is_empty()).then_some(reason.as_str()) }),
             );
             app2.state::<LiveWorkers>().0.lock().unwrap().remove(&task2);
             app2.state::<BatchState>().0.lock().unwrap().remove(&task2);

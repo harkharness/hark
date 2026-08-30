@@ -420,8 +420,14 @@ export default function App({
         _err: boolean,
         taskId?: string,
         contextPct?: number | null,
+        _cost?: number,
+        _session?: string | null,
+        errorCode?: string | null,
       ) => {
         endTurn(label, taskId);
+        // Auth death is fatal and identical on retry: the remedy is the
+        // terminal, so open it with `claude` typed (once per window).
+        if (errorCode === "agent_auth") nudgeRef.current("agent_auth:turn");
         // FASE 8.6: act on context pressure instead of only warning. At
         // 85% the next turns degrade and a forced summary is coming
         // anyway; compacting NOW is the cheap version of that. Once per

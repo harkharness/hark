@@ -31,6 +31,9 @@ export type HarkEvent =
       cost_usd?: number;
       model?: string;
       is_error: boolean;
+      /** Failure class of an error turn ("agent_auth"): fatal — never
+       *  auto-resent, and the window offers the remedy. */
+      error_code?: string | null;
       usage?: TurnUsage;
       context_pct?: number | null;
     }
