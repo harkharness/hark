@@ -320,6 +320,7 @@ pub fn voice_execute(
                     first,
                     Some(session),
                     None,
+                    None,
                 )?;
                 let value = serde_json::to_value(started).map_err(|e| e.to_string())?;
                 if compact_first {

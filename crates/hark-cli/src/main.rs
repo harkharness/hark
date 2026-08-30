@@ -574,6 +574,7 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
         cwd: planned.workspace_root.clone(),
         session_id: planned.session.session_id.clone(),
         instruction: instruction.to_string(),
+        fork: false,
     };
     let result = worker::run(
         &spawn,

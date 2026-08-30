@@ -77,6 +77,9 @@ export default function App({
   const [owners, setOwners] = useState<SessionOwner[]>([]);
   /** Where each thread's mirror has read up to, in bytes of its log. */
   const mirror = useRef<Map<string, number>>(new Map());
+  /** Armed by the held banner: the next message forks the held session
+   *  into a NEW one and works there — the owner's transcript untouched. */
+  const [forkDraft, setForkDraft] = useState<{ title: string; sessionId: string } | null>(null);
   const [reading, setReading] = useState<{
     sessionId: string;
     title: string;
@@ -1079,6 +1082,28 @@ export default function App({
     if (aside) text = text.slice(aside[0].length).trim() || text;
     const toHark = !!aside;
 
+    // A fork draft armed by the held banner: this message starts a NEW
+    // session seeded with the held one's history and works there.
+    if (forkDraft && !toHark) {
+      const draft = forkDraft;
+      setForkDraft(null);
+      push({ who: "user", text, task: draft.title });
+      beginTurn(`${draft.title} (fork)`);
+      const out = await ipc
+        .workerStart(text, draft.sessionId, modeDefault ?? undefined, true)
+        .catch((err) => {
+          push({ who: "sys", text: `fork: ${agentError(err)}` });
+          return null;
+        });
+      if (out?.status === "started") {
+        adoptWorker(out.task_id, `${draft.title} (fork)`, out.directives, "");
+      } else {
+        endTurn(`${draft.title} (fork)`);
+        if (out) push({ who: "sys", text: `fork não abriu: ${JSON.stringify(out)}` });
+      }
+      return;
+    }
+
     // A pending "+" draft: this message opens the new session.
     if (draftChat && !toHark) {
       await runNewChat(draftChat, text);
@@ -1845,6 +1870,7 @@ export default function App({
   /** Back to the window's general chat with hark (the sidebar's own row).
    *  Refs first: state arrives a render later and push() reads the refs. */
   function leaveChat() {
+    setForkDraft(null);
     focusedRef.current = null;
     focusedTaskRef.current = null;
     setFocusedTask(null);
@@ -1999,9 +2025,11 @@ export default function App({
     </PanelFrame>
   );
 
-  const placeholder = heldBy
-    ? t("composer_held")
-    : draftChat
+  const placeholder = forkDraft
+    ? t("composer_fork", { name: forkDraft.title })
+    : heldBy
+      ? t("composer_held")
+      : draftChat
     ? t("composer_draft", { name: draftChat.name })
     : focused
       ? t("composer_worker", { name: labelFor(focused) })
@@ -2244,11 +2272,19 @@ export default function App({
                     >
                       {t("held_goto")}
                     </button>
+                    <button
+                      onClick={() => {
+                        setForkDraft({ title: focusedTask?.title ?? "", sessionId: heldBy.session_id });
+                        push({ who: "sys", text: t("fork_armed"), task: focusedTask?.title });
+                      }}
+                    >
+                      {t("held_fork")}
+                    </button>
                   </div>
                 </div>
               )}
               <Composer
-                disabled={!!busy || !!heldBy}
+                disabled={!!busy || (!!heldBy && !forkDraft)}
                 recording={recording}
                 placeholder={placeholder}
                 projects={projects}

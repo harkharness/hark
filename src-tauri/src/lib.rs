@@ -733,7 +733,9 @@ fn worker_start(
     instruction: String,
     session_id: Option<String>,
     mode: Option<String>,
+    fork: Option<bool>,
 ) -> Result<DispatchOut, String> {
+    let fork = fork.unwrap_or(false);
     let config = Config::load();
     let planned = {
         let mut store =
@@ -761,6 +763,13 @@ fn worker_start(
                     .collect(),
             })
         }
+        // A fork never co-writes: the owner's session only SEEDS the new
+        // one, so "busy" does not apply (FASE 8.4 — parallel work while a
+        // human holds the original at a terminal).
+        Plan::TargetBusy(s) if fork => hark_core::app::dispatch::Planned {
+            workspace_root: s.cwd.clone().unwrap_or_default().into(),
+            session: s,
+        },
         Plan::TargetBusy(s) => {
             return Ok(DispatchOut::Busy {
                 session_id: s.session_id,
@@ -795,13 +804,14 @@ fn worker_start(
         .mode
         .or_else(|| mode.as_deref().and_then(hark_core::domain::directives::Mode::from_flag))
         .or_else(|| config.default_worker_mode());
-    let spawn = fresh_spawn(
+    let mut spawn = fresh_spawn(
         &config,
         planned.workspace_root.clone(),
         planned.session.session_id.clone(),
         instruction.clone(),
         directives.clone(),
     );
+    spawn.fork = fork;
     let _ = &perms; // permissions are looked up via app.state in the reader
     start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
     Ok(DispatchOut::Started {
@@ -1382,6 +1392,7 @@ fn fresh_spawn(
         session_id,
         instruction,
         directives,
+        fork: false,
     }
 }
 

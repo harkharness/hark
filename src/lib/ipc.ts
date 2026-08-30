@@ -64,7 +64,16 @@ export const workerStart = (
   instruction: string,
   sessionId: string | null,
   mode?: string,
-) => invoke<DispatchOutcome>("worker_start", { instruction, sessionId, mode: mode ?? null });
+  /** Fork: a NEW session seeded with sessionId's history (--fork-session)
+   *  — parallel work while a terminal holds the original. */
+  fork?: boolean,
+) =>
+  invoke<DispatchOutcome>("worker_start", {
+    instruction,
+    sessionId,
+    mode: mode ?? null,
+    fork: fork ?? null,
+  });
 
 export const workerSend = (
   taskId: string,

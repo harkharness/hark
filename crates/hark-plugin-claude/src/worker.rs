@@ -28,6 +28,10 @@ pub struct WorkerSpawn {
     /// Per-PROCESS env vars (eco tools: ponytail/caveman/tokensave modes)
     /// — global settings are never touched.
     pub envs: Vec<(String, String)>,
+    /// Fork instead of resuming: a NEW session seeded with `session_id`'s
+    /// history (`--fork-session`). The parallel-work path when a human
+    /// holds the original at a terminal — two writers never meet.
+    pub fork: bool,
 }
 
 impl WorkerSpawn {
@@ -64,6 +68,9 @@ impl WorkerSpawn {
     pub fn cli_args(&self, partial_messages: bool) -> Vec<String> {
         let mut args: Vec<String> = vec!["-p".into(), "--input-format".into(), "stream-json".into()];
         args.extend(self.resume_args());
+        if self.fork && !self.session_id.is_empty() {
+            args.push("--fork-session".into());
+        }
         args.extend([
             "--output-format".into(),
             "stream-json".into(),
@@ -314,6 +321,7 @@ mod tests {
             directives,
             limits: SpawnLimits::default(),
             envs: Vec::new(),
+            fork: false,
         }
     }
 
@@ -335,6 +343,22 @@ mod tests {
             let args = spawn("s-1", Directives { mode, ..Directives::default() }).cli_args(true);
             assert!(!args.contains(&"--disallowedTools".to_string()), "{mode:?}");
         }
+    }
+
+    /// FASE 8.4: parallel work on a session someone else holds. A fork is
+    /// a NEW session seeded with the same history — the CLI's own
+    /// --fork-session — so the owner's transcript is never co-written.
+    #[test]
+    fn fork_asks_the_cli_to_fork_and_needs_a_resume() {
+        let mut sp = spawn("s-1", Directives::default());
+        sp.fork = true;
+        let args = sp.cli_args(true);
+        assert!(args.contains(&"--resume".to_string()));
+        assert!(args.contains(&"--fork-session".to_string()));
+        // A fork without a session to fork FROM is just a fresh session.
+        let mut fresh = spawn("", Directives::default());
+        fresh.fork = true;
+        assert!(!fresh.cli_args(true).contains(&"--fork-session".to_string()));
     }
 
     #[test]
