@@ -82,6 +82,9 @@ export default function App({
   const [forkDraft, setForkDraft] = useState<{ title: string; sessionId: string } | null>(null);
   /** Tasks auto-compacted on this climb of the context window. */
   const autoCompacted = useRef<Set<string>>(new Set());
+  /** The login nudge fired already — expired OAuth fails every call, and
+   *  one typed `claude` is help; five are harassment. */
+  const loginNudged = useRef(false);
   const [reading, setReading] = useState<{
     sessionId: string;
     title: string;
@@ -210,6 +213,18 @@ export default function App({
   /** The CLI's own opening line for a compaction, in case one arrives
    *  without us having asked (a session that compacted itself). */
   const COMPACTION_HEAD = /^This session is being continued from a previous conversation/;
+  /** An auth failure anywhere: open the terminal with `claude` typed so
+   *  /login is one Enter away. Detection is the health code (agent_auth),
+   *  never a re-parse of wording here. */
+  function nudgeLogin(err: unknown) {
+    if (!String(err).startsWith("agent_auth:") || loginNudged.current) return;
+    loginNudged.current = true;
+    runInTerminalRef.current("claude", false);
+  }
+  const nudgeRef = useRef(nudgeLogin);
+  nudgeRef.current = nudgeLogin;
+  const runInTerminalRef = useRef<(cmd: string, execute: boolean) => void>(() => {});
+
   const push = useCallback(
     (m: Msg) =>
       setMessages((old) => [
@@ -658,7 +673,8 @@ export default function App({
       if (reply.cost_usd) addCost("hark (perguntas)", reply.cost_usd);
       say(reply.fala);
     } catch (err) {
-      push({ who: "sys", text: `erro: ${err}` });
+      nudgeRef.current(err);
+      push({ who: "sys", text: `erro: ${agentError(err)}` });
     } finally {
       endTurn(thread);
       setBusy(null);
@@ -719,7 +735,8 @@ export default function App({
         say("Não achei sessão pra isso.");
       }
     } catch (err) {
-      push({ who: "sys", text: `erro: ${err}` });
+      nudgeRef.current(err);
+      push({ who: "sys", text: `erro: ${agentError(err)}` });
     } finally {
       if (!live) endTurn(from);
       setBusy(null);
@@ -745,7 +762,8 @@ export default function App({
         push({ who: "sys", text: `não abriu: ${JSON.stringify(out)}` });
       }
     } catch (err) {
-      push({ who: "sys", text: `erro: ${err}` });
+      nudgeRef.current(err);
+      push({ who: "sys", text: `erro: ${agentError(err)}` });
     } finally {
       if (!live) endTurn(from);
       setDraftChat(null);
@@ -935,7 +953,8 @@ export default function App({
       beginTurn(labelFor(focused));
       await ipc.workerSend(focused, text, []).catch((err) => {
         endTurn(labelFor(focused));
-        push({ who: "sys", text: `worker: ${agentError(err)}` });
+        nudgeRef.current(err);
+          push({ who: "sys", text: `worker: ${agentError(err)}` });
       });
       return;
     }
@@ -1120,6 +1139,7 @@ export default function App({
       const out = await ipc
         .workerStart(text, draft.sessionId, modeDefault ?? undefined, true)
         .catch((err) => {
+          nudgeRef.current(err);
           push({ who: "sys", text: `fork: ${agentError(err)}` });
           return null;
         });
@@ -1151,6 +1171,7 @@ export default function App({
         )
         .catch((err) => {
           endTurn(labelFor(focused));
+          nudgeRef.current(err);
           push({ who: "sys", text: `worker: ${agentError(err)}` });
         });
       return;
@@ -1402,6 +1423,7 @@ export default function App({
     runInTerminal(`claude --resume ${session}`, false);
   }
 
+  runInTerminalRef.current = runInTerminal;
   function runInTerminal(cmd: string, execute: boolean) {
     ensureRail("terminal");
     const existing = shells.includes(termTab) ? termTab : shells[0];
@@ -1519,7 +1541,8 @@ export default function App({
       await ipc.workerSend(liveEntry[0], "/compact", []).catch(() => {});
       await ipc.workerSend(liveEntry[0], instruction, []).catch((err) => {
         endTurn(thread);
-        push({ who: "sys", text: `worker: ${agentError(err)}` });
+        nudgeRef.current(err);
+          push({ who: "sys", text: `worker: ${agentError(err)}` });
       });
       return;
     }
@@ -1537,7 +1560,8 @@ export default function App({
       adoptWorker(out.task_id, label, out.directives, sessionId ?? "");
       await ipc.workerSend(out.task_id, instruction, []).catch((err) => {
         endTurn(label);
-        push({ who: "sys", text: `worker: ${agentError(err)}` });
+        nudgeRef.current(err);
+          push({ who: "sys", text: `worker: ${agentError(err)}` });
       });
       return;
     }
@@ -1853,6 +1877,7 @@ export default function App({
         )
         .catch((err) => {
           endTurn(title);
+          nudgeRef.current(err);
           push({ who: "sys", text: `worker: ${agentError(err)}` });
         });
       return;

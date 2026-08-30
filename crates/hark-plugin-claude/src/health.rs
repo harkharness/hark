@@ -43,9 +43,13 @@ pub fn looks_unauthenticated(stderr: &str) -> bool {
         "claude login",
         "authentication required",
         "authentication failed",
+        "failed to authenticate",
         "unauthorized",
         "invalid api key",
-        "oauth token",
+        // The CLI says "OAuth session expired and could not be refreshed";
+        // match the protocol name alone so rewordings keep landing here —
+        // "oauth" appears in no other error family the CLI emits.
+        "oauth",
         "credentials",
         "sessão expirada",
         "sessao expirada",
@@ -68,6 +72,16 @@ mod tests {
 
     fn io(kind: std::io::ErrorKind) -> std::io::Error {
         std::io::Error::new(kind, "boom")
+    }
+
+    /// Caught in the wild (26/08): the CLI's real wording inverts ours —
+    /// "Failed to authenticate", "OAuth session" — and the narrow list let
+    /// it fall through as a raw agent_failed with nothing actionable.
+    #[test]
+    fn the_real_oauth_expiry_is_classified_as_auth() {
+        let real = "Failed to authenticate: OAuth session expired and could not be refreshed";
+        assert!(looks_unauthenticated(real));
+        assert!(exit_error("claude", "1", real).starts_with("agent_auth:"));
     }
 
     #[test]
