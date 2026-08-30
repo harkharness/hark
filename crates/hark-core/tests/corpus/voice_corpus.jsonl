@@ -1,0 +1,32 @@
+{"say": "quais são as pendências de hoje?", "expect": "question", "note": "pergunta clássica do M1"}
+{"say": "como está a migração do webhook", "expect": "question"}
+{"say": "o que falta pra abrir o PR?", "expect": "question", "note": "verbo dentro de pergunta não vira trabalho"}
+{"say": "quanto gastei hoje?", "expect": "question", "classify": false, "note": "respondida local pelo answer.rs; o gate não pode pagar classificador"}
+{"say": "quais as pendências desse workspace", "expect": "question", "note": "Intel 25/08: pergunta digitada num chat novo"}
+{"say": "tem alguma coisa pendente?", "expect": "question"}
+{"say": "temos muitas coisas para commitar no workspace-fabrica, vc pode verificar oq temos e organizar em commits semânticos?", "active": "alertas", "expect": "work_active", "note": "incidente 24-25/08: o ? final mandava pro ask global"}
+{"say": "você pode rodar os testes?", "active": "alertas", "expect": "work_active", "note": "pedido educado é ordem"}
+{"say": "dá pra atualizar o chart do vigia?", "active": "alertas", "expect": "work_active"}
+{"say": "roda essa verificação de DNS", "active": "alertas", "expect": "work_active", "note": "incidente 19/08: caía no ask global e queimava tokens"}
+{"say": "gera subtasks das pendências", "active": "alertas", "expect": "work_active", "note": "Intel 25/08: hoje é trabalho pro agente; comando local de subtask não existe"}
+{"say": "continua daqui", "active": "alertas", "expect": "work_active"}
+{"say": "na task assinaturas core roda os testes", "expect": "work_task", "target": "s-assinaturas", "note": "endereço explícito ganha do contexto"}
+{"say": "na task alertas do cluster, sobe o alerta revisado", "active": "assinaturas", "expect": "work_task", "target": "s-alertas", "note": "endereço vence até com outro chat aberto"}
+{"say": "continua a migração do webhook", "expect": "work_search", "target": "s-webhook", "note": "sem contexto: busca resolve, confirmação falada obrigatória"}
+{"say": "abre o PR do DNS antigo", "expect": "work_search", "target": "s-dns"}
+{"say": "abre o chat de migração dos serviços Assinaturas Core", "expect": "command:switch", "note": "incidente 19/08: abria o alvo errado; hoje é comando local de troca"}
+{"say": "abre o projeto hark", "expect": "command:open_project", "target": "hark"}
+{"say": "eu quero que você abra o projeto workspace fábrica", "expect": "command:open_project", "target": "workspace-fabrica", "note": "acentos e hífen falados"}
+{"say": "abra o Projects workspace", "expect": "command:open_project", "target": "workspace-fabrica", "miss": true, "note": "Intel 25/08: virou beco sem saída; deveria oferecer os projetos do disco (F8), hoje degrada em candidatos de sessão"}
+{"say": "abre o projeto workspace código e roda a reindexação das tasks", "expect": "command:open_project", "target": "workspace-codigo", "note": "abrir E despachar na mesma frase"}
+{"say": "novo chat no projeto hark para revisar o README", "expect": "command:new_chat", "target": "hark"}
+{"say": "adiciona o projeto ~/Projects/hark", "expect": "command:add_project"}
+{"say": "abra um novo projeto em projects barra workspace", "expect": "command:add_project", "note": "19/08: caminho falado"}
+{"say": "abre o arquivo readme do projeto hark", "expect": "command:open_file", "target": "hark"}
+{"say": "retoma a sessão do hydrator", "expect": "command:find_session", "note": "recuperação por tópico é local, nunca paga agente"}
+{"say": "compacta o contexto", "active": "alertas", "expect": "command:compact"}
+{"say": "abre a board", "expect": "command:open_hq"}
+{"say": "muda o modo pra automático", "active": "alertas", "expect": "command:set_mode", "note": "25/08: trocar modo no meio do turno matou o chat; o comando é local"}
+{"say": "roda os testes", "expect": "no_target", "note": "sem contexto e sem endereço: pedir destino, nunca chutar"}
+{"say": "continua a migração", "expect": "candidates", "note": "duas sessões de migração empatam: opções na tela, nunca chute silencioso (19/08)"}
+{"say": "bom dia", "expect": "question", "classify": false, "note": "conversa não paga classificador nem vira dispatch"}

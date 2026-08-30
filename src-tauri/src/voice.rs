@@ -103,57 +103,6 @@ fn project_of(config: &Config, path: &str) -> (Option<String>, Option<String>) {
     }
 }
 
-/// A board task as a HUD candidate.
-fn task_candidate(config: &Config, task: &hark_core::domain::board::Task) -> VoiceCandidate {
-    let (project_name, workspace) = task
-        .workspace
-        .as_deref()
-        .map(|w| project_of(config, w))
-        .unwrap_or((None, None));
-    VoiceCandidate {
-        title: task.title.clone(),
-        session_id: task.session_ids.last().cloned(),
-        workspace,
-        project_name,
-    }
-}
-
-/// An indexed session as a HUD candidate.
-fn session_candidate(config: &Config, hit: &super::SessionHit) -> VoiceCandidate {
-    let (project_name, workspace) = hit
-        .cwd
-        .as_deref()
-        .map(|w| project_of(config, w))
-        .unwrap_or((None, None));
-    VoiceCandidate {
-        title: hit.title.clone(),
-        session_id: Some(hit.session_id.clone()),
-        workspace,
-        project_name,
-    }
-}
-
-/// Re-rank raw index hits with the honest matcher (whole words, rare-term
-/// weight, margin rule) — SQL recall, domain precision.
-fn rank_sessions(
-    query: &str,
-    hits: Vec<super::SessionHit>,
-) -> hark_core::domain::matching::Match<super::SessionHit> {
-    hark_core::domain::matching::rank(
-        query,
-        hits,
-        |h| {
-            format!(
-                "{} {} {}",
-                h.title,
-                h.cwd.as_deref().unwrap_or_default(),
-                h.last_prompt.as_deref().unwrap_or_default()
-            )
-        },
-        |h| h.last_ts.clone().unwrap_or_default(),
-    )
-}
-
 /// Local precheck texts for a session-bound plan (zero tokens).
 fn session_warnings(session_id: Option<&str>) -> Vec<String> {
     session_id
@@ -169,26 +118,12 @@ fn session_warnings(session_id: Option<&str>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// A Work plan aimed at one candidate.
-fn work_at(candidate: VoiceCandidate, instruction: String, confidence: &str) -> VoicePlan {
-    VoicePlan::Work {
-        warnings: session_warnings(candidate.session_id.as_deref()),
-        instruction,
-        task_title: Some(candidate.title),
-        session_id: candidate.session_id,
-        workspace: candidate.workspace,
-        project_name: candidate.project_name,
-        new_task: false,
-        confidence: confidence.to_string(),
-    }
-}
-
 /// Interpret one utterance GLOBALLY and say where it would land. Never
 /// executes anything; pure planning over local data (index/board), zero
 /// tokens.
 #[tauri::command(async)]
 pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String> {
-    use hark_core::domain::matching::Match;
+    use hark_core::domain::funnel;
     let config = Config::load();
     let ctx = app
         .state::<ActiveContext>()
@@ -231,90 +166,77 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
         return Ok(VoicePlan::Command { command });
     }
 
-    // 2. Explicit address: "na task X…", "no projeto Y…".
-    let addr = hark_core::domain::address::parse(&text);
-    if let Some(task_query) = &addr.task {
-        // Board first (titles the user knows), then the whole index.
-        // Ambiguity becomes options on screen, never a silent guess.
-        let ranked = super::with_board(|_, tasks| {
-            Ok(hark_core::domain::board::find_ranked(&tasks, task_query))
-        })?;
-        match ranked {
-            Match::Hit(task) => {
-                return Ok(work_at(
-                    task_candidate(&config, &task),
-                    addr.instruction,
-                    "high",
-                ));
-            }
-            Match::Ambiguous(tasks) => {
-                return Ok(VoicePlan::Candidates {
-                    instruction: addr.instruction,
-                    options: tasks.iter().map(|t| task_candidate(&config, t)).collect(),
-                });
-            }
-            Match::None => {}
-        }
-        return Ok(match rank_sessions(task_query, super::session_hits(task_query, 8)?) {
-            Match::Hit(hit) => {
-                work_at(session_candidate(&config, &hit), addr.instruction, "high")
-            }
-            Match::Ambiguous(hits) => VoicePlan::Candidates {
-                instruction: addr.instruction,
-                options: hits.iter().map(|h| session_candidate(&config, h)).collect(),
-            },
-            Match::None => VoicePlan::NoTarget { instruction: text },
-        });
-    }
-    if let Some(project_query) = &addr.project {
-        let projects = super::load_projects(&config);
-        let hit = hark_core::domain::project::find(&projects, project_query)
-            .or_else(|| hark_core::domain::project::find_spoken(&projects, project_query));
-        return Ok(match hit {
-            Some(p) => VoicePlan::Work {
-                instruction: addr.instruction,
-                session_id: None,
-                task_title: None,
-                workspace: Some(p.path.clone()),
-                project_name: Some(p.name.clone()),
-                new_task: true,
-                // A fresh session is never silent-confirmed.
-                confidence: "low".into(),
-                warnings: vec![],
-            },
-            None => VoicePlan::NoTarget { instruction: text },
-        });
-    }
-
-    // 3. No address: questions go to ask; work goes to the ACTIVE task
-    //    (what the user is looking at), else to the best session match.
-    if hark_core::domain::intent::route(&text) == hark_core::domain::intent::Route::Ask {
-        return Ok(VoicePlan::Question { question: text });
-    }
-    if let (Some(title), Some(session)) = (&ctx.task_title, &ctx.session_id) {
-        return Ok(VoicePlan::Work {
-            warnings: session_warnings(Some(session)),
-            instruction: text,
-            task_title: Some(title.clone()),
-            session_id: Some(session.clone()),
-            workspace: ctx.project_path.clone(),
-            project_name: ctx.project_name.clone(),
-            new_task: false,
-            // The chat on screen: fast path, silence confirms (unless a
-            // warning downgrades it on the HUD side).
-            confidence: "high".into(),
-        });
-    }
-    Ok(match rank_sessions(&text, super::session_hits(&text, 8)?) {
-        hark_core::domain::matching::Match::Hit(hit) => {
-            // Search-resolved: executable, but only after a spoken yes.
-            work_at(session_candidate(&config, &hit), text, "low")
-        }
-        hark_core::domain::matching::Match::Ambiguous(hits) => VoicePlan::Candidates {
-            instruction: text,
-            options: hits.iter().map(|h| session_candidate(&config, h)).collect(),
+    // 2-4. The pure funnel (domain::funnel): address → question → active
+    //    chat → search. It lives in the core so the voice corpus replays
+    //    real sentences through the SAME code this command runs.
+    let board = super::with_board(|_, tasks| Ok(tasks))?;
+    let projects = super::load_projects(&config);
+    let search = |q: &str| {
+        super::session_hits(q, 8)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|h| funnel::SessionLead {
+                session_id: h.session_id,
+                title: h.title,
+                cwd: h.cwd,
+                last_ts: h.last_ts,
+                last_prompt: h.last_prompt,
+            })
+            .collect()
+    };
+    let world = funnel::World {
+        active: match (&ctx.task_title, &ctx.session_id) {
+            (Some(t), Some(s)) => Some((t.as_str(), s.as_str())),
+            _ => None,
         },
-        hark_core::domain::matching::Match::None => VoicePlan::NoTarget { instruction: text },
+        active_project: match (&ctx.project_name, &ctx.project_path) {
+            (Some(n), Some(p)) => Some((n.as_str(), p.as_str())),
+            _ => None,
+        },
+        board: &board,
+        projects: &projects,
+        search: &search,
+    };
+    Ok(match funnel::plan(&text, &world) {
+        funnel::Plan::Question { question } => VoicePlan::Question { question },
+        funnel::Plan::Work {
+            instruction,
+            task_title,
+            session_id,
+            workspace,
+            new_task,
+            confidence,
+        } => {
+            let (project_name, workspace) = workspace
+                .as_deref()
+                .map(|w| project_of(&config, w))
+                .unwrap_or((None, None));
+            VoicePlan::Work {
+                warnings: session_warnings(session_id.as_deref()),
+                instruction,
+                task_title,
+                session_id,
+                workspace,
+                project_name,
+                new_task,
+                confidence: confidence.to_string(),
+            }
+        }
+        funnel::Plan::Candidates { instruction, options } => VoicePlan::Candidates {
+            instruction,
+            options: options
+                .into_iter()
+                .map(|c| {
+                    let (project_name, workspace) = c
+                        .workspace
+                        .as_deref()
+                        .map(|w| project_of(&config, w))
+                        .unwrap_or((None, None));
+                    VoiceCandidate { title: c.title, session_id: c.session_id, workspace, project_name }
+                })
+                .collect(),
+        },
+        funnel::Plan::NoTarget { instruction } => VoicePlan::NoTarget { instruction },
     })
 }
 

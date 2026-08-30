@@ -7,6 +7,7 @@ pub mod context;
 pub mod directives;
 pub mod file_search;
 pub mod focus;
+pub mod funnel;
 pub mod followup;
 pub mod gate;
 pub mod dispatch;
