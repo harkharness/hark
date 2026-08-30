@@ -4,6 +4,7 @@ pub mod address;
 pub mod answer;
 pub mod board;
 pub mod context;
+pub mod crossref;
 pub mod directives;
 pub mod file_search;
 pub mod focus;

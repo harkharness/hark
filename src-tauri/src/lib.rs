@@ -2344,6 +2344,77 @@ fn session_owners(
 }
 
 #[derive(Serialize)]
+pub(crate) struct CrossrefOut {
+    pub(crate) title: String,
+    #[allow(dead_code)]
+    pub(crate) session_id: String,
+    /// The attributed, closed context block to travel inside the message.
+    pub(crate) block: String,
+    pub(crate) lines: usize,
+}
+
+/// Does this sentence cite ANOTHER conversation? If so, resolve it in the
+/// local index and pull the lines about the sentence's subject. Zero
+/// tokens: grammar + index + log file, all on this machine (FASE 8.2).
+#[tauri::command(async)]
+fn crossref_context(utterance: String) -> Result<Option<CrossrefOut>, String> {
+    crossref_lookup(utterance)
+}
+
+/// The same lookup for in-process callers (voice_execute), free of the
+/// command macro's namespace.
+pub(crate) fn crossref_lookup(utterance: String) -> Result<Option<CrossrefOut>, String> {
+    use hark_core::domain::{crossref, funnel, matching};
+    use hark_core::ports::SessionStore;
+    let Some(reference) = crossref::detect(&utterance) else {
+        return Ok(None);
+    };
+    let hits = session_hits(&reference.query, 8)?;
+    let leads: Vec<funnel::SessionLead> = hits
+        .into_iter()
+        .map(|h| funnel::SessionLead {
+            session_id: h.session_id,
+            title: h.title,
+            cwd: h.cwd,
+            last_ts: h.last_ts,
+            last_prompt: h.last_prompt,
+        })
+        .collect();
+    // A citation feeds context, it does not execute anything — so unlike a
+    // dispatch target, an ambiguous best-match is acceptable and visible.
+    let hit = match funnel::rank_sessions(&reference.query, leads) {
+        matching::Match::Hit(h) => h,
+        matching::Match::Ambiguous(mut hs) if !hs.is_empty() => hs.remove(0),
+        _ => return Ok(None),
+    };
+    let config = Config::load();
+    let store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let Some(path) = store.session_path(&hit.session_id).map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let entries: Vec<_> = content
+        .lines()
+        .filter_map(hark_core::domain::transcript::parse_entry)
+        .collect();
+    // Terms come from the WHOLE instruction: the excerpt is about what the
+    // user is doing, not about the citation wording.
+    let terms = matching::significant(&utterance);
+    let excerpt = crossref::excerpt_about(&entries, &terms, 800);
+    if excerpt.is_empty() {
+        return Ok(None);
+    }
+    let lines = excerpt.lines().count();
+    Ok(Some(CrossrefOut {
+        block: crossref::context_block(&hit.title, &excerpt),
+        title: hit.title,
+        session_id: hit.session_id,
+        lines,
+    }))
+}
+
+#[derive(Serialize)]
 struct MirrorOut {
     entries: Vec<hark_core::domain::transcript::Entry>,
     /// Bytes consumed so far — pass it back to read only what is new.
@@ -3609,6 +3680,7 @@ pub fn run() {
             file_save,
             read_transcript,
             session_owners,
+            crossref_context,
             transcript_since,
             find_session,
             session_stats,

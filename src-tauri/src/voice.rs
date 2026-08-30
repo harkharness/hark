@@ -257,6 +257,20 @@ pub fn voice_execute(
     compact_first: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let compact_first = compact_first.unwrap_or(false);
+    // "…o que decidimos no chat do X": the cited chat's lines ride inside
+    // the spoken instruction too — same zero-token pull the typed path
+    // does, announced in the feed so the injection is never invisible.
+    let instruction = match super::crossref_lookup(instruction.clone()) {
+        Ok(Some(ctx)) => {
+            let _ = app.emit(
+                "hark",
+                serde_json::json!({ "kind": "status",
+                    "text": format!("puxei {} linha(s) do chat \"{}\"", ctx.lines, ctx.title) }),
+            );
+            format!("{instruction}\n\n{}", ctx.block)
+        }
+        _ => instruction,
+    };
     let out: serde_json::Value = if new_task || session_id.is_none() {
         let ws = workspace.clone().ok_or("nenhum projeto pra abrir o chat")?;
         let started = super::chat_start(app.clone(), app.state(), ws, instruction.clone(), None)?;

@@ -1088,6 +1088,7 @@ export default function App({
     if (focused && !toHark) {
       push({ who: "user", text, images: images.map((i) => i.dataUrl), task: focused && labelFor(focused) });
       beginTurn();
+      text = await withCrossref(text, labelFor(focused));
       await ipc
         .workerSend(focused, text, images.map(toImagePair))
         .then((directives) =>
@@ -1757,6 +1758,20 @@ export default function App({
     }
   }
 
+  /** "…o que decidimos no chat do X": pull the cited chat's lines from the
+   *  local log and ride them inside the message — visible, attributed,
+   *  zero tokens. Returns the message to actually send. */
+  async function withCrossref(text: string, thread?: string): Promise<string> {
+    const ref = await ipc.crossrefContext(text).catch(() => null);
+    if (!ref) return text;
+    push({
+      who: "sys",
+      text: `puxei ${ref.lines} linha${ref.lines > 1 ? "s" : ""} do chat "${ref.title}"`,
+      task: thread,
+    });
+    return `${text}\n\n${ref.block}`;
+  }
+
   /** Send a message into a task: live worker if any, else a fresh resume. */
   async function sendToFocusedTaskWith(
     title: string,
@@ -1773,6 +1788,7 @@ export default function App({
     await reactivateIfDone(title);
     const liveEntry = Object.entries(liveWorkers).find(([, w]) => w.label === title);
     if (echo) push({ who: "user", text, images: images.map((i) => i.dataUrl), task: title });
+    text = await withCrossref(text, title);
     if (liveEntry) {
       await ipc
         .workerSend(liveEntry[0], text, images.map(toImagePair))

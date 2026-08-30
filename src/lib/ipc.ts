@@ -155,6 +155,13 @@ export const transcriptSince = (sessionId: string, offset: number) =>
     { sessionId, offset },
   );
 
+/** A sentence citing another chat: the local excerpt to travel with it. */
+export const crossrefContext = (utterance: string) =>
+  invoke<{ title: string; session_id: string; block: string; lines: number } | null>(
+    "crossref_context",
+    { utterance },
+  );
+
 export const readTranscript = (sessionId: string, limit?: number) =>
   invoke<{ session_title: string | null; entries: TranscriptEntry[]; offset: number }>("read_transcript", {
     sessionId,
