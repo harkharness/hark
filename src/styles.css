@@ -820,12 +820,11 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   padding: 18px clamp(22px, 7vw, 110px);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   flex: 1;
   min-height: 0;
 }
 .msg { max-width: 100%; white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
-.msg .tag { color: var(--dim); font-size: 11px; display: block; margin-bottom: 3px; }
 /* You: a soft pill on the right. Hark: plain prose on the page — replies
    read like a document, not like text trapped in a box (Claude Code). */
 .msg.user { align-self: flex-end; max-width: 86%; }
@@ -833,7 +832,6 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   background: #1a2230; border: none; border-radius: 14px 14px 4px 14px;
   padding: 9px 13px;
 }
-.msg.user .tag { text-align: right; }
 .msg.hark { align-self: stretch; }
 .msg.hark .bubble { background: none; border: none; border-radius: 0; padding: 0; }
 .msg.sys { align-self: center; color: var(--dim); font-size: 12px; opacity: .85; }
@@ -1230,11 +1228,17 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .msg .itens { margin-top: 6px; padding-left: 16px; color: var(--text); }
 .msg .itens li::marker { color: var(--dim); }
 .msg .cost { display: block; margin-top: 4px; color: var(--dim); font-size: 11px; }
-/* Ghost action bar: space reserved, revealed on hover (no layout shift). */
+/* Ghost action bar: an OVERLAY, not a row — it floats under the message
+   on hover and reserves nothing. The reserved 20px under every bubble
+   was half the "why so much space" complaint (26/08). */
+.msg { position: relative; }
 .msg-actions {
-  display: flex; align-items: center; gap: 2px; margin-top: 3px; height: 20px;
-  opacity: 0; transition: opacity .12s ease;
+  position: absolute; bottom: -18px; left: 0; z-index: 2;
+  display: flex; align-items: center; gap: 2px;
+  opacity: 0; transition: opacity .12s ease; pointer-events: none;
 }
+.msg:hover .msg-actions { pointer-events: auto; }
+.msg.user .msg-actions { left: auto; right: 0; }
 .msg:hover .msg-actions { opacity: 1; }
 .msg-actions button {
   background: none; border: none; color: var(--dim); cursor: pointer;

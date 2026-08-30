@@ -300,10 +300,6 @@ export default function Transcript({
         )
       ) : (
         <div className="bubble">
-          <span className="tag">
-            {m.who === "user" ? t("tag_you") : "hark"}
-            {m.task ? ` → ${m.task.slice(0, 12)}` : ""}
-          </span>
           {m.who === "hark" ? (
             <>
               <div className="fala">
