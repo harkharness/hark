@@ -22,7 +22,7 @@ const MODE_OPTIONS: [string, string][] = [
 ];
 
 /**
- * App settings over ~/.config/hark/config.toml — the FILE stays the source
+ * App settings over ~/.hark/config.toml — the FILE stays the source
  * of truth (writes are surgical patches; comments survive). Every field
  * saves on change and hot-applies where possible (theme, mode, ceilings,
  * even the hotkey re-registers). Lives on the MOTHER window only: these

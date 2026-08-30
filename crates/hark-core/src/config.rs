@@ -214,7 +214,7 @@ impl Config {
 /// The user config file. Single source for the three call sites that used
 /// to assemble this path by hand.
 pub fn config_path() -> PathBuf {
-    home().join(".config").join("hark").join("config.toml")
+    home().join(".hark").join("config.toml")
 }
 
 /// Move a legacy directory into its new home. An empty leftover at the new
@@ -287,6 +287,41 @@ pub fn migrate_legacy() {
 
     rewrite_legacy_paths(&config_path(), &old_data, &new_data);
     rewrite_legacy_paths(&home().join(".claude").join("settings.json"), &old_data, &new_data);
+
+    // Stage 2 (26/08): consolidate under ~/.hark.
+    consolidate_under_dot_hark(&home());
+}
+
+/// Gather every machine-global artifact under `~/.hark`, mirroring the
+/// `~/.claude` convention: the sqlite index, state.json, the persona, the
+/// whisper models AND config.toml live in one discoverable root instead of
+/// an OS-specific data dir plus a separate config dir. Rename-based, cheap
+/// no-op on every later boot; paths inside user files follow the move.
+pub fn consolidate_under_dot_hark(home: &Path) {
+    let hark = home.join(".hark");
+    let old_data = if cfg!(target_os = "macos") {
+        home.join("Library").join("Application Support").join("hark")
+    } else {
+        home.join(".local").join("share").join("hark")
+    };
+    migrate_dir(&old_data, &hark);
+
+    // The config FILE joins the same root (dir-migration cannot help: the
+    // target already exists once data moved).
+    let old_cfg = home.join(".config").join("hark").join("config.toml");
+    let new_cfg = hark.join("config.toml");
+    if old_cfg.is_file() && !new_cfg.exists() {
+        let _ = std::fs::create_dir_all(&hark);
+        if std::fs::rename(&old_cfg, &new_cfg).is_ok() {
+            let _ = std::fs::remove_dir(old_cfg.parent().unwrap());
+        }
+    }
+
+    // Absolute paths written by us into user files follow the move — the
+    // statusline bridge in ~/.claude/settings.json above all (a stale
+    // script path would silently kill the subscription meter).
+    rewrite_legacy_paths(&new_cfg, &old_data, &hark);
+    rewrite_legacy_paths(&home.join(".claude").join("settings.json"), &old_data, &hark);
 }
 
 impl Config {
@@ -359,11 +394,9 @@ impl Config {
 
     /// Local state directory (index database, whisper models later).
     pub fn data_dir(&self) -> PathBuf {
-        let dir = if cfg!(target_os = "macos") {
-            home().join("Library").join("Application Support").join("hark")
-        } else {
-            home().join(".local").join("share").join("hark")
-        };
+        // One discoverable root, mirroring ~/.claude (26/08): index.db,
+        // state.json, persona, models and config.toml all live here.
+        let dir = home().join(".hark");
         let _ = std::fs::create_dir_all(&dir);
         dir
     }
@@ -544,6 +577,54 @@ match_cwd = ["/abs/beta"]
 
         // Missing old dir is a no-op.
         assert!(!migrate_dir(&root.path().join("ghost"), &new));
+    }
+
+    /// Stage 2 (26/08): everything global consolidates under ~/.hark,
+    /// mirroring ~/.claude — the user looked for the sqlite and the state
+    /// where every other CLI keeps theirs and found an OS-specific dir.
+    #[test]
+    fn consolidation_gathers_data_and_config_under_dot_hark() {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path();
+        // Old macOS data dir with the real artifacts…
+        let old_data = home.join("Library").join("Application Support").join("hark");
+        std::fs::create_dir_all(old_data.join("models")).unwrap();
+        std::fs::write(old_data.join("index.db"), "sqlite").unwrap();
+        std::fs::write(old_data.join("state.json"), "{}").unwrap();
+        // …the old config file…
+        let old_cfg = home.join(".config").join("hark");
+        std::fs::create_dir_all(&old_cfg).unwrap();
+        std::fs::write(old_cfg.join("config.toml"), "theme = \"hark\"\n").unwrap();
+        // …and a bridge install pointing at the old script path.
+        let claude = home.join(".claude");
+        std::fs::create_dir_all(&claude).unwrap();
+        std::fs::write(
+            claude.join("settings.json"),
+            format!(
+                "{{\"statusLine\":{{\"command\":\"{}\"}}}}",
+                old_data.join("statusline-bridge.sh").display()
+            ),
+        )
+        .unwrap();
+
+        consolidate_under_dot_hark(home);
+
+        let hark = home.join(".hark");
+        assert_eq!(std::fs::read_to_string(hark.join("index.db")).unwrap(), "sqlite");
+        assert!(hark.join("models").is_dir());
+        assert_eq!(
+            std::fs::read_to_string(hark.join("config.toml")).unwrap(),
+            "theme = \"hark\"\n"
+        );
+        assert!(!old_data.exists(), "old data dir is gone");
+        let settings = std::fs::read_to_string(claude.join("settings.json")).unwrap();
+        assert!(
+            settings.contains(&hark.join("statusline-bridge.sh").display().to_string()),
+            "bridge path follows the move: {settings}"
+        );
+        // Second boot: clean no-op.
+        consolidate_under_dot_hark(home);
+        assert_eq!(std::fs::read_to_string(hark.join("index.db")).unwrap(), "sqlite");
     }
 
     #[test]
