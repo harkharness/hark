@@ -92,7 +92,7 @@ pub fn ask_with_image(
     // The cheap ask carries the soul file's identity+style excerpt (a few
     // hundred chars) so its voice matches the chat's — learnings stay out.
     let prompt = {
-        let soul = std::fs::read_to_string(deps.config.data_dir().join("CLAUDE.md"))
+        let soul = std::fs::read_to_string(deps.config.data_dir().join("HARK.md"))
             .unwrap_or_default();
         let identity = crate::domain::persona::excerpt(&soul);
         if identity.is_empty() {

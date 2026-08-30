@@ -61,6 +61,45 @@ pub fn write_brief(root: &Path, task_id: &str, content: &str) -> anyhow::Result<
     Ok(path)
 }
 
+/// One soul, many mouths (26/08): the persona lives in ONE canonical file
+/// (HARK.md) and each agent's auto-loaded memory file (CLAUDE.md today,
+/// GEMINI.md when the ACP backend lands) is a SYMLINK to it — the name each
+/// CLI expects, the content maintained once. Writing through the link
+/// (the model appending a learning) edits the canonical file, so nothing
+/// ever forks. An existing regular agent file with no canonical yet is the
+/// pre-consolidation soul: it BECOMES the canonical (learnings preserved),
+/// then gets its link. A regular file next to an existing canonical is
+/// user-owned and never touched.
+pub fn ensure_soul_links(dir: &Path, canonical: &str, agent_files: &[&str]) {
+    let target = dir.join(canonical);
+    if !target.exists() {
+        if let Some(seed) = agent_files.iter().find(|f| {
+            let p = dir.join(f);
+            p.is_file() && !p.is_symlink()
+        }) {
+            let _ = std::fs::rename(dir.join(seed), &target);
+        }
+    }
+    if !target.exists() {
+        return; // nothing to link to yet — the caller seeds the template
+    }
+    for name in agent_files {
+        let link = dir.join(name);
+        if link.is_symlink() {
+            if std::fs::read_link(&link).map(|t| t == Path::new(canonical) || t == target).unwrap_or(false) {
+                continue;
+            }
+            let _ = std::fs::remove_file(&link);
+        } else if link.exists() {
+            continue; // user-owned regular file: never destroy
+        }
+        #[cfg(unix)]
+        let _ = std::os::unix::fs::symlink(canonical, &link);
+        #[cfg(not(unix))]
+        let _ = std::fs::copy(&target, &link);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,6 +135,34 @@ mod tests {
         assert_eq!(tail.len(), 1);
         assert!(tail[0].contains("q2"));
         assert!(dir.path().join(".hark").join("journal.md").exists());
+    }
+
+    #[test]
+    fn the_existing_soul_becomes_canonical_and_every_agent_links_to_it() {
+        let dir = tempfile::tempdir().unwrap();
+        // Pre-consolidation machine: CLAUDE.md holds the learnings.
+        std::fs::write(dir.path().join("CLAUDE.md"), "# Hark\n- aprendeu X\n").unwrap();
+        ensure_soul_links(dir.path(), "HARK.md", &["CLAUDE.md", "GEMINI.md"]);
+        let hark = std::fs::read_to_string(dir.path().join("HARK.md")).unwrap();
+        assert!(hark.contains("aprendeu X"), "learnings survive the move");
+        assert!(dir.path().join("CLAUDE.md").is_symlink());
+        assert!(dir.path().join("GEMINI.md").is_symlink());
+        // Writing through a link edits the ONE soul.
+        std::fs::write(dir.path().join("GEMINI.md"), "# Hark\n- aprendeu Y\n").unwrap();
+        assert!(std::fs::read_to_string(dir.path().join("CLAUDE.md")).unwrap().contains("aprendeu Y"));
+        // Idempotent.
+        ensure_soul_links(dir.path(), "HARK.md", &["CLAUDE.md", "GEMINI.md"]);
+        assert!(dir.path().join("CLAUDE.md").is_symlink());
+    }
+
+    #[test]
+    fn a_user_owned_regular_file_next_to_the_canonical_is_never_destroyed() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("HARK.md"), "# canônico\n").unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "# meu, separado\n").unwrap();
+        ensure_soul_links(dir.path(), "HARK.md", &["CLAUDE.md"]);
+        assert!(!dir.path().join("CLAUDE.md").is_symlink(), "regular file wins");
+        assert!(std::fs::read_to_string(dir.path().join("CLAUDE.md")).unwrap().contains("meu"));
     }
 
     #[test]

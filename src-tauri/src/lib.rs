@@ -1627,12 +1627,24 @@ fn setup_mark_done() -> Result<(), String> {
     hark_core::adapters::state_file::save(&data_dir, &state).map_err(|e| e.to_string())
 }
 
-/// The soul file: <data_dir>/CLAUDE.md — the chat runs in the data dir,
-/// so the CLI loads it on every turn (identity + accumulated learnings).
-/// Created once from the template; after that it belongs to the user and
-/// to the model's own edits — NEVER overwritten.
+/// The soul file: <data_dir>/HARK.md, agent-neutral and canonical. Each
+/// CLI auto-loads its own memory name (CLAUDE.md, GEMINI.md…), so those
+/// exist as symlinks to the soul — one persona, one learning history,
+/// whatever agent is talking. Created once from the template; after that
+/// it belongs to the user and to the model's own edits — NEVER overwritten.
 pub(crate) fn ensure_persona(config: &Config) {
-    let path = config.data_dir().join("CLAUDE.md");
+    // One soul, many mouths: HARK.md is canonical; each agent's memory
+    // file (the name its CLI auto-loads — capabilities().memory_file) is a
+    // symlink to it, so Claude and a future Gemini share the same persona
+    // and the same accumulated learnings.
+    let dir = config.data_dir();
+    let mouths: Vec<String> = [hark_plugin_claude::capabilities().memory_file]
+        .into_iter()
+        .flatten()
+        .collect();
+    let mouth_refs: Vec<&str> = mouths.iter().map(String::as_str).collect();
+    hark_core::adapters::memory_files::ensure_soul_links(&dir, "HARK.md", &mouth_refs);
+    let path = dir.join("HARK.md");
     if path.exists() {
         // One exception to "never overwritten": the lines that name the
         // assistant. The vox → hark rename moved the data dir and left
@@ -1648,11 +1660,13 @@ pub(crate) fn ensure_persona(config: &Config) {
         }
         return;
     }
-    let _ = std::fs::create_dir_all(config.data_dir());
+    let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(
         &path,
         hark_core::domain::persona::template(&config.assistant_name, config.lang()),
     );
+    // First boot: the canonical was just seeded; give the agents their links.
+    hark_core::adapters::memory_files::ensure_soul_links(&dir, "HARK.md", &mouth_refs);
 }
 
 #[derive(Serialize)]
