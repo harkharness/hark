@@ -3039,6 +3039,46 @@ fn slash_commands(
 
 /// Local board command spoken by the user ("mostra o log da X"). Resolves the
 /// task by term overlap and performs the action; no LLM, no tokens.
+/// Unregistered directories a spoken sentence names, as absolute paths.
+/// Roots: the parents of every registered project, plus ~/Projects.
+fn disk_project_matches(config: &Config, text: &str) -> Vec<String> {
+    let registered = load_projects(config);
+    let mut roots: Vec<std::path::PathBuf> = registered
+        .iter()
+        .filter_map(|p| std::path::Path::new(&p.path).parent().map(|d| d.to_path_buf()))
+        .collect();
+    if let Some(home) = dirs_home() {
+        roots.push(home.join("Projects"));
+    }
+    roots.sort();
+    roots.dedup();
+    let mut names: Vec<(String, String)> = Vec::new(); // (dir name, abs path)
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(&root) else { continue };
+        for e in entries.flatten() {
+            let path = e.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') || registered.iter().any(|p| p.path == path.to_string_lossy()) {
+                continue;
+            }
+            names.push((name, path.to_string_lossy().to_string()));
+        }
+    }
+    let dirs: Vec<&str> = names.iter().map(|(n, _)| n.as_str()).collect();
+    hark_core::domain::project::dirs_matching_speech(text, &dirs)
+        .into_iter()
+        .filter_map(|hit| names.iter().find(|(n, _)| *n == hit).map(|(_, p)| p.clone()))
+        .take(4)
+        .collect()
+}
+
+fn dirs_home() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(std::path::PathBuf::from)
+}
+
 #[tauri::command]
 fn task_command(
     text: String,
@@ -3058,6 +3098,35 @@ fn task_command(
                     "kind": "open_project", "title": hit.name, "path": hit.path,
                     "instruction": null,
                 })));
+            }
+            // The Intel 25/08 dead end: nothing registered matched, and the
+            // answer was "cadastre o path na mão" — with the directory
+            // sitting on disk. Look where projects actually live (the
+            // parents of registered ones, ~/Projects as the default) and
+            // OFFER what is there. One hit registers and opens; several
+            // become a visible choice; zero falls through to the funnel.
+            let matches = disk_project_matches(&config, &text);
+            match matches.len() {
+                0 => {}
+                1 => {
+                    let path = matches[0].clone();
+                    return Ok(Some(match project_add(path) {
+                        Ok(entry) => serde_json::json!({
+                            "kind": "open_project", "title": entry.name,
+                            "path": entry.path, "instruction": null,
+                        }),
+                        Err(message) => {
+                            serde_json::json!({ "kind": "project_error", "title": message })
+                        }
+                    }));
+                }
+                _ => {
+                    return Ok(Some(serde_json::json!({
+                        "kind": "project_offer",
+                        "query": text,
+                        "candidates": matches,
+                    })));
+                }
             }
         }
         return Ok(None);

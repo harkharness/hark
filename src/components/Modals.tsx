@@ -23,6 +23,9 @@ export type Pending =
       instruction: string;
       candidates: { session_id: string; title: string; last_ts: string }[];
     }
+  /** Spoken/typed project not registered, but disk directories match:
+   *  picking one registers it and opens its window — never a dead end. */
+  | { kind: "project-offer"; query: string; candidates: string[] }
   | { kind: "resume-task"; title: string; sessionId?: string; instruction: string }
   | { kind: "task-summary"; taskId: string }
   | null;
@@ -38,6 +41,7 @@ export default function Modals({
   onDispatch,
   onFocusWorker,
   onPickSession,
+  onPickProject,
   onPickTask,
   onCompactFirst,
 }: {
@@ -50,6 +54,8 @@ export default function Modals({
   onFocusWorker: (taskId: string) => void;
   /** A recovered session becomes a task and opens its chat. */
   onPickSession: (hit: SessionHit) => void;
+  /** project-offer pick: register the path and open its window. */
+  onPickProject: (path: string) => void;
   /** An ambiguous spoken target resolved by hand. */
   onPickTask: (title: string, sessionId?: string) => void;
   /** "compactar antes": /compact as its own turn, then the message. */
@@ -109,6 +115,34 @@ export default function Modals({
                 {c.cwd ? ` · ${c.cwd.split("/").filter(Boolean).pop()}` : ""}
               </span>
               {c.last_prompt && <div className="choice-note">{c.last_prompt}</div>}
+            </button>
+          ))}
+          <div className="row">
+            <button className="plain" onClick={() => setPending(null)}>
+              {t("m_cancel")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (pending.kind === "project-offer") {
+    return (
+      <div className="modal-backdrop" onClick={() => setPending(null)}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <h2>{t("m_dirs_about", { q: pending.query })}</h2>
+          {pending.candidates.map((path) => (
+            <button
+              key={path}
+              className="choice"
+              onClick={() => {
+                setPending(null);
+                onPickProject(path);
+              }}
+            >
+              <b>{path.split("/").pop()}</b>
+              <span className="reader-meta"> · {path}</span>
             </button>
           ))}
           <div className="row">

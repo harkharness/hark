@@ -1054,6 +1054,9 @@ export default function App({
       } else if (cmd.kind === "set_mode") {
         selectMode(cmd.mode);
         say(st("sp_mode_changed"));
+      } else if (cmd.kind === "project_offer") {
+        setPending({ kind: "project-offer", query: cmd.query, candidates: cmd.candidates });
+        say(st("sp_found_dirs", { n: cmd.candidates.length }));
       } else if (cmd.kind === "not_found") {
         push({ who: "sys", text: `nada bate com "${cmd.query}"` });
         say("Não achei isso no quadro.");
@@ -2355,6 +2358,17 @@ export default function App({
         onFocusWorker={(taskId) => setFocused(taskId)}
         onPickSession={recoverSession}
         onPickTask={(title, sessionId) => openTaskByTitle(title, sessionId)}
+        onPickProject={async (path) => {
+          const entry = await ipc.projectAdd(path).catch(() => null);
+          if (!entry) {
+            push({ who: "sys", text: `não consegui registrar ${path}` });
+            return;
+          }
+          push({ who: "sys", text: `projeto ${entry.name} registrado (${entry.path})` });
+          say(st("sp_project_added", { t: entry.name }));
+          refresh();
+          await ipc.openProjectWindow(entry.name, entry.path).catch(() => {});
+        }}
         onCompactFirst={dispatchCompactFirst}
       />
     </div>

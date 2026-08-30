@@ -17,7 +17,7 @@
 {"say": "abre o chat de migração dos serviços Assinaturas Core", "expect": "command:switch", "note": "incidente 19/08: abria o alvo errado; hoje é comando local de troca"}
 {"say": "abre o projeto hark", "expect": "command:open_project", "target": "hark"}
 {"say": "eu quero que você abra o projeto workspace fábrica", "expect": "command:open_project", "target": "workspace-fabrica", "note": "acentos e hífen falados"}
-{"say": "abra o Projects workspace", "expect": "command:open_project", "target": "workspace-fabrica", "miss": true, "note": "Intel 25/08: virou beco sem saída; deveria oferecer os projetos do disco (F8), hoje degrada em candidatos de sessão"}
+{"say": "abra o Projects workspace", "expect": "command:open_project", "target": "workspace-fabrica", "note": "Intel 25/08: era beco sem saída; agora o disco responde — um match registra e abre"}
 {"say": "abre o projeto workspace código e roda a reindexação das tasks", "expect": "command:open_project", "target": "workspace-codigo", "note": "abrir E despachar na mesma frase"}
 {"say": "novo chat no projeto hark para revisar o README", "expect": "command:new_chat", "target": "hark"}
 {"say": "adiciona o projeto ~/Projects/hark", "expect": "command:add_project"}

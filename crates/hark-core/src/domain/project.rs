@@ -131,9 +131,81 @@ pub fn find_spoken<'a>(projects: &'a [Project], utterance: &str) -> Option<&'a P
         .map(|(_, p)| p)
 }
 
+/// Directories on disk that a spoken sentence plausibly names — the rescue
+/// for "abra o Projects workspace" when nothing registered matches: instead
+/// of a dead end ("cadastre o path"), the caller offers what IS there.
+///
+/// A dir qualifies when one of its name's words (split on -, _ and case
+/// folds) is said as a whole word. Sentence glue and generic filler
+/// ("projects", "abre", "o") never count, so a stopword-named directory
+/// cannot hijack every sentence. Ranked by how many words hit; ties keep
+/// input order. The caller registers a UNIQUE hit and offers the rest.
+pub fn dirs_matching_speech(utterance: &str, dirs: &[&str]) -> Vec<String> {
+    const GLUE: &[&str] = &[
+        "abre", "abra", "abrir", "abre-me", "projeto", "projetos", "projects",
+        "o", "a", "os", "as", "um", "uma", "de", "do", "da", "em", "no", "na",
+        "novo", "nova", "pra", "para", "e",
+    ];
+    let spoken: Vec<String> = normalize(utterance)
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() > 1 && !GLUE.contains(w))
+        .map(str::to_string)
+        .collect();
+    let mut hits: Vec<(usize, String)> = dirs
+        .iter()
+        .filter_map(|dir| {
+            let words: Vec<String> = normalize(dir)
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| w.len() > 1 && !GLUE.contains(w))
+                .map(str::to_string)
+                .collect();
+            let count = words.iter().filter(|w| spoken.contains(w)).count();
+            (count > 0).then(|| (count, dir.to_string()))
+        })
+        .collect();
+    hits.sort_by(|a, b| b.0.cmp(&a.0));
+    hits.into_iter().map(|(_, d)| d).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Intel 25/08 dead end: "abra o Projects workspace" matched no
+    /// REGISTERED project and the answer was "cadastre o path na mão" —
+    /// with ~/Projects/workspace-fabrica sitting right there on disk.
+    #[test]
+    fn spoken_words_find_unregistered_directories() {
+        let dirs = ["workspace-fabrica", "hark", "reliability-tools", "notas"];
+        assert_eq!(
+            dirs_matching_speech("abra o Projects workspace", &dirs),
+            vec!["workspace-fabrica"]
+        );
+        assert_eq!(
+            dirs_matching_speech("abre o reliability", &dirs),
+            vec!["reliability-tools"]
+        );
+        // Accents and case fold like everywhere else.
+        assert_eq!(dirs_matching_speech("abre a fábrica", &["workspace-fabrica"]), vec!["workspace-fabrica"]);
+    }
+
+    #[test]
+    fn ambiguous_dirs_come_back_ranked_never_guessed() {
+        let dirs = ["workspace-fabrica", "workspace-codigo", "hark"];
+        let got = dirs_matching_speech("abra o workspace", &dirs);
+        assert_eq!(got.len(), 2, "both candidates surface — the caller offers, never picks");
+        assert!(got.contains(&"workspace-fabrica".to_string()));
+        assert!(got.contains(&"workspace-codigo".to_string()));
+    }
+
+    #[test]
+    fn glue_words_never_match_directories() {
+        // "o", "projects", "abre" are sentence glue: a dir named "projects"
+        // or a short stopword must not turn every sentence into an offer.
+        let dirs = ["o-liveiro", "projects", "de-para"];
+        assert!(dirs_matching_speech("abre o Projects workspace", &dirs).is_empty());
+        assert!(dirs_matching_speech("abre alguma coisa", &dirs).is_empty());
+    }
 
     #[test]
     fn derives_name_from_last_component() {

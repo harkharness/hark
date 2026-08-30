@@ -203,6 +203,9 @@ export type TaskCommandResult =
   | { kind: "open_hq"; tab: "board" | "custos" }
   | { kind: "session_candidates"; query: string; candidates: SessionHit[] }
   /** Board tasks too close to call: the user picks, never a silent guess. */
+  /** Spoken project not registered, but directories on disk match: offer
+   *  them — registering is one pick away, never a dead end. */
+  | { kind: "project_offer"; query: string; candidates: string[] }
   | {
       kind: "task_candidates";
       query: string;

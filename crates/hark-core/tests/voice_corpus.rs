@@ -144,11 +144,19 @@ fn decide(say: &str, active: Option<&str>) -> (String, Option<String>) {
         return command_outcome(cmd);
     }
     // Its fallback: "abre <name>" with a REGISTERED project named in the
-    // sentence — never a guess.
+    // sentence — then unregistered directories on disk (the Intel 25/08
+    // dead end: one match registers and opens, several become an offer).
     let lower = say.to_lowercase();
     if ["abre", "abra", "abrir"].iter().any(|v| lower.contains(v)) {
         if let Some(hit) = hark_core::domain::project::find_spoken(&projects(), say) {
             return ("command:open_project".into(), Some(hit.name.clone()));
+        }
+        let disk = ["workspace-fabrica", "notas-pessoais", "api-gateway"];
+        let matches = hark_core::domain::project::dirs_matching_speech(say, &disk);
+        match matches.len() {
+            0 => {}
+            1 => return ("command:open_project".into(), Some(matches[0].clone())),
+            _ => return ("command:project_offer".into(), None),
         }
     }
     // Step 2 — the pure funnel.

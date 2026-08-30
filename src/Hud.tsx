@@ -230,6 +230,40 @@ export default function Hud() {
           workspace: c.cwd,
         })),
       );
+    } else if (cmd.kind === "project_offer") {
+      // Dirs on disk that match what was said: picking one registers it
+      // and opens its window — the spoken intent, completed.
+      setStage({
+        s: "candidates",
+        text: lastText.current,
+        instruction: "",
+        options: cmd.candidates.map((path) => ({
+          title: path.split("/").pop() ?? path,
+          session_id: undefined,
+          workspace: path,
+          project_name: undefined,
+        })),
+      });
+      await ipc.speak(st("sp_found_dirs", { n: cmd.candidates.length })).catch(() => {});
+      await sleep(150);
+      const verdict = await listenVerdict(cmd.candidates.map((p) => p.split("/").pop() ?? p));
+      if (cancelRef.current || !verdict) return;
+      if (verdict.kind === "pick") {
+        const path = cmd.candidates[verdict.index];
+        if (!path) return;
+        const entry = await ipc.projectAdd(path).catch(() => null);
+        if (!entry) {
+          finish("não consegui registrar o projeto", "warn", 2600);
+          return;
+        }
+        await ipc.openProjectWindow(entry.name, entry.path).catch(() => {});
+        record(entry.name, "projeto registrado");
+        finish(`→ ${entry.name} · registrado e aberto`, "ok", 1500);
+      } else if (verdict.kind === "deny") {
+        hide();
+      } else if (verdict.kind === "instruction") {
+        await handle(verdict.text);
+      }
     } else if (cmd.kind === "project_added") {
       // Registering IS half the intent — the window is the other half.
       await ipc.openProjectWindow(cmd.title, cmd.path).catch(() => {});
