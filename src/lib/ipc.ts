@@ -164,6 +164,10 @@ export const transcriptSince = (sessionId: string, offset: number) =>
     { sessionId, offset },
   );
 
+/** Newest ask turns from the global journal — restores the mother thread. */
+export const journalRecent = (n?: number) =>
+  invoke<import("../types").JournalTurn[]>("journal_recent", { n: n ?? null });
+
 /** A sentence citing another chat: the local excerpt to travel with it. */
 export const crossrefContext = (utterance: string) =>
   invoke<{ title: string; session_id: string; block: string; lines: number } | null>(

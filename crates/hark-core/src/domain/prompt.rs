@@ -55,12 +55,12 @@ pub const RESPONSE_SCHEMA: &str = r#"{
     },
     "detalhes": {
       "type": "string",
-      "description": "Resumo objetivo para leitura na tela, no maximo 10 linhas. Pode conter caminhos e referencias. Sem repetir o conteudo de 'fala'."
+      "description": "O corpo da resposta, para leitura na tela (markdown ok, caminhos e referencias ok). Se o usuario pediu lista, relatorio ou 'tudo', seja COMPLETO aqui e em 'itens': nada do que ele pediu pode ficar de fora. Sem repetir o conteudo de 'fala'."
     },
     "itens": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Lista opcional de itens acionaveis, um por linha."
+      "description": "Lista de itens acionaveis, um por linha. OBRIGATORIA quando o usuario pedir uma lista, pendencias ou demandas: cada item que voce conhecer vira uma linha."
     },
     "board": {
       "type": "array",
@@ -86,6 +86,8 @@ const VOICE_SYSTEM_PROMPT_PT: &str = "Voce e o Hark, assistente de voz de um eng
 Responda em portugues brasileiro. Seja direto e pratico. \
 Divisao rigida: 'fala' e so a manchete falada (1 frase, sem listas); \
 a informacao completa vai em 'detalhes' e 'itens', que aparecem na tela. \
+Quando o usuario pedir lista, relatorio ou 'tudo', a tela recebe a resposta \
+COMPLETA — enumere item por item; responder so a manchete e falha. \
 Ouvir e caro, ler e barato: nunca faca a voz recitar o que a tela ja mostra. \
 Se as mensagens mais recentes indicarem que um problema ja foi resolvido, nao o liste como pendencia.";
 
@@ -93,6 +95,8 @@ const VOICE_SYSTEM_PROMPT_EN: &str = "You are Hark, an engineer's voice assistan
 Answer in English. Be direct and practical. \
 Hard split: 'fala' is the spoken headline only (one sentence, no lists); \
 everything else goes in 'detalhes' and 'itens', which are shown on screen. \
+When the user asks for a list, a report or 'everything', the screen gets the \
+COMPLETE answer — enumerate item by item; a headline alone is a failure. \
 Listening is expensive, reading is cheap: never make the voice recite what \
 the screen already shows. \
 If the most recent messages show a problem was already solved, do not list it as pending.";
@@ -157,12 +161,6 @@ pub fn build_budgeted(
     let wants_repos = ["git", "branch", "commit", "deploy", "repo", "pr ", " pr", "diff"]
         .iter()
         .any(|t| q.contains(t));
-    // Follow-ups lean on the journal; standalone questions don't need it.
-    let wants_journal = q.split_whitespace().count() <= 8
-        || ["isso", "aquilo", "dela", "dele", "anterior", "ontem", "continua"]
-            .iter()
-            .any(|t| q.contains(t));
-
     let mut fixed = vec![
         format!("Contexto gerado em: {}", snapshot.generated_at),
         board_section(&snapshot.board),
@@ -172,12 +170,11 @@ pub fn build_budgeted(
     if wants_repos {
         fixed.push(repos_section(&snapshot.repos));
     }
+    // The chat is continuous: the journal tail ALWAYS rides along (a long
+    // question is still a follow-up — incident 30/08). The budget, not a
+    // word-count heuristic, is what keeps it small.
     let tail_sections = [
-        if wants_journal {
-            journal_section(&snapshot.journal)
-        } else {
-            String::new()
-        },
+        journal_section(&clip_journal(&snapshot.journal, JOURNAL_SECTION_MAX)),
         format!("Pergunta do usuario (por voz):\n{question}"),
     ];
 
@@ -279,14 +276,34 @@ fn workers_section(workers: &[WorkerRecord]) -> String {
     )
 }
 
+/// Journal entries now carry answer bodies; cap the section so memory
+/// never crowds out the sessions the question is actually about.
+const JOURNAL_SECTION_MAX: usize = 3200;
+
 fn journal_section(journal: &[String]) -> String {
     if journal.is_empty() {
         return String::new();
     }
     format!(
-        "Consultas recentes feitas ao Hark (mais antiga primeiro):\n{}",
+        "Conversa recente com o usuario (mais antiga primeiro):\n{}",
         journal.join("\n---\n")
     )
+}
+
+/// Keep the NEWEST whole entries that fit the char budget, oldest first.
+fn clip_journal(entries: &[String], max_chars: usize) -> Vec<String> {
+    let mut kept: Vec<String> = Vec::new();
+    let mut used = 0usize;
+    for entry in entries.iter().rev() {
+        let len = entry.chars().count();
+        if used + len > max_chars {
+            break;
+        }
+        used += len;
+        kept.push(entry.clone());
+    }
+    kept.reverse();
+    kept
 }
 
 fn repos_section(repos: &[RepoStatus]) -> String {
@@ -409,6 +426,51 @@ mod tests {
         assert!(text.contains("t-beta-1"));
         assert!(text.contains("abrir PR do DNS antigo"));
         assert!(text.contains("running"));
+    }
+
+    #[test]
+    fn the_screen_fields_demand_completeness_not_brevity() {
+        // Incident 30/08: "me traga listado TODAS as demandas" got a
+        // one-line headline. The schema itself capped detalhes at 10 lines
+        // and never required itens for list requests. The contract now:
+        // list asked → list delivered, complete, on screen.
+        let schema: serde_json::Value = serde_json::from_str(RESPONSE_SCHEMA).unwrap();
+        let detalhes = schema["properties"]["detalhes"]["description"].as_str().unwrap();
+        assert!(!detalhes.contains("maximo 10 linhas"));
+        assert!(detalhes.to_lowercase().contains("complet"));
+        let itens = schema["properties"]["itens"]["description"].as_str().unwrap();
+        assert!(itens.to_lowercase().contains("lista"));
+        for prompt in [VOICE_SYSTEM_PROMPT_PT, VOICE_SYSTEM_PROMPT_EN] {
+            let lower = prompt.to_lowercase();
+            assert!(lower.contains("complet"), "system prompt must demand completeness");
+        }
+    }
+
+    #[test]
+    fn journal_rides_along_even_for_long_questions() {
+        // Incident 30/08: a 30-word "me traga listado..." question skipped
+        // the journal (the ≤8-word follow-up heuristic) and the model
+        // answered with zero conversation memory. The chat is continuous:
+        // the journal tail ALWAYS rides along; the budget clips it.
+        let text = build(
+            "quais foram as atividades da semana passada e quais ficaram pendências, me traga listado todas as demandas e o planejamento da próxima semana",
+            &snapshot(),
+        );
+        assert!(text.contains("como está o beta?"));
+    }
+
+    #[test]
+    fn journal_section_keeps_the_newest_entries_under_budget() {
+        let entries: Vec<String> = (0..10)
+            .map(|i| format!("2026-08-30T10:0{i}:00Z\nQ: pergunta {i}\nA: {}", "x".repeat(600)))
+            .collect();
+        let clipped = clip_journal(&entries, 2000);
+        assert!(!clipped.is_empty());
+        // Newest survive, oldest fall first — and the order stays chronological.
+        assert!(clipped.last().unwrap().contains("pergunta 9"));
+        assert!(!clipped.iter().any(|e| e.contains("pergunta 0")));
+        let total: usize = clipped.iter().map(|e| e.chars().count()).sum();
+        assert!(total <= 2000);
     }
 
     #[test]

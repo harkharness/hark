@@ -2933,6 +2933,14 @@ fn config_read() -> Result<serde_json::Value, String> {
     }))
 }
 
+/// The mother thread's persistent record of ask turns: newest `n` global
+/// journal entries as structured Q&A — local file read, zero tokens.
+#[tauri::command]
+fn journal_recent(n: Option<usize>) -> Vec<hark_core::domain::memory::JournalTurn> {
+    let config = Config::load();
+    hark_core::adapters::memory_files::read_journal(&config.data_dir(), n.unwrap_or(12))
+}
+
 /// Write a flat {key: value} patch into config.toml, preserving comments
 /// and unknown keys (hark_core::config::patch_toml). Hot-applies what it
 /// can: a changed hotkey re-registers immediately; every window hears
@@ -3707,6 +3715,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             overview,
             use_context,
+            journal_recent,
             route_text,
             speak,
             speak_stop,

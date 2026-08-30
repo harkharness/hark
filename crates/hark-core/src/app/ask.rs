@@ -138,7 +138,8 @@ pub fn ask_with_image(
 
     if let Some(reply) = crate::domain::reply::VoiceReply::from_turn(&result) {
         let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
-        let entry = crate::domain::memory::journal_entry(&now, question, &reply.fala);
+        let entry =
+            crate::domain::memory::journal_entry(&now, question, &reply.fala, &reply.body());
         // Journaling and board updates must never break the answer flow.
         let _ = deps.journal.append(&journal_root(deps, context.as_ref()), &entry);
         if !reply.board.is_empty() {
@@ -172,7 +173,7 @@ fn finish_local(
     context: &Option<ContextDef>,
 ) -> TurnResult {
     let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
-    let entry = crate::domain::memory::journal_entry(&now, question, &reply.fala);
+    let entry = crate::domain::memory::journal_entry(&now, question, &reply.fala, &reply.body());
     let _ = deps.journal.append(&journal_root(deps, context.as_ref()), &entry);
     let turn = TurnResult {
         is_error: false,

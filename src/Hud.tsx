@@ -3,7 +3,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { CircleQuestionMark, FolderPlus, Mic, ShieldCheck, Target } from "lucide-react";
 import * as ipc from "./lib/ipc";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
-import { agentError, isAuthError } from "./lib/format";
+import { agentError, echoReply, isAuthError } from "./lib/format";
 import type { VoiceCandidate, VoicePlan, HarkEvent } from "./types";
 
 type Stage =
@@ -334,7 +334,7 @@ export default function Hud() {
         emit("hark", {
           kind: "chat_echo",
           question: text,
-          reply: { fala: reply.fala, cost_usd: reply.cost_usd, model: reply.model },
+          reply: echoReply(reply),
           work: false,
         }).catch(() => {});
         ipc.speak(reply.fala).catch(() => {});

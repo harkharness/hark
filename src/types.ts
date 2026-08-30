@@ -69,7 +69,7 @@ export type HarkEvent =
   | {
       kind: "chat_echo";
       question: string;
-      reply?: { fala: string; cost_usd?: number; model?: string };
+      reply?: { fala: string; detalhes?: string; itens?: string[]; cost_usd?: number; model?: string };
       work: boolean;
     }
   | { kind: "status"; text: string }
@@ -154,6 +154,14 @@ export type SessionOwner = {
   cwd: string;
   pid?: number | null;
   started_at?: number | null;
+};
+
+/** One remembered ask turn from the global journal (mother restore). */
+export type JournalTurn = {
+  ts: string;
+  question: string;
+  fala: string;
+  body: string;
 };
 
 export type TranscriptEntry = {

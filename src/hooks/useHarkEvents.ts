@@ -48,7 +48,9 @@ type Handlers = {
   /** A spoken turn echoed into the mother's unified thread. */
   onChatEcho?: (
     question: string,
-    reply: { fala: string; cost_usd?: number; model?: string } | undefined,
+    reply:
+      | { fala: string; detalhes?: string; itens?: string[]; cost_usd?: number; model?: string }
+      | undefined,
     work: boolean,
   ) => void;
   /** Spoken "sempre pode" — record the standing allow rule. */

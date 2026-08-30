@@ -14,7 +14,7 @@ import type { OpenFile } from "./types";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { Settings as SettingsIcon } from "lucide-react";
 import { useHarkEvents } from "./hooks/useHarkEvents";
-import { agentError, isAuthError } from "./lib/format";
+import { agentError, askReplyMsg, isAuthError } from "./lib/format";
 import * as ipc from "./lib/ipc";
 import { checkForUpdate, restartIntoUpdate } from "./lib/updater";
 import type { BoardTask, Msg, Overview, Project, RateLimitState, SessionHit } from "./types";
@@ -273,23 +273,37 @@ export default function Mother() {
     };
   }, []);
 
-  // On boot, the stored chat session repaints the thread: the chat is
-  // CONTINUOUS across app restarts, visually too. Local, zero tokens.
+  // On boot, the stored record repaints the thread: the chat is CONTINUOUS
+  // across app restarts, visually too. Local, zero tokens. Two sources,
+  // one thread: the hark-chat session transcript (work turns) and the
+  // global journal (ask turns — the mother used to forget these).
   useEffect(() => {
     (async () => {
-      const st = await ipc.harkChatStatus().catch(() => null);
-      if (!st?.session_id) return;
-      setChatLive(true);
-      const tr = await ipc.readTranscript(st.session_id, 30).catch(() => null);
-      if (!tr) return;
-      const hist: Msg[] = tr.entries
-        .filter((e) => e.role === "user" || e.role === "assistant")
-        .map((e) => ({
-          who: e.role === "user" ? ("user" as const) : ("hark" as const),
-          text: e.text,
-          task: HARK_CHAT,
-          ts: Date.parse(e.ts) || undefined,
-        }));
+      const [st, journal] = await Promise.all([
+        ipc.harkChatStatus().catch(() => null),
+        ipc.journalRecent(12).catch(() => [] as import("./types").JournalTurn[]),
+      ]);
+      const hist: (Msg & { ts?: number })[] = [];
+      for (const turn of journal) {
+        const ts = Date.parse(turn.ts) || undefined;
+        hist.push({ who: "user", text: turn.question, ts });
+        hist.push({ who: "hark", text: turn.fala, detalhes: turn.body || undefined, ts });
+      }
+      if (st?.session_id) {
+        setChatLive(true);
+        const tr = await ipc.readTranscript(st.session_id, 30).catch(() => null);
+        for (const e of tr?.entries ?? []) {
+          if (e.role !== "user" && e.role !== "assistant") continue;
+          hist.push({
+            who: e.role === "user" ? ("user" as const) : ("hark" as const),
+            text: e.text,
+            task: HARK_CHAT,
+            ts: Date.parse(e.ts) || undefined,
+          });
+        }
+      }
+      // One timeline: both sources carry timestamps, so the merge is a sort.
+      hist.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
       if (hist.length) setMessages((old) => [...hist, ...old].slice(-80));
     })();
   }, []);
@@ -475,15 +489,16 @@ export default function Mother() {
     onChatEcho: useCallback(
       (
         question: string,
-        reply: { fala: string; cost_usd?: number; model?: string } | undefined,
+        reply:
+          | { fala: string; detalhes?: string; itens?: string[]; cost_usd?: number; model?: string }
+          | undefined,
         work: boolean,
       ) => {
         push({ who: "user", text: question, task: work ? HARK_CHAT : undefined });
         // Work handed off by the HUD is in flight in the same chat: cover
         // it with the same crash-resend guarantee as typed messages.
         if (work) chatInFlightRef.current = { text: question, retried: false };
-        if (reply)
-          push({ who: "hark", text: reply.fala, cost: reply.cost_usd, model: reply.model });
+        if (reply) push({ who: "hark", ...askReplyMsg(reply) });
       },
       [push],
     ),
@@ -793,7 +808,7 @@ export default function Mother() {
     try {
       const reply = await ipc.askText(text);
       // The thread IS the record — no duplicate feed row for turns.
-      push({ who: "hark", text: reply.fala, cost: reply.cost_usd, model: reply.model });
+      push({ who: "hark", ...askReplyMsg(reply) });
       say(reply.fala);
     } catch (err) {
       push({ who: "sys", text: `erro: ${agentError(err)}` });

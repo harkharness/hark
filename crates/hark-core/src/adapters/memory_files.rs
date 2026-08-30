@@ -41,6 +41,14 @@ impl Journal for HarkDir {
     }
 }
 
+/// Newest `n` journal turns as structured Q&A, oldest first — the local,
+/// zero-token record that repaints the mother thread across restarts.
+pub fn read_journal(root: &Path, n: usize) -> Vec<crate::domain::memory::JournalTurn> {
+    std::fs::read_to_string(journal_path(root))
+        .map(|content| crate::domain::memory::parse_journal(&content, n))
+        .unwrap_or_default()
+}
+
 /// Append one line to `<root>/.hark/state.md` (workspace dispatch log).
 pub fn append_state(root: &Path, line: &str) -> anyhow::Result<()> {
     let path = hark_dir(root).join("state.md");
@@ -125,16 +133,46 @@ mod tests {
 
         assert!(journal.tail(dir.path(), 5).is_empty());
         journal
-            .append(dir.path(), &journal_entry("2026-08-14T10:00:00Z", "q1", "a1"))
+            .append(dir.path(), &journal_entry("2026-08-14T10:00:00Z", "q1", "a1", ""))
             .unwrap();
         journal
-            .append(dir.path(), &journal_entry("2026-08-14T11:00:00Z", "q2", "a2"))
+            .append(dir.path(), &journal_entry("2026-08-14T11:00:00Z", "q2", "a2", ""))
             .unwrap();
-
         let tail = journal.tail(dir.path(), 1);
         assert_eq!(tail.len(), 1);
         assert!(tail[0].contains("q2"));
         assert!(dir.path().join(".hark").join("journal.md").exists());
+    }
+
+    #[test]
+    fn read_journal_of_a_virgin_machine_is_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_journal(dir.path(), 5).is_empty());
+    }
+
+    #[test]
+    fn read_journal_hands_back_structured_turns_with_the_body() {
+        let dir = tempfile::tempdir().unwrap();
+        HarkDir
+            .append(dir.path(), &journal_entry("2026-08-14T10:00:00Z", "q1", "a1", ""))
+            .unwrap();
+        HarkDir
+            .append(
+                dir.path(),
+                &journal_entry(
+                    "2026-08-30T10:00:00Z",
+                    "pendências?",
+                    "Três na tela.",
+                    "- revisar PR\n- subir migração",
+                ),
+            )
+            .unwrap();
+
+        let turns = read_journal(dir.path(), 5);
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[0].question, "q1");
+        assert_eq!(turns[1].fala, "Três na tela.");
+        assert!(turns[1].body.contains("subir migração"));
     }
 
     #[test]

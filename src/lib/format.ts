@@ -1,5 +1,38 @@
-import type { Directives } from "../types";
+import type { Directives, Reply } from "../types";
 import { t } from "./i18n";
+
+/** ONE reply→message mapping for every surface (mother, project, HUD echo):
+ *  `fala` is the spoken headline; the screen also gets detalhes + itens.
+ *  Three hand-rolled copies of this is how the mother once dropped the list
+ *  the user asked for. */
+export function askReplyMsg(reply: {
+  fala: string;
+  detalhes?: string;
+  itens?: string[];
+  cost_usd?: number;
+  model?: string;
+}): { text: string; detalhes?: string; itens?: string[]; cost?: number; model?: string } {
+  const detalhes = reply.detalhes?.trim();
+  return {
+    text: reply.fala,
+    // Detalhes that merely repeat the headline add nothing on screen.
+    detalhes: detalhes && detalhes !== reply.fala.trim() ? detalhes : undefined,
+    itens: reply.itens?.length ? reply.itens : undefined,
+    cost: reply.cost_usd,
+    model: reply.model,
+  };
+}
+
+/** The full reply for echo payloads (HUD → mother thread). */
+export function echoReply(reply: Reply) {
+  return {
+    fala: reply.fala,
+    detalhes: reply.detalhes,
+    itens: reply.itens,
+    cost_usd: reply.cost_usd,
+    model: reply.model,
+  };
+}
 
 const MODE_LABEL: Record<string, string> = {
   manual: "manual",

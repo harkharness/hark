@@ -25,7 +25,7 @@ import EmptyProject from "./components/EmptyProject";
 import WorkerChips from "./components/WorkerChips";
 import TurnStatus, { type TurnState } from "./components/TurnStatus";
 import { useHarkEvents } from "./hooks/useHarkEvents";
-import { agentError, isAuthError } from "./lib/format";
+import { agentError, askReplyMsg, isAuthError } from "./lib/format";
 import * as ipc from "./lib/ipc";
 import type {
   BoardTask,
@@ -671,14 +671,7 @@ export default function App({
       // The focused project scopes the snapshot: clicking a chat or
       // starting one IS the context selection (no manual picker).
       const reply = await ipc.askText(question, images.map(toImagePair), activeProject);
-      push({
-        who: "hark",
-        text: reply.fala,
-        detalhes: reply.detalhes,
-        itens: reply.itens,
-        cost: reply.cost_usd,
-        model: reply.model,
-      });
+      push({ who: "hark", ...askReplyMsg(reply) });
       if (reply.cost_usd) addCost("hark (perguntas)", reply.cost_usd);
       say(reply.fala);
     } catch (err) {
