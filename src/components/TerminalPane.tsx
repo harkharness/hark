@@ -12,6 +12,7 @@ export function TerminalTabs({
   onCloseShell,
   onResumeSession,
   resumeSpent,
+  noFeed,
 }: {
   shells: string[];
   active: string;
@@ -23,6 +24,8 @@ export function TerminalTabs({
   onResumeSession?: () => void;
   /** The session is already running here: the button has nothing to do. */
   resumeSpent?: boolean;
+  /** The mother has no worker feed: hide that tab there. */
+  noFeed?: boolean;
 }) {
   return (
     <>
@@ -51,13 +54,15 @@ export function TerminalTabs({
           <Plus size={12} />
         </button>
       </span>
-      <span
-        className={`filetab feedtab ${active === "feed" ? "on" : ""}`}
-        title={t("term_feed_hint")}
-        onClick={() => onActivate("feed")}
-      >
-        feed
-      </span>
+      {!noFeed && (
+        <span
+          className={`filetab feedtab ${active === "feed" ? "on" : ""}`}
+          title={t("term_feed_hint")}
+          onClick={() => onActivate("feed")}
+        >
+          feed
+        </span>
+      )}
       {onResumeSession && (
         <button
           className={`term-resume ${resumeSpent ? "spent" : ""}`}

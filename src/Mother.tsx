@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, Lock, Maximize2, Mic, Minimize2 } from "lucide-react";
+import { ExternalLink, FileText, Lock, Maximize2, Mic, Minimize2, SquareChevronRight } from "lucide-react";
 import Board from "./components/Board";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import CostsPanel from "./components/CostsPanel";
 import Settings from "./components/Settings";
 import Onboarding from "./components/Onboarding";
 import Transcript from "./components/Transcript";
+import FilesEditor, { FileTabs } from "./components/FilesEditor";
+import ShellTerminal, { disposeShell } from "./components/ShellTerminal";
+import { TerminalTabs } from "./components/TerminalPane";
+import PanelFrame from "./components/PanelFrame";
+import type { OpenFile } from "./types";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { Settings as SettingsIcon } from "lucide-react";
 import { useHarkEvents } from "./hooks/useHarkEvents";
@@ -129,14 +134,72 @@ export default function Mother() {
    *  than not being clickable. It says which project window to use. */
   function openChatPath(raw: string) {
     const path = raw.trim();
-    if (!/^(https?:|[~/])/i.test(path)) {
+    if (/^https?:/i.test(path)) {
+      void ipc.openExternal(path).catch(() => {});
+      return;
+    }
+    if (!/^[~/]/.test(path)) {
       push({
         who: "sys",
         text: `"${path}" é relativo: abra na janela do projeto pra ver o arquivo`,
       });
       return;
     }
-    void ipc.openExternal(path).catch(() => {});
+    // The mother has its own viewer now: files the hark chat names open
+    // HERE instead of bouncing to the OS.
+    openMotherFile(path);
+  }
+
+  // ---- the project windows' tools, on the mother too (26/08): a real
+  // terminal (the login remedy needs one HERE) and a file viewer for
+  // whatever the hark chat generates or names.
+  const [shells, setShells] = useState<string[]>([]);
+  const [shellTab, setShellTab] = useState("");
+  const shellSeq = useRef(0);
+  const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
+  const [activeFile, setActiveFile] = useState(0);
+  const [dirtyPaths, setDirtyPaths] = useState<Set<string>>(new Set());
+  const [termOpen, setTermOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
+
+  function addShell(): string {
+    const id = `mo-sh-${shellSeq.current++}-${Date.now() % 1e6}`;
+    setShells((old) => [...old, id]);
+    setShellTab(id);
+    return id;
+  }
+  function closeShell(id: string) {
+    setShells((old) => old.filter((x) => x !== id));
+    setShellTab((x) => (x === id ? "" : x));
+  }
+  /** Open the terminal pane with a command TYPED, Enter the user's —
+   *  the same grammar the project windows use. */
+  function motherTerminal(cmd?: string) {
+    setChatExpanded(true); // the panels live in the split view
+    setTermOpen(true);
+    const target = shells[0] ?? addShell();
+    if (shells[0]) setShellTab(shells[0]);
+    if (!cmd) return;
+    const write = (attempt: number) => {
+      ipc.termWrite(target, cmd).catch(() => {
+        if (attempt === 0) setTimeout(() => write(1), 700);
+      });
+    };
+    setTimeout(() => write(0), shells[0] ? 60 : 900);
+  }
+  function openMotherFile(path: string) {
+    const rel = path.split("/").filter(Boolean).pop() ?? path;
+    setChatExpanded(true);
+    setFilesOpen(true);
+    setOpenFiles((old) => {
+      const at = old.findIndex((f) => f.abs === path);
+      if (at >= 0) {
+        setActiveFile(at);
+        return old;
+      }
+      setActiveFile(old.length);
+      return [...old, { abs: path, rel, project: { name: "", path: "" } }];
+    });
   }
 
   const push = useCallback(
@@ -693,6 +756,7 @@ export default function Mother() {
       say(reply.fala);
     } catch (err) {
       push({ who: "sys", text: `erro: ${agentError(err)}` });
+      if (String(err).startsWith("agent_auth:")) motherTerminal("claude");
     } finally {
       setBusy(null);
       refresh();
@@ -823,6 +887,7 @@ export default function Mother() {
     } catch (err) {
       chatInFlightRef.current = null;
       push({ who: "sys", text: `chat hark: ${agentError(err)}` });
+      if (String(err).startsWith("agent_auth:")) motherTerminal("claude");
     }
   }
 
@@ -1108,6 +1173,23 @@ export default function Mother() {
           </div>
           <div className="split-right">
             {chatHead(true)}
+            <div className="mother-tools">
+              <button
+                className={termOpen ? "on" : ""}
+                title={t("mo_term")}
+                onClick={() => (termOpen ? setTermOpen(false) : motherTerminal())}
+              >
+                <SquareChevronRight size={13} />
+              </button>
+              <button
+                className={filesOpen ? "on" : ""}
+                title={t("mo_files")}
+                onClick={() => setFilesOpen((v) => !v)}
+                disabled={openFiles.length === 0 && !filesOpen}
+              >
+                <FileText size={13} />
+              </button>
+            </div>
             <Transcript
               messages={chatMsgs}
               directivesFor={() => undefined}
@@ -1134,6 +1216,77 @@ export default function Mother() {
               </button>
             </div>
           </div>
+          {(termOpen || filesOpen) && (
+            <div className="split-tools">
+              {termOpen && (
+                <PanelFrame
+                  title=""
+                  expanded={false}
+                  onToggleExpand={() => {}}
+                  tabs={
+                    <TerminalTabs
+                      noFeed
+                      shells={shells}
+                      active={shellTab}
+                      onActivate={setShellTab}
+                      onAddShell={addShell}
+                      onCloseShell={(id) => {
+                        disposeShell(id);
+                        closeShell(id);
+                      }}
+                    />
+                  }
+                  onClose={() => setTermOpen(false)}
+                >
+                  <div className="mo-shells">
+                    {shells.map((id) => (
+                      <div
+                        key={id}
+                        className="mo-shell"
+                        style={{ display: id === shellTab ? "flex" : "none" }}
+                      >
+                        <ShellTerminal id={id} onExit={() => closeShell(id)} />
+                      </div>
+                    ))}
+                    {shells.length === 0 && <div className="vc-empty">{t("mo_term_empty")}</div>}
+                  </div>
+                </PanelFrame>
+              )}
+              {filesOpen && (
+                <PanelFrame
+                  title=""
+                  expanded={false}
+                  onToggleExpand={() => {}}
+                  tabs={
+                    <FileTabs
+                      files={openFiles}
+                      active={activeFile}
+                      dirty={dirtyPaths}
+                      onActivate={setActiveFile}
+                      onCloseTab={(i) => {
+                        setOpenFiles((old) => old.filter((_, j) => j !== i));
+                        setActiveFile((a) => Math.max(0, a - (i <= a ? 1 : 0)));
+                      }}
+                    />
+                  }
+                  onClose={() => setFilesOpen(false)}
+                >
+                  <FilesEditor
+                    files={openFiles}
+                    active={activeFile}
+                    onDirty={(abs, d) =>
+                      setDirtyPaths((old) => {
+                        const next = new Set(old);
+                        if (d) next.add(abs);
+                        else next.delete(abs);
+                        return next;
+                      })
+                    }
+                  />
+                </PanelFrame>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <>
