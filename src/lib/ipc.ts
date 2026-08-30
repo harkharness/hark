@@ -337,6 +337,7 @@ export type ConfigSnapshot = {
     ui_language: string;
     voice: string;
     whisper_model: string;
+    stt?: string;
     theme: string;
     prompt_budget_chars: number;
     hotkey: string;

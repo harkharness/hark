@@ -505,6 +505,12 @@ fn hear_once(
     }
     let _guard = MicGuard(&lease);
     let config = Config::load();
+    // External dictation (FASE 8.3): STT is a commodity and the user may
+    // prefer their own tool. Hark keeps the part nobody else has — the
+    // targeting — and the HUD swaps the mic for a text field.
+    if config.stt == "external" {
+        return Err("mic_external".into());
+    }
     // Clear the manual cut BEFORE anything slow, so an Esc pressed while
     // the model is still loading is not silently swallowed by a later
     // reset — and so the flag means "cut the capture I am about to start".

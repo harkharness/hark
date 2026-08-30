@@ -20,6 +20,8 @@ type Stage =
   | { s: "candidates"; text: string; instruction: string; options: VoiceCandidate[] }
   | { s: "running"; text: string; target: string }
   | { s: "note"; text: string; tone: "ok" | "warn" }
+  /** External dictation: the mic is someone else's tool; type/dictate here. */
+  | { s: "type" }
   | { s: "asking"; text: string }
   | { s: "answer"; text: string };
 
@@ -471,6 +473,11 @@ export default function Hud() {
             secs: Math.floor((Date.now() - opened) / 1000),
           });
           await sleep(1000);
+        } else if (raw.includes("mic_external")) {
+          // stt = "external": the HUD becomes a text field. Dictation apps
+          // write wherever the caret is — this is the caret.
+          setStage({ s: "type" });
+          return;
         } else if (raw.includes("mic_no_model")) {
           setStage({ s: "note", text: t("mic_no_model"), tone: "warn" });
           setTimeout(hide, 3600);
@@ -700,6 +707,20 @@ export default function Hud() {
         <div className="hud-row">
           <span className="hud-text hud-answer">{stage.text}</span>
         </div>
+      )}
+      {stage.s === "type" && (
+        <input
+          className="hud-type"
+          autoFocus
+          placeholder={t("hud_type_placeholder")}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") hide();
+            if (e.key === "Enter") {
+              const text = (e.target as HTMLInputElement).value.trim();
+              if (text) void handle(text);
+            }
+          }}
+        />
       )}
       {stage.s === "note" && (
         <div className="hud-row">

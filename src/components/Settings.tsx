@@ -339,6 +339,16 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
                 }
               />
               <Select
+                label={t("set_engine")}
+                hint={t("set_engine_hint")}
+                keyName="stt"
+                value={v.stt ?? "whisper"}
+                options={[
+                  ["whisper", t("engine_whisper")],
+                  ["external", t("engine_external")],
+                ]}
+              />
+              <Select
                 label={t("set_stt")}
                 hint={t("set_stt_hint")}
                 keyName="language"

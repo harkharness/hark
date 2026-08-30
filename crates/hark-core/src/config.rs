@@ -44,6 +44,12 @@ pub struct Config {
     pub voice: String,
     /// Whisper ggml model path; empty means `<data_dir>/models/ggml-small.bin`.
     pub whisper_model: String,
+    /// Speech engine: "whisper" (local, default) or "external" — the user
+    /// dictates with their own tool (Wispr/Superwhisper/OS dictation) into
+    /// the HUD's text field, and Hark keeps what it is actually good at:
+    /// deciding where the sentence goes. STT is a commodity (FASE 8.3).
+    #[serde(default = "default_stt")]
+    pub stt: String,
     /// Vocabulary bias fed to whisper (helps tech terms inside pt-BR speech).
     pub vocab: Vec<String>,
     /// Model tiers for the router (light/standard/heavy/max).
@@ -110,6 +116,10 @@ pub struct ModelsTable {
     pub max: Option<String>,
 }
 
+fn default_stt() -> String {
+    "whisper".into()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -124,6 +134,7 @@ impl Default for Config {
             ui_language: "pt".into(),
             voice: "Luciana".into(),
             whisper_model: String::new(),
+            stt: default_stt(),
             vocab: [
                 "webhook", "pull request", "PR", "deploy", "Claude Code", "branch", "commit",
                 "migração", "cluster", "hark", "vox",
