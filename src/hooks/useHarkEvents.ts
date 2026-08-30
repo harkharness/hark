@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import * as ipc from "../lib/ipc";
 import { st, t } from "../lib/i18n";
+import { isAuthError } from "../lib/format";
 import type { LiveWorker, Msg, PermissionAsk, HarkEvent } from "../types";
 
 type Handlers = {
@@ -120,10 +121,11 @@ export function useHarkEvents(h: Handlers) {
         // ▶ on the fence opens the terminal pane and runs it (26/08 —
         // prose telling the user what to type helped nobody).
         const fence = "```";
-        const turnText =
-          ev.error_code === "agent_auth"
-            ? `${ev.text}\n\n${t("auth_fix")}\n\n${fence}bash\nclaude /login\n${fence}`
-            : ev.text;
+        const authFail =
+          ev.error_code === "agent_auth" || (ev.is_error && isAuthError(ev.text));
+        const turnText = authFail
+          ? `${ev.text}\n\n${t("auth_fix")}\n\n${fence}bash\nclaude /login\n${fence}`
+          : ev.text;
         h.pushRaw(
           label,
           `${ts()} ── turno ${ev.is_error ? "FALHOU " : ""}${ev.model ?? ""} $${(ev.cost_usd ?? 0).toFixed(4)}`,
@@ -175,7 +177,7 @@ export function useHarkEvents(h: Handlers) {
           ev.context_pct,
           ev.cost_usd,
           ev.session_id,
-          ev.error_code,
+          authFail ? "agent_auth" : ev.error_code,
         );
         if (h.announce && h.speakRef.current) {
           const spoken = ev.label ?? label;

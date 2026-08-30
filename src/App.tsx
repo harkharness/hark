@@ -25,7 +25,7 @@ import EmptyProject from "./components/EmptyProject";
 import WorkerChips from "./components/WorkerChips";
 import TurnStatus, { type TurnState } from "./components/TurnStatus";
 import { useHarkEvents } from "./hooks/useHarkEvents";
-import { agentError } from "./lib/format";
+import { agentError, isAuthError } from "./lib/format";
 import * as ipc from "./lib/ipc";
 import type {
   BoardTask,
@@ -217,7 +217,7 @@ export default function App({
    *  /login is one Enter away. Detection is the health code (agent_auth),
    *  never a re-parse of wording here. */
   function nudgeLogin(err: unknown) {
-    if (!String(err).startsWith("agent_auth:") || loginNudged.current) return;
+    if (!isAuthError(err) || loginNudged.current) return;
     loginNudged.current = true;
     // The remedy as a message: a runnable block — its ▶ opens the
     // terminal pane beside and executes (user-asked shape, 26/08).

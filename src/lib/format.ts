@@ -30,6 +30,27 @@ export function shortModel(model?: string): string {
  * the technical tail — the path or the CLI's own words are usually what
  * identifies the real problem.
  */
+/**
+ * Is this failure an authentication one? The COD source of truth is the
+ * backend's health code (agent_auth) riding the error/event; the phrase
+ * list is the fallback mirror of health.rs for errors that reach the
+ * front uncoded (an older backend, a raw CLI result) — one classifier,
+ * used by every surface, so typed and spoken input fail identically.
+ */
+export function isAuthError(raw: unknown): boolean {
+  const s = String(raw).toLowerCase();
+  if (s.includes("agent_auth")) return true;
+  return [
+    "oauth",
+    "failed to authenticate",
+    "authentication failed",
+    "not logged in",
+    "please log in",
+    "invalid api key",
+    "unauthorized",
+  ].some((p) => s.includes(p));
+}
+
 export function agentError(err: unknown): string {
   const raw = String(err);
   const known = ["agent_missing", "agent_blocked", "agent_auth", "agent_failed"] as const;
