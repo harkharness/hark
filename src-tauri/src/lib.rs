@@ -3514,7 +3514,11 @@ fn open_project_window(
 
 fn bridge_paths(config: &Config) -> hark_plugin_claude::bridge::BridgePaths {
     let home = std::path::PathBuf::from(hark_core::config::expand_home("~"));
-    hark_plugin_claude::bridge::BridgePaths::new(&home, &config.data_dir())
+    let paths = hark_plugin_claude::bridge::BridgePaths::new(&home, &config.data_dir());
+    // Pre-split installs kept the wrapper in the data dir: adopt them into
+    // ~/.claude (script + backup move, settings repointed). No-op after.
+    hark_plugin_claude::bridge::adopt_legacy(&paths, &config.data_dir());
+    paths
 }
 
 /// The subscription windows (5h / weekly / per-model), the only numbers the

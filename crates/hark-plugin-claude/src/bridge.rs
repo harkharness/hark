@@ -26,12 +26,44 @@ pub struct BridgePaths {
 
 impl BridgePaths {
     pub fn new(home: &Path, data_dir: &Path) -> Self {
+        // Claude-side plumbing lives with Claude (26/08): the wrapper is
+        // wired into ~/.claude/settings.json and the backup snapshots that
+        // same file — both are ~/.claude artifacts. Only the PAYLOAD is
+        // Hark's: data the meter reads, in Hark's own root.
+        let claude = home.join(".claude");
         Self {
-            settings: home.join(".claude").join("settings.json"),
-            script: data_dir.join("statusline-bridge.sh"),
+            settings: claude.join("settings.json"),
+            script: claude.join("hark-statusline.sh"),
             payload: data_dir.join("statusline.json"),
-            backup: data_dir.join("settings.json.before-hark"),
+            backup: claude.join("settings.json.before-hark"),
         }
+    }
+}
+
+/// Move a pre-split install (script + backup in the data dir) to the
+/// ~/.claude home, and point the settings at the new script path. Cheap
+/// no-op when there is nothing old to adopt.
+pub fn adopt_legacy(paths: &BridgePaths, data_dir: &Path) {
+    let old_script = data_dir.join("statusline-bridge.sh");
+    if old_script.exists() && !paths.script.exists() {
+        if let Some(dir) = paths.script.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::rename(&old_script, &paths.script);
+        // The settings command still names the old script: repoint it.
+        if let Ok(text) = std::fs::read_to_string(&paths.settings) {
+            let fixed = text.replace(
+                &old_script.display().to_string(),
+                &paths.script.display().to_string(),
+            );
+            if fixed != text {
+                let _ = std::fs::write(&paths.settings, fixed);
+            }
+        }
+    }
+    let old_backup = data_dir.join("settings.json.before-hark");
+    if old_backup.exists() && !paths.backup.exists() {
+        let _ = std::fs::rename(&old_backup, &paths.backup);
     }
 }
 
@@ -61,13 +93,15 @@ fn current_command(settings: &serde_json::Map<String, serde_json::Value>) -> Opt
 
 /// The status line the USER configured (our own wrapper doesn't count).
 fn user_command(settings: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
-    current_command(settings).filter(|cmd| !cmd.contains("statusline-bridge.sh"))
+    // Both generations of the wrapper name count as "ours".
+    current_command(settings)
+        .filter(|cmd| !cmd.contains("hark-statusline.sh") && !cmd.contains("statusline-bridge.sh"))
 }
 
 /// Is our own wrapper the configured status line?
 pub fn is_installed(paths: &BridgePaths) -> bool {
     current_command(&read_settings(&paths.settings))
-        .map(|cmd| cmd.contains("statusline-bridge.sh"))
+        .map(|cmd| cmd.contains("hark-statusline.sh") || cmd.contains("statusline-bridge.sh"))
         .unwrap_or(false)
 }
 
@@ -185,6 +219,43 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// 26/08: Claude-side plumbing belongs to Claude's own dir. The
+    /// wrapper script and the settings backup are ~/.claude artifacts;
+    /// only the PAYLOAD — data Hark consumes — lives in ~/.hark.
+    #[test]
+    fn claude_plumbing_lives_in_dot_claude_and_only_the_payload_in_hark() {
+        let root = temp_dir("homes");
+        let home = root.join("home");
+        let data = home.join(".hark");
+        std::fs::create_dir_all(&data).unwrap();
+        let paths = BridgePaths::new(&home, &data);
+        assert!(paths.script.starts_with(home.join(".claude")), "{:?}", paths.script);
+        assert!(paths.backup.starts_with(home.join(".claude")), "{:?}", paths.backup);
+        assert!(paths.payload.starts_with(&data), "{:?}", paths.payload);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A machine bridged before the split keeps working: install/uninstall
+    /// find the script and backup at their old home and move them.
+    #[test]
+    fn legacy_plumbing_in_the_data_dir_is_adopted() {
+        let root = temp_dir("legacy");
+        let home = root.join("home");
+        let data = home.join(".hark");
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        // Old layout: script+backup in the data dir, settings pointing there.
+        let old_script = data.join("statusline-bridge.sh");
+        std::fs::write(&old_script, "#!/bin/sh\n").unwrap();
+        std::fs::write(data.join("settings.json.before-hark"), "{}").unwrap();
+        let paths = BridgePaths::new(&home, &data);
+        adopt_legacy(&paths, &data);
+        assert!(paths.script.exists(), "script moved to ~/.claude");
+        assert!(paths.backup.exists(), "backup moved to ~/.claude");
+        assert!(!old_script.exists());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
