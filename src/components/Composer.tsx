@@ -82,6 +82,7 @@ export default function Composer({
   onAnswerPermission,
   children,
   trailing,
+  autoFocus,
 }: {
   disabled: boolean;
   recording: boolean;
@@ -97,6 +98,8 @@ export default function Composer({
   /** Window controls docked at the right of the control row (costs,
    *  board, terminal, volume…) — the topbar is gone. */
   trailing?: React.ReactNode;
+  /** Focus the field on mount (the mother's expanded chat opens to type). */
+  autoFocus?: boolean;
 }) {
   const [text, setText] = useState("");
   const [images, setImages] = useState<Attachment[]>([]);
@@ -412,6 +415,7 @@ export default function Composer({
           ref={areaRef}
           className={hasFence(text) ? "has-fence" : ""}
           rows={1}
+          autoFocus={autoFocus}
           placeholder={placeholder}
           value={text}
           onChange={(e) => {

@@ -303,18 +303,10 @@ body {
 .mother-msg.hark { color: var(--ok); }
 .mother-msg.sys { color: var(--warn); }
 .mother-workers { color: var(--accent); }
-.mother-input { display: flex; gap: 8px; width: min(560px, 92vw); }
-.mother-input input {
-  flex: 1; background: var(--panel); border: 1px solid var(--border);
-  border-radius: 10px; color: var(--text); font: inherit; padding: 10px 14px;
-  outline: none;
-}
-.mother-input input:focus { border-color: var(--accent); }
-.mother-input .mic {
-  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-  color: var(--text); padding: 8px 14px; cursor: pointer;
-}
-.mother-input .mic.recording { border-color: var(--err); color: var(--err); }
+/* The collapsed bar hosts the SAME Composer as every chat; the wrapper
+ * only pins the width — the inputbar blends into the mother's ground. */
+.mother-input { width: min(560px, 92vw); }
+.mother-input .inputbar { padding: 0; background: transparent; }
 .mother-projects {
   display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
   max-width: min(640px, 92vw);
@@ -407,18 +399,7 @@ body {
   padding-top: 48px;
 }
 .split-right .transcript { flex: 1; overflow-y: auto; }
-.chat-composer { display: flex; gap: 8px; padding: 12px 26px 16px; }
-.chat-composer input {
-  flex: 1; background: var(--panel); border: 1px solid var(--border-strong);
-  border-radius: 12px; color: var(--text); font: inherit; padding: 11px 14px;
-  outline: none;
-}
-.chat-composer input:focus { border-color: var(--accent); }
-.chat-composer .mic {
-  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-  color: var(--text); padding: 8px 14px; cursor: pointer;
-}
-.chat-composer .mic.recording { border-color: var(--err); color: var(--err); }
+/* (the expanded chat's input is the shared Composer — .inputbar rules) */
 .mother-project {
   display: inline-flex; align-items: center; gap: 6px;
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px;

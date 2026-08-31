@@ -15,6 +15,7 @@ import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { Settings as SettingsIcon } from "lucide-react";
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import { agentError, askReplyMsg, isAuthError } from "./lib/format";
+import Composer, { toImagePair, type Attachment } from "./components/Composer";
 import * as ipc from "./lib/ipc";
 import { checkForUpdate, restartIntoUpdate } from "./lib/updater";
 import type { BoardTask, Msg, Overview, Project, RateLimitState, SessionHit } from "./types";
@@ -89,7 +90,6 @@ export default function Mother() {
   const [speaking, setSpeaking] = useState(false);
   const [rateLimit, setRateLimit] = useState<RateLimitState | null>(null);
   const [spentToday, setSpentToday] = useState<number | null>(null);
-  const [input, setInput] = useState("");
   const [tab, setTab] = useState<MotherTab>("voz");
   // A downloaded-and-verified update waiting for the user's click.
   const [updateReady, setUpdateReady] = useState<string | null>(null);
@@ -704,9 +704,8 @@ export default function Mother() {
     await ipc.approve(requestId, allow).catch(() => {});
   }
 
-  async function submit(text: string) {
+  async function submit(text: string, images: Attachment[] = []) {
     if (!text.trim() || busy) return;
-    setInput("");
     // A pending permission + a clean typed verdict = the answer. ONE
     // grammar (domain::verdict) — "assim que der" is NOT a yes.
     if (pendingPerm?.who === "permission") {
@@ -760,7 +759,7 @@ export default function Mother() {
     // on the cheap bare ask. One visual thread either way.
     const lane = await ipc.askLane(text).catch(() => "lean");
     if (route === "dispatch") {
-      push({ who: "user", text });
+      push({ who: "user", text, images: images.map((i) => i.dataUrl) });
       const plan = await ipc.planUtterance(text).catch(() => null);
       if (plan?.kind === "work") {
         const target = plan.task_title ?? plan.project_name ?? "novo chat";
@@ -784,7 +783,7 @@ export default function Mother() {
       // Work with NO project target: the 21/08 Slack case. That is the
       // mother's own work — it goes to the persistent chat, never dies.
       if (lane === "work") {
-        await sendToChat(text);
+        await sendToChat(text, images);
         return;
       }
       // Before giving up on a target, let the classifier look at the
@@ -795,9 +794,9 @@ export default function Mother() {
       say("Não achei o alvo pra esse trabalho.");
       return;
     }
-    push({ who: "user", text });
+    push({ who: "user", text, images: images.map((i) => i.dataUrl) });
     if (lane === "work") {
-      await sendToChat(text);
+      await sendToChat(text, images);
       return;
     }
     // A sentence the grammar did not recognise is not automatically a
@@ -806,7 +805,7 @@ export default function Mother() {
     if (await tryIntent(text)) return;
     setBusy("perguntando…");
     try {
-      const reply = await ipc.askText(text);
+      const reply = await ipc.askText(text, images.map(toImagePair));
       // The thread IS the record — no duplicate feed row for turns.
       push({ who: "hark", ...askReplyMsg(reply) });
       say(reply.fala);
@@ -935,10 +934,10 @@ export default function Mother() {
     return false;
   }
 
-  async function sendToChat(text: string) {
+  async function sendToChat(text: string, images: Attachment[] = []) {
     try {
       chatInFlightRef.current = { text, retried: false };
-      await ipc.harkChatSend(text);
+      await ipc.harkChatSend(text, images.map(toImagePair));
       setChatLive(true);
     } catch (err) {
       chatInFlightRef.current = null;
@@ -1246,25 +1245,21 @@ export default function Mother() {
               onOpenPath={openChatPath}
               onRunCommand={(cmd, execute) => motherTerminal(cmd, execute)}
             />
-            <div className="chat-composer">
-              <input
-                autoFocus
-                placeholder={t("chat_placeholder")}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submit(input);
-                }}
-                disabled={!!busy}
-              />
-              <button
-                className={`mic ${recording ? "recording" : ""}`}
-                onClick={onMic}
-                title="falar"
-              >
-                <Mic size={16} />
-              </button>
-            </div>
+            {/* THE composer — the same component as the project chats:
+                Shift+Enter, ``` fences, image paste, @files, /commands. */}
+            <Composer
+              autoFocus
+              disabled={!!busy}
+              recording={recording}
+              placeholder={t("chat_placeholder")}
+              projects={overview?.projects ?? []}
+              pendingPermissionId={
+                pendingPerm?.who === "permission" ? pendingPerm.requestId : undefined
+              }
+              onSubmit={(text, imgs) => void submit(text, imgs)}
+              onMic={onMic}
+              onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
+            />
           </div>
           {(termOpen || filesOpen) && (
             <div className="split-tools">
@@ -1379,23 +1374,20 @@ export default function Mother() {
           {planBlock}
           {picksBlock}
 
+          {/* Same component as every chat: one input experience everywhere. */}
           <div className="mother-input">
-            <input
-              placeholder={t("mother_input")}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submit(input);
-              }}
+            <Composer
               disabled={!!busy}
+              recording={recording}
+              placeholder={t("mother_input")}
+              projects={overview?.projects ?? []}
+              pendingPermissionId={
+                pendingPerm?.who === "permission" ? pendingPerm.requestId : undefined
+              }
+              onSubmit={(text, imgs) => void submit(text, imgs)}
+              onMic={onMic}
+              onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
             />
-            <button
-              className={`mic ${recording ? "recording" : ""}`}
-              onClick={onMic}
-              title="falar"
-            >
-              <Mic size={16} />
-            </button>
           </div>
 
           {/* Spoken suggestions: click = send. All three answer cheap. */}
