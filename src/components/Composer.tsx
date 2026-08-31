@@ -26,11 +26,27 @@ const NATIVE_SLASH: SlashHit[] = [
 /** A pasted screenshot: thumbnail on top, "[image N]" reference in prose. */
 export type Attachment = { dataUrl: string };
 
-/** A fence line is ``` plus at most a short language token and NOTHING
- *  else — "``` some prose" is prose. The old [^\n]* here swallowed the
- *  whole line as an invisible "language" marker: everything the user
- *  typed after ``` and a space simply vanished from the screen. */
-const FENCE_LINE = /(^|\n)```[\w+-]*(\n|$)/g;
+/** A fence line is ``` plus at most a SHORT language token ("ts",
+ *  "typescript") and NOTHING else — "``` some prose" is prose, and so is
+ *  ```` ```averylongword ````: real language ids stop at 12 chars, and a
+ *  longer run is someone's text that must never vanish into a marker. */
+const FENCE_LINE = /(^|\n)```[\w+-]{0,12}(\n|$)/g;
+
+/** Is this whole line a fence marker? One definition for the parser and
+ *  the keydown helpers, so they can never disagree. */
+export function isFenceLine(line: string): boolean {
+  return /^```[\w+-]{0,12}$/.test(line);
+}
+
+/** Inside an UNTERMINATED block at this offset? Counts fence lines above
+ *  the caret's line: odd means a block is open — a typed ``` there is a
+ *  CLOSER, and the auto-pair must stay out of the way. */
+export function insideOpenFence(text: string, caret: number): boolean {
+  const lineStart = text.lastIndexOf("\n", Math.max(0, caret - 1)) + 1;
+  const above = text.slice(0, lineStart);
+  const fences = above.split("\n").filter(isFenceLine).length;
+  return fences % 2 === 1;
+}
 
 /** Does the draft contain a fenced block at all? Drives the monospace
  *  switch: prose stays proportional until code is actually present. */
@@ -74,25 +90,50 @@ export function toImagePair(a: Attachment): [string, string] {
 /** Any marker the mirror styles? Drives the textarea's transparent-glyph
  *  switch: plain prose stays a plain visible textarea. */
 export function hasRich(text: string): boolean {
-  return hasFence(text) || /(^|\n)> /.test(text) || /`[^`\n]+`/.test(text);
+  return (
+    hasFence(text) || /(^|\n)> /.test(text) || /`[^`\n]+`/.test(text) || /https?:\/\//.test(text)
+  );
 }
 
 export type InlinePart = {
   text: string;
-  kind: "plain" | "marker" | "code" | "qmark" | "quote";
+  kind: "plain" | "marker" | "code" | "qmark" | "quote" | "link";
 };
+
+/** Links in one run of text: a markdown [label](url) renders as the
+ *  label alone (markers and url hidden, revealed on the caret's line),
+ *  and a bare url highlights as itself. */
+function linkParts(run: string, base: "plain" | "quote"): InlinePart[] {
+  const parts: InlinePart[] = [];
+  const token = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|https?:\/\/[^\s<>]+/g;
+  let at = 0;
+  let m: RegExpExecArray | null;
+  while ((m = token.exec(run))) {
+    if (m.index > at) parts.push({ text: run.slice(at, m.index), kind: base });
+    if (m[1]) {
+      parts.push({ text: "[", kind: "marker" });
+      parts.push({ text: m[1], kind: "link" });
+      parts.push({ text: `](${m[2]})`, kind: "marker" });
+    } else {
+      parts.push({ text: m[0], kind: "link" });
+    }
+    at = m.index + m[0].length;
+  }
+  if (at < run.length) parts.push({ text: run.slice(at), kind: base });
+  return parts;
+}
 
 /** A fenced block split into marker lines (the ``` fences, hidden by CSS)
  *  and the code body — every character preserved, in order. */
 export function fenceParts(block: string): { text: string; marker: boolean }[] {
   const parts: { text: string; marker: boolean }[] = [];
-  const open = block.match(/^```[\w+-]*\n?/);
+  const open = block.match(/^```[\w+-]{0,12}\n?/);
   let body = block;
   if (open) {
     parts.push({ text: open[0], marker: true });
     body = block.slice(open[0].length);
   }
-  const close = body.match(/(^|\n)```[\w+-]*\n?$/);
+  const close = body.match(/(^|\n)```[\w+-]{0,12}\n?$/);
   if (close) {
     const at = close.index! + (close[1] ? 1 : 0);
     if (at > 0) parts.push({ text: body.slice(0, at), marker: false });
@@ -111,13 +152,13 @@ function codeParts(run: string, base: "plain" | "quote"): InlinePart[] {
   let at = 0;
   let m: RegExpExecArray | null;
   while ((m = pair.exec(run))) {
-    if (m.index > at) parts.push({ text: run.slice(at, m.index), kind: base });
+    if (m.index > at) parts.push(...linkParts(run.slice(at, m.index), base));
     parts.push({ text: "`", kind: "marker" });
     parts.push({ text: m[1], kind: "code" });
     parts.push({ text: "`", kind: "marker" });
     at = m.index + m[0].length;
   }
-  if (at < run.length) parts.push({ text: run.slice(at), kind: base });
+  if (at < run.length) parts.push(...linkParts(run.slice(at), base));
   return parts;
 }
 
@@ -335,8 +376,27 @@ export default function Composer({
     onSubmit(t, imgs);
   }
 
-  /** Paste a screenshot: thumbnail up top, "[image N]" written at caret. */
+  /** Paste a screenshot: thumbnail up top, "[image N]" written at caret.
+   *  Paste a URL OVER selected text: the selection becomes a markdown
+   *  link instead of being erased — the label survives, the url hides. */
   function onPaste(e: React.ClipboardEvent) {
+    const el = areaRef.current;
+    const pasted = e.clipboardData.getData("text/plain").trim();
+    const from = el?.selectionStart ?? 0;
+    const to = el?.selectionEnd ?? 0;
+    if (el && to > from && /^https?:\/\/\S+$/.test(pasted)) {
+      e.preventDefault();
+      const label = text.slice(from, to);
+      const linked = `[${label}](${pasted})`;
+      setText(`${text.slice(0, from)}${linked}${text.slice(to)}`);
+      const pos = from + linked.length;
+      setCaret(pos);
+      requestAnimationFrame(() => {
+        el.focus();
+        el.setSelectionRange(pos, pos);
+      });
+      return;
+    }
     const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
     if (!item) return;
     const file = item.getAsFile();
@@ -424,8 +484,11 @@ export default function Composer({
       const el = areaRef.current;
       const pos = el?.selectionStart ?? 0;
       const before = text.slice(0, pos);
-      const fence = before.match(/(^|\n)```([a-zA-Z0-9+-]*)$/);
-      if (el && fence && pos === (el.selectionEnd ?? pos)) {
+      const fence = before.match(/(^|\n)```([\w+-]{0,12})$/);
+      // Inside an open block a typed ``` is the CLOSER: let the plain
+      // Enter land and the parser see the close — auto-pairing here was
+      // the "block keeps reopening" loop the user could never leave.
+      if (el && fence && pos === (el.selectionEnd ?? pos) && !insideOpenFence(text, pos)) {
         e.preventDefault();
         const after = text.slice(pos);
         const opened = `${before}\n`;

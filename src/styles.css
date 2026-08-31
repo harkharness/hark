@@ -2065,6 +2065,13 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   border-radius: 2px;
 }
 .composer-mirror .cm-quote { color: #a9b4c4; }
+/* Links: bare urls highlight as themselves; a markdown [label](url)
+   shows the label alone (underline is paint-only — no metric change). */
+.composer-mirror .cm-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 /* Obsidian-style live preview: the caret's line reveals its markers
    (dimmed) so structure is never navigated blind — leave the line and
    they hide again. */
