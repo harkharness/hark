@@ -9,7 +9,8 @@ import { PanelLeft, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-reac
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import Board from "./components/Board";
-import Composer, { toImagePair, type Attachment } from "./components/Composer";
+import Composer from "./components/Composer";
+import { toImagePair, type Attachment } from "./lib/composerText";
 import FilesEditor, { FileTabs } from "./components/FilesEditor";
 import FilesPanel from "./components/FilesPanel";
 import Modals, { type Pending } from "./components/Modals";

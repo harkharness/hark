@@ -2046,8 +2046,9 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   left: 5px;
   right: 5px;
   display: none;
-  background: var(--code-bg, #10151d);
-  box-shadow: 0 0 0 1px var(--border);
+  /* LIGHTER than the input's panel — #10151d over #11151b was invisible. */
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  box-shadow: 0 0 0 1px var(--border-strong);
   border-radius: 8px;
   z-index: -1;
 }
@@ -2056,7 +2057,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    room, the backticks become the chip's side padding. */
 .composer-mirror .cm-marker { color: transparent; }
 .composer-mirror .cm-code {
-  background: var(--code-bg, #10151d);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
   box-shadow: 0 0 0 1px var(--border);
   border-radius: 5px;
   color: var(--warn);
