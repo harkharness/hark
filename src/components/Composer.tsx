@@ -26,10 +26,17 @@ const NATIVE_SLASH: SlashHit[] = [
 /** A pasted screenshot: thumbnail on top, "[image N]" reference in prose. */
 export type Attachment = { dataUrl: string };
 
+/** A fence line is ``` plus at most a short language token and NOTHING
+ *  else — "``` some prose" is prose. The old [^\n]* here swallowed the
+ *  whole line as an invisible "language" marker: everything the user
+ *  typed after ``` and a space simply vanished from the screen. */
+const FENCE_LINE = /(^|\n)```[\w+-]*(\n|$)/g;
+
 /** Does the draft contain a fenced block at all? Drives the monospace
  *  switch: prose stays proportional until code is actually present. */
 export function hasFence(text: string): boolean {
-  return /(^|\n)```/.test(text);
+  FENCE_LINE.lastIndex = 0;
+  return FENCE_LINE.test(text);
 }
 
 /** Split a draft into fenced and unfenced runs, IN ORDER, keeping every
@@ -37,7 +44,7 @@ export function hasFence(text: string): boolean {
  *  textarea or the caret drifts away from the text under it. */
 export function fenceSegments(text: string): { text: string; fenced: boolean }[] {
   const out: { text: string; fenced: boolean }[] = [];
-  const fence = /(^|\n)```[^\n]*\n?/g;
+  const fence = new RegExp(FENCE_LINE.source, "g");
   let at = 0;
   let open: number | null = null;
   let m: RegExpExecArray | null;
@@ -79,13 +86,13 @@ export type InlinePart = {
  *  and the code body — every character preserved, in order. */
 export function fenceParts(block: string): { text: string; marker: boolean }[] {
   const parts: { text: string; marker: boolean }[] = [];
-  const open = block.match(/^```[^\n]*\n?/);
+  const open = block.match(/^```[\w+-]*\n?/);
   let body = block;
   if (open) {
     parts.push({ text: open[0], marker: true });
     body = block.slice(open[0].length);
   }
-  const close = body.match(/(^|\n)```[^\n]*\n?$/);
+  const close = body.match(/(^|\n)```[\w+-]*\n?$/);
   if (close) {
     const at = close.index! + (close[1] ? 1 : 0);
     if (at > 0) parts.push({ text: body.slice(0, at), marker: false });
