@@ -1,0 +1,16 @@
+{
+  "artboards": [
+    { "file": "Atual.dc.html", "x": 0, "y": 0, "w": 700, "h": 400, "title": "Atual" },
+    { "file": "Main.dc.html", "x": 800, "y": 0, "w": 700, "h": 400, "title": "Proposto" }
+  ],
+  "annotations": [
+    {
+      "id": "regra-do-caret",
+      "x": 800,
+      "y": -150,
+      "w": 330,
+      "text": "Regra dura do composer: o espelho pinta atrás do textarea e precisa ser glifo-a-glifo idêntico. Por isso a proposta só muda COR e FUNDO — nada de esconder caracteres de verdade, negrito ou itálico (mudariam a largura e o caret desviaria). Os marcadores ficam transparentes mas continuam ocupando o lugar deles."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

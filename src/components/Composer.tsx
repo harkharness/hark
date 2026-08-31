@@ -64,6 +64,80 @@ export function toImagePair(a: Attachment): [string, string] {
   return [a.dataUrl.slice(5, a.dataUrl.indexOf(";")), a.dataUrl.split(",")[1]];
 }
 
+/** Any marker the mirror styles? Drives the textarea's transparent-glyph
+ *  switch: plain prose stays a plain visible textarea. */
+export function hasRich(text: string): boolean {
+  return hasFence(text) || /(^|\n)> /.test(text) || /`[^`\n]+`/.test(text);
+}
+
+export type InlinePart = {
+  text: string;
+  kind: "plain" | "marker" | "code" | "qmark" | "quote";
+};
+
+/** A fenced block split into marker lines (the ``` fences, hidden by CSS)
+ *  and the code body — every character preserved, in order. */
+export function fenceParts(block: string): { text: string; marker: boolean }[] {
+  const parts: { text: string; marker: boolean }[] = [];
+  const open = block.match(/^```[^\n]*\n?/);
+  let body = block;
+  if (open) {
+    parts.push({ text: open[0], marker: true });
+    body = block.slice(open[0].length);
+  }
+  const close = body.match(/(^|\n)```[^\n]*$/);
+  if (close) {
+    const at = close.index! + (close[1] ? 1 : 0);
+    if (at > 0) parts.push({ text: body.slice(0, at), marker: false });
+    parts.push({ text: body.slice(at), marker: true });
+  } else if (body) {
+    parts.push({ text: body, marker: false });
+  }
+  return parts;
+}
+
+/** Inline code pairs in one run of text: `x` becomes marker + code +
+ *  marker. A lone backtick pairs with nothing and stays plain. */
+function codeParts(run: string, base: "plain" | "quote"): InlinePart[] {
+  const parts: InlinePart[] = [];
+  const pair = /`([^`\n]+)`/g;
+  let at = 0;
+  let m: RegExpExecArray | null;
+  while ((m = pair.exec(run))) {
+    if (m.index > at) parts.push({ text: run.slice(at, m.index), kind: base });
+    parts.push({ text: "`", kind: "marker" });
+    parts.push({ text: m[1], kind: "code" });
+    parts.push({ text: "`", kind: "marker" });
+    at = m.index + m[0].length;
+  }
+  if (at < run.length) parts.push({ text: run.slice(at), kind: base });
+  return parts;
+}
+
+/** An unfenced run, line-aware: "> " at line start becomes a quote (the
+ *  marker hidden, a bar painted in its place); `code` pairs become chips.
+ *  Glyph-for-glyph identical to the input — only kinds are added. */
+export function inlineParts(run: string): InlinePart[] {
+  const parts: InlinePart[] = [];
+  let at = 0;
+  while (at <= run.length) {
+    const end = run.indexOf("\n", at);
+    const stop = end === -1 ? run.length : end;
+    const line = run.slice(at, stop);
+    const quoted = line.startsWith("> ");
+    if (quoted) {
+      parts.push({ text: "> ", kind: "qmark" });
+      parts.push(...codeParts(line.slice(2), "quote"));
+    } else if (line) {
+      parts.push(...codeParts(line, "plain"));
+    }
+    if (end === -1) break;
+    parts.push({ text: "\n", kind: "plain" });
+    at = end + 1;
+  }
+  return parts;
+}
+
 /**
  * The input bar: a real text editor for a voice-first app. Enter sends,
  * Shift+Enter breaks the line, Cmd+V pastes screenshots (thumbnails above
@@ -402,10 +476,28 @@ export default function Composer({
           {fenceSegments(text).map((seg, i) =>
             seg.fenced ? (
               <span key={i} className="cm-fence">
-                {seg.text}
+                {fenceParts(seg.text).map((p, j) =>
+                  p.marker ? (
+                    <span key={j} className="cm-marker">
+                      {p.text}
+                    </span>
+                  ) : (
+                    p.text
+                  ),
+                )}
               </span>
             ) : (
-              <span key={i}>{seg.text}</span>
+              <span key={i}>
+                {inlineParts(seg.text).map((p, j) =>
+                  p.kind === "plain" ? (
+                    p.text
+                  ) : (
+                    <span key={j} className={`cm-${p.kind}`}>
+                      {p.text}
+                    </span>
+                  ),
+                )}
+              </span>
             ),
           )}
           {/* Trailing newline needs a glyph or the mirror ends short. */}
@@ -413,7 +505,7 @@ export default function Composer({
         </div>
         <textarea
           ref={areaRef}
-          className={hasFence(text) ? "has-fence" : ""}
+          className={`${hasFence(text) ? "has-fence" : ""} ${hasRich(text) ? "has-rich" : ""}`}
           rows={1}
           autoFocus={autoFocus}
           placeholder={placeholder}

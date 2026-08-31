@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; background: #0b0e12; font-family: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif; }
+    a { color: #7aa2f7; } a:hover { color: #a9c1fa; }
+  </style>
+</helmet>
+<div style="padding: 28px; display: flex; flex-direction: column; gap: 14px; background: #0b0e12; min-height: 372px; box-sizing: border-box;">
+  <div style="color: #7a8698; font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase;">Hoje — os marcadores ficam na cara</div>
+
+  <!-- composer box, exact app values: panel bg, strong border, 14px radius -->
+  <div style="background: #11151b; border: 1px solid #7aa2f7; border-radius: 14px; width: 100%; box-sizing: border-box;">
+    <div style="padding: 10px 14px; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; line-height: 1.5; color: #d7dde6; white-space: pre-wrap;"><span style="background: #10151d; box-shadow: 0 0 0 1px rgba(255,255,255,.07); border-radius: 6px; color: #c8d3f5;">```
+const bla = "ble";
+```</span>
+&gt; Referencia a alguma mensagem do proprio Hark
+`code`
+<span style="display: inline-block; width: 1.5px; height: 15px; background: #d7dde6; vertical-align: text-bottom;"></span></div>
+  </div>
+
+  <!-- control row, as in the app -->
+  <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
+    <div style="width: 30px; height: 26px; border: 1px solid rgba(255,255,255,.07); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7a8698" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+    </div>
+    <div style="width: 30px; height: 26px; border: 1px solid rgba(255,255,255,.07); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7a8698" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 3 3 9-3 9 19-9Z"/><path d="M6 12h16"/></svg>
+    </div>
+  </div>
+
+  <div style="color: #7a8698; font-size: 12px; line-height: 1.6; max-width: 560px;">
+    O bloco pinta por trás, mas os <span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace;">```</span> continuam visíveis dentro dele; a citação e o código inline saem como texto cru.
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
