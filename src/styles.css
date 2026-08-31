@@ -2035,13 +2035,21 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    styling by itself — the glyphs never left the text. */
 .composer textarea.has-rich { color: transparent; caret-color: var(--text); }
 .composer textarea.has-rich::selection { background: rgba(122,162,247,.35); color: transparent; }
+/* Code inside a block: color only — the BOX is .cm-fblock, a measured
+   full-width rectangle behind the text that also covers the hidden
+   fence lines, so nothing reads as stray blank lines. */
 .composer-mirror .cm-fence {
-  display: inline;
+  color: var(--code-fg, #c8d3f5);
+}
+.composer-mirror .cm-fblock {
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  display: none;
   background: var(--code-bg, #10151d);
   box-shadow: 0 0 0 1px var(--border);
-  border-radius: 6px;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  color: var(--code-fg, #c8d3f5);
+  border-radius: 8px;
+  z-index: -1;
 }
 /* Markers stay in the text (the caret can sit on them; backspace undoes
    them) but paint invisible: the ``` line becomes the block's breathing

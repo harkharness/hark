@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Mic, SendHorizontal, X } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
@@ -162,9 +162,10 @@ function codeParts(run: string, base: "plain" | "quote"): InlinePart[] {
   return parts;
 }
 
-/** One painted span of the mirror: exact text, css class, absolute
- *  offset. The offsets are what lets the caret line reveal its markers. */
-export type Painted = { text: string; cls: string };
+/** One painted span of the mirror: exact text, css class, and — for
+ *  parts inside a fenced block — the block's index, so the render can
+ *  group them under one measurable wrapper (the full-width box). */
+export type Painted = { text: string; cls: string; fid?: number };
 
 /** The whole draft as mirror spans, Obsidian-live-preview style: markers
  *  paint invisible EXCEPT on the caret's line, where they reveal (dim) so
@@ -175,7 +176,7 @@ export function paint(text: string, caret: number): Painted[] {
   const lineEnd = lineEndRaw === -1 ? text.length : lineEndRaw;
   const out: Painted[] = [];
   let at = 0;
-  const push = (part: string, cls: string) => {
+  const push = (part: string, cls: string, fid?: number) => {
     const from = at;
     at += part.length;
     // A marker on the caret's line shows itself, dimmed, for editing.
@@ -183,13 +184,15 @@ export function paint(text: string, caret: number): Painted[] {
       const onCaretLine = from <= lineEnd && at > lineStart;
       if (onCaretLine) cls = `${cls} cm-live`;
     }
-    out.push({ text: part, cls });
+    out.push({ text: part, cls, fid });
   };
+  let fid = 0;
   for (const seg of fenceSegments(text)) {
     if (seg.fenced) {
       for (const p of fenceParts(seg.text)) {
-        push(p.text, p.marker ? "cm-marker" : "cm-fence");
+        push(p.text, p.marker ? "cm-marker" : "cm-fence", fid);
       }
+      fid += 1;
     } else {
       for (const p of inlineParts(seg.text)) {
         push(p.text, p.kind === "plain" ? "" : p.kind === "marker" ? "cm-marker" : `cm-${p.kind}`);
@@ -197,6 +200,18 @@ export function paint(text: string, caret: number): Painted[] {
     }
   }
   return out;
+}
+
+/** Consecutive painted parts grouped by fenced block, so each block gets
+ *  ONE wrapper span the box-measuring effect can read. */
+export function groupBlocks(parts: Painted[]): { fid?: number; parts: Painted[] }[] {
+  const groups: { fid?: number; parts: Painted[] }[] = [];
+  for (const p of parts) {
+    const last = groups[groups.length - 1];
+    if (last && last.fid === p.fid) last.parts.push(p);
+    else groups.push({ fid: p.fid, parts: [p] });
+  }
+  return groups;
 }
 
 /** An unfenced run, line-aware: "> " at line start becomes a quote (the
@@ -278,6 +293,27 @@ export default function Composer({
     el.style.height = "auto";
     // Input-sized at rest; grows to FIVE lines max, then scrolls inside.
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }
+
+  /** The block box is a measured rectangle behind the text: full width,
+   *  covering the (hidden) fence lines too — the text layer itself never
+   *  changes, so the caret stays honest by construction. */
+  function measureBlocks() {
+    const m = mirrorRef.current;
+    if (!m) return;
+    const mr = m.getBoundingClientRect();
+    const segs = m.querySelectorAll<HTMLElement>(".cm-fseg");
+    m.querySelectorAll<HTMLElement>(".cm-fblock").forEach((box, i) => {
+      const seg = segs[i];
+      if (!seg) {
+        box.style.display = "none";
+        return;
+      }
+      const r = seg.getBoundingClientRect();
+      box.style.display = "block";
+      box.style.top = `${r.top - mr.top + m.scrollTop - 3}px`;
+      box.style.height = `${r.height + 6}px`;
+    });
   }
 
   /** "@quer" right before the caret means the autocomplete is active. */
@@ -512,13 +548,22 @@ export default function Composer({
 
   useEffect(autoGrow, [text]);
 
+  const blockCount = useMemo(
+    () => fenceSegments(text).filter((s) => s.fenced).length,
+    [text],
+  );
+  useLayoutEffect(measureBlocks, [text, blockCount]);
+
   // First paint happens before the panels settle their widths, so the
   // placeholder wraps and the measured height sticks too tall. Re-measure
   // whenever the box actually changes size (mount, sidebar/rail toggles).
   useEffect(() => {
     const el = areaRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(autoGrow);
+    const ro = new ResizeObserver(() => {
+      autoGrow();
+      measureBlocks();
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -585,13 +630,32 @@ export default function Composer({
           aria-hidden="true"
           ref={mirrorRef}
         >
-          {paint(text, caret).map((p, i) =>
-            p.cls ? (
-              <span key={i} className={p.cls}>
-                {p.text}
+          {Array.from({ length: blockCount }, (_, i) => (
+            <div key={`fb${i}`} className="cm-fblock" />
+          ))}
+          {groupBlocks(paint(text, caret)).map((g, i) =>
+            g.fid !== undefined ? (
+              <span key={i} className="cm-fseg" data-fid={g.fid}>
+                {g.parts.map((p, j) =>
+                  p.cls ? (
+                    <span key={j} className={p.cls}>
+                      {p.text}
+                    </span>
+                  ) : (
+                    p.text
+                  ),
+                )}
               </span>
             ) : (
-              p.text
+              g.parts.map((p, j) =>
+                p.cls ? (
+                  <span key={`${i}-${j}`} className={p.cls}>
+                    {p.text}
+                  </span>
+                ) : (
+                  p.text
+                ),
+              )
             ),
           )}
           {/* Trailing newline needs a glyph or the mirror ends short. */}
