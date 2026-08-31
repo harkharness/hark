@@ -29,6 +29,7 @@ pub mod speech_model;
 pub mod spend;
 pub mod task_command;
 pub mod transcript;
+pub mod usage;
 pub mod vad;
 pub mod verdict;
 pub mod vocab;

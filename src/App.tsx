@@ -1007,6 +1007,16 @@ export default function App({
         railHas("board") ? removeRail("board") : ensureRail("board");
         return;
       }
+      if (name === "usage") {
+        // Local /usage: ledger + statusline bridge, zero tokens — the
+        // card lands in the focused thread like the CLI draws its own.
+        const report = await ipc
+          .usageReport(focusedTask?.sessionId ?? undefined)
+          .catch(() => null);
+        if (report) push({ who: "usage", report, task: focused ? labelFor(focused) : focusedTask?.title });
+        else push({ who: "sys", text: "uso indisponível (ledger vazio?)" });
+        return;
+      }
       if (name === "rename" && args) {
         // Reuse the spoken path: "renomeia para X" renames the focused chat.
         text = `renomeia para ${args}`;
@@ -2120,6 +2130,18 @@ export default function App({
             workspace={forcedProject?.path}
             costs={costs}
             onClose={() => setScopeInfo(false)}
+            onDetail={() => {
+              void ipc
+                .usageReport(focusedTask?.sessionId ?? undefined)
+                .then((report) =>
+                  push({
+                    who: "usage",
+                    report,
+                    task: focused ? labelFor(focused) : focusedTask?.title,
+                  }),
+                )
+                .catch(() => {});
+            }}
           />
         )}
       </div>

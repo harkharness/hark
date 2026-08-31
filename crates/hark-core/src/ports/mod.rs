@@ -58,6 +58,12 @@ pub trait SpendLedger {
         since: &str,
         limit: usize,
     ) -> anyhow::Result<Vec<crate::domain::spend::SpendRow>>;
+    /// One session's LIVE rows, oldest first — the usage card's breakdown
+    /// (jsonl backfill duplicates live turns, so it stays out).
+    fn spend_rows_session(
+        &self,
+        session_id: &str,
+    ) -> anyhow::Result<Vec<crate::domain::spend::SpendRow>>;
 }
 
 /// Ledger aggregation request.

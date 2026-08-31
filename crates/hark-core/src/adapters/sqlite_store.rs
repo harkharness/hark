@@ -320,6 +320,51 @@ impl crate::ports::SpendLedger for SqliteStore {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
+
+    fn spend_rows_session(
+        &self,
+        session_id: &str,
+    ) -> anyhow::Result<Vec<crate::domain::spend::SpendRow>> {
+        use hark_agent::TokenUsage;
+        use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
+        let mut stmt = self.conn.prepare(
+            "SELECT ts, kind, source, task_id, label, session_id, workspace, model,
+                    input_tokens, output_tokens, cache_read_tokens, cache_created_tokens,
+                    cost_usd, duration_ms, is_error, is_sidechain, context_window,
+                    request_id, outcome
+             FROM spend WHERE session_id = ?1 AND source = 'live' ORDER BY ts",
+        )?;
+        let rows = stmt
+            .query_map(params![session_id], |r| {
+                Ok(SpendRow {
+                    ts: r.get(0)?,
+                    kind: SpendKind::parse(&r.get::<_, String>(1)?)
+                        .unwrap_or(SpendKind::Session),
+                    source: SpendSource::parse(&r.get::<_, String>(2)?)
+                        .unwrap_or(SpendSource::Jsonl),
+                    task_id: r.get(3)?,
+                    label: r.get(4)?,
+                    session_id: r.get(5)?,
+                    workspace: r.get(6)?,
+                    model: r.get(7)?,
+                    usage: TokenUsage {
+                        input: r.get::<_, i64>(8)? as u64,
+                        output: r.get::<_, i64>(9)? as u64,
+                        cache_read: r.get::<_, i64>(10)? as u64,
+                        cache_created: r.get::<_, i64>(11)? as u64,
+                    },
+                    cost_usd: r.get(12)?,
+                    duration_ms: r.get::<_, Option<i64>>(13)?.map(|v| v as u64),
+                    is_error: r.get::<_, i64>(14)? != 0,
+                    is_sidechain: r.get::<_, i64>(15)? != 0,
+                    context_window: r.get::<_, Option<i64>>(16)?.map(|v| v as u64),
+                    request_id: r.get(17)?,
+                    outcome: r.get(18)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
 }
 
 impl SessionStore for SqliteStore {
@@ -774,6 +819,48 @@ mod tests {
 
         let all = store.spend_rows("0", 100).unwrap();
         assert_eq!(all.len(), 2, "epoch-zero since exports everything");
+    }
+
+    #[test]
+    fn spend_rows_of_one_session_feed_the_usage_card() {
+        use hark_agent::TokenUsage;
+        use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
+        use crate::ports::SpendLedger;
+
+        let mut store = SqliteStore::in_memory().unwrap();
+        let row = |session: &str, source: SpendSource, ts: &str| SpendRow {
+            ts: ts.into(),
+            kind: SpendKind::Worker,
+            source,
+            task_id: None,
+            label: None,
+            session_id: Some(session.into()),
+            workspace: None,
+            model: "claude-fable-5".into(),
+            usage: TokenUsage { input: 5, output: 2, cache_read: 10, cache_created: 0 },
+            cost_usd: Some(0.01),
+            duration_ms: Some(300),
+            is_error: false,
+            is_sidechain: false,
+            context_window: None,
+            request_id: None,
+            outcome: None,
+        };
+        store
+            .record_spend(&[
+                row("s-alvo", SpendSource::Live, "2026-08-31T09:00:00Z"),
+                row("s-alvo", SpendSource::Live, "2026-08-31T10:00:00Z"),
+                // The jsonl backfill duplicates live turns: the card must
+                // count each turn once, so only live rows come back.
+                row("s-alvo", SpendSource::Jsonl, "2026-08-31T10:00:00Z"),
+                row("s-outra", SpendSource::Live, "2026-08-31T10:00:00Z"),
+            ])
+            .unwrap();
+
+        let rows = store.spend_rows_session("s-alvo").unwrap();
+        assert_eq!(rows.len(), 2, "one session, live rows only");
+        assert!(rows.iter().all(|r| r.session_id.as_deref() == Some("s-alvo")));
+        assert!(rows[0].ts <= rows[1].ts, "oldest first");
     }
 
     #[test]

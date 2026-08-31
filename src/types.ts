@@ -89,6 +89,7 @@ export type PermissionAsk = {
 
 export type Msg =
   | { who: "user"; text: string; images?: string[]; task?: string; ts?: number }
+  | { who: "usage"; report: UsageReport; task?: string; ts?: number }
   | {
       who: "hark";
       text: string;
@@ -298,6 +299,41 @@ export type LimitWindow = {
 };
 
 /** Last statusLine payload — the only source of subscription percentages. */
+/** One model's line in the /usage breakdown (domain::usage::ModelLine). */
+export type UsageModelLine = {
+  model: string;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_created: number;
+  cost_usd: number;
+  turns: number;
+};
+
+export type UsageAgg = {
+  key: string;
+  cost_usd: number;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_created: number;
+  turns: number;
+  errors: number;
+};
+
+/** The /usage card: session breakdown + machine 24h + subscription. */
+export type UsageReport = {
+  session: {
+    models: UsageModelLine[];
+    turns: number;
+    cost_usd: number;
+    duration_ms: number;
+    cache_hit: number | null;
+  } | null;
+  day: { total_usd: number; kinds: UsageAgg[]; top: UsageAgg[] };
+  limits: StatusLine | null;
+};
+
 export type StatusLine = {
   context_used: number | null;
   context_tokens: number | null;

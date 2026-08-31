@@ -164,6 +164,10 @@ export const transcriptSince = (sessionId: string, offset: number) =>
     { sessionId, offset },
   );
 
+/** The /usage card: session breakdown + machine 24h + limits. Local. */
+export const usageReport = (sessionId?: string) =>
+  invoke<import("../types").UsageReport>("usage_report", { sessionId: sessionId ?? null });
+
 /** Newest ask turns from the global journal — restores the mother thread. */
 export const journalRecent = (n?: number) =>
   invoke<import("../types").JournalTurn[]>("journal_recent", { n: n ?? null });

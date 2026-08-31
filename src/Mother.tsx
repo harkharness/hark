@@ -750,6 +750,14 @@ export default function Mother() {
         }
       }
     }
+    // Local /usage: the machine's 24h + the hark-chat session when live.
+    if (text.trim() === "/usage") {
+      const st = await ipc.harkChatStatus().catch(() => null);
+      const report = await ipc.usageReport(st?.session_id ?? undefined).catch(() => null);
+      if (report) push({ who: "usage", report });
+      else push({ who: "sys", text: "uso indisponível (ledger vazio?)" });
+      return;
+    }
     if (await runCommand(text)) return;
     // ACTION verbs never fall into the ask pipeline (the 19/08 incident:
     // "roda essa verificação de DNS" burned tokens on a refusal). Plan

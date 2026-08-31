@@ -31,6 +31,7 @@ const NATIVE_SLASH: SlashHit[] = [
   { name: "modo", desc: "modo de permissão: manual · edições · plano · auto · ignorar" },
   { name: "rename", desc: "renomeia o chat focado" },
   { name: "board", desc: "abre/fecha o quadro" },
+  { name: "usage", desc: "uso da sessão, últimas 24h e limites da assinatura" },
 ];
 
 /**

@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Check, Copy, Lock, RefreshCw, Square, Volume2 } from "lucide-react";
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput, toolHint, toolLabel } from "./ToolCall";
+import UsageCard from "./UsageCard";
 import { directiveLabels, shortModel } from "../lib/format";
 import type { Directives, Msg } from "../types";
 import { t } from "../lib/i18n";
@@ -214,6 +215,8 @@ export default function Transcript({
     <div key={i} className={`msg ${m.who}`}>
       {m.who === "sys" ? (
         <span>{m.text}</span>
+      ) : m.who === "usage" ? (
+        <UsageCard report={m.report} />
       ) : m.who === "compact" ? (
         // The CLI's compaction: pages of summary it wrote to itself. It
         // belongs to the record — you can read what it kept — but not to

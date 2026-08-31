@@ -36,6 +36,7 @@ export default function SessionInfo({
   workspace,
   costs,
   onClose,
+  onDetail,
 }: {
   taskTitle?: string;
   sessionId?: string;
@@ -44,6 +45,8 @@ export default function SessionInfo({
   workspace?: string;
   costs: Record<string, number>;
   onClose: () => void;
+  /** "Ver detalhamento" → the /usage card lands in the thread. */
+  onDetail?: () => void;
 }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [weight, setWeight] = useState<ContextWeight | null>(null);
@@ -183,6 +186,17 @@ export default function SessionInfo({
         </section>
       )}
 
+      {onDetail && (
+        <button
+          className="scope-detail"
+          onClick={() => {
+            onDetail();
+            onClose();
+          }}
+        >
+          {t("si_detail")} →
+        </button>
+      )}
       <p className="scope-foot">{t("si_foot")}</p>
     </div>
   );

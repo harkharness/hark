@@ -3554,6 +3554,65 @@ fn subscription_limits() -> Result<Option<hark_plugin_claude::statusline::Status
     ))
 }
 
+/// The /usage card, local and zero tokens: this session's per-model
+/// breakdown from the ledger, the machine's last 24h, and the
+/// subscription windows (when the bridge is installed). Every number is
+/// computed in domain::usage; this only fetches and assembles.
+#[tauri::command(async)]
+fn usage_report(session_id: Option<String>) -> Result<serde_json::Value, String> {
+    use hark_core::domain::usage;
+    use hark_core::ports::{SpendGroup, SpendLedger, SpendQuery};
+    let config = Config::load();
+    let store =
+        SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+
+    let session = session_id.and_then(|sid| {
+        let rows = store.spend_rows_session(&sid).ok()?;
+        if rows.is_empty() {
+            return None;
+        }
+        let models = usage::breakdown(&rows);
+        let cost: f64 = models.iter().map(|l| l.cost_usd).sum();
+        let duration_ms: u64 = rows.iter().filter_map(|r| r.duration_ms).sum();
+        Some(serde_json::json!({
+            "models": models,
+            "turns": rows.len(),
+            "cost_usd": cost,
+            "duration_ms": duration_ms,
+            "cache_hit": usage::cache_hit(&models),
+        }))
+    });
+
+    let day_iso = (Utc::now() - hark_core::chrono::Duration::hours(24)).to_rfc3339();
+    let day = |group: SpendGroup| -> Vec<SpendAggOut> {
+        store
+            .spend_summary(&SpendQuery {
+                since: Some(day_iso.clone()),
+                group,
+                source: hark_core::domain::spend::SpendSource::Live,
+                workspace: None,
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .map(SpendAggOut::from)
+            .collect()
+    };
+    let kinds = day(SpendGroup::Kind);
+    let mut labels = day(SpendGroup::Label);
+    labels.retain(|a| a.cost_usd > 0.0);
+    labels.truncate(5);
+
+    Ok(serde_json::json!({
+        "session": session,
+        "day": {
+            "total_usd": kinds.iter().map(|a| a.cost_usd).sum::<f64>(),
+            "kinds": kinds,
+            "top": labels,
+        },
+        "limits": hark_plugin_claude::bridge::read(&bridge_paths(&config), 600),
+    }))
+}
+
 #[tauri::command(async)]
 fn statusline_bridge_status(
 ) -> Result<hark_plugin_claude::bridge::BridgeStatus, String> {
@@ -3796,6 +3855,7 @@ pub fn run() {
             open_project_window,
             focus_main,
             subscription_limits,
+            usage_report,
             statusline_bridge_status,
             statusline_bridge_install,
             statusline_bridge_uninstall,
