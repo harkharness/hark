@@ -85,7 +85,7 @@ export function fenceParts(block: string): { text: string; marker: boolean }[] {
     parts.push({ text: open[0], marker: true });
     body = block.slice(open[0].length);
   }
-  const close = body.match(/(^|\n)```[^\n]*$/);
+  const close = body.match(/(^|\n)```[^\n]*\n?$/);
   if (close) {
     const at = close.index! + (close[1] ? 1 : 0);
     if (at > 0) parts.push({ text: body.slice(0, at), marker: false });
@@ -475,14 +475,18 @@ export default function Composer({
         >
           {fenceSegments(text).map((seg, i) =>
             seg.fenced ? (
-              <span key={i} className="cm-fence">
+              // The block background hugs the CODE lines only: an invisible
+              // marker line with a background is a stray blob on screen.
+              <span key={i}>
                 {fenceParts(seg.text).map((p, j) =>
                   p.marker ? (
                     <span key={j} className="cm-marker">
                       {p.text}
                     </span>
                   ) : (
-                    p.text
+                    <span key={j} className="cm-fence">
+                      {p.text}
+                    </span>
                   ),
                 )}
               </span>
