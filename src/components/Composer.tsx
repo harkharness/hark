@@ -121,6 +121,43 @@ function codeParts(run: string, base: "plain" | "quote"): InlinePart[] {
   return parts;
 }
 
+/** One painted span of the mirror: exact text, css class, absolute
+ *  offset. The offsets are what lets the caret line reveal its markers. */
+export type Painted = { text: string; cls: string };
+
+/** The whole draft as mirror spans, Obsidian-live-preview style: markers
+ *  paint invisible EXCEPT on the caret's line, where they reveal (dim) so
+ *  the structure is never navigated blind. Glyph-for-glyph identical. */
+export function paint(text: string, caret: number): Painted[] {
+  const lineStart = text.lastIndexOf("\n", Math.max(0, caret - 1)) + 1;
+  const lineEndRaw = text.indexOf("\n", caret);
+  const lineEnd = lineEndRaw === -1 ? text.length : lineEndRaw;
+  const out: Painted[] = [];
+  let at = 0;
+  const push = (part: string, cls: string) => {
+    const from = at;
+    at += part.length;
+    // A marker on the caret's line shows itself, dimmed, for editing.
+    if (cls.includes("cm-marker") || cls === "cm-qmark") {
+      const onCaretLine = from <= lineEnd && at > lineStart;
+      if (onCaretLine) cls = `${cls} cm-live`;
+    }
+    out.push({ text: part, cls });
+  };
+  for (const seg of fenceSegments(text)) {
+    if (seg.fenced) {
+      for (const p of fenceParts(seg.text)) {
+        push(p.text, p.marker ? "cm-marker" : "cm-fence");
+      }
+    } else {
+      for (const p of inlineParts(seg.text)) {
+        push(p.text, p.kind === "plain" ? "" : p.kind === "marker" ? "cm-marker" : `cm-${p.kind}`);
+      }
+    }
+  }
+  return out;
+}
+
 /** An unfenced run, line-aware: "> " at line start becomes a quote (the
  *  marker hidden, a bar painted in its place); `code` pairs become chips.
  *  Glyph-for-glyph identical to the input — only kinds are added. */
@@ -183,6 +220,8 @@ export default function Composer({
   autoFocus?: boolean;
 }) {
   const [text, setText] = useState("");
+  /** Caret offset — the mirror reveals markers on the caret's line. */
+  const [caret, setCaret] = useState(0);
   const [images, setImages] = useState<Attachment[]>([]);
   const [mention, setMention] = useState<Mention | null>(null);
   const [slash, setSlash] = useState<Slash | null>(null);
@@ -278,6 +317,7 @@ export default function Composer({
         const pos = mention.at + inserted.length + 2;
         el.focus();
         el.setSelectionRange(pos, pos);
+        setCaret(pos);
       }
     });
   }
@@ -287,6 +327,7 @@ export default function Composer({
     const t = text;
     const imgs = images;
     setText("");
+    setCaret(0);
     setImages([]);
     setMention(null);
     setSlash(null);
@@ -381,16 +422,17 @@ export default function Composer({
     // Enter just sent three backticks as a message.
     if (e.key === "Enter" || e.key === " ") {
       const el = areaRef.current;
-      const caret = el?.selectionStart ?? 0;
-      const before = text.slice(0, caret);
+      const pos = el?.selectionStart ?? 0;
+      const before = text.slice(0, pos);
       const fence = before.match(/(^|\n)```([a-zA-Z0-9+-]*)$/);
-      if (el && fence && caret === (el.selectionEnd ?? caret)) {
+      if (el && fence && pos === (el.selectionEnd ?? pos)) {
         e.preventDefault();
-        const after = text.slice(caret);
+        const after = text.slice(pos);
         const opened = `${before}\n`;
         setText(`${opened}\n\`\`\`${after}`);
         // Land between the fences on the next paint.
         const at = opened.length;
+        setCaret(at);
         requestAnimationFrame(() => {
           el.selectionStart = at;
           el.selectionEnd = at;
@@ -480,35 +522,13 @@ export default function Composer({
           aria-hidden="true"
           ref={mirrorRef}
         >
-          {fenceSegments(text).map((seg, i) =>
-            seg.fenced ? (
-              // The block background hugs the CODE lines only: an invisible
-              // marker line with a background is a stray blob on screen.
-              <span key={i}>
-                {fenceParts(seg.text).map((p, j) =>
-                  p.marker ? (
-                    <span key={j} className="cm-marker">
-                      {p.text}
-                    </span>
-                  ) : (
-                    <span key={j} className="cm-fence">
-                      {p.text}
-                    </span>
-                  ),
-                )}
+          {paint(text, caret).map((p, i) =>
+            p.cls ? (
+              <span key={i} className={p.cls}>
+                {p.text}
               </span>
             ) : (
-              <span key={i}>
-                {inlineParts(seg.text).map((p, j) =>
-                  p.kind === "plain" ? (
-                    p.text
-                  ) : (
-                    <span key={j} className={`cm-${p.kind}`}>
-                      {p.text}
-                    </span>
-                  ),
-                )}
-              </span>
+              p.text
             ),
           )}
           {/* Trailing newline needs a glyph or the mirror ends short. */}
@@ -523,9 +543,11 @@ export default function Composer({
           value={text}
           onChange={(e) => {
             setText(e.target.value);
+            setCaret(e.target.selectionStart ?? e.target.value.length);
             detectMention(e.target.value, e.target.selectionStart ?? e.target.value.length);
             detectSlash(e.target.value);
           }}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
           onScroll={(e) => {
             const m = mirrorRef.current;
             if (m) m.scrollTop = e.currentTarget.scrollTop;
