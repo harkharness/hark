@@ -199,8 +199,21 @@ body {
    animations (listening/speaking/busy) still take over below. */
 .mother-orb {
   position: relative; width: 150px; height: 150px; border-radius: 50%;
+  /* A flex column under height pressure squashes items along the main
+     axis: the circle became an ellipse on short windows. Never shrink —
+     the media steps below resize it INSTEAD, keeping it round. */
+  flex: none;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   background: radial-gradient(circle at 32% 28%, #171d29 0%, #0d1117 68%);
+}
+@media (max-height: 760px) {
+  .mother-orb { width: 118px; height: 118px; }
+  .mother-orb::before { inset: -32px; }
+}
+@media (max-height: 620px) {
+  .mother-orb { width: 92px; height: 92px; }
+  .mother-orb .orb { height: 34px; }
+  .mother-orb .orb-bar { width: 4px; }
 }
 .mother-orb::before {
   content: ""; position: absolute; inset: -46px; border-radius: 50%;
