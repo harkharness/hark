@@ -126,6 +126,10 @@ fn work_at_session(hit: &SessionLead, instruction: String, confidence: &'static 
     }
 }
 
+/// A targeting phrase ("continua a migração do webhook") is short; past
+/// this many words the utterance is conversation, not an address.
+const TARGETING_MAX_WORDS: usize = 18;
+
 /// The funnel: address → question → active chat → search.
 pub fn plan(text: &str, world: &World) -> Plan {
     // 1. Explicit address: "na task X…", "no projeto Y…". Board first
@@ -186,7 +190,13 @@ pub fn plan(text: &str, world: &World) -> Plan {
         };
     }
 
-    // 4. …else to the best session match, spoken-yes required.
+    // 4. …else to the best session match, spoken-yes required. Only a
+    //    SHORT phrase goes target-hunting: a pasted paragraph is
+    //    conversation, and searching the index with one self-references
+    //    (it matches Hark's own quoted answers — incident 30/08).
+    if text.split_whitespace().count() > TARGETING_MAX_WORDS {
+        return Plan::NoTarget { instruction: text.to_string() };
+    }
     match rank_sessions(text, (world.search)(text)) {
         Match::Hit(hit) => work_at_session(&hit, text.to_string(), "low"),
         Match::Ambiguous(hits) => Plan::Candidates {
@@ -244,6 +254,67 @@ mod tests {
                 assert_eq!(instruction, "roda os testes");
             }
             other => panic!("expected work at the addressed task, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_pasted_paragraph_is_conversation_not_target_hunting() {
+        // 30/08: a long typed reply (quoting Hark's own earlier answer)
+        // fell into the search step and offered Hark's OWN ask sessions as
+        // destinations. A targeting phrase is short; a paragraph is
+        // conversation — the search must not even run.
+        let calls = std::cell::Cell::new(0u32);
+        let search = |_: &str| {
+            calls.set(calls.get() + 1);
+            vec![SessionLead {
+                session_id: "s-junk".into(),
+                title: "## Conversa recente".into(),
+                cwd: Some("/home/dev/.hark".into()),
+                last_ts: None,
+                last_prompt: None,
+            }]
+        };
+        let world = World {
+            active: None,
+            active_project: None,
+            board: &[],
+            projects: &[],
+            search: &search,
+        };
+        let text = "esses dois casos entraram como on-call, já tem chat sim para elas, \
+são meio que subtasks da semana concluídas, apesar que não foram concluídas e sim \
+encaminhadas, criar as duas tarefas sem chat nem card e fechar as três que já terminaram";
+        match plan(text, &world) {
+            Plan::NoTarget { .. } => {}
+            other => panic!("expected NoTarget for a paragraph, got {other:?}"),
+        }
+        assert_eq!(calls.get(), 0, "the index search must not run on a paragraph");
+    }
+
+    #[test]
+    fn a_short_work_phrase_still_searches_the_index() {
+        let search = |_: &str| {
+            vec![SessionLead {
+                session_id: "s-web".into(),
+                title: "Webhook migration".into(),
+                cwd: Some("/home/dev/web".into()),
+                last_ts: None,
+                last_prompt: None,
+            }]
+        };
+        let world = World {
+            active: None,
+            active_project: None,
+            board: &[],
+            projects: &[],
+            search: &search,
+        };
+        match plan("continua a migração do webhook", &world) {
+            Plan::Work { session_id, confidence, .. } => {
+                assert_eq!(session_id.as_deref(), Some("s-web"));
+                assert_eq!(confidence, "low");
+            }
+            other => panic!("expected search-resolved work, got {other:?}"),
         }
     }
 

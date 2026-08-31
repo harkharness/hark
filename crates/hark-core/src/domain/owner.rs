@@ -43,9 +43,32 @@ pub fn owner_of<'a>(owners: &'a [Owner], session_id: &str) -> Option<&'a Owner> 
     owners.iter().find(|o| o.session_id == session_id)
 }
 
+/// Hark's own machinery sessions (ask one-shots, the hark-chat worker) run
+/// with cwd inside the data dir. They are real transcripts, but never
+/// catalog material: offering them as targets self-references — the user
+/// quotes Hark's answer and the search finds the session that SAID it.
+pub fn is_machinery_cwd(cwd: Option<&str>, data_dir: &str) -> bool {
+    let Some(cwd) = cwd else { return false };
+    cwd == data_dir || cwd.starts_with(&format!("{}/", data_dir.trim_end_matches('/')))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn harks_own_machinery_sessions_are_never_catalog_material() {
+        // Ask one-shots run with cwd = the data dir (~/.hark); their
+        // transcripts quote Hark's own answers, so any topic search that
+        // includes them self-references (incident 30/08: three ".hark"
+        // sessions offered as dispatch destinations).
+        let data = "/Users/dev/.hark";
+        assert!(is_machinery_cwd(Some("/Users/dev/.hark"), data));
+        assert!(is_machinery_cwd(Some("/Users/dev/.hark/sub"), data));
+        assert!(!is_machinery_cwd(Some("/Users/dev/Projects/web"), data));
+        assert!(!is_machinery_cwd(Some("/Users/dev/.harkness"), data));
+        assert!(!is_machinery_cwd(None, data));
+    }
 
     fn live(name: &str, id: Option<&str>, kind: Option<&str>) -> LiveSession {
         LiveSession {

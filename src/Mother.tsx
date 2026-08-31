@@ -1092,7 +1092,9 @@ export default function Mother() {
   const picksBlock = picks && (
     <div className="mother-picks">
       <div className="mother-picks-head">
-        {t("picks_about", { q: picks.query })}
+        {t("picks_about", {
+          q: picks.query.length > 80 ? `${picks.query.slice(0, 80)}…` : picks.query,
+        })}
         <button onClick={() => setPicks(null)}>{t("m_close")}</button>
       </div>
       {picks.candidates.map((c) => (

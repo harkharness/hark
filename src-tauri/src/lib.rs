@@ -2554,7 +2554,12 @@ fn find_session(query: String) -> Result<Option<serde_json::Value>, String> {
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
     let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, &mut store);
     let terms = hark_core::domain::dispatch::significant_terms(&query);
-    let hits = store.search_sessions(&terms, 1).map_err(|e| e.to_string())?;
+    let hits = store.search_sessions(&terms, 4).map_err(|e| e.to_string())?;
+    let data_dir = config.data_dir().display().to_string();
+    let hits: Vec<_> = hits
+        .into_iter()
+        .filter(|s| !hark_core::domain::owner::is_machinery_cwd(s.cwd.as_deref(), &data_dir))
+        .collect();
     Ok(hits.first().map(|s| {
         // cwd travels too: it is how a board task with no workspace still
         // resolves to a project window.
@@ -2607,11 +2612,17 @@ fn session_hits(query: &str, limit: usize) -> Result<Vec<SessionHit>, String> {
     // offset), so this is milliseconds when nothing changed.
     let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, &mut store);
     let terms = hark_core::domain::dispatch::significant_terms(query);
+    // Overfetch: Hark's own machinery sessions (cwd inside ~/.hark — ask
+    // one-shots, the hark-chat worker) are filtered out below, and they
+    // match aggressively whenever the query quotes a Hark answer.
     let hits = store
-        .search_sessions(&terms, limit)
+        .search_sessions(&terms, limit * 2)
         .map_err(|e| e.to_string())?;
+    let data_dir = config.data_dir().display().to_string();
     Ok(hits
         .into_iter()
+        .filter(|s| !hark_core::domain::owner::is_machinery_cwd(s.cwd.as_deref(), &data_dir))
+        .take(limit)
         .map(|s| SessionHit {
             title: session_label(&s),
             session_id: s.session_id,
