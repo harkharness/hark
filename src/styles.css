@@ -1089,6 +1089,12 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0;
   flex: 0 0 42%; max-width: 42%;
 }
+/* Drag the tools column like a project rail: a slim grab strip. */
+.split-resizer {
+  flex: 0 0 5px; cursor: col-resize; border-radius: 3px; margin: 12px 0;
+  background: transparent;
+}
+.split-resizer:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 /* The root class is .frame — the old .panelframe selector matched NOTHING,
    the column never got a height, and xterm fit() saw 0 rows: the "blank
    terminal that still executes" bug (26/08). */

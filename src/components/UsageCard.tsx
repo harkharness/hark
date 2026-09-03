@@ -150,7 +150,7 @@ export default function UsageCard({ report }: { report: UsageReport }) {
           {s.context.pct != null && (
             <Gauge
               name={t("u_ctx")}
-              used={s.context.pct * 100}
+              used={s.context.pct}
               caption={`${fmtTok(s.context.total)}${s.context.window ? ` / ${fmtTok(s.context.window)}` : ""}`}
             />
           )}

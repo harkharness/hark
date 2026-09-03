@@ -1021,8 +1021,33 @@ export default function Mother() {
     </div>
   );
   const assistantName = overview?.assistant_name || "Hark";
-  /** The /usage card in the mother's thread: machine 24h + hark-chat. */
+  /** Tools column width (px) — draggable like the project rails. */
+  const [toolsW, setToolsW] = useState<number | null>(null);
+  const toolsRef = useRef<HTMLDivElement | null>(null);
+  function startToolsResize(e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = toolsRef.current?.getBoundingClientRect().width ?? 420;
+    const onMove = (ev: MouseEvent) => {
+      const w = Math.min(
+        Math.max(startW + (startX - ev.clientX), 280),
+        Math.round(window.innerWidth * 0.7),
+      );
+      setToolsW(w);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
+  /** The /usage card in the mother's thread: machine 24h + hark-chat.
+   *  The card lives in the FULL thread — expand first, or it lands in a
+   *  digest that cannot draw it. */
   async function pushUsage() {
+    setChatExpanded(true);
     const st = await ipc.harkChatStatus().catch(() => null);
     if (st?.session_id) setChatSession(st.session_id);
     const report = await ipc.usageReport(st?.session_id ?? undefined).catch(() => null);
@@ -1061,9 +1086,14 @@ export default function Mother() {
         )}
       </div>
       <button
-        className={`scope ${termOpen ? "on" : ""}`}
+        className={`scope ${termOpen && chatExpanded ? "on" : ""}`}
         title={t("mo_term")}
-        onClick={() => (termOpen ? setTermOpen(false) : motherTerminal())}
+        // From the collapsed view this always OPENS (expand + terminal):
+        // a stale termOpen=true used to make the click close an invisible
+        // panel — the user saw nothing happen.
+        onClick={() =>
+          termOpen && chatExpanded ? setTermOpen(false) : motherTerminal()
+        }
       >
         <SquareTerminal size={13} />
       </button>
@@ -1325,7 +1355,15 @@ export default function Mother() {
             />
           </div>
           {(termOpen || filesOpen) && (
-            <div className="split-tools">
+            <>
+              <div className="split-resizer" onMouseDown={startToolsResize} />
+              <div
+                className="split-tools"
+                ref={toolsRef}
+                style={
+                  toolsW ? { flex: `0 0 ${toolsW}px`, maxWidth: `${toolsW}px` } : undefined
+                }
+              >
               {termOpen && (
                 <PanelFrame
                   title=""
@@ -1393,7 +1431,8 @@ export default function Mother() {
                   />
                 </PanelFrame>
               )}
-            </div>
+              </div>
+            </>
           )}
         </div>
       ) : (
