@@ -3563,12 +3563,22 @@ fn usage_report(session_id: Option<String>) -> Result<serde_json::Value, String>
     use hark_core::domain::usage;
     use hark_core::ports::{SpendGroup, SpendLedger, SpendQuery};
     let config = Config::load();
-    let store =
+    let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    // The machine table reads jsonl-backfilled rows: bring them current
+    // first (incremental by byte offset — milliseconds when quiet).
+    let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, &mut store);
 
     let session = session_id.and_then(|sid| {
         let rows = store.spend_rows_session(&sid).ok()?;
-        if rows.is_empty() {
+        // The context gauge answers "how full is THIS chat" even before
+        // any live turn was ledgered (history-only sessions).
+        let weight = store.last_context_weight(&sid).ok().flatten().unwrap_or_default();
+        let pct = weight
+            .context_window
+            .filter(|c| *c > 0)
+            .map(|c| (weight.total as f64 / c as f64).min(1.0));
+        if rows.is_empty() && weight.total == 0 {
             return None;
         }
         let models = usage::breakdown(&rows);
@@ -3580,6 +3590,11 @@ fn usage_report(session_id: Option<String>) -> Result<serde_json::Value, String>
             "cost_usd": cost,
             "duration_ms": duration_ms,
             "cache_hit": usage::cache_hit(&models),
+            "context": {
+                "total": weight.total,
+                "window": weight.context_window,
+                "pct": pct,
+            },
         }))
     });
 
@@ -3601,13 +3616,57 @@ fn usage_report(session_id: Option<String>) -> Result<serde_json::Value, String>
     let mut labels = day(SpendGroup::Label);
     labels.retain(|a| a.cost_usd > 0.0);
     labels.truncate(5);
+    let week_iso = (Utc::now() - hark_core::chrono::Duration::days(7)).to_rfc3339();
+    let week_usd: f64 = store
+        .spend_summary(&SpendQuery {
+            since: Some(week_iso),
+            group: SpendGroup::Kind,
+            source: hark_core::domain::spend::SpendSource::Live,
+            workspace: None,
+        })
+        .unwrap_or_default()
+        .iter()
+        .map(|a| a.cost_usd)
+        .sum();
+
+    // The whole MACHINE, exact: the jsonl index covers every agent session
+    // on this box (terminal Claude Code included), tokens per model — the
+    // official panel only approximates this.
+    let machine_rows: Vec<_> = store
+        .spend_rows(&day_iso, 20_000)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|r| r.source == hark_core::domain::spend::SpendSource::Jsonl)
+        .collect();
+    let machine_models = usage::breakdown(&machine_rows);
+    let mut machine_ws = store
+        .spend_summary(&SpendQuery {
+            since: Some(day_iso.clone()),
+            group: SpendGroup::Workspace,
+            source: hark_core::domain::spend::SpendSource::Jsonl,
+            workspace: None,
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .map(SpendAggOut::from)
+        .collect::<Vec<_>>();
+    machine_ws.sort_by(|a, b| {
+        (b.input + b.output + b.cache_read).cmp(&(a.input + a.output + a.cache_read))
+    });
+    machine_ws.truncate(5);
 
     Ok(serde_json::json!({
         "session": session,
         "day": {
             "total_usd": kinds.iter().map(|a| a.cost_usd).sum::<f64>(),
+            "week_usd": week_usd,
             "kinds": kinds,
             "top": labels,
+        },
+        "machine": {
+            "models": machine_models,
+            "turns": machine_rows.len(),
+            "workspaces": machine_ws,
         },
         "limits": hark_plugin_claude::bridge::read(&bridge_paths(&config), 600),
     }))

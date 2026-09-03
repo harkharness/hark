@@ -329,8 +329,11 @@ export type UsageReport = {
     cost_usd: number;
     duration_ms: number;
     cache_hit: number | null;
+    context: { total: number; window: number | null; pct: number | null };
   } | null;
-  day: { total_usd: number; kinds: UsageAgg[]; top: UsageAgg[] };
+  day: { total_usd: number; week_usd: number; kinds: UsageAgg[]; top: UsageAgg[] };
+  /** Every agent session on this box, from the jsonl index — exact tokens. */
+  machine: { models: UsageModelLine[]; turns: number; workspaces: UsageAgg[] };
   limits: StatusLine | null;
 };
 

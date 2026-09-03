@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, Lock, Maximize2, Mic, Minimize2, SquareChevronRight } from "lucide-react";
+import { ExternalLink, Lock, Maximize2, Mic, Minimize2, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import Board from "./components/Board";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import CostsPanel from "./components/CostsPanel";
@@ -10,6 +10,7 @@ import FilesEditor, { FileTabs } from "./components/FilesEditor";
 import ShellTerminal, { disposeShell } from "./components/ShellTerminal";
 import { TerminalTabs } from "./components/TerminalPane";
 import PanelFrame from "./components/PanelFrame";
+import SessionInfo from "./components/SessionInfo";
 import type { OpenFile } from "./types";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { Settings as SettingsIcon } from "lucide-react";
@@ -134,7 +135,13 @@ export default function Mother() {
   const [chatCost, setChatCost] = useState(0);
   const [chatCtx, setChatCtx] = useState<number | null>(null);
   const [chatLive, setChatLive] = useState(false);
+  /** Voice on/off, visible and standardized with the project windows. */
+  const [speak, setSpeak] = useState(true);
   const speakRef = useRef(true);
+  speakRef.current = speak;
+  /** Costs popover (the project window's wallet, machine-scoped here). */
+  const [scopeInfo, setScopeInfo] = useState(false);
+  const [chatSession, setChatSession] = useState<string | null>(null);
   // The global hotkey/Esc handlers must see fresh state.
   const micRef = useRef<() => void>(() => {});
   const recordingRef = useRef(false);
@@ -292,6 +299,7 @@ export default function Mother() {
       }
       if (st?.session_id) {
         setChatLive(true);
+        setChatSession(st.session_id);
         const tr = await ipc.readTranscript(st.session_id, 30).catch(() => null);
         for (const e of tr?.entries ?? []) {
           if (e.role !== "user" && e.role !== "assistant") continue;
@@ -752,10 +760,7 @@ export default function Mother() {
     }
     // Local /usage: the machine's 24h + the hark-chat session when live.
     if (text.trim() === "/usage") {
-      const st = await ipc.harkChatStatus().catch(() => null);
-      const report = await ipc.usageReport(st?.session_id ?? undefined).catch(() => null);
-      if (report) push({ who: "usage", report });
-      else push({ who: "sys", text: "uso indisponível (ledger vazio?)" });
+      await pushUsage();
       return;
     }
     if (await runCommand(text)) return;
@@ -1016,6 +1021,62 @@ export default function Mother() {
     </div>
   );
   const assistantName = overview?.assistant_name || "Hark";
+  /** The /usage card in the mother's thread: machine 24h + hark-chat. */
+  async function pushUsage() {
+    const st = await ipc.harkChatStatus().catch(() => null);
+    if (st?.session_id) setChatSession(st.session_id);
+    const report = await ipc.usageReport(st?.session_id ?? undefined).catch(() => null);
+    if (report) push({ who: "usage", report });
+    else push({ who: "sys", text: "uso indisponível (ledger vazio?)" });
+  }
+
+  /** The SAME control row as the project chats: costs, terminal, voice —
+   *  the mother is a first-class chat, not a diet one. */
+  const motherTrailing = (
+    <>
+      {rateLimit && rateLimit.status !== "allowed" && (
+        <span
+          className={`scope ratelimit ${rateLimit.status}`}
+          title={`janela ${rateLimit.limit_kind ?? "?"} · status ${rateLimit.status}`}
+        >
+          ⏳ {rateLimit.status === "allowed_warning" ? "quase no limite" : "limite atingido"}
+        </span>
+      )}
+      <div className="scope-anchor">
+        <button
+          className={`scope ${scopeInfo ? "on" : ""}`}
+          title={t("costs_btn")}
+          onClick={() => setScopeInfo((s) => !s)}
+        >
+          <Wallet size={13} />
+        </button>
+        {scopeInfo && (
+          <SessionInfo
+            taskTitle={t("mo_chat_scope")}
+            sessionId={chatSession ?? undefined}
+            costs={{ [HARK_CHAT]: chatCost }}
+            onClose={() => setScopeInfo(false)}
+            onDetail={() => void pushUsage()}
+          />
+        )}
+      </div>
+      <button
+        className={`scope ${termOpen ? "on" : ""}`}
+        title={t("mo_term")}
+        onClick={() => (termOpen ? setTermOpen(false) : motherTerminal())}
+      >
+        <SquareTerminal size={13} />
+      </button>
+      <button
+        className={`scope ${speak ? "on" : ""}`}
+        title={speak ? "voz ligada (Esc corta a fala)" : "voz desligada"}
+        onClick={() => setSpeak((s) => !s)}
+      >
+        {speak ? <Volume2 size={13} /> : <VolumeX size={13} />}
+      </button>
+    </>
+  );
+
   const chatHead = (expanded: boolean) => (
     <div className={expanded ? "chat-head" : "hark-chat-head"}>
       <span className="hark-chat-title">{assistantName}</span>
@@ -1024,16 +1085,6 @@ export default function Mother() {
         {chatCost > 0 && ` · $${chatCost.toFixed(2)} ${t("proj_today")}`}
         {chatCtx != null && ` · ${t("chat_ctx", { n: Math.round(chatCtx * 100) })}`}
       </span>
-      {expanded && (
-        <button
-          className={termOpen ? "on" : ""}
-          title={t("mo_term")}
-          onClick={() => (termOpen ? setTermOpen(false) : motherTerminal())}
-        >
-          <SquareChevronRight size={11} />
-          {t("mo_term")}
-        </button>
-      )}
       <button onClick={() => setChatExpanded(!expanded)}>
         {expanded ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
         {expanded ? t("chat_collapse") : t("chat_expand")}
@@ -1270,6 +1321,7 @@ export default function Mother() {
               onSubmit={(text, imgs) => void submit(text, imgs)}
               onMic={onMic}
               onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
+              trailing={motherTrailing}
             />
           </div>
           {(termOpen || filesOpen) && (
@@ -1398,6 +1450,7 @@ export default function Mother() {
               onSubmit={(text, imgs) => void submit(text, imgs)}
               onMic={onMic}
               onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
+              trailing={motherTrailing}
             />
           </div>
 
