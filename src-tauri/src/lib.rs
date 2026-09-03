@@ -19,9 +19,10 @@ use hark_core::app::dispatch::{plan, Plan};
 use hark_core::chrono::{SecondsFormat, Utc};
 use hark_core::config::Config;
 use hark_core::domain::reply::VoiceReply;
-use hark_plugin_claude::stream::{ClaudeEvent, PermissionDecision};
+use hark_agent::{AgentEvent as ClaudeEvent, PermissionDecision};
 use hark_core::domain::memory::{WorkerRecord, WorkerStatus};
-use hark_core::ports::{AgentRunner, AudioIn, Tts};
+use hark_core::ports::{AgentBackend, AgentRunner, AgentSession, AudioIn, SessionSpec, Tts};
+use hark_plugin_claude::backend::ClaudeBackend;
 
 /// Permission requests waiting for a click, keyed by request_id.
 struct Pending(Mutex<HashMap<String, mpsc::Sender<PermissionDecision>>>);
@@ -31,10 +32,25 @@ struct Pending(Mutex<HashMap<String, mpsc::Sender<PermissionDecision>>>);
 #[derive(Default)]
 pub(crate) struct PermLog(pub(crate) Mutex<Vec<(String, String, String)>>);
 
-/// A live worker plus everything needed to restart it on the same session.
+/// The active backend for one agent id. v1: always the native claude
+/// plugin — F9.1 turns this into the registry lookup.
+fn backend_for(config: &Config) -> std::sync::Arc<dyn AgentBackend> {
+    std::sync::Arc::new(ClaudeBackend {
+        bin: config.claude_bin_resolved(),
+        work_dir: config.data_dir(),
+    })
+}
+
+/// Restart identity: each spawned session gets a generation number; a
+/// reader thread only reports the exit of ITS generation (a pid can be
+/// reused, and not every backend has one).
+static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// A live session plus everything needed to restart it on the same task.
 struct WorkerHandle {
-    worker: std::sync::Arc<hark_plugin_claude::worker::PersistentWorker>,
-    spawn: hark_plugin_claude::worker::WorkerSpawn,
+    session: std::sync::Arc<dyn AgentSession>,
+    spec: SessionSpec,
+    generation: u64,
 }
 
 /// Conversational workers still alive, keyed by task_id.
@@ -833,9 +849,9 @@ fn start_worker(
     app: &AppHandle,
     live: &State<'_, LiveWorkers>,
     task_id: &str,
-    spawn: hark_plugin_claude::worker::WorkerSpawn,
+    spec: SessionSpec,
 ) -> anyhow::Result<()> {
-    start_worker_titled(app, live, task_id, spawn, None)
+    start_worker_titled(app, live, task_id, spec, None)
 }
 
 /// Same, with an explicit human title — the light restart opens a FRESH
@@ -845,25 +861,23 @@ fn start_worker_titled(
     app: &AppHandle,
     live: &State<'_, LiveWorkers>,
     task_id: &str,
-    spawn: hark_plugin_claude::worker::WorkerSpawn,
+    spec: SessionSpec,
     title: Option<String>,
 ) -> anyhow::Result<()> {
-    let (worker, stdout) = hark_plugin_claude::worker::PersistentWorker::spawn(&spawn)?;
-    let pid = worker.pid;
+    let backend = backend_for(&Config::load());
+    let (session, rx) = backend.spawn(&spec)?;
+    let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     live.0.lock().unwrap().insert(
         task_id.to_string(),
-        std::sync::Arc::new(WorkerHandle {
-            worker: std::sync::Arc::new(worker),
-            spawn: spawn.clone(),
-        }),
+        std::sync::Arc::new(WorkerHandle { session, spec: spec.clone(), generation }),
     );
 
-    // Reader loop: parse every stdout line, stream rich events to the UI,
-    // route permission requests, keep going across turns until EOF.
+    // Reader loop: consume the backend's event stream, forward rich events
+    // to the UI, route permission requests, keep going until it closes.
     let app2 = app.clone();
     let task2 = task_id.to_string();
-    let workspace = spawn.cwd.clone();
-    let is_new_session = spawn.session_id.is_empty();
+    let workspace = spec.cwd.clone();
+    let is_new_session = spec.session_id.is_empty();
     // The human name of this work: the session's title for resumes, the
     // instruction for brand-new sessions. Travels inside events so any
     // window (the mother above all) can speak about it by name.
@@ -873,18 +887,18 @@ fn start_worker_titled(
     } else {
         title.unwrap_or_else(|| {
             worker_board_title(
-                (!spawn.session_id.is_empty()).then_some(spawn.session_id.as_str()),
-                &spawn.instruction,
+                (!spec.session_id.is_empty()).then_some(spec.session_id.as_str()),
+                &spec.instruction,
             )
         })
     };
-    let mut current_session = spawn.session_id.clone();
+    let mut current_session = spec.session_id.clone();
     // Last phase reported to the window. The CLI streams its status many
     // times a second; only the transitions are worth an event.
     let mut last_phase: Option<hark_agent::AgentPhase> = None;
     // Which eco tools this spawn runs with — every turn's ledger row
     // carries it, so the costs panel can compare real per-tool averages.
-    let eco_outcome = eco_fingerprint(&spawn.envs);
+    let eco_outcome = eco_fingerprint(&spec.envs);
     // The opening instruction IS a turn in flight (batching bookkeeping).
     app.state::<BatchState>()
         .0
@@ -894,10 +908,9 @@ fn start_worker_titled(
         .or_default()
         .in_flight = true;
     std::thread::spawn(move || {
-        use std::io::{BufRead, BufReader};
         let config = Config::load();
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            match hark_plugin_claude::stream::parse(&line) {
+        for event in rx.iter() {
+            match event {
                 ClaudeEvent::SessionStarted { session_id, slash_commands } => {
                     current_session = session_id.clone();
                     // The init event names the session's slash commands:
@@ -1109,7 +1122,7 @@ fn start_worker_titled(
                     if let Some(joined) = queued {
                         let handle = app2.state::<LiveWorkers>().0.lock().unwrap().get(&task2).cloned();
                         if let Some(h) = handle {
-                            let _ = h.worker.send_text(&joined, &[]);
+                            let _ = h.session.send_text(&joined, &[]);
                             emit_event(
                                 &app2,
                                 serde_json::json!({ "kind": "status",
@@ -1140,15 +1153,16 @@ fn start_worker_titled(
                 _ => {}
             }
         }
-        // Only report the exit if nobody restarted this task meanwhile.
+        // Only report the exit if nobody restarted this task meanwhile:
+        // each spawn stamps a generation; this thread reports only its own.
         let handle = app2.state::<LiveWorkers>().0.lock().unwrap().get(&task2).cloned();
-        let restarted = handle.as_ref().is_some_and(|h| h.worker.pid != pid);
+        let restarted = handle.as_ref().is_some_and(|h| h.generation != generation);
         if !restarted {
             // Why it died travels with the event: exit code + the CLI's
             // final words on stderr. "encerrado" alone was unactionable.
             let (exit_code, stderr_tail) = handle
                 .as_ref()
-                .map(|h| h.worker.exit_report())
+                .map(|h| h.session.exit_report())
                 .unwrap_or((None, String::new()));
             let reason: String = stderr_tail.chars().rev().take(300).collect::<Vec<_>>()
                 .into_iter().rev().collect();
@@ -1318,13 +1332,13 @@ fn worker_send(
                 serde_json::json!({ "kind": "status",
                     "text": format!("turno em andamento — mensagem na fila ({n} pendente(s))") }),
             );
-            return Ok(handle.spawn.directives.clone());
+            return Ok(handle.spec.directives.clone());
         }
         entry.in_flight = true;
     }
 
     let asked = hark_core::domain::directives::parse(&text);
-    let mut next = handle.spawn.directives.clone();
+    let mut next = handle.spec.directives.clone();
     if asked.mode.is_some() {
         next.mode = asked.mode;
     }
@@ -1335,9 +1349,9 @@ fn worker_send(
         next.model = asked.model.clone();
     }
 
-    if next == handle.spawn.directives {
+    if next == handle.spec.directives {
         handle
-            .worker
+            .session
             .send_text(&text, &images.unwrap_or_default())
             .map_err(|e| e.to_string())?;
         return Ok(next);
@@ -1349,14 +1363,14 @@ fn worker_send(
         serde_json::json!({ "kind": "status",
             "text": format!("reabrindo a thread com {}", describe(&next)) }),
     );
-    handle.worker.shutdown();
-    // Limits carry over from the original spawn (`..clone()`).
-    let spawn = hark_plugin_claude::worker::WorkerSpawn {
+    handle.session.shutdown();
+    // Limits carry over from the original spec (`..clone()`).
+    let spec = SessionSpec {
         instruction: text,
         directives: next.clone(),
-        ..handle.spawn.clone()
+        ..handle.spec.clone()
     };
-    start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
+    start_worker(&app, &live, &task_id, spec).map_err(|e| e.to_string())?;
     Ok(next)
 }
 
@@ -1405,9 +1419,9 @@ fn fresh_spawn(
     session_id: String,
     instruction: String,
     directives: hark_core::domain::directives::Directives,
-) -> hark_plugin_claude::worker::WorkerSpawn {
-    hark_plugin_claude::worker::WorkerSpawn {
-        claude_bin: config.claude_bin_resolved(),
+) -> SessionSpec {
+    SessionSpec {
+        agent: "claude".into(),
         // The project's own ceiling when configured — the cap follows the
         // workspace the worker actually runs in (FASE 8.6).
         limits: config.spawn_limits_for(&cwd),
@@ -1852,7 +1866,7 @@ fn worker_restart_light(
         .find(|w| w.task_id == task_id)
         .map(|w| w.session_id.clone())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| handle.spawn.session_id.clone());
+        .unwrap_or_else(|| handle.spec.session_id.clone());
     let brief = {
         use hark_core::ports::SessionStore;
         let store =
@@ -1866,21 +1880,21 @@ fn worker_restart_light(
         let entries = hark_core::domain::transcript::tail_entries(text.lines(), 400);
         hark_core::domain::transcript::brief(&entries, 1500)
     };
-    let title = worker_board_title(Some(&session), &handle.spawn.instruction);
+    let title = worker_board_title(Some(&session), &handle.spec.instruction);
     emit_event(
         &app,
         serde_json::json!({ "kind": "status",
             "text": format!("recomeçando \"{title}\" leve: sessão nova com resumo local") }),
     );
-    handle.worker.shutdown();
-    let spawn = hark_plugin_claude::worker::WorkerSpawn {
+    handle.session.shutdown();
+    let spec = SessionSpec {
         session_id: String::new(),
         instruction: format!(
             "Contexto local da conversa anterior (resumo gerado sem custo):\n{brief}\n\nContinue o trabalho de onde paramos."
         ),
-        ..handle.spawn.clone()
+        ..handle.spec.clone()
     };
-    start_worker_titled(&app, &live, &task_id, spawn, Some(title)).map_err(|e| e.to_string())
+    start_worker_titled(&app, &live, &task_id, spec, Some(title)).map_err(|e| e.to_string())
 }
 
 fn describe(d: &hark_core::domain::directives::Directives) -> String {
@@ -1925,7 +1939,7 @@ fn worker_set_mode(
         .get(&task_id)
         .cloned()
         .ok_or("worker não está mais ativo")?;
-    let mut next = handle.spawn.directives.clone();
+    let mut next = handle.spec.directives.clone();
     if next.mode == Some(mode) {
         return Ok(SetModeOut { directives: next, restarted: false });
     }
@@ -1960,12 +1974,12 @@ fn worker_set_mode(
         serde_json::json!({ "kind": "status",
             "text": format!("reabrindo a thread com {}", describe(&next)) }),
     );
-    handle.worker.shutdown();
-    let spawn = hark_plugin_claude::worker::WorkerSpawn {
+    handle.session.shutdown();
+    let spec = SessionSpec {
         directives: next.clone(),
-        ..handle.spawn.clone()
+        ..handle.spec.clone()
     };
-    start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
+    start_worker(&app, &live, &task_id, spec).map_err(|e| e.to_string())?;
     Ok(SetModeOut { directives: next, restarted: true })
 }
 
@@ -1973,7 +1987,7 @@ fn worker_set_mode(
 #[tauri::command]
 fn worker_stop(live: State<'_, LiveWorkers>, task_id: String) -> Result<(), String> {
     let worker = live.0.lock().unwrap().remove(&task_id).ok_or("worker não encontrado")?;
-    worker.worker.shutdown();
+    worker.session.shutdown();
     let config = Config::load();
     let mut gstate = state_file::load(&config.data_dir());
     if let Some(record) = gstate.workers.iter_mut().find(|w| w.task_id == task_id) {
@@ -2069,41 +2083,58 @@ fn dispatch_text(
         one_shot_directives,
     );
     let label = worker_board_title(Some(&planned.session.session_id), &instruction);
-    let result = hark_plugin_claude::worker::run(
-        &spawn,
-        &mut |_running| {},
-        &mut |tool, input| {
-            // Surface in the UI and block this worker thread on the click.
-            let request_id = format!("{task_id}-{}", Utc::now().format("%H%M%S%f"));
-            let (tx, rx) = mpsc::channel();
-            pending.0.lock().unwrap().insert(request_id.clone(), tx);
-            app.state::<PermLog>().0.lock().unwrap().push((
-                request_id.clone(),
-                label.to_string(),
-                tool.to_string(),
-            ));
-            let _ = app.emit(
-                "hark-permission",
-                serde_json::json!({
-                    "request_id": request_id,
-                    "task_id": task_id,
-                    "label": label,
-                    "tool_name": tool,
-                    "input": input,
-                }),
-            );
-            rx.recv_timeout(std::time::Duration::from_secs(300))
-                .unwrap_or(PermissionDecision::Deny)
-        },
-        &mut |event| {
-            if let ClaudeEvent::ToolUse { name, input } = event {
-                emit_event(
-                    &app,
-                    serde_json::json!({ "kind": "worker", "task_id": task_id, "name": name, "input": input }),
-                );
+    // One-shot on the same backend seam as persistent workers: consume the
+    // event stream inline, block on permission clicks, stop at the result.
+    let result: anyhow::Result<hark_agent::TurnResult> = (|| {
+        let backend = backend_for(&config);
+        let (session, events) = backend.spawn(&spawn)?;
+        let mut outcome: Option<hark_agent::TurnResult> = None;
+        for event in events.iter() {
+            match event {
+                ClaudeEvent::ToolUse { name, input } => {
+                    emit_event(
+                        &app,
+                        serde_json::json!({ "kind": "worker", "task_id": task_id, "name": name, "input": input }),
+                    );
+                }
+                ClaudeEvent::PermissionRequest { request_id, tool_name, input } => {
+                    // Surface in the UI and block this thread on the click.
+                    let (tx, rx) = mpsc::channel();
+                    pending.0.lock().unwrap().insert(request_id.clone(), tx);
+                    app.state::<PermLog>().0.lock().unwrap().push((
+                        request_id.clone(),
+                        label.to_string(),
+                        tool_name.clone(),
+                    ));
+                    let _ = app.emit(
+                        "hark-permission",
+                        serde_json::json!({
+                            "request_id": request_id,
+                            "task_id": task_id,
+                            "label": label,
+                            "tool_name": tool_name,
+                            "input": input,
+                        }),
+                    );
+                    let decision = rx
+                        .recv_timeout(std::time::Duration::from_secs(300))
+                        .unwrap_or(PermissionDecision::Deny);
+                    let _ = session.respond_permission(&request_id, decision);
+                }
+                ClaudeEvent::Result(turn) => {
+                    outcome = Some(turn);
+                    break;
+                }
+                _ => {}
             }
-        },
-    );
+        }
+        session.shutdown();
+        outcome.ok_or_else(|| {
+            let (code, stderr) = session.exit_report();
+            let status = code.map_or_else(|| "?".to_string(), |c| c.to_string());
+            anyhow::anyhow!(hark_plugin_claude::health::exit_error("agent", &status, &stderr))
+        })
+    })();
 
     // Ledger before anything else: even failed turns burned tokens.
     if let Ok(turn) = &result {
@@ -2372,7 +2403,7 @@ fn session_owners(
         .lock()
         .unwrap()
         .values()
-        .map(|h| h.spawn.session_id.clone())
+        .map(|h| h.spec.session_id.clone())
         .filter(|s| !s.is_empty())
         .collect();
 
@@ -3745,7 +3776,7 @@ fn approve(
     );
     if let Some(task_id) = perms.0.lock().unwrap().remove(&request_id) {
         if let Some(worker) = live.0.lock().unwrap().get(&task_id) {
-            let _ = worker.worker.respond_permission(&request_id, decision);
+            let _ = worker.session.respond_permission(&request_id, decision);
         }
         return;
     }

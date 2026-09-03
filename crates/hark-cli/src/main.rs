@@ -1,4 +1,9 @@
 //! Headless driver: `hark ask "..."`, `hark index`, `hark sessions`.
+//!
+//! FASE 9 pin: this driver is DELIBERATELY claude-only for now — it binds
+//! the claude plugin's types directly. Multi-backend (the AgentBackend
+//! seam the Tauri app speaks) lands here after the app stabilizes; on a
+//! machine without the claude CLI it fails loudly at spawn, never silently.
 
 use hark_plugin_claude::cli::ClaudeCli;
 use hark_core::adapters::git_collect::GitCli;

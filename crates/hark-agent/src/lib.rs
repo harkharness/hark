@@ -183,4 +183,8 @@ pub struct Capabilities {
     /// Tool names whose input is a shell command (feeds the production
     /// gate — kubectl/terraform/etc. never auto-approve).
     pub shell_tools: Vec<String>,
+    /// Forking a session: resume the history into a NEW session id,
+    /// leaving the original untouched (claude --fork-session).
+    #[serde(default)]
+    pub fork: bool,
 }

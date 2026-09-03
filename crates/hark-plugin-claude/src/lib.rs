@@ -5,6 +5,7 @@
 //! its plugin ecosystem lives HERE — hark-core stays agent-neutral and
 //! speaks only the `hark-agent` contract.
 
+pub mod backend;
 pub mod bridge;
 pub mod cli;
 pub mod eco;
@@ -28,5 +29,6 @@ pub fn capabilities() -> hark_agent::Capabilities {
         slash_commands: true,
         memory_file: Some("CLAUDE.md".into()),
         shell_tools: vec!["Bash".into()],
+        fork: true,
     }
 }

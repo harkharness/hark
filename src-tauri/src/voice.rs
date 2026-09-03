@@ -283,7 +283,7 @@ pub fn voice_execute(
             let live = app.state::<super::LiveWorkers>();
             let map = live.0.lock().unwrap();
             map.iter()
-                .find(|(_, h)| h.spawn.session_id == session)
+                .find(|(_, h)| h.spec.session_id == session)
                 .map(|(id, _)| id.clone())
         };
         match existing {
