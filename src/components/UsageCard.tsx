@@ -40,8 +40,9 @@ function fmtDur(ms: number): string {
   return m < 60 ? `${m}min ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}min`;
 }
 
-/** Per-model table; jsonl rows have no USD, so cost renders "–" there. */
-function ModelTable({ lines, cost }: { lines: UsageModelLine[]; cost: boolean }) {
+/** Per-model table; jsonl rows have no USD, so cost renders "–" there.
+ *  Shared with the costs tab — one way of drawing a breakdown. */
+export function ModelTable({ lines, cost }: { lines: UsageModelLine[]; cost: boolean }) {
   return (
     <div className="usage-table-wrap">
       <table className="usage-table">

@@ -1,9 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import { Info } from "lucide-react";
 import { Gauge, Legend, MeterRow, StackedBar, fmtTok, fmtUsd, type Segment } from "./Meter";
+import { ModelTable } from "./UsageCard";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
 import type { BridgeStatus, SpendAgg, StatusLine } from "../types";
+
+/** A jsonl aggregate as a table line (tokens only — no USD in the logs). */
+function aggToLine(a: SpendAgg) {
+  return {
+    model: a.key,
+    input: a.input,
+    output: a.output,
+    cache_read: a.cache_read,
+    cache_created: a.cache_created,
+    cost_usd: 0,
+    turns: a.turns,
+  };
+}
 
 type Window = "day" | "week";
 type Group = "kind" | "workspace" | "label" | "model";
@@ -63,6 +77,7 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
   const [group, setGroup] = useState<Group>("kind");
   const [live, setLive] = useState<SpendAgg[]>([]);
   const [tokens, setTokens] = useState<SpendAgg[]>([]);
+  const [machineWs, setMachineWs] = useState<SpendAgg[]>([]);
   const [top, setTop] = useState<SpendAgg[]>([]);
   const [limits, setLimits] = useState<StatusLine | null>(null);
   const [bridge, setBridge] = useState<BridgeStatus | null>(null);
@@ -78,6 +93,19 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
       .spendSummary(since, "model", "jsonl", workspace)
       .then(setTokens)
       .catch(() => setTokens([]));
+    ipc
+      .spendSummary(since, "workspace", "jsonl", workspace)
+      .then((aggs) =>
+        setMachineWs(
+          aggs
+            .sort(
+              (a, b) =>
+                b.input + b.output + b.cache_read - (a.input + a.output + a.cache_read),
+            )
+            .slice(0, 5),
+        ),
+      )
+      .catch(() => setMachineWs([]));
     ipc.spendTopSessions(since, 6).then(setTop).catch(() => setTop([]));
     ipc.subscriptionLimits().then(setLimits).catch(() => setLimits(null));
     ipc.statuslineBridgeStatus().then(setBridge).catch(() => setBridge(null));
@@ -100,6 +128,10 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
   );
   const inputTotal = io.input + io.cache_read + io.cache_created;
   const hit = inputTotal > 0 ? io.cache_read / inputTotal : null;
+  const machineTok = tokens.reduce(
+    (a, x) => a + x.input + x.output + x.cache_read + x.cache_created,
+    0,
+  );
 
   const costSegments: Segment[] = live.slice(0, 6).map((a, i) => ({
     label: kindLabel(a.key),
@@ -138,6 +170,11 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
             {errors > 0 && <span className="warn"> · {errors} {t("n_with_error")}</span>}
             {hit != null && (
               <span className="ok"> · {t("costs_cache_absorbed", { p: Math.round(hit * 100) })}</span>
+            )}
+            {/* The machine never sleeps even when hark's USD is quiet:
+                the jsonl tokens keep the hero honest instead of empty. */}
+            {machineTok > 0 && (
+              <span> · {t("c_machine_short", { t: fmtTok(machineTok) })}</span>
             )}
           </span>
         </div>
@@ -262,6 +299,28 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
                 </p>
               )}
             </>
+          ) : bridge?.installed ? (
+            // Installed, payload pending: a compact status — the sales
+            // pitch is for machines that DON'T have the bridge yet.
+            <div className="bridge-offer">
+              <p>
+                <span className="ok">{t("br_installed")}</span>
+                {" · "}
+                <span className="hint">
+                  {bridge.age_secs == null
+                    ? t("br_waiting")
+                    : t("br_age", { m: Math.round(bridge.age_secs / 60) })}
+                </span>
+              </p>
+              <div className="bridge-actions">
+                <button
+                  onClick={() => ipc.statuslineBridgeUninstall().then(load).catch(() => {})}
+                >
+                  {t("br_remove")}
+                </button>
+                {busy && <span className="hint">{busy}</span>}
+              </div>
+            </div>
           ) : (
             <div className="bridge-offer">
               <p>
@@ -272,27 +331,9 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
                 {t("br_hint_pre")}<code>~/.claude/settings.json</code>{t("br_hint_post")}
               </p>
               <div className="bridge-actions">
-                {bridge?.installed ? (
-                  <>
-                    <span className="ok">{t("br_installed")}</span>
-                    <span className="hint">
-                      {bridge.age_secs == null
-                        ? t("br_waiting")
-                        : t("br_age", { m: Math.round(bridge.age_secs / 60) })}
-                    </span>
-                    <button
-                      onClick={() =>
-                        ipc.statuslineBridgeUninstall().then(load).catch(() => {})
-                      }
-                    >
-                      {t("br_remove")}
-                    </button>
-                  </>
-                ) : (
-                  <button className="primary" onClick={installBridge}>
-                    {t("br_install")}
-                  </button>
-                )}
+                <button className="primary" onClick={installBridge}>
+                  {t("br_install")}
+                </button>
                 {busy && <span className="hint">{busy}</span>}
               </div>
             </div>
@@ -333,30 +374,38 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
         </section>
 
         <section className="card wide">
-          <h4>{t("c_machine")}</h4>
+          <h4>
+            {t("c_machine")} · {window === "day" ? "24h" : t("win_7d")}
+          </h4>
           {tokens.length === 0 ? (
             <p className="empty">{t("e_logs")}</p>
           ) : (
-            <div className="costs-rows two">
-              {tokens.slice(0, 8).map((a) => {
-                const totalTok = a.input + a.output + a.cache_read + a.cache_created;
-                return (
-                  <MeterRow
-                    key={a.key}
-                    name={a.key.replace(/^claude-/, "")}
-                    value={totalTok}
-                    max={
-                      tokens[0].input +
-                      tokens[0].output +
-                      tokens[0].cache_read +
-                      tokens[0].cache_created
-                    }
-                    detail={fmtTok(totalTok)}
-                    color="var(--dim)"
-                    note={t("mt_note", { a: fmtTok(a.cache_read), b: fmtTok(a.cache_created), c: fmtTok(a.output) })}
-                  />
-                );
-              })}
+            <div className="machine-cols">
+              <ModelTable lines={tokens.slice(0, 8).map(aggToLine)} cost={false} />
+              {machineWs.length > 0 && (
+                <div className="costs-rows">
+                  <div className="scope-block-head">
+                    <span>{t("u_ws")}</span>
+                  </div>
+                  {machineWs.map((w) => {
+                    const toks = w.input + w.output + w.cache_read;
+                    const max = Math.max(
+                      ...machineWs.map((x) => x.input + x.output + x.cache_read),
+                      1,
+                    );
+                    return (
+                      <MeterRow
+                        key={w.key}
+                        name={w.key.split("/").pop() ?? w.key}
+                        value={toks}
+                        max={max}
+                        detail={fmtTok(toks)}
+                        note={`${w.turns} ${t("n_turns")}`}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
           <p className="hint">{t("hint_machine")}</p>

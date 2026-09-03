@@ -1095,6 +1095,12 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   background: transparent;
 }
 .split-resizer:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+/* Machine card: the per-model table beside the per-project meters. */
+.machine-cols {
+  display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; align-items: start;
+}
+@media (max-width: 980px) { .machine-cols { grid-template-columns: 1fr; } }
 /* The root class is .frame — the old .panelframe selector matched NOTHING,
    the column never got a height, and xterm fit() saw 0 rows: the "blank
    terminal that still executes" bug (26/08). */
