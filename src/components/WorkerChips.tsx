@@ -35,8 +35,12 @@ export default function WorkerChips({
         >
           <span className="dot" />
           {w.status === "awaiting" && <Lock size={11} />}
-          {w.label}
-          {directiveLabels(w.directives).length > 0 && (
+          {/* The focused chip is CONTROLS, not a caption: the thread on
+              screen already says what this is, and the truncated label
+              read as random noise under the composer. Unfocused chips
+              keep their names — they are how you reach the other work. */}
+          {focused !== taskId && w.label}
+          {focused !== taskId && directiveLabels(w.directives).length > 0 && (
             <span className="chip-mode">{directiveLabels(w.directives).join(" ")}</span>
           )}
           {(w.context_pct ?? 0) >= 0.7 && onRestartLight && (

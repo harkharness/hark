@@ -15,6 +15,7 @@ import FilesEditor, { FileTabs } from "./components/FilesEditor";
 import FilesPanel from "./components/FilesPanel";
 import Modals, { type Pending } from "./components/Modals";
 import ModeSelect from "./components/ModeSelect";
+import ModelSelect, { type ModelTiers } from "./components/ModelSelect";
 import PanelFrame from "./components/PanelFrame";
 import QuickOpen from "./components/QuickOpen";
 import Reader from "./components/Reader";
@@ -130,6 +131,12 @@ export default function App({
 
   // Mode chosen on the selector for NEW tasks (null = config default).
   const [modeDefault, setModeDefault] = useState<string | null>(null);
+  /** Window's model choice ("" = auto/router); focused live tasks switch
+   *  the process, otherwise it seeds new chats born here. */
+  const [modelDefault, setModelDefault] = useState<string>("");
+  const [tiers, setTiers] = useState<ModelTiers>({
+    light: "haiku", standard: "sonnet", heavy: "opus", max: "fable",
+  });
   // Per-thread raw worker feed (the task's "terminal") and window spend.
   const [rawLog, setRawLog] = useState<Record<string, string[]>>({});
   const [costs, setCosts] = useState<Record<string, number>>({});
@@ -711,7 +718,7 @@ export default function App({
     // and a clock nobody stops ticks forever.
     let live = false;
     try {
-      const out = await ipc.workerStart(instruction, sessionId ?? null, modeDefault ?? undefined);
+      const out = await ipc.workerStart(instruction, sessionId ?? null, modeDefault ?? undefined, undefined, modelDefault || undefined);
       if (out.status === "started") {
         const label =
           focusedTask && sessionId === focusedTask.sessionId
@@ -755,7 +762,7 @@ export default function App({
     beginTurn(from);
     let live = false;
     try {
-      const out = await ipc.chatStart(project.path, instruction, modeDefault ?? undefined);
+      const out = await ipc.chatStart(project.path, instruction, modeDefault ?? undefined, modelDefault || undefined);
       if (out.status === "started") {
         const label = instruction.split(/\s+/).slice(0, 5).join(" ");
         push({ who: "user", text: instruction, task: label });
@@ -1150,7 +1157,7 @@ export default function App({
       push({ who: "user", text, task: draft.title });
       beginTurn(`${draft.title} (fork)`);
       const out = await ipc
-        .workerStart(text, draft.sessionId, modeDefault ?? undefined, true)
+        .workerStart(text, draft.sessionId, modeDefault ?? undefined, true, modelDefault || undefined)
         .catch((err) => {
           nudgeRef.current(err);
           push({ who: "sys", text: `fork: ${agentError(err)}` });
@@ -1237,6 +1244,44 @@ export default function App({
     }
     push({ who: "user", text, images: images.map((i) => i.dataUrl) });
     runAsk(text, images);
+  }
+
+  /** Model the pill answers for: the focused task's directive, else the
+   *  window default. What it SHOWS prefers the last turn's real model. */
+  const currentModel =
+    (focused ? liveWorkers[focused]?.directives.model : undefined) ?? modelDefault;
+  const liveModel = focused ? liveWorkers[focused]?.model : undefined;
+
+  useEffect(() => {
+    ipc
+      .configRead()
+      .then((snap) => {
+        const v = snap.values as { models?: Partial<ModelTiers>; model?: string };
+        const m = v.models ?? {};
+        setTiers({
+          light: m.light || "haiku",
+          standard: m.standard || v.model || "sonnet",
+          heavy: m.heavy || "opus",
+          max: m.max || "fable",
+        });
+      })
+      .catch(() => {});
+  }, []);
+
+  function selectModel(model: string) {
+    const taskId = focused;
+    if (taskId && liveWorkers[taskId]) {
+      ipc
+        .workerSetModel(taskId, model)
+        .then((out) => {
+          setLiveWorkers((old) =>
+            old[taskId] ? { ...old, [taskId]: { ...old[taskId], directives: out.directives } } : old,
+          );
+        })
+        .catch((err) => push({ who: "sys", text: `modelo: ${err}`, task: labelFor(taskId) }));
+      return;
+    }
+    setModelDefault(model);
   }
 
   /** Mode the pill shows: the focused live task's, else the window/config default. */
@@ -2379,6 +2424,13 @@ export default function App({
                   value={currentMode}
                   appliesTo={focused ? labelFor(focused) : undefined}
                   onSelect={selectMode}
+                />
+                <ModelSelect
+                  value={currentModel ?? ""}
+                  liveModel={liveModel}
+                  tiers={tiers}
+                  appliesTo={focused ? labelFor(focused) : undefined}
+                  onSelect={selectModel}
                 />
                 <WorkerChips
                   liveWorkers={liveWorkers}

@@ -65,6 +65,7 @@ type Handlers = {
     costUsd?: number,
     sessionId?: string | null,
     errorCode?: string | null,
+    model?: string | null,
   ) => void;
   /**
    * Whether THIS window announces events out loud (turn done, permission
@@ -168,6 +169,7 @@ export function useHarkEvents(h: Handlers) {
                   ...old[ev.task_id],
                   status: "turn_done",
                   context_pct: ev.context_pct ?? old[ev.task_id].context_pct,
+                  model: ev.model ?? old[ev.task_id].model,
                 },
               }
             : old,
@@ -180,6 +182,7 @@ export function useHarkEvents(h: Handlers) {
           ev.cost_usd,
           ev.session_id,
           authFail ? "agent_auth" : ev.error_code,
+          ev.model,
         );
         if (h.announce && h.speakRef.current) {
           const spoken = ev.label ?? label;

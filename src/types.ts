@@ -137,6 +137,8 @@ export type LiveWorker = {
   directives: Directives;
   /** How full the session's context window is (0..1), from the last turn. */
   context_pct?: number | null;
+  /** Model that produced the last turn (the pill shows the truth). */
+  model?: string | null;
 };
 
 export type DispatchOutcome =

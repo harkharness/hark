@@ -749,6 +749,7 @@ fn worker_start(
     instruction: String,
     session_id: Option<String>,
     mode: Option<String>,
+    model: Option<String>,
     fork: Option<bool>,
 ) -> Result<DispatchOut, String> {
     let fork = fork.unwrap_or(false);
@@ -820,9 +821,9 @@ fn worker_start(
         .mode
         .or_else(|| mode.as_deref().and_then(hark_core::domain::directives::Mode::from_flag))
         .or_else(|| config.default_worker_mode());
-    // Route UP when the instruction asks for depth and no model was named
-    // (FASE 8.6): "investiga a causa raiz" gets the heavy tier by itself.
-    // Never down — a cheap-looking instruction still edits code.
+    // Model precedence: spoken > window selector > router hint (FASE 8.6:
+    // "investiga a causa raiz" routes UP by itself; never down).
+    directives.model = directives.model.or(model.filter(|m| !m.is_empty()));
     if directives.model.is_none() {
         directives.model =
             hark_core::domain::intent::worker_model_hint(&instruction, &config.models());
@@ -1251,6 +1252,7 @@ fn chat_start(
     project_path: String,
     instruction: String,
     mode: Option<String>,
+    model: Option<String>,
 ) -> Result<DispatchOut, String> {
     let config = Config::load();
     let root = std::path::PathBuf::from(hark_core::config::expand_home(&project_path));
@@ -1266,6 +1268,7 @@ fn chat_start(
         .mode
         .or_else(|| mode.as_deref().and_then(hark_core::domain::directives::Mode::from_flag))
         .or_else(|| config.default_worker_mode());
+    directives.model = directives.model.or(model.filter(|m| !m.is_empty()));
     let spawn = fresh_spawn(&config, root, String::new(), instruction, directives.clone());
     start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
     Ok(DispatchOut::Started { task_id, directives })
@@ -1979,6 +1982,56 @@ fn worker_set_mode(
         directives: next.clone(),
         ..handle.spec.clone()
     };
+    start_worker(&app, &live, &task_id, spec).map_err(|e| e.to_string())?;
+    Ok(SetModeOut { directives: next, restarted: true })
+}
+
+/// Switch the focused task's MODEL: same contract as worker_set_mode —
+/// flags are per-process, so an idle thread reopens on the same session;
+/// a turn in flight is never interrupted (the model applies on the next
+/// reopen — unlike modes, the window cannot emulate a model change).
+#[tauri::command]
+fn worker_set_model(
+    app: AppHandle,
+    live: State<'_, LiveWorkers>,
+    task_id: String,
+    model: String,
+) -> Result<SetModeOut, String> {
+    let handle = live
+        .0
+        .lock()
+        .unwrap()
+        .get(&task_id)
+        .cloned()
+        .ok_or("worker não está mais ativo")?;
+    let mut next = handle.spec.directives.clone();
+    let target = (!model.is_empty()).then_some(model);
+    if next.model == target {
+        return Ok(SetModeOut { directives: next, restarted: false });
+    }
+    next.model = target;
+    let in_flight = app
+        .state::<BatchState>()
+        .0
+        .lock()
+        .unwrap()
+        .get(&task_id)
+        .is_some_and(|e| e.in_flight);
+    if in_flight {
+        emit_event(
+            &app,
+            serde_json::json!({ "kind": "status",
+                "text": "modelo trocado — vale na próxima abertura da thread (o turno em voo continua)" }),
+        );
+        return Ok(SetModeOut { directives: next, restarted: false });
+    }
+    emit_event(
+        &app,
+        serde_json::json!({ "kind": "status",
+            "text": format!("reabrindo a thread com {}", describe(&next)) }),
+    );
+    handle.session.shutdown();
+    let spec = SessionSpec { directives: next.clone(), ..handle.spec.clone() };
     start_worker(&app, &live, &task_id, spec).map_err(|e| e.to_string())?;
     Ok(SetModeOut { directives: next, restarted: true })
 }
@@ -3899,6 +3952,7 @@ pub fn run() {
             hark_chat_send,
             hark_chat_status,
             worker_set_mode,
+            worker_set_model,
             worker_stop,
             chat_start,
             project_add,

@@ -67,11 +67,14 @@ export const workerStart = (
   /** Fork: a NEW session seeded with sessionId's history (--fork-session)
    *  — parallel work while a terminal holds the original. */
   fork?: boolean,
+  /** Window's model selector (spoken directives still win). */
+  model?: string,
 ) =>
   invoke<DispatchOutcome>("worker_start", {
     instruction,
     sessionId,
     mode: mode ?? null,
+    model: model ?? null,
     fork: fork ?? null,
   });
 
@@ -150,8 +153,8 @@ export const harkChatStatus = () =>
   invoke<{ alive: boolean; session_id: string | null }>("hark_chat_status");
 
 /** Brand-new Claude Code session inside a project directory. */
-export const chatStart = (projectPath: string, instruction: string, mode?: string) =>
-  invoke<DispatchOutcome>("chat_start", { projectPath, instruction, mode: mode ?? null });
+export const chatStart = (projectPath: string, instruction: string, mode?: string, model?: string) =>
+  invoke<DispatchOutcome>("chat_start", { projectPath, instruction, mode: mode ?? null, model: model ?? null });
 
 /** Sessions a human is holding at a terminal (ours or any other app). */
 export const sessionOwners = () =>
@@ -314,6 +317,8 @@ export const termClose = (id: string) => invoke("term_close", { id });
 /** Switch a live worker's permission mode (restarts it, sends no text). */
 export const workerSetMode = (taskId: string, mode: string) =>
   invoke<{ directives: Directives; restarted: boolean }>("worker_set_mode", { taskId, mode });
+export const workerSetModel = (taskId: string, model: string) =>
+  invoke<{ directives: Directives; restarted: boolean }>("worker_set_model", { taskId, model });
 
 /* ---- global voice (HUD) ---- */
 export const planUtterance = (text: string) =>
