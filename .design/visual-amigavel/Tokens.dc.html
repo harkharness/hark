@@ -1,0 +1,102 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    .tok { font-family: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif; }
+    .tok .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+    .tok .col { flex: 1; background: #11151b; border: 1px solid rgba(255,255,255,.06); border-radius: 14px; padding: 18px 20px; min-width: 0; }
+    .tok .h { font-size: 13px; font-weight: 600; color: #e9eef6; margin-bottom: 14px; }
+    .tok .sw { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .tok .sw .b { width: 44px; height: 30px; border-radius: 8px; border: 1px solid rgba(255,255,255,.1); flex: 0 0 auto; }
+    .tok .sw .n { font-size: 12.5px; color: #d7dde6; }
+    .tok .sw .v { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 11px; color: #7a8698; margin-left: auto; }
+    .tok .cap { font-size: 11.5px; color: #566070; line-height: 1.55; margin-top: 12px; }
+    .tok .pill { display: inline-flex; align-items: center; gap: 5px; background: #161c25; border-radius: 999px; padding: 4px 12px; font-size: 12px; color: #aeb8c6; }
+    .tok .ic { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .tok .meter { height: 4px; border-radius: 999px; background: #161c25; overflow: hidden; }
+    .tok .num { width: 20px; height: 20px; border-radius: 50%; background: #161c25; color: #7aa2f7; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+  </style>
+</helmet>
+<div class="tok" style="width: 1520px; height: 900px; background: #0b0e12; color: #d7dde6; padding: 24px 28px; display: flex; flex-direction: column; overflow: hidden">
+  <div style="display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px">
+    <span style="font-size: 17px; font-weight: 600; color: #e9eef6">Sistema — o que muda</span>
+    <span style="font-size: 12.5px; color: #7a8698">a paleta fica; muda a gramática. Mapeia 1:1 no <span class="mono" style="font-size: 11.5px; color: #7dcfff">:root</span> do styles.css</span>
+  </div>
+  <div style="display: flex; gap: 14px; flex: 1; min-height: 0">
+    <div class="col">
+      <div class="h">Superfícies</div>
+      <div class="sw"><span class="b" style="background: #07090d"></span><span class="n">--bg-deep · rail, terminal</span><span class="v">#07090d</span></div>
+      <div class="sw"><span class="b" style="background: #0b0e12"></span><span class="n">--bg · página</span><span class="v">#0b0e12</span></div>
+      <div class="sw"><span class="b" style="background: #11151b"></span><span class="n">--panel · cartões, composer</span><span class="v">#11151b</span></div>
+      <div class="sw"><span class="b" style="background: #161c25"></span><span class="n">--panel-2 · chips, hover, ativo</span><span class="v">#161c25 novo</span></div>
+      <div class="sw"><span class="b" style="background: #0b0e12; border-color: rgba(255,255,255,.07)"></span><span class="n">--border · só entre superfícies</span><span class="v">α .07</span></div>
+      <div class="cap">Profundidade por TOM: rail abaixo, página no meio, cartão acima, chip acima do cartão. Borda cheia em botão/chip/input morre — vira preenchimento --panel-2. Raio: 8 controles · 12 cartões · 999 pílulas.</div>
+    </div>
+    <div class="col">
+      <div class="h">Tipografia</div>
+      <div style="font-size: 15px; font-weight: 600; color: #e9eef6; margin-bottom: 8px">Título de seção · 15/600</div>
+      <div style="font-size: 14px; line-height: 1.65; color: #d7dde6; margin-bottom: 8px">Corpo do chat 14/1.65 — a prosa é o produto, respira mais que hoje.</div>
+      <div style="font-size: 12.5px; color: #aeb8c6; margin-bottom: 8px">Secundário 12.5 — metadados, legendas, hints.</div>
+      <div style="font-size: 11px; font-weight: 500; color: #7a8698; margin-bottom: 12px">Label de seção 11/500 · sentence case</div>
+      <div class="mono" style="font-size: 12px; color: #7dcfff; background: #161c25; border-radius: 6px; padding: 6px 10px; display: inline-block">d9e2524 · $0.80 · ~/.hark/config.toml</div>
+      <div class="cap">Mono SÓ para o que a máquina diz: código, paths, hashes, valores, terminal. Morre: label ALL-CAPS mono ("GASTO MEDIDO · 24H") — vira sentence case em sans. Números-herói em sans 27/600.</div>
+    </div>
+    <div class="col">
+      <div class="h">Cor em doses</div>
+      <div class="sw"><span class="b" style="background: #7aa2f7"></span><span class="n">--accent · o ÚNICO acento de UI</span><span class="v">#7aa2f7</span></div>
+      <div class="sw"><span class="b" style="background: linear-gradient(135deg, #7aa2f7, #bb9af7)"></span><span class="n">voz · só no orb e no mic vivo</span><span class="v">grad</span></div>
+      <div class="sw"><span class="b" style="background: #9ece6a"></span><span class="n">--ok</span><span class="v">#9ece6a</span></div>
+      <div class="sw"><span class="b" style="background: #e0af68"></span><span class="n">--warn</span><span class="v">#e0af68</span></div>
+      <div class="sw"><span class="b" style="background: #f7768e"></span><span class="v">#f7768e</span></div>
+      <div class="cap">Semânticas aparecem PEQUENAS: dots de status, diffstat, pill "ativo". Nunca em número gigante, nunca em título. O verde-dinheiro 27px do custos é o maior tell de terminal que temos hoje.</div>
+    </div>
+    <div class="col" style="flex: 1.25">
+      <div class="h">Componentes</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px">
+        <span style="background: #7aa2f7; color: #0b0e12; border-radius: 8px; padding: 6px 14px; font-size: 12.5px; font-weight: 500">enviar</span>
+        <span style="background: #161c25; color: #d7dde6; border-radius: 8px; padding: 6px 14px; font-size: 12.5px">cancelar</span>
+        <span class="pill">auto <svg class="ic" style="width: 11px; height: 11px" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+        <span class="pill" style="background: none; border: 1px solid rgba(255,255,255,.06)">"resume o board"</span>
+      </div>
+      <div style="display: inline-flex; align-items: center; gap: 8px; background: #0b0e12; border: 1px solid rgba(255,255,255,.06); border-radius: 9px; padding: 6px 12px; font-size: 12.5px; color: #aeb8c6; margin-bottom: 14px">
+        <svg class="ic" style="width: 12px; height: 12px" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>Usou 2 ferramentas · <span class="mono" style="font-size: 11.5px"><span style="color: #9ece6a">+98</span> <span style="color: #f7768e">−12</span></span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px; max-width: 320px">
+        <span style="font-size: 12px; color: #aeb8c6; flex: 0 0 auto">Semana</span>
+        <div class="meter" style="flex: 1"><i style="display: block; height: 100%; width: 59%; border-radius: 999px; background: #7aa2f7"></i></div>
+        <span class="mono" style="font-size: 11px; color: #d7dde6">59%</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 14px; font-size: 12px; color: #aeb8c6">
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 6px; height: 6px; border-radius: 50%; background: #9ece6a"></span>vivo</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 6px; height: 6px; border-radius: 50%; background: #7aa2f7"></span>rodando</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 6px; height: 6px; border-radius: 50%; background: #e0af68"></span>permissão</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.18)"></span>quieto</span>
+      </div>
+      <div style="background: #11151b; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 10px 12px; font-size: 12.5px; color: #566070; max-width: 340px">fale ou digite… <span style="float: right; color: #7aa2f7">⏎</span></div>
+      <div class="cap">Ícones: stroke 1.7, grade 16/24, um estilo só — nada de emoji/glifo de teclado (🎙 ➤ ⌗ •••••) no chrome.</div>
+    </div>
+  </div>
+  <!-- as 6 mudanças -->
+  <div style="display: flex; gap: 26px; margin-top: 16px; background: #11151b; border: 1px solid rgba(255,255,255,.06); border-radius: 14px; padding: 16px 20px">
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 9px">
+      <div style="display: flex; gap: 9px; font-size: 12.5px; color: #aeb8c6; line-height: 1.45"><span class="num">1</span><span><b style="color: #e9eef6">Sans no chrome, mono no que é máquina.</b> Labels, botões e cartões em sans; mono fica em código, path, hash, valor e terminal.</span></div>
+      <div style="display: flex; gap: 9px; font-size: 12.5px; color: #aeb8c6; line-height: 1.45"><span class="num">2</span><span><b style="color: #e9eef6">Preenchimento no lugar de borda.</b> Chip, botão, input e tab viram --panel-2 sem contorno; borda só onde duas superfícies se encontram.</span></div>
+      <div style="display: flex; gap: 9px; font-size: 12.5px; color: #aeb8c6; line-height: 1.45"><span class="num">3</span><span><b style="color: #e9eef6">Cor em doses.</b> Um acento; verde/âmbar/vermelho só em dot, diffstat e pill — nunca em número gigante.</span></div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 9px">
+      <div style="display: flex; gap: 9px; font-size: 12.5px; color: #aeb8c6; line-height: 1.45"><span class="num">4</span><span><b style="color: #e9eef6">Hierarquia de verdade.</b> Título de chat no topo, seção 11/500 sentence case, corpo 14/1.65, metadado 12.5 — e mais ar entre blocos.</span></div>
+      <div style="display: flex; gap: 9px; font-size: 12.5px; color: #aeb8c6; line-height: 1.45"><span class="num">5</span><span><b style="color: #e9eef6">Dobrar o barulho.</b> Ferramentas viram 1 linha ▸ com diffstat; tabelas e payloads abrem sob clique, como no Claude Code.</span></div>
+      <div style="display: flex; gap: 9px; font-size: 12.5px; color: #aeb8c6; line-height: 1.45"><span class="num">6</span><span><b style="color: #e9eef6">Vazio que orienta.</b> Ícone + frase + próximo passo no lugar de caixa com "nada medido nesta janela".</span></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

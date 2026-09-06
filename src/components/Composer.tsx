@@ -487,7 +487,7 @@ export default function Composer({
         <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title={t("speak_btn")}>
           <Mic size={15} />
         </button>
-        <button onClick={send} disabled={disabled} title={t("send_btn")}>
+        <button className="send" onClick={send} disabled={disabled} title={t("send_btn")}>
           <SendHorizontal size={15} />
         </button>
       </div>

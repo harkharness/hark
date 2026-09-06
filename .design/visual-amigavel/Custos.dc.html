@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    .cst { font-family: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif; }
+    .cst .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+    .cst .card { background: #11151b; border: 1px solid rgba(255,255,255,.06); border-radius: 12px; padding: 16px 18px; }
+    .cst .ctitle { font-size: 12.5px; font-weight: 600; color: #e9eef6; margin-bottom: 12px; }
+    .cst .meter { height: 4px; border-radius: 999px; background: #161c25; overflow: hidden; }
+    .cst .meter i { display: block; height: 100%; border-radius: 999px; background: #7aa2f7; }
+    .cst .mrow { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+    .cst .mrow .lbl { font-size: 12px; color: #aeb8c6; width: 86px; white-space: nowrap; overflow: hidden; }
+    .cst .mrow .val { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 11px; color: #d7dde6; width: 44px; text-align: right; }
+    .cst .seg { padding: 4px 12px; border-radius: 999px; font-size: 12px; color: #7a8698; }
+    .cst .seg.on { background: #161c25; color: #e9eef6; }
+    .cst .trow { display: flex; align-items: center; gap: 8px; padding: 7px 0; font-size: 12.5px; color: #aeb8c6; border-top: 1px solid rgba(255,255,255,.05); }
+    .cst .ic { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  </style>
+</helmet>
+<div class="cst" style="width: 1240px; height: 700px; background: #0b0e12; color: #d7dde6; padding: 22px 26px; display: flex; flex-direction: column; overflow: hidden">
+  <div style="display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px">
+    <span style="font-size: 16px; font-weight: 600; color: #e9eef6">Custos</span>
+    <span style="font-size: 12px; color: #7a8698">medido nesta máquina, do próprio ledger</span>
+    <div style="flex: 1"></div>
+    <span style="display: flex; gap: 2px; background: #11151b; border: 1px solid rgba(255,255,255,.06); border-radius: 999px; padding: 3px"><span class="seg on">24 h</span><span class="seg">7 dias</span></span>
+  </div>
+  <!-- número-herói calmo: sans semibold, sem verde gigante -->
+  <div style="display: flex; gap: 14px; margin-bottom: 14px">
+    <div class="card" style="flex: 1.2">
+      <div style="font-size: 12px; color: #7a8698; margin-bottom: 6px">Gasto medido · 24 h</div>
+      <div style="font-size: 27px; font-weight: 600; color: #e9eef6; letter-spacing: -.01em">$0.80</div>
+      <div style="font-size: 12px; color: #7a8698; margin-top: 4px">3 turnos · média <span class="mono" style="color: #aeb8c6">$0.27</span>/turno</div>
+    </div>
+    <div class="card" style="flex: 1.2">
+      <div style="font-size: 12px; color: #7a8698; margin-bottom: 6px">Semana</div>
+      <div style="font-size: 27px; font-weight: 600; color: #e9eef6; letter-spacing: -.01em">$12.78</div>
+      <div style="font-size: 12px; color: #7a8698; margin-top: 4px">evitado por rota barata <span class="mono" style="color: #9ece6a">$3.10</span></div>
+    </div>
+    <div class="card" style="flex: 1.6">
+      <div style="font-size: 12px; color: #7a8698; margin-bottom: 10px">Limites da assinatura</div>
+      <div class="mrow"><span class="lbl">5 horas</span><div class="meter" style="flex: 1"><i style="width: 15%"></i></div><span class="val">15%</span></div>
+      <div class="mrow" style="margin-bottom: 4px"><span class="lbl">Semana</span><div class="meter" style="flex: 1"><i style="width: 59%"></i></div><span class="val">59%</span></div>
+      <div style="font-size: 11px; color: #566070">reinicia ter., 17:00 · via ponte da statusline</div>
+    </div>
+  </div>
+  <div style="display: flex; gap: 14px; flex: 1; min-height: 0">
+    <div class="card" style="flex: 1">
+      <div class="ctitle">Para onde o dinheiro foi</div>
+      <div style="display: flex; gap: 6px; margin-bottom: 14px">
+        <span class="seg on" style="font-size: 11.5px">tipo</span><span class="seg" style="font-size: 11.5px">projeto</span><span class="seg" style="font-size: 11.5px">task</span><span class="seg" style="font-size: 11.5px">modelo</span>
+      </div>
+      <div class="mrow"><span class="lbl">workers</span><div class="meter" style="flex: 1"><i style="width: 52%"></i></div><span class="val">$0.42</span></div>
+      <div class="mrow"><span class="lbl">perguntas</span><div class="meter" style="flex: 1"><i style="width: 39%"></i></div><span class="val">$0.31</span></div>
+      <div class="mrow"><span class="lbl">gate</span><div class="meter" style="flex: 1"><i style="width: 9%"></i></div><span class="val">$0.07</span></div>
+      <div style="font-size: 11px; color: #566070; margin-top: 10px">USD vem do CLI; fontes nunca se somam</div>
+    </div>
+    <div class="card" style="flex: 1">
+      <div class="ctitle">Ferramentas de economia</div>
+      <div class="trow" style="border-top: none"><span style="color: #e9eef6">rtk</span><div style="flex: 1"></div><span style="font-size: 11px; color: #9ece6a; background: rgba(158,206,106,.1); border-radius: 999px; padding: 2px 9px">ativo</span></div>
+      <div class="trow"><span style="color: #e9eef6">caveman</span><div style="flex: 1"></div><span style="font-size: 11px; color: #9ece6a; background: rgba(158,206,106,.1); border-radius: 999px; padding: 2px 9px">ativo</span></div>
+      <div class="trow"><span style="color: #e9eef6">ponytail</span><div style="flex: 1"></div><span style="font-size: 11px; color: #566070">instalar</span></div>
+      <div class="trow"><span style="color: #e9eef6">tokensave</span><div style="flex: 1"></div><span style="font-size: 11px; color: #566070">instalar</span></div>
+      <div style="font-size: 11px; color: #566070; margin-top: 10px">workers nascem com o fingerprint no ledger — compare custo médio com/sem</div>
+    </div>
+    <div class="card" style="flex: 1">
+      <div class="ctitle">Sessões mais pesadas</div>
+      <div class="mrow"><span class="lbl" style="width: 120px">hark (perguntas)</span><div class="meter" style="flex: 1"><i style="width: 78%"></i></div><span class="val">$0.80</span></div>
+      <div class="mrow"><span class="lbl" style="width: 120px">Migração Pagamentos</span><div class="meter" style="flex: 1"><i style="width: 41%"></i></div><span class="val">$0.42</span></div>
+      <div class="mrow"><span class="lbl" style="width: 120px">Alertas do cluster</span><div class="meter" style="flex: 1"><i style="width: 22%"></i></div><span class="val">$0.23</span></div>
+      <div style="font-size: 11px; color: #566070; margin-top: 10px">tokens da máquina inteira, dos session logs</div>
+    </div>
+    <!-- vazio que orienta, não caixa com "nada" -->
+    <div class="card" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center">
+      <svg class="ic" style="width: 26px; height: 26px; color: #566070; margin-bottom: 10px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      <div style="font-size: 13px; font-weight: 500; color: #aeb8c6">Sem turnos nesta janela ainda</div>
+      <div style="font-size: 12px; color: #566070; margin-top: 5px; max-width: 200px; line-height: 1.5">a composição do input aparece no primeiro turno de qualquer chat</div>
+    </div>
+  </div>
+  <div style="display: flex; align-items: center; gap: 6px; margin-top: 14px; font-size: 11.5px; color: #566070">
+    <svg class="ic" style="width: 13px; height: 13px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+    como esses números são calculados
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

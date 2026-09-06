@@ -1,0 +1,146 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    .prop { font-family: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif; }
+    .prop .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+    .prop .ic { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+    .prop .navrow { display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: 8px; font-size: 13px; color: #aeb8c6; }
+    .prop .navrow.on { background: #161c25; color: #e9eef6; }
+    .prop .srow { display: flex; align-items: center; gap: 9px; padding: 5px 10px; border-radius: 8px; font-size: 12.5px; color: #aeb8c6; white-space: nowrap; overflow: hidden; }
+    .prop .srow.on { background: #161c25; color: #e9eef6; }
+    .prop .dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+    .prop .pill { display: inline-flex; align-items: center; gap: 5px; background: #161c25; border-radius: 999px; padding: 4px 11px; font-size: 12px; color: #aeb8c6; }
+    .prop .cchip { font-family: "SF Mono", ui-monospace, Menlo, monospace; background: #161c25; border-radius: 5px; padding: 1px 6px; font-size: 12px; color: #7dcfff; }
+    .prop .fold { display: inline-flex; align-items: center; gap: 8px; background: #11151b; border: 1px solid rgba(255,255,255,.06); border-radius: 9px; padding: 6px 12px; font-size: 12.5px; color: #aeb8c6; }
+    .prop .meter { height: 4px; border-radius: 999px; background: #161c25; overflow: hidden; }
+    .prop .meter i { display: block; height: 100%; border-radius: 999px; background: #7aa2f7; }
+    .prop .iconbtn { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #7a8698; }
+  </style>
+</helmet>
+<div class="prop" style="width: 1240px; height: 820px; background: #07090d; color: #d7dde6; display: flex; flex-direction: column; overflow: hidden">
+  <div style="display: flex; align-items: center; gap: 8px; padding: 11px 14px; flex: 0 0 auto">
+    <span class="dot" style="width: 11px; height: 11px; background: #f7768e"></span><span class="dot" style="width: 11px; height: 11px; background: #e0af68"></span><span class="dot" style="width: 11px; height: 11px; background: #9ece6a"></span>
+  </div>
+  <div style="flex: 1; display: flex; min-height: 0">
+    <!-- rail: um tom ABAIXO da página; sem borda dura -->
+    <div style="width: 256px; flex: 0 0 auto; padding: 2px 12px 12px; display: flex; flex-direction: column; gap: 2px">
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 2px 10px 10px">
+        <span style="font-size: 13px; font-weight: 600; color: #e9eef6">workspace-fabrica</span>
+        <svg class="ic" style="color: #7a8698" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      </div>
+      <div class="navrow"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="16" rx="1.5"/><rect x="13" y="4" width="7" height="9" rx="1.5"/></svg>Board</div>
+      <div class="navrow"><svg class="ic" viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.6 0-3.1-.4-4.4-1.2L3 20l1.2-5.1A8.5 8.5 0 1 1 21 11.5z"/></svg>Chat do hark</div>
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 10px 6px">
+        <span style="font-size: 11px; font-weight: 500; color: #7a8698">Chats · 45</span>
+        <svg class="ic" style="color: #7a8698; width: 14px; height: 14px" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 1px; min-height: 0; overflow: hidden">
+        <div class="srow on"><span class="dot" style="background: #9ece6a"></span>Migração Pagamentos retomada</div>
+        <div class="srow"><span class="dot" style="background: #9ece6a"></span>Migração Assinaturas</div>
+        <div class="srow"><span class="dot" style="background: #7aa2f7"></span>Alertas do cluster migração</div>
+        <div class="srow"><span class="dot" style="background: rgba(255,255,255,.18)"></span>pin vigia chart last version</div>
+        <div class="srow"><span class="dot" style="background: rgba(255,255,255,.18)"></span>Render Manifest em PROD</div>
+        <div class="srow"><span class="dot" style="background: #7aa2f7"></span>Nuvem Lite infraestrutura</div>
+        <div class="srow"><span class="dot" style="background: #7aa2f7"></span>Oncall SRE/EngProd</div>
+        <div class="srow"><span class="dot" style="background: rgba(255,255,255,.18)"></span>Padrão de alertas com playbooks</div>
+        <div class="srow"><span class="dot" style="background: rgba(255,255,255,.18)"></span>Daily Async</div>
+        <div class="srow"><span class="dot" style="background: rgba(255,255,255,.18)"></span>Levantamento de clusters antigos</div>
+        <div class="srow"><span class="dot" style="background: #9ece6a"></span>Carregue todos os chats do Cla…</div>
+      </div>
+      <div style="flex: 1"></div>
+      <div class="navrow" style="color: #7a8698"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>projeto</div>
+    </div>
+    <!-- página do chat: um tom ACIMA do rail -->
+    <div style="flex: 1; min-width: 0; display: flex; background: #0b0e12; border-radius: 12px 0 0 0; border: 1px solid rgba(255,255,255,.06); border-right: none; border-bottom: none; overflow: hidden">
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+        <!-- titlebar do chat -->
+        <div style="display: flex; align-items: center; gap: 10px; padding: 12px 24px; flex: 0 0 auto">
+          <span style="font-size: 13.5px; font-weight: 600; color: #e9eef6">Migração Pagamentos retomada</span>
+          <span style="font-size: 11.5px; color: #7a8698">7 turnos</span>
+          <div style="flex: 1"></div>
+          <span class="pill"><span class="mono" style="font-size: 11.5px; color: #d7dde6">$0.80</span></span>
+          <span class="pill"><svg style="width: 13px; height: 13px" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="#161c25" stroke-width="2.6"/><path d="M8 2a6 6 0 0 1 5.6 3.9" fill="none" stroke="#7aa2f7" stroke-width="2.6" stroke-linecap="round"/></svg>46%</span>
+          <span class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M5 8l4 4-4 4"/><path d="M12 17h7"/></svg></span>
+        </div>
+        <!-- transcript -->
+        <div style="flex: 1; min-height: 0; overflow: hidden; padding: 6px 24px 0; display: flex; flex-direction: column; gap: 14px; max-width: 720px">
+          <div>
+            <div style="font-size: 11px; color: #7a8698; margin-bottom: 4px">você · 21:07</div>
+            <div style="font-size: 14px; line-height: 1.6; color: #e9eef6">verifica as edições do docs-keeper antes de fechar</div>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: #7a8698; margin-bottom: 6px">hark</div>
+            <div class="fold"><svg class="ic" style="width: 13px; height: 13px" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>Usou 2 ferramentas · leu <span class="mono" style="color: #7dcfff; font-size: 12px">CLAUDE.md</span><span class="mono" style="font-size: 11.5px"><span style="color: #9ece6a">+98</span> <span style="color: #f7768e">−12</span></span></div>
+            <p style="margin: 12px 0 0; font-size: 14px; line-height: 1.65">Verificado, tudo consistente. As 10 lições viraram <span class="cchip">32.1</span> a <span class="cchip">32.10</span> no <span class="cchip">migration-lessons.md</span>, e os padrões reutilizáveis foram distribuídos nas seções certas em vez de amontoados num bloco só.</p>
+            <p style="margin: 10px 0 0; font-size: 14px; line-height: 1.65"><b style="color: #e9eef6">Dois docs estouraram de tamanho.</b> O <span class="cchip">current-work.md</span> está com 1104 linhas (orçamento ~400) — arquivamento de trimestre não é coisa pra fazer de carona numa atualização pontual.</p>
+          </div>
+          <!-- card /usage: sans nos rótulos, mono só nos valores -->
+          <div style="background: #11151b; border: 1px solid rgba(255,255,255,.06); border-radius: 12px; padding: 14px 16px; width: 420px">
+            <div style="display: flex; align-items: center; margin-bottom: 12px">
+              <span style="font-size: 12.5px; font-weight: 600; color: #e9eef6">Uso desta sessão</span>
+              <div style="flex: 1"></div>
+              <span style="font-size: 11px; color: #7a8698">24h</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 7px">
+              <span style="font-size: 12px; color: #aeb8c6; width: 96px">Limite de 5 h</span>
+              <div class="meter" style="flex: 1"><i style="width: 15%"></i></div>
+              <span class="mono" style="font-size: 11px; color: #d7dde6">15%</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px">
+              <span style="font-size: 12px; color: #aeb8c6; width: 96px">Semana</span>
+              <div class="meter" style="flex: 1"><i style="width: 59%"></i></div>
+              <span class="mono" style="font-size: 11px; color: #d7dde6">59%</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.06)">
+              <span style="font-size: 12px; color: #aeb8c6">Custo <span class="mono" style="color: #d7dde6">$0.80</span></span>
+              <span style="font-size: 12px; color: #aeb8c6">Cache <span class="mono" style="color: #d7dde6">97%</span></span>
+              <span style="font-size: 12px; color: #7aa2f7">detalhar</span>
+            </div>
+          </div>
+        </div>
+        <!-- composer: um cartão só, controles dentro -->
+        <div style="flex: 0 0 auto; padding: 14px 24px 16px">
+          <div style="background: #11151b; border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 12px 14px 10px">
+            <div style="font-size: 13.5px; color: #7a8698; padding: 2px 2px 12px">Enter manda pra esta task · "hark, …" fala com o hark</div>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span class="pill">Manual <svg class="ic" style="width: 11px; height: 11px" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+              <span class="pill">auto <svg class="ic" style="width: 11px; height: 11px" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+              <div style="flex: 1"></div>
+              <span class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/></svg></span>
+              <span class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M5 8l4 4-4 4"/><path d="M12 17h7"/></svg></span>
+              <span class="iconbtn"><svg class="ic" viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4H4z"/><path d="M16.5 9.5a4 4 0 0 1 0 5"/></svg></span>
+              <span style="width: 32px; height: 32px; border-radius: 50%; background: #161c25; display: flex; align-items: center; justify-content: center; color: #d7dde6"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></svg></span>
+              <span style="width: 32px; height: 32px; border-radius: 50%; background: #7aa2f7; display: flex; align-items: center; justify-content: center; color: #0b0e12"><svg class="ic" style="stroke-width: 2" viewBox="0 0 24 24"><path d="M12 19V6M6 12l6-6 6 6"/></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- terminal: corpo segue mono; só o chrome vira sans -->
+      <div style="width: 300px; flex: 0 0 auto; border-left: 1px solid rgba(255,255,255,.06); background: #07090d; display: flex; flex-direction: column">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-size: 12px; color: #7a8698">
+          <span style="font-weight: 500; color: #aeb8c6">Terminal</span>
+          <span style="background: #161c25; border-radius: 6px; padding: 3px 9px; color: #e9eef6">zsh 1</span>
+          <svg class="ic" style="width: 13px; height: 13px" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          <div style="flex: 1"></div>
+          <span style="color: #7aa2f7; font-size: 11.5px">retomar sessão</span>
+        </div>
+        <div class="mono" style="flex: 1; padding: 10px 12px; font-size: 11px; line-height: 1.7">
+          <div><span style="color: #9ece6a">workspace-fabrica</span> on <span style="color: #7aa2f7">main [$!?]</span></div>
+          <div>on <span style="color: #7dcfff">☁ dev@acme.example</span></div>
+          <div><span style="color: #9ece6a">❯</span> <span style="background: #d7dde6; color: #07090d">&nbsp;</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
