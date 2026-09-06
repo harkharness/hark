@@ -36,8 +36,13 @@ jobs:
           node-version: 22
           cache: npm
 
+      # PINNED, not @stable: a floating toolchain turned every new rust
+      # release with new clippy lints into a red push (1.98 broke 6 in a
+      # row, 09/2026). Bump this deliberately, fixing new lints in the
+      # same commit.
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: "1.98.0"
           components: clippy
 
       - uses: swatinem/rust-cache@v2

@@ -27,7 +27,7 @@ pub fn terminal_owners(live: &[LiveSession], ours: &[String]) -> Vec<Owner> {
         .filter(|s| s.kind.as_deref() == Some("interactive"))
         .filter_map(|s| {
             let id = s.session_id.clone()?;
-            (!ours.iter().any(|m| *m == id)).then(|| Owner {
+            (!ours.contains(&id)).then(|| Owner {
                 session_id: id,
                 name: s.name.clone(),
                 cwd: s.cwd.clone(),

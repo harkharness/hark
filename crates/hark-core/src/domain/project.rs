@@ -163,7 +163,7 @@ pub fn dirs_matching_speech(utterance: &str, dirs: &[&str]) -> Vec<String> {
             (count > 0).then(|| (count, dir.to_string()))
         })
         .collect();
-    hits.sort_by(|a, b| b.0.cmp(&a.0));
+    hits.sort_by_key(|&(count, _)| std::cmp::Reverse(count));
     hits.into_iter().map(|(_, d)| d).collect()
 }
 
