@@ -204,7 +204,7 @@ body {
    breathing bars — presence, not a dead mic button. Pure CSS; the state
    animations (listening/speaking/busy) still take over below. */
 .mother-orb {
-  position: relative; width: 150px; height: 150px; border-radius: 50%;
+  position: relative; width: 132px; height: 132px; border-radius: 50%;
   /* A flex column under height pressure squashes items along the main
      axis: the circle became an ellipse on short windows. Never shrink —
      the media steps below resize it INSTEAD, keeping it round. */
@@ -213,8 +213,8 @@ body {
   background: radial-gradient(circle at 32% 28%, #171d29 0%, #0d1117 68%);
 }
 @media (max-height: 760px) {
-  .mother-orb { width: 118px; height: 118px; }
-  .mother-orb::before { inset: -32px; }
+  .mother-orb { width: 112px; height: 112px; }
+  .mother-orb::before { inset: -24px; }
 }
 @media (max-height: 620px) {
   .mother-orb { width: 92px; height: 92px; }
@@ -222,9 +222,9 @@ body {
   .mother-orb .orb-bar { width: 4px; }
 }
 .mother-orb::before {
-  content: ""; position: absolute; inset: -46px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(122,162,247,.26) 0%, rgba(187,154,247,.11) 42%, transparent 70%);
-  filter: blur(18px); animation: orb-glow 5s ease-in-out infinite;
+  content: ""; position: absolute; inset: -30px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(122,162,247,.18) 0%, rgba(187,154,247,.08) 42%, transparent 70%);
+  filter: blur(16px); animation: orb-glow 5s ease-in-out infinite;
   pointer-events: none; z-index: -1;
 }
 .mother-orb::after {
@@ -1096,12 +1096,12 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 /* "resume session": pastes, never runs. Spent once the session is live. */
 .term-resume {
   display: inline-flex; align-items: center; gap: 5px; margin-left: auto;
-  background: none; border: 1px solid var(--accent); border-radius: 6px;
-  color: var(--accent); font: inherit; font-size: 10.5px; padding: 3px 8px; cursor: pointer;
+  background: rgba(122,162,247,.1); border: none; border-radius: 999px;
+  color: var(--accent); font: inherit; font-size: 10.5px; padding: 3px 10px; cursor: pointer;
 }
-.term-resume:hover { background: rgba(122,162,247,.12); }
+.term-resume:hover { background: rgba(122,162,247,.18); }
 .term-resume.spent {
-  border-color: var(--border); color: var(--dim); opacity: .5; cursor: default;
+  background: var(--panel-2); color: var(--dim); opacity: .6; cursor: default;
 }
 /* Mother tools: panels beside the chat; the terminal toggle lives in the
    chat header next to "recolher" and lights up while open. */
@@ -1314,6 +1314,17 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .inputbar-row {
   display: flex; align-items: center; gap: 8px; min-height: 30px;
+}
+/* Inside the card: slim row under the textarea, one surface for both. */
+.composer .inputbar-row { padding: 2px 10px 9px; }
+/* The focused thread's name over the prose — reads like a document title. */
+.chat-title-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  padding: 12px clamp(22px, 7vw, 110px) 0; min-width: 0;
+}
+.chat-title {
+  color: var(--text-strong); font-size: 13px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .inputbar-chips {
   flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px;
@@ -1646,10 +1657,10 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   display: flex; align-items: center; justify-content: center; z-index: 10;
 }
 .modal {
-  background: var(--panel); border: 1px solid var(--warn); border-radius: 10px;
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: 12px;
   padding: 18px; width: min(640px, 90vw);
 }
-.modal h2 { color: var(--warn); font-size: 14px; margin-bottom: 10px; }
+.modal h2 { color: var(--text-strong); font-size: 14px; font-weight: 600; margin-bottom: 10px; }
 .modal pre {
   background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
   padding: 10px; white-space: pre-wrap; word-break: break-all;
@@ -1657,7 +1668,8 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .modal .row { display: flex; gap: 10px; justify-content: flex-end; }
 .gate-warning {
-  color: var(--warn); border: 1px solid var(--warn); border-radius: 6px;
+  color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  border-radius: 8px;
   background: rgba(224,175,104,.08); padding: 8px 10px; margin-bottom: 10px;
   font-size: 12px;
 }

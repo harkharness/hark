@@ -480,8 +480,9 @@ export default function Composer({
           disabled={disabled}
         />
         </div>
-      </div>
-      <div className="inputbar-row">
+        {/* Controls live INSIDE the card (Claude Code grammar): one
+            surface holds the text and its row of pills and circles. */}
+        <div className="inputbar-row">
         <div className="inputbar-chips">{children}</div>
         {trailing}
         <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title={t("speak_btn")}>
@@ -490,6 +491,7 @@ export default function Composer({
         <button className="send" onClick={send} disabled={disabled} title={t("send_btn")}>
           <SendHorizontal size={15} />
         </button>
+        </div>
       </div>
     </div>
   );

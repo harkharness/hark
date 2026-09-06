@@ -2320,6 +2320,13 @@ export default function App({
           <PanelResizeHandle className="rhandle" />
           <Panel minSize={30} className="pane">
             <div className="maincol">
+              {/* The thread says what it is: a slim title over the prose,
+                  like the Claude Code app — controls stay on the composer. */}
+              {!reading && focusedTask && visibleMessages.length > 0 && (
+                <div className="chat-title-head">
+                  <span className="chat-title">{focusedTask.title}</span>
+                </div>
+              )}
               {reading ? (
                 <Reader
                   sessionId={reading.sessionId}
