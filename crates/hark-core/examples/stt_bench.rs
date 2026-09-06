@@ -14,9 +14,10 @@ fn read_wav_16k_mono_i16(path: &str) -> Vec<f32> {
         let size = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().unwrap()) as usize;
         if id == b"data" {
             let data = &bytes[pos + 8..pos + 8 + size.min(bytes.len() - pos - 8)];
-            return data
-                .chunks_exact(2)
-                .map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 / 32768.0)
+            let (pairs, _) = data.as_chunks::<2>();
+            return pairs
+                .iter()
+                .map(|b| i16::from_le_bytes(*b) as f32 / 32768.0)
                 .collect();
         }
         pos += 8 + size + (size & 1);
