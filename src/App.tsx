@@ -29,6 +29,7 @@ import TurnStatus, { type TurnState } from "./components/TurnStatus";
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import { useRepoStates } from "./hooks/useRepoStates";
 import RepoRuler from "./components/RepoRuler";
+import { ContextRing } from "./components/Meter";
 import { agentError, askReplyMsg, isAuthError } from "./lib/format";
 import * as ipc from "./lib/ipc";
 import type {
@@ -670,15 +671,11 @@ export default function App({
   // plus this window's project as the fallback.
   const focusedWorkspace =
     board.find((t) => t.title === focusedTask?.title)?.workspace || activeProject?.path || "";
-  const repoStates = useRepoStates([
-    ...board.map((t) => t.workspace ?? ""),
-    focusedWorkspace,
-  ]);
+  // One repository, one readout. Tasks in a project overwhelmingly share
+  // the SAME working tree, so a per-row chip repeated the identical number
+  // down the whole sidebar — noise, not news. The ruler says it once.
+  const repoStates = useRepoStates(focusedWorkspace ? [focusedWorkspace] : []);
   const focusedRepo = repoStates[focusedWorkspace];
-  const repoFor = useCallback(
-    (task: BoardTask) => (task.workspace ? repoStates[task.workspace] : undefined),
-    [repoStates],
-  );
 
   const directivesFor = useCallback(
     (taskLabel?: string): Directives | undefined =>
@@ -2328,7 +2325,6 @@ export default function App({
                   refresh();
                 })
               }
-              repoFor={repoFor}
               onOpenFiles={(p) => {
                 setFilesInitialProject(p.path);
                 ensureRail("arquivos");
@@ -2343,6 +2339,14 @@ export default function App({
               {!reading && focusedTask && visibleMessages.length > 0 && (
                 <div className="chat-title-head">
                   <span className="chat-title">{focusedTask.title}</span>
+                  <span className="chat-turns">
+                    {t("n_turns_of", { n: visibleMessages.filter((m) => m.who === "user").length })}
+                  </span>
+                  <span className="chat-head-gap" />
+                  {/* Both numbers are already in memory — no query per render. */}
+                  {focused && liveWorkers[focused]?.context_pct != null && (
+                    <ContextRing used={liveWorkers[focused]!.context_pct!} />
+                  )}
                 </div>
               )}
               {reading ? (

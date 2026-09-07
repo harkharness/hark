@@ -29,6 +29,28 @@ export function toolLabel(name: string): { label: string; mcp: boolean } {
   return { label: `${server} · ${tool}`, mcp: true };
 }
 
+/** Lines this call adds and removes, when the payload says so. The
+ *  canvas asked the fold to carry it: "Usou 2 ferramentas · leu X +98 −12"
+ *  tells you the size of what happened without opening anything. */
+function diffStat(input: Record<string, unknown>): { add: number; del: number } | null {
+  const lines = (v: unknown) => (typeof v === "string" && v !== "" ? v.split("\n").length : 0);
+  const edits = Array.isArray(input.edits) ? (input.edits as Record<string, unknown>[]) : null;
+  if (edits) {
+    return edits.reduce<{ add: number; del: number }>(
+      (acc, e) => ({ add: acc.add + lines(e.new_string), del: acc.del + lines(e.old_string) }),
+      { add: 0, del: 0 },
+    );
+  }
+  if (typeof input.old_string === "string" || typeof input.new_string === "string") {
+    return { add: lines(input.new_string), del: lines(input.old_string) };
+  }
+  // A Write replaces the file: every line is an addition.
+  if (typeof input.content === "string" && typeof input.file_path === "string") {
+    return { add: lines(input.content), del: 0 };
+  }
+  return null;
+}
+
 /** One-line human hint for a tool call (permission lines reuse it). */
 export function toolHint(name: string, input: string): string {
   let parsed: Record<string, unknown> = {};
@@ -227,6 +249,13 @@ export default function ToolCall({
 
   if ("card" in rendered) return <>{rendered.card}</>;
   const { label, hint, body } = rendered;
+  const stat = diffStat(parsed);
+  const statEl = stat && (stat.add > 0 || stat.del > 0) && (
+    <span className="tool-stat">
+      {stat.add > 0 && <span className="add">+{stat.add}</span>}
+      {stat.del > 0 && <span className="del">−{stat.del}</span>}
+    </span>
+  );
   const pretty = toolLabel(label);
   const nameEl = (
     <>
@@ -255,6 +284,7 @@ export default function ToolCall({
       <div className="toolcall inline">
         {nameEl}
         <span className="tool-hint">{hint}</span>
+        {statEl}
       </div>
     );
   }
@@ -267,6 +297,7 @@ export default function ToolCall({
       <summary>
         {nameEl}
         <span className="tool-hint">{hint}</span>
+        {statEl}
         {tick}
       </summary>
       <div className="tool-body">

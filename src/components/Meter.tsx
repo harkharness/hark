@@ -150,3 +150,30 @@ export function Gauge({
     </div>
   );
 }
+
+/** The context window as a 14px ring — the smallest honest form of a
+ *  percentage, for a title bar where a labelled bar would shout. */
+export function ContextRing({ used }: { used: number }) {
+  const tone = used >= 0.9 ? "var(--err)" : used >= 0.7 ? "var(--warn)" : "var(--accent)";
+  const r = 6;
+  const circumference = 2 * Math.PI * r;
+  return (
+    <span className="ctx-ring" title={`janela de contexto · ${Math.round(used * 100)}%`}>
+      <svg width="14" height="14" viewBox="0 0 16 16">
+        <circle cx="8" cy="8" r={r} fill="none" stroke="var(--panel-2)" strokeWidth="2.6" />
+        <circle
+          cx="8"
+          cy="8"
+          r={r}
+          fill="none"
+          stroke={tone}
+          strokeWidth="2.6"
+          strokeLinecap="round"
+          strokeDasharray={`${used * circumference} ${circumference}`}
+          transform="rotate(-90 8 8)"
+        />
+      </svg>
+      {Math.round(used * 100)}%
+    </span>
+  );
+}
