@@ -151,8 +151,9 @@ export function Gauge({
   );
 }
 
-/** The context window as a 14px ring — the smallest honest form of a
- *  percentage, for a title bar where a labelled bar would shout. */
+/** The context window as a 14px ring plus its number. Inline content,
+ *  not a pill of its own: it rides INSIDE the cost button so one control
+ *  carries both readings of "how much has this thread spent". */
 export function ContextRing({ used }: { used: number }) {
   const tone = used >= 0.9 ? "var(--err)" : used >= 0.7 ? "var(--warn)" : "var(--accent)";
   const r = 6;

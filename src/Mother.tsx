@@ -1095,6 +1095,7 @@ export default function Mother() {
           onClick={() => setScopeInfo((v) => !v)}
         >
           ${chatCost.toFixed(2)}
+          {chatCtx != null && <ContextRing used={chatCtx} />}
         </button>
         {scopeInfo && (
           <SessionInfo
@@ -1106,7 +1107,6 @@ export default function Mother() {
           />
         )}
       </div>
-      {chatCtx != null && <ContextRing used={chatCtx} />}
       <button
         className={`chat-head-btn ${termOpen && chatExpanded ? "on" : ""}`}
         title={t("mo_term")}

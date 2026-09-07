@@ -1386,13 +1386,20 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .chat-turns { color: var(--dim); font-size: 11.5px; flex: 0 0 auto; }
 /* The cost IS the button that opens the breakdown — one control, not a
    pill up here and a wallet icon down on the composer row. */
+/* Cost and context in ONE control: two readings of the same question,
+   and the same click opens the breakdown that details both. */
 .chat-spend {
-  flex: 0 0 auto; background: var(--panel-2); border: none; border-radius: 999px;
-  padding: 4px 11px; font-family: var(--font-mono); font-size: 11.5px;
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 9px;
+  background: var(--panel-2); border: none; border-radius: 999px;
+  padding: 4px 12px; font-family: var(--font-mono); font-size: 11.5px;
   color: var(--text); font-variant-numeric: tabular-nums; cursor: pointer;
 }
 .chat-spend:hover { filter: brightness(1.15); }
 .chat-spend.on { color: var(--accent); }
+/* A hairline between them, so they read as two facts, not one number. */
+.chat-spend .ctx-ring {
+  padding-left: 9px; border-left: 1px solid var(--border-strong);
+}
 /* Window toggles that belong to the thread, not to the message. */
 .chat-head-btn {
   flex: 0 0 auto; background: none; border: none; border-radius: 7px;
@@ -1404,7 +1411,6 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .chat-head-gap { flex: 1; }
 .ctx-ring {
   display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
-  background: var(--panel-2); border-radius: 999px; padding: 3px 10px 3px 7px;
   font-size: 11.5px; color: var(--text); font-variant-numeric: tabular-nums;
 }
 .inputbar-chips {

@@ -2340,6 +2340,11 @@ export default function App({
                       onClick={() => setScopeInfo((v) => !v)}
                     >
                       ${(costs[focusedTask?.title ?? ""] ?? 0).toFixed(2)}
+                      {/* The context rides in the same pill: one click,
+                          one popover, both facts about this thread. */}
+                      {focused && liveWorkers[focused]?.context_pct != null && (
+                        <ContextRing used={liveWorkers[focused]!.context_pct!} />
+                      )}
                     </button>
                     {scopeInfo && (
                       <SessionInfo
@@ -2364,9 +2369,6 @@ export default function App({
                       />
                     )}
                   </div>
-                  {focused && liveWorkers[focused]?.context_pct != null && (
-                    <ContextRing used={liveWorkers[focused]!.context_pct!} />
-                  )}
                   <button
                     className={`chat-head-btn ${railHas("terminal") ? "on" : ""}`}
                     title={t("terminal_btn")}
