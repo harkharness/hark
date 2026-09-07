@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    .kb { font-family: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif; font-size: 13px; }
+    .kb .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+    .kb .col { background: #11151b; border: 1px solid rgba(255,255,255,.07); border-radius: 12px; padding: 12px; min-width: 0; overflow: hidden; }
+    .kb .col h3 { font-size: 12px; font-weight: 600; margin: 0 0 10px; }
+    .kb .card { background: #0b0e12; border: 1px solid rgba(255,255,255,.07); border-radius: 8px; padding: 10px; margin-bottom: 8px; border-left: 3px solid var(--col); }
+    .kb .t { line-height: 1.35; word-break: break-word; }
+    .kb .note { color: #7a8698; font-size: 12px; margin-top: 6px; word-break: break-word; }
+    .kb .meta { color: #7a8698; font-size: 10px; margin-top: 8px; opacity: .7; font-family: "SF Mono", ui-monospace, Menlo, monospace; word-break: break-all; }
+    .kb .subs { color: #7aa2f7; font-size: 11px; margin-top: 6px; word-break: break-word; }
+  </style>
+</helmet>
+<div class="kb" style="width: 560px; height: 760px; background: #0b0e12; color: #d7dde6; display: flex; flex-direction: column; overflow: hidden">
+  <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; color: #aeb8c6; font-size: 12px; font-weight: 500">
+    <span>Board</span>
+    <div style="flex: 1"></div>
+    <span style="color: #7a8698">⌄ ⤢ ✕</span>
+  </div>
+  <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 10px; overflow: hidden">
+    <div class="col" style="--col: #7a8698">
+      <h3 style="color: #7a8698">backlog <span style="opacity: .6; font-weight: 400">0</span></h3>
+    </div>
+    <div class="col" style="--col: #e0af68">
+      <h3 style="color: #e0af68">fazendo <span style="opacity: .6; font-weight: 400">10</span></h3>
+      <div class="card">
+        <div class="t">Migração Pagamentos retomada</div>
+        <div class="note">decisão: manter host antigo core.sign. sem abrir PR</div>
+        <div class="subs">☑ 3/7 passos do plano</div>
+        <div class="meta">2026-08-31 01:18 · 1 sessão(ões)</div>
+      </div>
+      <div class="card">
+        <div class="t">Migração Assinaturas</div>
+        <div class="note">rascunho gerado só no chat, não salvo em arquivo; falta template e acesso ao Slack</div>
+        <div class="subs">☑ 1/5 passos do plano</div>
+      </div>
+    </div>
+    <div class="col" style="--col: #7aa2f7">
+      <h3 style="color: #7aa2f7">esperando <span style="opacity: .6; font-weight: 400">0</span></h3>
+    </div>
+    <div class="col" style="--col: #9ece6a">
+      <h3 style="color: #9ece6a">feito <span style="opacity: .6; font-weight: 400">5</span></h3>
+      <div class="card">
+        <div class="t">Carregue todos os chats do Claude Code aqui no VOX</div>
+        <div class="note">Índice tem 127 chats; sidebar usa store diferente (tasks do board) — decidir abordagem</div>
+        <div class="subs">☑ 3/3 passos do plano</div>
+        <div class="meta">2026-08-31 01:19 · 1 sessão(ões)</div>
+      </div>
+      <div class="card">
+        <div class="t">Gladius: Hydrator e outras features</div>
+        <div class="note">19 arquivos</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

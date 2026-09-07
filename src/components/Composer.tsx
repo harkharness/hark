@@ -141,9 +141,15 @@ export default function Composer({
         return;
       }
       const r = seg.getBoundingClientRect();
+      // The fence lines keep their full line height — they are real text
+      // the caret walks through — but the BOX need not claim them: it
+      // pulls in half a line at each end, so what is left of the fence
+      // reads as the block's own breathing room instead of padding the
+      // box out to three lines for one line of code.
+      const inset = Math.min(10, r.height / 4);
       box.style.display = "block";
-      box.style.top = `${r.top - mr.top + m.scrollTop - 3}px`;
-      box.style.height = `${r.height + 6}px`;
+      box.style.top = `${r.top - mr.top + m.scrollTop + inset}px`;
+      box.style.height = `${r.height - inset * 2}px`;
     });
   }
 

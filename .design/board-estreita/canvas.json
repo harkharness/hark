@@ -1,0 +1,17 @@
+{
+  "artboards": [
+    { "file": "Hoje.dc.html", "x": 0, "y": 0, "w": 560, "h": 760, "title": "Hoje · painel estreito" },
+    { "file": "Main.dc.html", "x": 680, "y": 0, "w": 560, "h": 760, "title": "Lista agrupada (recomendada)" },
+    { "file": "Colunas.dc.html", "x": 1360, "y": 0, "w": 560, "h": 760, "title": "Colunas roláveis (alternativa)" },
+    { "file": "Larga.dc.html", "x": 0, "y": 900, "w": 1180, "h": 620, "title": "Mesma board, aba da mãe" },
+    { "file": "Bloco.dc.html", "x": 1360, "y": 900, "w": 620, "h": 470, "title": "Caixa do bloco menor" }
+  ],
+  "annotations": [
+    { "id": "tese", "x": 0, "y": -190, "w": 620, "text": "A board não é responsiva: são quatro colunas 1fr fixas, então num painel de 560px cada uma fica com ~90px e o título quebra letra a letra.\nA correção é o mesmo componente mudar de forma pela LARGURA DO CONTÊINER — kanban quando cabe, outra coisa quando não cabe. Duas saídas ao lado; a de baixo mostra que a aba da mãe não muda." },
+    { "id": "nota-lista", "x": 680, "y": -110, "w": 560, "text": "Lista agrupada: cada status vira um cabeçalho, o card ocupa a largura toda e o texto respira. Feito e backlog nascem colapsados — histórico não disputa espaço com trabalho vivo. Custo: perde o lado-a-lado; arrastar passa a soltar sobre o cabeçalho do grupo." },
+    { "id": "nota-colunas", "x": 1360, "y": -110, "w": 560, "text": "Colunas roláveis: mantém o kanban intacto, com largura mínima de 208px e rolagem lateral; colunas vazias encolhem. Custo: rolar de lado num painel estreito é chato, e você nunca vê as quatro de uma vez." },
+    { "id": "nota-larga", "x": -360, "y": 900, "w": 320, "text": "Nada disso troca a board da janela mãe: acima de ~760px de contêiner as quatro colunas voltam, agora com barra de progresso do plano e etiqueta de projeto no lugar do carimbo de data em mono." },
+    { "id": "nota-card", "x": 1240, "y": 1420, "w": 300, "text": "O card também emagreceu: título com no máximo 2 linhas, nota em 1, e o rodapé troca '☑ 3/7 passos do plano' + timestamp cru por uma barrinha 3/7 e a data curta." }
+  ],
+  "launch": { "view": "canvas" }
+}

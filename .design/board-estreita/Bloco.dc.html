@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    .bl { font-family: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif; font-size: 13px; line-height: 1.5; }
+    .bl .card { background: #11151b; border: 1px solid rgba(255,255,255,.07); border-radius: 14px; }
+    .bl .field { position: relative; padding: 10px 14px; white-space: pre-wrap; }
+    .bl .box { position: absolute; left: 8px; right: 8px; background: #161c25; border-radius: 8px; }
+    .bl .invis { color: transparent; }
+    .bl .code { color: #d7dde6; }
+    .bl .lbl { color: #566070; font-size: 11px; margin: 0 0 7px 2px; }
+    .bl .ruler { position: absolute; right: -66px; display: flex; align-items: center; gap: 5px; color: #7a8698; font-size: 10px; font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+    .bl .ruler b { display: block; width: 1px; background: #2b3444; }
+  </style>
+</helmet>
+<div class="bl" style="width: 620px; height: 470px; background: #0b0e12; color: #d7dde6; padding: 20px 22px; overflow: hidden">
+  <div style="font-size: 13.5px; font-weight: 600; color: #e9eef6; margin-bottom: 16px">A caixa do bloco: o vazio das cercas vira padding</div>
+
+  <div class="lbl">hoje — a caixa cobre as três linhas inteiras (~64 px para uma linha de código)</div>
+  <div class="card" style="margin-bottom: 22px">
+    <div class="field">
+      <!-- box spans the full fence segment: top -3, height +6 -->
+      <div class="box" style="top: 7px; height: 65px"></div>
+      <div style="position: relative">
+        <span class="invis">```js
+</span><span class="code">const x = "a";
+</span><span class="invis">```</span>
+      </div>
+      <div class="ruler" style="top: 7px; height: 65px; flex-direction: column"><b style="flex:1"></b><span>65</span><b style="flex:1"></b></div>
+    </div>
+  </div>
+
+  <div class="lbl">proposta — a caixa recua meia linha de cada lado (~39 px, mesmo texto)</div>
+  <div class="card">
+    <div class="field">
+      <!-- same segment, box inset by ~10px top and bottom -->
+      <div class="box" style="top: 20px; height: 39px"></div>
+      <div style="position: relative">
+        <span class="invis">```js
+</span><span class="code">const x = "a";
+</span><span class="invis">```</span>
+      </div>
+      <div class="ruler" style="top: 20px; height: 39px; flex-direction: column"><b style="flex:1"></b><span>39</span><b style="flex:1"></b></div>
+    </div>
+  </div>
+
+  <div style="color: #7a8698; font-size: 12px; line-height: 1.6; margin-top: 22px">
+    As linhas <span style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; color: #aeb8c6">```</span> continuam ocupando altura — elas existem no texto e o caret anda por elas, então não dá para encolhê-las sem soltar o caret das letras. O que dá é a caixa não reivindicar a linha toda: ela recua ~10 px em cima e embaixo, e o que sobra da cerca lê como o respiro do bloco.
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
