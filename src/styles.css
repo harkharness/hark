@@ -727,6 +727,24 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   padding: 10px 8px;
   height: 100%;
 }
+/* The window's own name, at the top of the rail, with the history
+   search beside it — the mockup's header. */
+.side-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 2px 4px 14px 10px; min-width: 0;
+}
+.side-head-name {
+  flex: 1; min-width: 0; color: var(--text-strong);
+  font-size: 13px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.side-head-btn {
+  flex: 0 0 auto; background: none; border: none; border-radius: 7px;
+  width: 28px; height: 26px; color: var(--dim); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.side-head-btn:hover { color: var(--text); background: rgba(255,255,255,.06); }
+
 .side-group { margin-bottom: 14px; }
 .side-group-head {
   position: relative; display: flex; align-items: center; gap: 6px;
@@ -1901,6 +1919,14 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   outline: none; margin-bottom: 6px;
 }
 .quickopen-list { max-height: 40vh; overflow-y: auto; }
+/* A chat row in the palette: what it is, and how long ago it spoke. */
+.quickopen-list button:has(.pal-title) { display: flex; align-items: baseline; gap: 10px; }
+.pal-title {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pal-when {
+  flex: 0 0 auto; color: var(--dim); font-size: 11px; font-family: var(--font-mono);
+}
 
 /* ---- global voice HUD (frameless, transparent, always on top) ---- */
 .hud-window, .hud-window body, .hud-window #root { background: transparent !important; }

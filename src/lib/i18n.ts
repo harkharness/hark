@@ -71,6 +71,7 @@ const pt = {
   side_archive: "Arquivar",
   side_others: "outros",
   side_chats: "Chats · {n}",
+  palette_chats: "buscar nos {n} chats deste projeto…",
   side_add_project: "+ projeto",
 
   // board
@@ -545,6 +546,7 @@ const en: Record<keyof typeof pt, string> = {
   side_archive: "Archive",
   side_others: "others",
   side_chats: "Chats · {n}",
+  palette_chats: "search the {n} chats in this project…",
   side_add_project: "+ project",
 
   col_backlog: "backlog",

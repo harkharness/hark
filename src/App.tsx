@@ -18,6 +18,7 @@ import ModeSelect from "./components/ModeSelect";
 import ModelSelect, { type ModelTiers } from "./components/ModelSelect";
 import PanelFrame from "./components/PanelFrame";
 import QuickOpen from "./components/QuickOpen";
+import ChatPalette from "./components/ChatPalette";
 import Reader from "./components/Reader";
 import SessionInfo from "./components/SessionInfo";
 import Sidebar from "./components/Sidebar";
@@ -117,6 +118,8 @@ export default function App({
   /** Typed window taking the whole work area (menu stays). */
   const [expanded, setExpanded] = useState<RailItem | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
+  /** The history palette (Cmd+K, or the magnifier in the sidebar head). */
+  const [chatPalette, setChatPalette] = useState(false);
   // Standing "sempre permitir" rules: task label → tools auto-approved.
   // Window-scoped by design: closing the window forgets every rule.
   const allowAlways = useRef<Map<string, Set<string>>>(new Map());
@@ -565,6 +568,11 @@ export default function App({
       if ((e.metaKey || e.ctrlKey) && e.key === "p") {
         e.preventDefault();
         setQuickOpen((q) => !q);
+      }
+      // Cmd+P is files; Cmd+K is this project's chat history.
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setChatPalette((q) => !q);
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "b") {
         e.preventDefault();
@@ -2258,6 +2266,8 @@ export default function App({
               liveTitles={Object.values(liveWorkers).map((w) => w.label)}
               onOpen={openTaskFromSidebar}
               onOpenChat={recoverSession}
+              workspaceName={forcedProject?.name}
+              onSearchChats={() => setChatPalette(true)}
               onOpenGeneral={leaveChat}
               generalActive={!focusedTask && !draftChat}
               boardOpen={railHas("board")}
@@ -2560,6 +2570,17 @@ export default function App({
             </>
           )}
         </PanelGroup>
+      )}
+
+      {chatPalette && (
+        <ChatPalette
+          chats={chats}
+          onPick={(chat) => {
+            recoverSession(chat);
+            setChatPalette(false);
+          }}
+          onClose={() => setChatPalette(false)}
+        />
       )}
 
       {quickOpen && (

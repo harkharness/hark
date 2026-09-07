@@ -11,21 +11,6 @@ const DOT: Record<BoardTask["status"], string> = {
 };
 
 /** Accent/case-insensitive haystack ("migração" matches "migracao"). */
-const fold = (s: string) =>
-  s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "");
-
-/** Every typed word must appear in the chat's title or last prompt. */
-function chatMatches(chat: SessionHit, query: string): boolean {
-  const hay = fold(`${chat.title} ${chat.last_prompt ?? ""}`);
-  return fold(query)
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((term) => hay.includes(term));
-}
-
 /**
  * Chats grouped by project, like a session sidebar. Clicking a task loads
  * its context into the chat; each project header can spawn a fresh chat;
@@ -51,11 +36,17 @@ export default function Sidebar({
   onAddProject,
   onRemoveProject,
   onOpenFiles,
+  onSearchChats,
+  workspaceName,
 }: {
   projects: Project[];
   tasks: BoardTask[];
   /** Claude Code history of the project (index), minus adopted sessions. */
   chats?: SessionHit[];
+  /** Open the history palette — the deep search lives there, not here. */
+  onSearchChats?: () => void;
+  /** Shown at the top when the window is scoped to one project. */
+  workspaceName?: string;
   activeTitle?: string;
   liveTitles: string[];
   onOpen: (task: BoardTask) => void;
@@ -85,7 +76,6 @@ export default function Sidebar({
   const [projMenu, setProjMenu] = useState<string | null>(null);
   // The chat search open right now: which project and what was typed.
   // Empty query = the 5 most recent; typing digs through the whole index.
-  const [search, setSearch] = useState<{ path: string; q: string } | null>(null);
 
   // Finished tasks sink to the bottom and vanish after a week (still
   // recoverable by search/voice: "retoma a task do hydrator").
@@ -167,6 +157,22 @@ export default function Sidebar({
 
   return (
     <nav className="sidebar" onMouseLeave={() => { setMenu(null); setProjMenu(null); }}>
+      {workspaceName && (
+        <div className="side-head">
+          <span className="side-head-name" title={workspaceName}>
+            {workspaceName}
+          </span>
+          {onSearchChats && (
+            <button
+              className="side-head-btn"
+              title={t("side_search", { n: chats.length })}
+              onClick={onSearchChats}
+            >
+              <Search size={15} />
+            </button>
+          )}
+        </div>
+      )}
       {onToggleBoard && (
         <button
           className={`side-board ${boardOpen ? "on" : ""}`}
@@ -193,13 +199,8 @@ export default function Sidebar({
         const projChats = chats.filter(
           (c) => c.cwd && (c.cwd === p.path || c.cwd.startsWith(`${p.path}/`)),
         );
-        const query = search?.path === p.path ? search.q : null;
-        const matches =
-          query === null
-            ? []
-            : query.trim() === ""
-              ? projChats.slice(0, 5)
-              : projChats.filter((c) => chatMatches(c, query)).slice(0, 8);
+        // The five most recent, always. Search moved to the palette.
+        const matches = projChats.slice(0, 5);
         return (
           <section key={p.path} className="side-group">
             <div className="side-group-head">
@@ -208,15 +209,6 @@ export default function Sidebar({
                     window title, so the group says what the rows ARE. */}
                 {projects.length === 1 ? t("side_chats", { n: projChats.length }) : p.name}
               </span>
-              <button
-                className="side-group-add"
-                title={t("side_search", { n: projChats.length })}
-                onClick={() =>
-                  setSearch((cur) => (cur?.path === p.path ? null : { path: p.path, q: "" }))
-                }
-              >
-                <Search size={12} />
-              </button>
               <button
                 className="side-group-add"
                 title={t("side_new_chat", { name: p.name })}
@@ -253,51 +245,23 @@ export default function Sidebar({
             )}
             {group.map(item)}
 
-            {projChats.length > 0 && (
-              <div className="side-search" hidden={query === null}>
-                <input
-                  autoFocus
-                  placeholder={t("side_search", { n: projChats.length })}
-                  value={query ?? ""}
-                  onFocus={() => setSearch({ path: p.path, q: query ?? "" })}
-                  // Rows use onMouseDown (fires before blur), so closing
-                  // here never eats the click.
-                  onBlur={() => setSearch(null)}
-                  onChange={(e) => setSearch({ path: p.path, q: e.target.value })}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") (e.target as HTMLInputElement).blur();
-                    if (e.key === "Enter" && matches[0]) {
-                      onOpenChat?.(matches[0]);
-                      (e.target as HTMLInputElement).blur();
-                    }
-                  }}
-                />
-                {query !== null && (
-                  <div className="side-search-drop">
-                    {matches.length === 0 && (
-                      <div className="side-empty">{t("side_no_match")}</div>
-                    )}
-                    {matches.map((c) => (
-                      <button
-                        key={c.session_id}
-                        className="side-chat"
-                        title={c.last_prompt ?? c.title}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          onOpenChat?.(c);
-                          setSearch(null);
-                        }}
-                      >
-                        <span className="side-title">{c.title}</span>
-                        <span className="side-chat-ts">
-                          {c.last_ts ? c.last_ts.slice(5, 10).replace("-", "/") : ""}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* The sidebar shows the RECENT chats; digging through the
+                whole history is the palette's job (the magnifier up top),
+                which gets the window's attention instead of a dropdown
+                inside a 260px rail. */}
+            {matches.map((c) => (
+              <button
+                key={c.session_id}
+                className="side-chat"
+                title={c.last_prompt ?? c.title}
+                onClick={() => onOpenChat?.(c)}
+              >
+                <span className="side-title">{c.title}</span>
+                <span className="side-chat-ts">
+                  {c.last_ts ? c.last_ts.slice(5, 10).replace("-", "/") : ""}
+                </span>
+              </button>
+            ))}
           </section>
         );
       })}
