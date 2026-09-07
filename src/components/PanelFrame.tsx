@@ -53,16 +53,16 @@ export default function PanelFrame({
         <span className="frame-actions" onClick={(e) => e.stopPropagation()}>
           {!collapsed && actions}
           {onToggleCollapse && (
-            <button onClick={onToggleCollapse} title={collapsed ? t("frame_expand") : t("frame_collapse")}>
+            <button className="frame-ctl" onClick={onToggleCollapse} title={collapsed ? t("frame_expand") : t("frame_collapse")}>
               {collapsed ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
             </button>
           )}
           {!collapsed && (
-            <button onClick={onToggleExpand} title={expanded ? t("frame_restore") : t("frame_full")}>
+            <button className="frame-ctl" onClick={onToggleExpand} title={expanded ? t("frame_restore") : t("frame_full")}>
               {expanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
             </button>
           )}
-          <button onClick={onClose} title={t("frame_close_hint")}>
+          <button className="frame-ctl" onClick={onClose} title={t("frame_close_hint")}>
             <X size={13} />
           </button>
         </span>

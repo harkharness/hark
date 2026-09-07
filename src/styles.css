@@ -606,16 +606,28 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   border-radius: 12px; margin: 8px; overflow: hidden;
 }
 .frame-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 14px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px 8px 12px; border-bottom: 1px solid var(--border);
 }
-.frame-title { color: var(--text-strong); font-size: 12px; font-weight: 600; }
-.frame-actions { margin-left: auto; display: flex; gap: 4px; }
-.frame-actions button {
+.frame-title {
+  color: var(--text-strong); font-size: 12px; font-weight: 600; flex: 0 0 auto;
+}
+/* The frame's OWN controls (collapse, expand, close) are a separate
+   cluster from the panel's actions: they were touching, so a "close"
+   sat one pixel from "resume session". */
+.frame-actions {
+  margin-left: auto; display: flex; align-items: center; gap: 2px; flex: 0 0 auto;
+}
+/* ONLY the frame's own icon controls are square. A panel action carries
+   words ("retomar sessão") and a 26px box folded it onto two lines. */
+.frame-actions button.frame-ctl {
   background: none; border: none; color: var(--dim); cursor: pointer;
-  padding: 2px 4px; font: inherit;
+  width: 26px; height: 24px; border-radius: 7px; font: inherit; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
 }
-.frame-actions button:hover { color: var(--text); }
+.frame-actions button.frame-ctl:hover { color: var(--text); background: rgba(255,255,255,.06); }
+/* Whatever the panel put there keeps its distance from that cluster. */
+.frame-actions > :not(.frame-ctl) { margin-right: 8px; flex: 0 0 auto; }
 .frame-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .expanded-area { flex: 1; min-height: 0; display: flex; }
 .expanded-area .frame { flex: 1; }
@@ -683,7 +695,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .term-slot { flex: 1; min-height: 0; display: flex; padding: 4px 6px 6px; }
 .shellterm { flex: 1; min-width: 0; min-height: 0; }
 .shellterm .xterm { height: 100%; }
-.filetab.feedtab { margin-left: auto; opacity: .75; }
+.filetab.feedtab { opacity: .75; }
 
 /* Shell code blocks in the chat: a COMMAND, visibly — prompt glyph,
    accent edge, and the run/insert/copy actions always present (full
@@ -737,8 +749,8 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .side-group { margin-bottom: 14px; }
 .side-group-head {
-  position: relative; display: flex; align-items: center; gap: 4px;
-  padding: 0 8px 4px;
+  position: relative; display: flex; align-items: center; gap: 6px;
+  padding: 14px 8px 6px;
 }
 .side-group-name {
   flex: 1; color: var(--dim); font-size: 11px; font-weight: 500;
@@ -751,21 +763,25 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .side-group-add:hover { color: var(--accent); background: var(--panel-2); }
 .side-group-head .side-menu-btn { opacity: 0; }
 .side-group-head:hover .side-menu-btn { opacity: 1; }
+/* A footer action, not a dropzone: the dashed box read as "drag
+   something here" and shouted louder than the chats above it. */
 .side-add-project {
-  display: block; width: 100%; background: none; border: 1px dashed var(--border);
-  border-radius: 6px; color: var(--dim); font: inherit; font-size: 12px;
-  padding: 6px; cursor: pointer; margin-top: 4px;
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: none; border-radius: 8px;
+  color: var(--dim); font: inherit; font-size: 12.5px;
+  padding: 7px 10px; cursor: pointer; margin-top: 6px; text-align: left;
 }
-.side-add-project:hover { color: var(--accent); border-color: var(--accent); }
+.side-add-project:hover { color: var(--text); background: rgba(255,255,255,.05); }
 .side-empty { color: var(--dim); font-size: 12px; padding: 8px; }
 
 /* Chat search: the project's whole Claude Code history behind one input,
    like `claude --resume` but typed. Focus = 5 most recent; typing digs. */
 .side-search { position: relative; margin-top: 8px; padding: 0 2px; }
+.side-search { margin-top: 10px; }
 .side-search input {
   width: 100%; background: var(--panel); border: 1px solid transparent;
   border-radius: 8px; color: var(--text); font: inherit; font-size: 12px;
-  padding: 6px 9px;
+  padding: 7px 10px;
 }
 .side-search input::placeholder { color: var(--dim); opacity: .8; }
 .side-search input:focus { outline: none; border-color: var(--accent); }
@@ -788,16 +804,22 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .side-chat-ts { flex: 0 0 auto; font-size: 10px; opacity: .6; }
 .side-item {
   position: relative; display: flex; align-items: center;
-  border-radius: 6px; margin-bottom: 1px;
+  border-radius: 8px; margin-bottom: 1px;
 }
 .side-item:hover { background: rgba(255,255,255,.04); }
 .side-item.active { background: rgba(122,162,247,.1); }
 .side-open {
-  flex: 1; display: flex; align-items: center; gap: 7px; min-width: 0;
+  flex: 1; display: flex; align-items: center; gap: 9px; min-width: 0;
   background: none; border: none; color: var(--text); font: inherit;
-  padding: 6px 8px; cursor: pointer; text-align: left;
+  font-size: 12.5px; padding: 7px 10px; cursor: pointer; text-align: left;
 }
-.side-dot { color: var(--dim); font-size: 11px; flex-shrink: 0; }
+/* A 6px disc, not a glyph: the mockup's dot reads as state at a glance
+   and never shifts the title by a hair depending on the character. */
+.side-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto;
+  background: currentColor; color: var(--dim); font-size: 0;
+  overflow: hidden; text-indent: -99px;
+}
 .side-dot.live { color: var(--warn); }
 .side-item.doing .side-dot { color: var(--warn); }
 .side-item.waiting .side-dot { color: var(--accent); }
@@ -1112,7 +1134,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .held-actions button:hover { color: var(--accent); }
 /* "resume session": pastes, never runs. Spent once the session is live. */
 .term-resume {
-  display: inline-flex; align-items: center; gap: 5px; margin-left: auto;
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
   background: rgba(122,162,247,.1); border: none; border-radius: 999px;
   color: var(--accent); font: inherit; font-size: 10.5px; padding: 3px 10px; cursor: pointer;
 }
@@ -1961,7 +1983,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 
 /* Window tabs live in the frame header now — one bar per panel. */
 .frame-tabs {
-  display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 0;
   overflow-x: auto; margin: -4px 0;
 }
 .frame-tabs .filetab { flex: 0 0 auto; }
@@ -1984,7 +2006,13 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .frame-head { cursor: default; user-select: none; }
 .frame-head[draggable="true"] { cursor: grab; }
 .frame-head[draggable="true"]:active { cursor: grabbing; }
-.frame-grip { color: var(--dim); opacity: .55; flex: 0 0 auto; }
+/* Drag affordance on demand: always-on it read as one more icon in a
+   row that already had too many. */
+.frame-grip {
+  color: var(--dim); opacity: 0; flex: 0 0 auto;
+  transition: opacity .12s ease; margin-right: -4px;
+}
+.frame-head:hover .frame-grip { opacity: .5; }
 .frame.collapsed .frame-head { border-bottom: none; }
 .frame.collapsed .frame-title { color: var(--dim); }
 

@@ -1381,6 +1381,14 @@ export default function App({
   /** Open (or re-expand) a rail panel; a 3rd expanded one collapses the
    *  oldest other expanded panel instead of killing anything. */
   function ensureRail(id: RailItem) {
+    // The terminal opens on a REAL shell. It used to land on the feed,
+    // which is a log of the agent's tool calls — and on a fresh thread
+    // that is "(sem eventos ainda)": a dead panel where the user asked
+    // for a prompt. The feed stays a tab, it just stops being the door.
+    if (id === "terminal") {
+      if (shells.length === 0) addShell();
+      else setTermTab((tab) => (tab === "feed" ? shells[0] : tab));
+    }
     setRail((old) => {
       let next = old.some((s) => s.id === id)
         ? old.map((s) => (s.id === id ? { ...s, collapsed: false } : s))
