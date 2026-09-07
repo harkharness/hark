@@ -66,38 +66,39 @@ export default function PluginsPanel({
       {error && <div className="ob-warn">{error}</div>}
 
       {plugins.map((p) => {
-        const usable = p.status === "available" && p.detected;
+        // Runnable TODAY: in the registry, installed, switched on, and
+        // spoken by a plugin whose runtime already exists.
+        const usable = p.detected && p.enabled && p.plugin === "claude";
         return (
           <div
             key={p.id}
-            className={`plugin-card ${p.selected ? "on" : ""} ${
-              p.status === "planned" ? "soon" : ""
-            }`}
+            className={`plugin-card ${p.selected ? "on" : ""} ${usable ? "" : "soon"}`}
             onClick={() => usable && !p.selected && select(p.id)}
           >
             <div className="plugin-head">
               <div className="plugin-name">
                 {p.name}
-                <span className="plugin-crate">{p.crate_name}</span>
+                <span className="plugin-crate">{p.cmd}</span>
               </div>
               {p.selected ? (
                 <span className="plugin-badge on">
                   <Check size={11} /> {t("pl_in_use")}
                 </span>
-              ) : p.status === "planned" ? (
-                <span className="plugin-badge">{t("pl_soon")}</span>
               ) : usable ? (
                 <span className="plugin-badge pick">{t("pl_use")}</span>
+              ) : !p.enabled ? (
+                <span className="plugin-badge">{t("pl_off")}</span>
+              ) : p.detected ? (
+                // Installed and switched on, but Hark cannot drive it yet.
+                <span className="plugin-badge">{t("pl_soon")}</span>
               ) : (
                 <span className="plugin-badge warn">{t("pl_missing")}</span>
               )}
             </div>
 
-            {p.status === "available" && p.detected && (
-              <div className="plugin-path">{p.detail}</div>
-            )}
+            {p.detected && p.detail && <div className="plugin-path">{p.detail}</div>}
 
-            {p.status === "available" && !p.detected && (
+            {!p.detected && p.enabled && (
               <div className="plugin-install">
                 <div className="ob-warn">
                   <TerminalSquare size={13} /> {t("pl_not_found", { name: p.name })}
@@ -126,7 +127,9 @@ export default function PluginsPanel({
               </div>
             )}
 
-            {p.status === "planned" && <div className="plugin-soon">{t("pl_soon_hint")}</div>}
+            {p.detected && p.enabled && p.plugin !== "claude" && (
+              <div className="plugin-soon">{t("pl_acp_soon")}</div>
+            )}
           </div>
         );
       })}

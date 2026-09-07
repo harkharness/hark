@@ -86,6 +86,10 @@ pub struct Config {
     /// Which agent plugin drives the sessions. Only "claude" ships today;
     /// the field exists so a second backend is a config change, not a fork.
     pub agent: AgentTable,
+    /// Per-agent overrides, keyed by registry id. Built-ins (claude,
+    /// gemini, claude-acp) need no entry — a table here overrides one
+    /// field at a time, or declares a backend Hark never heard of.
+    pub agents: std::collections::BTreeMap<String, crate::domain::agents::AgentEntry>,
     /// Check the public releases repo for a newer build (a GET against
     /// github.com — the ONLY network call Hark makes on its own; nothing
     /// identifying is sent). Updates never install themselves: the app
@@ -102,6 +106,10 @@ pub struct Config {
 pub struct AgentTable {
     /// Plugin id ("claude"); empty falls back to the default backend.
     pub plugin: String,
+    /// Backend for the cheap ask/gate lane; empty follows `plugin`. Set it
+    /// when the agent you work with is not the one you want answering
+    /// "quanto gastei hoje?".
+    pub ask: String,
 }
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize, Default)]
@@ -135,6 +143,7 @@ impl Default for Config {
             hours_back: 36,
             default_context: "all".into(),
             contexts: BTreeMap::new(),
+            agents: BTreeMap::new(),
             language: "pt".into(),
             ui_language: "pt".into(),
             voice: "Luciana".into(),
@@ -450,6 +459,41 @@ pub fn patch_toml(text: &str, patch: &serde_json::Value) -> anyhow::Result<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_agents_table_round_trips_and_overrides_one_field() {
+        let file = r#"
+model = "sonnet"
+
+[agent]
+plugin = "claude"
+ask = "gemini"
+
+[agents.gemini]
+args = ["--experimental-acp"]
+
+[agents.codex]
+cmd = "codex-acp"
+name = "Codex"
+"#;
+        let config: Config = toml::from_str(file).expect("parses");
+        assert_eq!(config.agent.ask, "gemini");
+        let merged = crate::domain::agents::merge(&config.agents);
+        let gemini = crate::domain::agents::resolve(&merged, "gemini").expect("gemini");
+        assert_eq!(gemini.args, vec!["--experimental-acp"]);
+        // Everything the user did not restate survives the merge.
+        assert_eq!(gemini.cmd, "gemini");
+        let codex = crate::domain::agents::resolve(&merged, "codex").expect("codex");
+        assert_eq!(codex.cmd, "codex-acp");
+        assert!(codex.enabled, "a declared agent is on unless it says otherwise");
+    }
+
+    #[test]
+    fn a_config_with_no_agents_table_still_knows_every_builtin() {
+        let config: Config = toml::from_str("model = \"sonnet\"\n").expect("parses");
+        assert!(config.agents.is_empty());
+        assert_eq!(crate::domain::agents::merge(&config.agents).len(), 3);
+    }
 
     /// A config file written before a field existed must still get that
     /// field's shipped default. Anything else means a new feature arrives

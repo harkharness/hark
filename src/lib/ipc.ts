@@ -436,13 +436,23 @@ export type AgentCapabilities = {
 export type AgentPlugin = {
   id: string;
   name: string;
-  crate_name: string;
+  /** Which plugin speaks to it: "claude" (native) or "acp". */
+  plugin: string;
+  /** Binary Hark looks for and spawns. */
+  cmd: string;
   vendor: string;
   status: "available" | "planned";
+  /** The binary is on this machine. */
   detected: boolean;
+  /** The user left this backend switched on in config. */
+  enabled: boolean;
   detail: string;
   install: string;
   selected: boolean;
+  memory_file: string | null;
+  login_hint: string | null;
+  /** Only the native plugin declares one today; ACP negotiates at
+   *  handshake, so its sheet is null until the runtime lands. */
   capabilities: AgentCapabilities | null;
 };
 export const agentPlugins = () => invoke<AgentPlugin[]>("agent_plugins");

@@ -1482,42 +1482,75 @@ fn claude_detected(config: &Config) -> (bool, String) {
     (ok, bin)
 }
 
-/// The agent-plugin catalog: which backends exist, which one drives the
-/// sessions, and what each can do — the capability sheet comes straight
-/// from the plugin's own declaration, so it can never drift from the code.
-#[tauri::command]
-fn agent_plugins() -> Result<serde_json::Value, String> {
-    let config = Config::load();
-    let selected: &str =
-        if config.agent.plugin.is_empty() { "claude" } else { &config.agent.plugin };
-    let (claude_ok, claude_bin) = claude_detected(&config);
+/// Which registry ids have their binary on this machine. Claude keeps
+/// its own resolution (config can point at an absolute path); everything
+/// else is a plain `which`.
+fn agents_detected(config: &Config, entries: &[hark_core::domain::agents::AgentEntry]) -> Vec<String> {
+    entries
+        .iter()
+        .filter(|e| {
+            if e.id == "claude" {
+                claude_detected(config).0
+            } else {
+                std::process::Command::new("which")
+                    .arg(&e.cmd)
+                    .output()
+                    .is_ok_and(|out| out.status.success())
+            }
+        })
+        .map(|e| e.id.clone())
+        .collect()
+}
 
-    Ok(serde_json::json!([
-        {
-            "id": "claude",
-            "name": "Claude Code",
-            "crate_name": "hark-plugin-claude",
-            "vendor": "Anthropic",
-            "status": "available",
-            "detected": claude_ok,
-            "detail": if claude_ok { claude_bin } else { String::new() },
-            "install": "curl -fsSL https://claude.ai/install.sh | bash",
-            "selected": selected == "claude",
-            "capabilities": hark_plugin_claude::capabilities(),
-        },
-        {
-            "id": "gemini",
-            "name": "Gemini CLI",
-            "crate_name": "hark-plugin-gemini",
-            "vendor": "Google",
-            "status": "planned",
-            "detected": false,
-            "detail": "",
-            "install": "",
-            "selected": false,
-            "capabilities": serde_json::Value::Null,
-        }
-    ]))
+/// The agent catalog: every backend in the registry (built-ins plus the
+/// user's own), which ones are actually on this machine, and which one
+/// drives new chats. The capability sheet for the native plugin comes
+/// straight from its own declaration, so it can never drift from code.
+#[tauri::command(async)]
+fn agent_plugins() -> Result<serde_json::Value, String> {
+    use hark_core::domain::agents;
+    let config = Config::load();
+    let entries = agents::merge(&config.agents);
+    let detected = agents_detected(&config, &entries);
+    let selected = agents::default_agent(&entries, &detected, &config.agent.plugin);
+    let (_, claude_bin) = claude_detected(&config);
+
+    let out: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| {
+            let here = detected.contains(&e.id);
+            serde_json::json!({
+                "id": e.id,
+                "name": e.name,
+                "plugin": e.plugin,
+                "cmd": e.cmd,
+                "vendor": if e.id.starts_with("claude") { "Anthropic" } else if e.id == "gemini" { "Google" } else { "" },
+                // "available" means Hark can drive it; whether it is
+                // INSTALLED is `detected`, a different question.
+                "status": "available",
+                "detected": here,
+                "enabled": e.enabled,
+                "detail": if e.id == "claude" && here { claude_bin.clone() } else { String::new() },
+                "install": match e.id.as_str() {
+                    "claude" => "curl -fsSL https://claude.ai/install.sh | bash",
+                    "gemini" => "npm install -g @google/gemini-cli",
+                    "claude-acp" => "npm install -g @zed-industries/claude-code-acp",
+                    _ => "",
+                },
+                "selected": selected.as_deref() == Some(e.id.as_str()),
+                "memory_file": e.memory_file,
+                "login_hint": e.login_hint,
+                // Only the native plugin can answer this today; an ACP
+                // backend negotiates its sheet at handshake (F9.2).
+                "capabilities": if e.plugin == "claude" {
+                    serde_json::to_value(hark_plugin_claude::capabilities()).unwrap_or(serde_json::Value::Null)
+                } else {
+                    serde_json::Value::Null
+                },
+            })
+        })
+        .collect();
+    Ok(serde_json::Value::Array(out))
 }
 
 /// Pick the agent plugin that drives new sessions. An unknown or unshipped
@@ -1525,8 +1558,24 @@ fn agent_plugins() -> Result<serde_json::Value, String> {
 /// cannot run.
 #[tauri::command]
 fn agent_plugin_select(id: String) -> Result<(), String> {
-    if id != "claude" {
-        return Err(format!("plugin indisponivel: {id}"));
+    use hark_core::domain::agents;
+    let config = Config::load();
+    let entries = agents::merge(&config.agents);
+    let detected = agents_detected(&config, &entries);
+    // Refused here, so the UI can never point the app at a backend that
+    // is switched off, unknown, or simply not installed.
+    let entry = agents::resolve(&entries, &id).ok_or_else(|| format!("agente desconhecido: {id}"))?;
+    if !entry.enabled {
+        return Err(format!("agente desligado na config: {id}"));
+    }
+    if !detected.contains(&id) {
+        return Err(format!("{} não encontrado nesta máquina ({})", entry.name, entry.cmd));
+    }
+    // The registry knows these backends; the RUNTIME still only speaks the
+    // native plugin. Saying "selected" for one Hark cannot spawn would be
+    // a lie the user only discovers at the first turn.
+    if entry.plugin != "claude" {
+        return Err(format!("{} fala ACP — o runtime chega na próxima fase", entry.name));
     }
     let path = hark_core::config::config_path();
     if let Some(dir) = path.parent() {
