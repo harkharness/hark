@@ -400,6 +400,7 @@ mod tests {
             }],
             journal: vec!["2026-08-14T09:00:00Z\nQ: como está o beta?\nA: dois PRs abertos".into()],
             workers: vec![WorkerRecord {
+                agent: "claude".into(),
                 task_id: "t-beta-1".into(),
                 context: "beta".into(),
                 workspace: "/home/dev/beta".into(),

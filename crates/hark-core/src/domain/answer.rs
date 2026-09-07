@@ -361,6 +361,7 @@ mod tests {
 
     fn worker(summary: &str, status: WorkerStatus) -> WorkerRecord {
         WorkerRecord {
+            agent: "claude".into(),
             task_id: "t-1".into(),
             context: String::new(),
             workspace: "/p/hark".into(),

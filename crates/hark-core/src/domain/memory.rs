@@ -7,12 +7,20 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkerRecord {
     pub task_id: String,
+    /// Which backend ran this work. Registry id — "claude" for everything
+    /// recorded before Hark knew there could be another one.
+    #[serde(default = "claude_id")]
+    pub agent: String,
     pub context: String,
     pub workspace: String,
     pub session_id: String,
     pub status: WorkerStatus,
     pub started_at: String,
     pub summary: String,
+}
+
+fn claude_id() -> String {
+    "claude".into()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,6 +121,24 @@ pub fn journal_tail(content: &str, n: usize) -> Vec<String> {
 mod tests {
     use super::*;
 
+    /// Every worker on disk today was recorded before backends were a
+    /// thing. Reading one must not fail, and must not leave the agent
+    /// blank — the whole registry keys on that id.
+    #[test]
+    fn a_worker_recorded_before_agents_existed_reads_as_claude() {
+        let old = r#"{
+            "task_id": "t-1",
+            "context": "fabrica",
+            "workspace": "/w",
+            "session_id": "s-1",
+            "status": "running",
+            "started_at": "2026-08-01T10:00:00Z",
+            "summary": ""
+        }"#;
+        let record: WorkerRecord = serde_json::from_str(old).expect("old records still parse");
+        assert_eq!(record.agent, "claude");
+    }
+
     #[test]
     fn journal_roundtrip_keeps_last_n_entries() {
         let content: String = (0..7)
@@ -211,6 +237,7 @@ mod tests {
     #[test]
     fn worker_record_serializes_with_snake_case_status() {
         let record = WorkerRecord {
+            agent: "claude".into(),
             task_id: "t1".into(),
             context: "alpha".into(),
             workspace: "/home/dev/alpha".into(),

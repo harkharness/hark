@@ -808,6 +808,7 @@ fn worker_start(
     let _ = memory_files::write_brief(&planned.workspace_root, &task_id, &brief);
     update_registry_and_board(
         &config,
+        "claude",
         &task_id,
         &planned.workspace_root,
         Some(&planned.session.session_id),
@@ -1201,6 +1202,8 @@ fn worker_board_title(session_id: Option<&str>, instruction: &str) -> String {
 
 fn update_registry_and_board(
     config: &Config,
+    // Registry id of the backend that ran it ("claude" today).
+    agent_id: &str,
     task_id: &str,
     workspace_root: &std::path::Path,
     session_id: Option<&str>,
@@ -1209,6 +1212,8 @@ fn update_registry_and_board(
 ) {
     let mut gstate = state_file::load(&config.data_dir());
     gstate.workers.push(WorkerRecord {
+        // The backend that actually ran it; the registry keys on this id.
+        agent: agent_id.to_string(),
         task_id: task_id.to_string(),
         context: String::new(),
         workspace: workspace_root.display().to_string(),
@@ -1258,7 +1263,15 @@ fn chat_start(
         return Err(format!("diretório não existe: {}", root.display()));
     }
     let task_id = format!("n-{}", Utc::now().format("%m%d%H%M%S"));
-    update_registry_and_board(&config, &task_id, &root, None, &instruction, WorkerStatus::Running);
+    update_registry_and_board(
+        &config,
+        "claude",
+        &task_id,
+        &root,
+        None,
+        &instruction,
+        WorkerStatus::Running,
+    );
 
     // Mode precedence: spoken directive > window selector > config default.
     let mut directives = hark_core::domain::directives::parse(&instruction);
@@ -2159,6 +2172,7 @@ fn dispatch_text(
 
     let mut gstate = state_file::load(&config.data_dir());
     gstate.workers.push(WorkerRecord {
+        agent: "claude".into(),
         task_id: task_id.clone(),
         context: String::new(),
         workspace: planned.workspace_root.display().to_string(),

@@ -557,6 +557,8 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
     // Register as running (machine-wide view).
     let mut state = state_file::load(&config.data_dir());
     state.workers.push(WorkerRecord {
+        // hark-cli is pinned to the native plugin (F9.0).
+        agent: "claude".into(),
         task_id: task_id.clone(),
         context: "".into(),
         workspace: planned.workspace_root.display().to_string(),
