@@ -1141,15 +1141,13 @@ fn start_worker_titled(
                 // most of a minute here — reasoning, or waiting on the API
                 // — and the window used to show nothing at all until the
                 // first finished block arrived.
-                ClaudeEvent::Status(phase) => {
-                    if last_phase != Some(phase) {
-                        last_phase = Some(phase);
-                        emit_event(
-                            &app2,
-                            serde_json::json!({ "kind": "phase",
-                                "task_id": task2, "phase": phase }),
-                        );
-                    }
+                ClaudeEvent::Status(phase) if last_phase != Some(phase) => {
+                    last_phase = Some(phase);
+                    emit_event(
+                        &app2,
+                        serde_json::json!({ "kind": "phase",
+                            "task_id": task2, "phase": phase }),
+                    );
                 }
                 _ => {}
             }
@@ -2445,9 +2443,9 @@ fn session_owners(
     live: State<'_, LiveWorkers>,
 ) -> Result<Vec<hark_core::domain::owner::Owner>, String> {
     use hark_core::ports::LiveSessions;
-    static CACHE: std::sync::OnceLock<
-        std::sync::Mutex<Option<(std::time::Instant, Vec<hark_core::domain::owner::Owner>)>>,
-    > = std::sync::OnceLock::new();
+    type OwnersCache =
+        std::sync::Mutex<Option<(std::time::Instant, Vec<hark_core::domain::owner::Owner>)>>;
+    static CACHE: std::sync::OnceLock<OwnersCache> = std::sync::OnceLock::new();
     const TTL: std::time::Duration = std::time::Duration::from_millis(1200);
 
     // Sessions Hark is driving itself are not takeovers.
