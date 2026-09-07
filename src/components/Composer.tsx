@@ -455,29 +455,10 @@ export default function Composer({
         return;
       }
     }
+    // One rule everywhere, block or prose: Enter sends, Shift+Enter
+    // breaks the line. Making Enter mean something else inside a block
+    // was a second rule to learn for the sake of one context.
     if (e.key === "Enter" && !e.shiftKey) {
-      // Cmd/Ctrl+Enter always sends — the way out of a block you are
-      // still standing in.
-      if (e.metaKey || e.ctrlKey) {
-        e.preventDefault();
-        send();
-        return;
-      }
-      const pos = areaRef.current?.selectionStart ?? 0;
-      if (insideOpenFence(text, pos)) {
-        // Enter on an EMPTY line inside the block leaves it, the way
-        // every block editor works — the second obvious exit.
-        const from = text.lastIndexOf("\n", Math.max(0, pos - 1)) + 1;
-        const to = text.indexOf("\n", pos) === -1 ? text.length : text.indexOf("\n", pos);
-        if (text.slice(from, to).trim() === "") {
-          e.preventDefault();
-          applyEdit(exitFence(text, pos));
-          return;
-        }
-        // Otherwise Enter is a NEWLINE, never a send: writing the second
-        // line of a snippet used to fire the message off half written.
-        return;
-      }
       e.preventDefault();
       send();
     }
@@ -628,9 +609,6 @@ export default function Composer({
             surface holds the text and its row of pills and circles. */}
         <div className="inputbar-row">
         <div className="inputbar-chips">{children}</div>
-        {/* Enter changes meaning inside a block, so the block says so
-            rather than letting the next Enter send half a snippet. */}
-        {insideOpenFence(text, caret) && <span className="block-hint">{t("block_hint")}</span>}
         {trailing}
         <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title={t("speak_btn")}>
           <Mic size={15} />
