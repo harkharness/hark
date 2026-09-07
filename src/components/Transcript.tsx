@@ -303,6 +303,19 @@ export default function Transcript({
         )
       ) : (
         <div className="bubble">
+          {/* Who is speaking, said once and quietly — the canvas' shape:
+              a label over prose instead of a bubble on the margin. */}
+          {(m.who === "user" || m.who === "hark") && (
+            <span className="msg-who">
+              {m.who === "user" ? t("tag_you") : "hark"}
+              {m.ts
+                ? ` · ${new Date(m.ts).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}`
+                : ""}
+            </span>
+          )}
           {m.who === "hark" ? (
             <>
               <div className="fala">

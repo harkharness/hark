@@ -2343,7 +2343,12 @@ export default function App({
                     {t("n_turns_of", { n: visibleMessages.filter((m) => m.who === "user").length })}
                   </span>
                   <span className="chat-head-gap" />
-                  {/* Both numbers are already in memory — no query per render. */}
+                  {/* Both numbers are already in memory — no query per render:
+                      the cost this window watched accumulate, and the context
+                      the last turn reported. */}
+                  {(costs[focusedTask.title] ?? 0) > 0 && (
+                    <span className="chat-spend">${costs[focusedTask.title].toFixed(2)}</span>
+                  )}
                   {focused && liveWorkers[focused]?.context_pct != null && (
                     <ContextRing used={liveWorkers[focused]!.context_pct!} />
                   )}
