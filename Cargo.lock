@@ -1525,6 +1525,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hark-plugin-acp"
+version = "0.3.0"
+dependencies = [
+ "hark-agent",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hark-plugin-claude"
 version = "0.3.0"
 dependencies = [

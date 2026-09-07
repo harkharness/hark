@@ -4,6 +4,7 @@ members = [
     "crates/hark-agent",
     "crates/hark-core",
     "crates/hark-plugin-claude",
+    "crates/hark-plugin-acp",
     "crates/hark-cli",
     "src-tauri",
 ]
