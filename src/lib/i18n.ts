@@ -70,6 +70,7 @@ const pt = {
   side_unpin: "Desafixar",
   side_archive: "Arquivar",
   side_others: "outros",
+  side_chats: "Chats · {n}",
   side_add_project: "+ projeto",
 
   // board
@@ -543,6 +544,7 @@ const en: Record<keyof typeof pt, string> = {
   side_unpin: "Unpin",
   side_archive: "Archive",
   side_others: "others",
+  side_chats: "Chats · {n}",
   side_add_project: "+ project",
 
   col_backlog: "backlog",

@@ -338,8 +338,8 @@ body {
   border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
 }
 .hark-chat-head, .chat-head {
-  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px; padding: 9px 10px 9px 14px;
+  position: relative; z-index: 6;
 }
 .chat-head { padding: 12px 26px 10px; }
 .hark-chat-title {
@@ -355,8 +355,10 @@ body {
   color: var(--dim); font-size: 11px; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* No margin-left:auto here any more: .chat-head-gap is the spacer, and
+   two things pushing right made the cluster's position guesswork. */
 .hark-chat-head button, .chat-head button {
-  margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+  display: inline-flex; align-items: center; gap: 5px;
   background: none; border: none; border-radius: 7px;
   color: var(--dim); font: inherit; font-size: 11.5px; padding: 4px 9px;
   cursor: pointer; flex: 0 0 auto;
@@ -364,9 +366,8 @@ body {
 .hark-chat-head button:hover, .chat-head button:hover {
   color: var(--text); background: var(--panel-2);
 }
-/* Two auto margins would split the leftover space and strand the first
-   button mid-header: only the first of the cluster pushes right. */
-.hark-chat-head button + button, .chat-head button + button { margin-left: 0; }
+/* The square window toggles keep their own box in these heads too. */
+.hark-chat-head .chat-head-btn, .chat-head .chat-head-btn { padding: 0; }
 /* The digest: labels left (você/hark), question one line, reply two. */
 .hark-digest {
   display: flex; flex-direction: column; gap: 9px; padding: 11px 14px 13px;
@@ -1385,19 +1386,36 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .rr-state { margin-left: auto; flex: 0 0 auto; color: var(--dim); }
 /* The focused thread's name over the prose — reads like a document title. */
 .chat-title-head {
+  position: relative; z-index: 6;
   flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
-  padding: 12px clamp(22px, 7vw, 110px) 0; min-width: 0;
+  padding: 12px clamp(22px, 7vw, 110px) 2px; min-width: 0;
 }
+/* Hanging from the top bar, the breakdown opens DOWNWARD. */
+.chat-title-head .scope-pop,
+.hark-chat-head .scope-pop,
+.chat-head .scope-pop { top: calc(100% + 6px); bottom: auto; left: auto; right: 0; }
 .chat-title {
   color: var(--text-strong); font-size: 13.5px; font-weight: 600;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .chat-turns { color: var(--dim); font-size: 11.5px; flex: 0 0 auto; }
+/* The cost IS the button that opens the breakdown — one control, not a
+   pill up here and a wallet icon down on the composer row. */
 .chat-spend {
-  flex: 0 0 auto; background: var(--panel-2); border-radius: 999px;
-  padding: 3px 11px; font-family: var(--font-mono); font-size: 11.5px;
-  color: var(--text); font-variant-numeric: tabular-nums;
+  flex: 0 0 auto; background: var(--panel-2); border: none; border-radius: 999px;
+  padding: 4px 11px; font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--text); font-variant-numeric: tabular-nums; cursor: pointer;
 }
+.chat-spend:hover { filter: brightness(1.15); }
+.chat-spend.on { color: var(--accent); }
+/* Window toggles that belong to the thread, not to the message. */
+.chat-head-btn {
+  flex: 0 0 auto; background: none; border: none; border-radius: 7px;
+  width: 26px; height: 24px; color: var(--dim); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.chat-head-btn:hover { color: var(--text); background: rgba(255,255,255,.06); }
+.chat-head-btn.on { color: var(--accent); }
 .chat-head-gap { flex: 1; }
 .ctx-ring {
   display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderTree, MessageSquare, MoreVertical, Pin, Plus, SquareKanban } from "lucide-react";
+import { FolderTree, MessageSquare, MoreVertical, Pin, Plus, Search, SquareKanban } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 
@@ -204,8 +204,19 @@ export default function Sidebar({
           <section key={p.path} className="side-group">
             <div className="side-group-head">
               <span className="side-group-name" title={p.path}>
-                {p.name}
+                {/* In a project window the project name is already the
+                    window title, so the group says what the rows ARE. */}
+                {projects.length === 1 ? t("side_chats", { n: projChats.length }) : p.name}
               </span>
+              <button
+                className="side-group-add"
+                title={t("side_search", { n: projChats.length })}
+                onClick={() =>
+                  setSearch((cur) => (cur?.path === p.path ? null : { path: p.path, q: "" }))
+                }
+              >
+                <Search size={12} />
+              </button>
               <button
                 className="side-group-add"
                 title={t("side_new_chat", { name: p.name })}
@@ -243,8 +254,9 @@ export default function Sidebar({
             {group.map(item)}
 
             {projChats.length > 0 && (
-              <div className="side-search">
+              <div className="side-search" hidden={query === null}>
                 <input
+                  autoFocus
                   placeholder={t("side_search", { n: projChats.length })}
                   value={query ?? ""}
                   onFocus={() => setSearch({ path: p.path, q: query ?? "" })}

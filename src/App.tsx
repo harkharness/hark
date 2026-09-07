@@ -2181,46 +2181,6 @@ export default function App({
           ⏳ {rateLimit.status === "allowed_warning" ? "quase no limite" : "limite atingido"}
         </span>
       )}
-      <div className="scope-anchor">
-        <button
-          className={`scope ${scopeInfo ? "on" : ""}`}
-          title={t("costs_btn")}
-          onClick={() => setScopeInfo((s) => !s)}
-        >
-          <Wallet size={13} />
-        </button>
-        {scopeInfo && (
-          <SessionInfo
-            taskTitle={focusedTask?.title}
-            sessionId={focusedTask?.sessionId || undefined}
-            projectName={activeProject?.name}
-            workspace={forcedProject?.path}
-            costs={costs}
-            onClose={() => setScopeInfo(false)}
-            onDetail={() => {
-              void ipc
-                .usageReport(focusedTask?.sessionId ?? undefined)
-                .then((report) =>
-                  push({
-                    who: "usage",
-                    report,
-                    task: focused ? labelFor(focused) : focusedTask?.title,
-                  }),
-                )
-                .catch(() => {});
-            }}
-          />
-        )}
-      </div>
-      <button
-        className={`scope ${railHas("terminal") ? "on" : ""}`}
-        title={t("terminal_btn")}
-        onClick={() =>
-          railHas("terminal") ? removeRail("terminal") : ensureRail("terminal")
-        }
-      >
-        <SquareTerminal size={13} />
-      </button>
       <button
         className={`scope ${speak ? "on" : ""}`}
         title={speak ? "voz ligada (Esc corta a fala)" : "voz desligada"}
@@ -2344,22 +2304,67 @@ export default function App({
             <div className="maincol">
               {/* The thread says what it is: a slim title over the prose,
                   like the Claude Code app — controls stay on the composer. */}
-              {!reading && focusedTask && visibleMessages.length > 0 && (
+              {!reading && (
                 <div className="chat-title-head">
-                  <span className="chat-title">{focusedTask.title}</span>
-                  <span className="chat-turns">
-                    {t("n_turns_of", { n: visibleMessages.filter((m) => m.who === "user").length })}
-                  </span>
-                  <span className="chat-head-gap" />
-                  {/* Both numbers are already in memory — no query per render:
-                      the cost this window watched accumulate, and the context
-                      the last turn reported. */}
-                  {(costs[focusedTask.title] ?? 0) > 0 && (
-                    <span className="chat-spend">${costs[focusedTask.title].toFixed(2)}</span>
+                  {focusedTask && (
+                    <>
+                      <span className="chat-title">{focusedTask.title}</span>
+                      <span className="chat-turns">
+                        {t("n_turns_of", {
+                          n: visibleMessages.filter((m) => m.who === "user").length,
+                        })}
+                      </span>
+                    </>
                   )}
+                  <span className="chat-head-gap" />
+                  {/* This bar owns the thread's STATE and its WINDOWS; the
+                      composer row owns the message and the voice. The cost
+                      used to be a pill here AND a wallet button down there —
+                      same number, two places. It is one control now: the
+                      number opens the breakdown. */}
+                  <div className="scope-anchor">
+                    <button
+                      className={`chat-spend ${scopeInfo ? "on" : ""}`}
+                      title={t("costs_btn")}
+                      onClick={() => setScopeInfo((v) => !v)}
+                    >
+                      ${(costs[focusedTask?.title ?? ""] ?? 0).toFixed(2)}
+                    </button>
+                    {scopeInfo && (
+                      <SessionInfo
+                        taskTitle={focusedTask?.title}
+                        sessionId={focusedTask?.sessionId || undefined}
+                        projectName={activeProject?.name}
+                        workspace={forcedProject?.path}
+                        costs={costs}
+                        onClose={() => setScopeInfo(false)}
+                        onDetail={() => {
+                          void ipc
+                            .usageReport(focusedTask?.sessionId ?? undefined)
+                            .then((report) =>
+                              push({
+                                who: "usage",
+                                report,
+                                task: focused ? labelFor(focused) : focusedTask?.title,
+                              }),
+                            )
+                            .catch(() => {});
+                        }}
+                      />
+                    )}
+                  </div>
                   {focused && liveWorkers[focused]?.context_pct != null && (
                     <ContextRing used={liveWorkers[focused]!.context_pct!} />
                   )}
+                  <button
+                    className={`chat-head-btn ${railHas("terminal") ? "on" : ""}`}
+                    title={t("terminal_btn")}
+                    onClick={() =>
+                      railHas("terminal") ? removeRail("terminal") : ensureRail("terminal")
+                    }
+                  >
+                    <SquareTerminal size={13} />
+                  </button>
                 </div>
               )}
               {reading ? (

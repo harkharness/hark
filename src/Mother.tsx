@@ -11,6 +11,7 @@ import ShellTerminal, { disposeShell } from "./components/ShellTerminal";
 import { TerminalTabs } from "./components/TerminalPane";
 import PanelFrame from "./components/PanelFrame";
 import SessionInfo from "./components/SessionInfo";
+import { ContextRing } from "./components/Meter";
 import type { OpenFile } from "./types";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { Settings as SettingsIcon } from "lucide-react";
@@ -1067,13 +1068,33 @@ export default function Mother() {
           ⏳ {rateLimit.status === "allowed_warning" ? "quase no limite" : "limite atingido"}
         </span>
       )}
+      <button
+        className={`scope ${speak ? "on" : ""}`}
+        title={speak ? "voz ligada (Esc corta a fala)" : "voz desligada"}
+        onClick={() => setSpeak((s) => !s)}
+      >
+        {speak ? <Volume2 size={13} /> : <VolumeX size={13} />}
+      </button>
+    </>
+  );
+
+  /** Same grammar as the project window: this bar owns the session's
+   *  STATE and its WINDOWS, the composer row owns message and voice.
+   *  Cost was a number here AND a wallet button down there. */
+  const chatHead = (expanded: boolean) => (
+    <div className={expanded ? "chat-head" : "hark-chat-head"}>
+      <span className="hark-chat-title">{assistantName}</span>
+      <span className="hark-chat-meta">
+        {chatLive ? t("chat_session_live") : t("chat_session_new")}
+      </span>
+      <span className="chat-head-gap" />
       <div className="scope-anchor">
         <button
-          className={`scope ${scopeInfo ? "on" : ""}`}
+          className={`chat-spend ${scopeInfo ? "on" : ""}`}
           title={t("costs_btn")}
-          onClick={() => setScopeInfo((s) => !s)}
+          onClick={() => setScopeInfo((v) => !v)}
         >
-          <Wallet size={13} />
+          ${chatCost.toFixed(2)}
         </button>
         {scopeInfo && (
           <SessionInfo
@@ -1085,39 +1106,19 @@ export default function Mother() {
           />
         )}
       </div>
+      {chatCtx != null && <ContextRing used={chatCtx} />}
       <button
-        className={`scope ${termOpen && chatExpanded ? "on" : ""}`}
+        className={`chat-head-btn ${termOpen && chatExpanded ? "on" : ""}`}
         title={t("mo_term")}
         // From the collapsed view this always OPENS (expand + terminal):
         // a stale termOpen=true used to make the click close an invisible
         // panel — the user saw nothing happen.
-        onClick={() =>
-          termOpen && chatExpanded ? setTermOpen(false) : motherTerminal()
-        }
+        onClick={() => (termOpen && chatExpanded ? setTermOpen(false) : motherTerminal())}
       >
         <SquareTerminal size={13} />
       </button>
-      <button
-        className={`scope ${speak ? "on" : ""}`}
-        title={speak ? "voz ligada (Esc corta a fala)" : "voz desligada"}
-        onClick={() => setSpeak((s) => !s)}
-      >
-        {speak ? <Volume2 size={13} /> : <VolumeX size={13} />}
-      </button>
-    </>
-  );
-
-  const chatHead = (expanded: boolean) => (
-    <div className={expanded ? "chat-head" : "hark-chat-head"}>
-      <span className="hark-chat-title">{assistantName}</span>
-      <span className="hark-chat-meta">
-        {chatLive ? t("chat_session_live") : t("chat_session_new")}
-        {chatCost > 0 && ` · $${chatCost.toFixed(2)} ${t("proj_today")}`}
-        {chatCtx != null && ` · ${t("chat_ctx", { n: Math.round(chatCtx * 100) })}`}
-      </span>
-      <button onClick={() => setChatExpanded(!expanded)}>
-        {expanded ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
-        {expanded ? t("chat_collapse") : t("chat_expand")}
+      <button className="chat-head-btn" onClick={() => setChatExpanded(!expanded)} title={expanded ? t("chat_collapse") : t("chat_expand")}>
+        {expanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
       </button>
     </div>
   );
