@@ -437,10 +437,11 @@ export default function Composer({
       onAnswerPermission(pendingPermissionId, e.key !== "n", e.key === "a");
       return;
     }
-    // "```" then space or Enter opens a fenced block, cursor inside, the
-    // way every chat input the user already types in behaves. Without it
-    // Enter just sent three backticks as a message.
-    if (e.key === "Enter" || e.key === " ") {
+    // "```" then SPACE opens a fenced block with the cursor inside. Enter
+    // is deliberately not a trigger any more: enter means send, in the
+    // block and out of it, and a key that sometimes sends and sometimes
+    // opens a box is the kind of thing nobody can predict.
+    if (e.key === " ") {
       const el = areaRef.current;
       const pos = el?.selectionStart ?? 0;
       const before = text.slice(0, pos);
@@ -549,7 +550,10 @@ export default function Composer({
           ref={mirrorRef}
         >
           {Array.from({ length: blockCount }, (_, i) => (
-            <div key={`fb${i}`} className="cm-fblock" />
+            <div
+              key={`fb${i}`}
+              className={`cm-fblock ${insideOpenFence(text, caret) ? "in" : ""}`}
+            />
           ))}
           {groupBlocks(paint(text, caret)).map((g, i) =>
             g.fid !== undefined ? (

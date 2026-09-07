@@ -2189,6 +2189,11 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   border-radius: 8px;
   z-index: -1;
 }
+/* The caret is in there: the box says so, so opening one is visibly a
+   state you entered and not just a shade that appeared. */
+.composer-mirror .cm-fblock.in {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
 /* Markers stay in the text (the caret can sit on them; backspace undoes
    them) but paint invisible: the ``` line becomes the block's breathing
    room, the backticks become the chip's side padding. */
