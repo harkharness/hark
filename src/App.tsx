@@ -141,7 +141,10 @@ export default function App({
     light: "haiku", standard: "sonnet", heavy: "opus", max: "fable",
   });
   // Per-thread raw worker feed (the task's "terminal") and window spend.
-  const [rawLog, setRawLog] = useState<Record<string, string[]>>({});
+  /** The worker's raw event lines. Its only reader was the terminal's
+   *  feed tab, which is gone (the transcript already shows tool calls),
+   *  so nothing accumulates here — the events hook still reports and the
+   *  sink stays for a future log viewer, if one is ever wanted. */
   const [costs, setCosts] = useState<Record<string, number>>({});
   /**
    * THE RAIL: chat is the anchor; every typed window lives stacked on the
@@ -181,7 +184,7 @@ export default function App({
   }
   // Real shell tabs (PTY ids). Owned here so hiding the pane keeps them.
   const [shells, setShells] = useState<string[]>([]);
-  const [termTab, setTermTab] = useState<string>("feed");
+  const [termTab, setTermTab] = useState<string>("");
   const shellSeq = useRef(1);
   const [scopeInfo, setScopeInfo] = useState(false);
   // Mirrors the sidebar panel's collapsed state (topbar toggle icon).
@@ -296,9 +299,7 @@ export default function App({
   const say = useCallback((text: string) => {
     if (speakRef.current) ipc.speak(text).catch(() => {});
   }, []);
-  const pushRaw = useCallback((label: string, line: string) => {
-    setRawLog((old) => ({ ...old, [label]: [...(old[label] ?? []), line].slice(-500) }));
-  }, []);
+  const pushRaw = useCallback((_label: string, _line: string) => {}, []);
   const addCost = useCallback((label: string, usd: number) => {
     setCosts((old) => ({ ...old, [label]: (old[label] ?? 0) + usd }));
   }, []);
@@ -1387,7 +1388,7 @@ export default function App({
     // for a prompt. The feed stays a tab, it just stops being the door.
     if (id === "terminal") {
       if (shells.length === 0) addShell();
-      else setTermTab((tab) => (tab === "feed" ? shells[0] : tab));
+      else if (!shells.includes(termTab)) setTermTab(shells[0]);
     }
     setRail((old) => {
       let next = old.some((s) => s.id === id)
@@ -1438,7 +1439,8 @@ export default function App({
 
   function closeShell(id: string) {
     setShells((old) => old.filter((s) => s !== id));
-    setTermTab((t) => (t === id ? "feed" : t));
+    // Closing the active shell falls back to whichever remains.
+    setTermTab((t) => (t === id ? (shells.find((s) => s !== id) ?? "") : t));
   }
 
   /**
@@ -2111,8 +2113,6 @@ export default function App({
       onClose={() => removeRail("terminal")}
     >
       <TerminalPane
-        rawLog={rawLog}
-        focusedLabel={focusedTask?.title}
         shells={shells}
         active={termTab}
         cwd={forcedProject?.path}

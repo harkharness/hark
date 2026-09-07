@@ -12,7 +12,6 @@ export function TerminalTabs({
   onCloseShell,
   onResumeSession,
   resumeSpent,
-  noFeed,
 }: {
   shells: string[];
   active: string;
@@ -24,8 +23,6 @@ export function TerminalTabs({
   onResumeSession?: () => void;
   /** The session is already running here: the button has nothing to do. */
   resumeSpent?: boolean;
-  /** The mother has no worker feed: hide that tab there. */
-  noFeed?: boolean;
 }) {
   return (
     <>
@@ -54,15 +51,6 @@ export function TerminalTabs({
           <Plus size={12} />
         </button>
       </span>
-      {!noFeed && (
-        <span
-          className={`filetab feedtab ${active === "feed" ? "on" : ""}`}
-          title={t("term_feed_hint")}
-          onClick={() => onActivate("feed")}
-        >
-          feed
-        </span>
-      )}
       {onResumeSession && (
         <button
           className={`term-resume ${resumeSpent ? "spent" : ""}`}
@@ -78,14 +66,16 @@ export function TerminalTabs({
 }
 
 /**
- * The "Terminal" window: REAL shells (one PTY per tab, the user's own
- * $SHELL in the project directory), plus a read-only "feed" tab with the
- * raw worker events of the focused task. `+` opens more shells. Closing a
- * shell tab kills that shell; closing the pane hides it, shells survive.
+ * The "Terminal" window: REAL shells, one PTY per tab, the user's own
+ * $SHELL in the project directory. `+` opens more. Closing a tab kills
+ * that shell; closing the pane only hides them.
+ *
+ * There is no worker "feed" tab: the agent's tool calls already read as
+ * folds in the transcript, which is where the conversation is — a second
+ * transcription of the same events, in a panel, was one more place to
+ * look and a dead panel whenever the thread was fresh.
  */
 export default function TerminalPane({
-  rawLog,
-  focusedLabel,
   shells,
   active,
   cwd,
@@ -93,29 +83,15 @@ export default function TerminalPane({
   onCloseShell,
   onActivate,
 }: {
-  rawLog: Record<string, string[]>;
-  focusedLabel?: string;
   /** Shell tab ids, owned by App (survive pane close/reopen). */
   shells: string[];
-  /** Active tab: a shell id or "feed". */
+  /** Active shell id. */
   active: string;
   cwd?: string;
   onAddShell: () => void;
   onCloseShell: (id: string) => void;
   onActivate: (id: string) => void;
 }) {
-  const endRef = useRef<HTMLDivElement>(null);
-  const [feedThread, setFeedThread] = useState<string | undefined>(focusedLabel);
-
-  useEffect(() => {
-    if (focusedLabel) setFeedThread(focusedLabel);
-  }, [focusedLabel]);
-
-  const lines = feedThread ? (rawLog[feedThread] ?? []) : [];
-  useEffect(() => {
-    if (active === "feed") endRef.current?.scrollIntoView();
-  }, [lines, active]);
-
   return (
     <div className="termpane">
       {/* Shells stay mounted (hidden) so switching tabs never loses the
@@ -126,16 +102,6 @@ export default function TerminalPane({
         </div>
       ))}
 
-      {active === "feed" && (
-        <pre className="term-body">
-          {!feedThread
-            ? t("feed_no_task")
-            : lines.length === 0
-              ? t("feed_empty")
-              : lines.join("\n")}
-          <div ref={endRef} />
-        </pre>
-      )}
     </div>
   );
 }

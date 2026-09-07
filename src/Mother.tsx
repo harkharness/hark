@@ -1371,7 +1371,6 @@ export default function Mother() {
                   onToggleExpand={() => {}}
                   tabs={
                     <TerminalTabs
-                      noFeed
                       shells={shells}
                       active={shellTab}
                       onActivate={setShellTab}
