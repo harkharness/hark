@@ -2480,6 +2480,58 @@ fn session_owners(
     Ok(owners)
 }
 
+/// Git state for a set of task workspaces, in one call.
+///
+/// Zero tokens: three `git` reads per repository, cached for a couple of
+/// seconds so a re-render never shells out again. Directories that are
+/// not repositories (or that git cannot reach) are simply absent from
+/// the map — the UI shows nothing rather than a wrong branch.
+#[tauri::command(async)]
+fn repo_states(
+    paths: Vec<String>,
+) -> Result<std::collections::HashMap<String, hark_core::domain::repo::RepoState>, String> {
+    type StateCache = std::sync::Mutex<
+        std::collections::HashMap<
+            String,
+            (std::time::Instant, Option<hark_core::domain::repo::RepoState>),
+        >,
+    >;
+    static CACHE: std::sync::OnceLock<StateCache> = std::sync::OnceLock::new();
+    const TTL: std::time::Duration = std::time::Duration::from_secs(3);
+
+    let cell = CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let mut out = std::collections::HashMap::new();
+    // Distinct paths only: several tasks commonly share one workspace.
+    let mut seen: Vec<String> = Vec::new();
+    for path in paths {
+        if path.is_empty() || seen.contains(&path) {
+            continue;
+        }
+        seen.push(path.clone());
+        let fresh = {
+            let slot = cell.lock().unwrap();
+            match slot.get(&path) {
+                Some((at, state)) if at.elapsed() < TTL => Some(state.clone()),
+                _ => None,
+            }
+        };
+        let state = match fresh {
+            Some(state) => state,
+            None => {
+                let read = GitCli::work_tree(&path);
+                cell.lock()
+                    .unwrap()
+                    .insert(path.clone(), (std::time::Instant::now(), read.clone()));
+                read
+            }
+        };
+        if let Some(state) = state {
+            out.insert(path, state);
+        }
+    }
+    Ok(out)
+}
+
 #[derive(Serialize)]
 pub(crate) struct CrossrefOut {
     pub(crate) title: String,
@@ -3960,6 +4012,7 @@ pub fn run() {
             file_save,
             read_transcript,
             session_owners,
+            repo_states,
             crossref_context,
             transcript_since,
             find_session,

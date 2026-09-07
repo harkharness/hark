@@ -175,6 +175,20 @@ export type TranscriptEntry = {
   is_error: boolean;
 };
 
+/** Git state of the repository a task works in (zero tokens, from `git`). */
+export type RepoState = {
+  /** Repository ROOT — often an ancestor of the task's own workspace. */
+  root: string;
+  branch: string;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  /** Files changed but not committed: staged, unstaged and untracked. */
+  dirty: number;
+  added: number;
+  removed: number;
+};
+
 export type BoardTask = {
   title: string;
   status: "backlog" | "doing" | "waiting" | "done";

@@ -83,6 +83,7 @@ export default function Composer({
   onAnswerPermission,
   children,
   trailing,
+  banner,
   autoFocus,
 }: {
   disabled: boolean;
@@ -99,6 +100,8 @@ export default function Composer({
   /** Window controls docked at the right of the control row (costs,
    *  board, terminal, volume…) — the topbar is gone. */
   trailing?: React.ReactNode;
+  /** A readout pinned above the text, inside the card (the repo ruler). */
+  banner?: React.ReactNode;
   /** Focus the field on mount (the mother's expanded chat opens to type). */
   autoFocus?: boolean;
 }) {
@@ -492,6 +495,7 @@ export default function Composer({
   return (
     <div className="inputbar">
       <div className={`composer ${images.length > 0 ? "with-thumbs" : ""}`}>
+        {banner}
         {slash && (
           <div className="mention-pop slash-pop">
             {slash.hits.map((hit, i) => (

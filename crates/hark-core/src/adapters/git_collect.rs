@@ -1,6 +1,7 @@
 //! Working-tree status of configured repositories via the `git` CLI.
 
 use crate::domain::prompt::RepoStatus;
+use crate::domain::repo::{parse_shortstat, parse_status_v2, RepoState};
 use crate::ports::RepoCollector;
 
 /// Pure assembly from raw command outputs.
@@ -26,6 +27,33 @@ impl GitCli {
         out.status
             .success()
             .then(|| String::from_utf8_lossy(&out.stdout).to_string())
+    }
+}
+
+impl GitCli {
+    /// The state of the repository a directory belongs to, for the UI.
+    ///
+    /// Resolves the ROOT first: a task's workspace is often a subdirectory
+    /// of the project (or of the repo), and reporting the branch of "the
+    /// project path" would quietly describe the wrong tree — or nothing,
+    /// when the path is not a repository at all.
+    pub fn work_tree(dir: &str) -> Option<RepoState> {
+        let root = Self::git(dir, &["rev-parse", "--show-toplevel"])?;
+        let root = root.trim();
+        if root.is_empty() {
+            return None;
+        }
+        let status = Self::git(root, &["status", "--porcelain=v2", "--branch"])?;
+        let mut state = parse_status_v2(&status);
+        state.root = root.to_string();
+        // A repository with no commits yet has no HEAD to diff against;
+        // the counts stay zero rather than the whole state going missing.
+        if let Some(stat) = Self::git(root, &["diff", "--shortstat", "HEAD"]) {
+            let (added, removed) = parse_shortstat(&stat);
+            state.added = added;
+            state.removed = removed;
+        }
+        Some(state)
     }
 }
 

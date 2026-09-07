@@ -10,9 +10,15 @@ import type {
   Overview,
   Project,
   Reply,
+  RepoState,
   TaskCommandResult,
   TranscriptEntry,
 } from "../types";
+
+/** Git state for a set of task workspaces, in one call. Cached in Rust
+ *  for a few seconds, so asking on a render is cheap. */
+export const repoStates = (paths: string[]) =>
+  invoke<Record<string, RepoState>>("repo_states", { paths });
 
 export const overview = () => invoke<Overview>("overview");
 export const useContext = (name: string) => invoke("use_context", { name });

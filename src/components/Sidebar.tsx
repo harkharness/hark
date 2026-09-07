@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { FolderTree, MessageSquare, MoreVertical, Pin, Plus, SquareKanban } from "lucide-react";
+import { ArrowUp, FolderTree, GitBranch, MessageSquare, MoreVertical, Pin, Plus, SquareKanban } from "lucide-react";
 import { t } from "../lib/i18n";
-import type { BoardTask, Project, SessionHit } from "../types";
+import type { BoardTask, Project, RepoState, SessionHit } from "../types";
 
 const DOT: Record<BoardTask["status"], string> = {
   doing: "◍",
@@ -51,9 +51,12 @@ export default function Sidebar({
   onAddProject,
   onRemoveProject,
   onOpenFiles,
+  repoFor,
 }: {
   projects: Project[];
   tasks: BoardTask[];
+  /** Git state of a task's repository, when there is one. */
+  repoFor?: (task: BoardTask) => RepoState | undefined;
   /** Claude Code history of the project (index), minus adopted sessions. */
   chats?: SessionHit[];
   activeTitle?: string;
@@ -136,6 +139,25 @@ export default function Sidebar({
             </span>
             {task.pinned && <span className="side-pin"><Pin size={10} /></span>}
             <span className="side-title">{task.title}</span>
+            {/* One glance says where the WORK is: uncommitted files, or
+                commits that never left this machine. Silent when clean —
+                a row of green ticks would be noise. */}
+            {(() => {
+              const repo = repoFor?.(task);
+              if (!repo || (repo.dirty === 0 && repo.ahead === 0)) return null;
+              if (repo.dirty > 0) {
+                return (
+                  <span className="side-git warn" title={t("repo_dirty", { n: repo.dirty })}>
+                    {repo.dirty}<GitBranch size={10} />
+                  </span>
+                );
+              }
+              return (
+                <span className="side-git" title={t("repo_ahead", { n: repo.ahead })}>
+                  {repo.ahead}<ArrowUp size={10} />
+                </span>
+              );
+            })()}
           </button>
           <button
             className="side-menu-btn"

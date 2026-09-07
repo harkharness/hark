@@ -27,6 +27,8 @@ import EmptyProject from "./components/EmptyProject";
 import WorkerChips from "./components/WorkerChips";
 import TurnStatus, { type TurnState } from "./components/TurnStatus";
 import { useHarkEvents } from "./hooks/useHarkEvents";
+import { useRepoStates } from "./hooks/useRepoStates";
+import RepoRuler from "./components/RepoRuler";
 import { agentError, askReplyMsg, isAuthError } from "./lib/format";
 import * as ipc from "./lib/ipc";
 import type {
@@ -662,6 +664,21 @@ export default function App({
     forcedProject ??
     draftChat ??
     (focusedTask ? projectOf(board.find((t) => t.title === focusedTask.title)) : undefined);
+
+  // Git state for the work on screen: the focused task's repository (its
+  // workspace is often a subdirectory — the Rust side resolves the root)
+  // plus this window's project as the fallback.
+  const focusedWorkspace =
+    board.find((t) => t.title === focusedTask?.title)?.workspace || activeProject?.path || "";
+  const repoStates = useRepoStates([
+    ...board.map((t) => t.workspace ?? ""),
+    focusedWorkspace,
+  ]);
+  const focusedRepo = repoStates[focusedWorkspace];
+  const repoFor = useCallback(
+    (task: BoardTask) => (task.workspace ? repoStates[task.workspace] : undefined),
+    [repoStates],
+  );
 
   const directivesFor = useCallback(
     (taskLabel?: string): Directives | undefined =>
@@ -2311,6 +2328,7 @@ export default function App({
                   refresh();
                 })
               }
+              repoFor={repoFor}
               onOpenFiles={(p) => {
                 setFilesInitialProject(p.path);
                 ensureRail("arquivos");
@@ -2426,6 +2444,7 @@ export default function App({
                 onMic={onMic}
                 onAnswerPermission={answerPermission}
                 trailing={trailingControls}
+                banner={focusedRepo ? <RepoRuler state={focusedRepo} /> : undefined}
               >
                 <ModeSelect
                   value={currentMode}
