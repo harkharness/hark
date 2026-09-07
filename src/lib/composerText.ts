@@ -33,6 +33,20 @@ export function insideOpenFence(text: string, caret: number): boolean {
   return fences % 2 === 1;
 }
 
+/** Typing ``` and pressing space or enter opens a block: the fence line,
+ *  an empty line the caret lands on, the closing fence — and a line BELOW
+ *  the closing fence, which is the way out.
+ *
+ *  That last line is not cosmetic. Without it the closing fence is the
+ *  draft's last line; the down arrow parks the caret on it, the fence
+ *  paints invisible, and the next keystroke lands INSIDE the marker —
+ *  "```" becomes "```texto", stops being a fence, and the whole box
+ *  disappears with no way back. */
+export function openFencePair(text: string, caret: number): { text: string; caret: number } {
+  const opened = `${text.slice(0, caret)}\n`;
+  return { text: `${opened}\n\`\`\`\n${text.slice(caret)}`, caret: opened.length };
+}
+
 /** Does the draft contain a fenced block at all? Drives the monospace
  *  switch: prose stays proportional until code is actually present. */
 export function hasFence(text: string): boolean {

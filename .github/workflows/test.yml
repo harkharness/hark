@@ -49,6 +49,9 @@ jobs:
 
       - run: npm ci
       - run: npx tsc --noEmit
+      # The composer's fence parser has broken three times in a row by
+      # hand-testing alone; it has unit tests now and they gate the push.
+      - run: npm test
       - run: npm run build
       - run: cargo test --workspace
       - run: cargo clippy --workspace --all-targets -- -D warnings

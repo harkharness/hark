@@ -9,6 +9,7 @@ import {
   groupBlocks,
   hasRich,
   insideOpenFence,
+  openFencePair,
   paint,
 } from "../lib/composerText";
 
@@ -422,21 +423,30 @@ export default function Composer({
       // the "block keeps reopening" loop the user could never leave.
       if (el && fence && pos === (el.selectionEnd ?? pos) && !insideOpenFence(text, pos)) {
         e.preventDefault();
-        const after = text.slice(pos);
-        const opened = `${before}\n`;
-        setText(`${opened}\n\`\`\`${after}`);
+        const opened = openFencePair(text, pos);
+        setText(opened.text);
         // Land between the fences on the next paint.
-        const at = opened.length;
-        setCaret(at);
+        setCaret(opened.caret);
         requestAnimationFrame(() => {
-          el.selectionStart = at;
-          el.selectionEnd = at;
+          el.selectionStart = opened.caret;
+          el.selectionEnd = opened.caret;
           el.focus();
         });
         return;
       }
     }
     if (e.key === "Enter" && !e.shiftKey) {
+      // Cmd/Ctrl+Enter always sends — the way out of a block you are
+      // still standing in.
+      if (e.metaKey || e.ctrlKey) {
+        e.preventDefault();
+        send();
+        return;
+      }
+      // Inside a code block Enter is a NEWLINE, never a send: writing the
+      // second line of a snippet used to fire the message off half
+      // written, closing fence and all.
+      if (insideOpenFence(text, areaRef.current?.selectionStart ?? 0)) return;
       e.preventDefault();
       send();
     }
@@ -565,6 +575,9 @@ export default function Composer({
           placeholder={placeholder}
           value={text}
           onChange={(e) => {
+            // Any real keystroke ends history navigation: otherwise a
+            // later down-arrow would swap the edited text for the draft.
+            if (histAt !== null) setHistAt(null);
             setText(e.target.value);
             setCaret(e.target.selectionStart ?? e.target.value.length);
             detectMention(e.target.value, e.target.selectionStart ?? e.target.value.length);
@@ -584,6 +597,9 @@ export default function Composer({
             surface holds the text and its row of pills and circles. */}
         <div className="inputbar-row">
         <div className="inputbar-chips">{children}</div>
+        {/* Enter changes meaning inside a block, so the block says so
+            rather than letting the next Enter send half a snippet. */}
+        {insideOpenFence(text, caret) && <span className="block-hint">{t("block_hint")}</span>}
         {trailing}
         <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title={t("speak_btn")}>
           <Mic size={15} />
