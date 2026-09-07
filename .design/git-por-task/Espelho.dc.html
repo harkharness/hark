@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    .e { font-family: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif; font-size: 13px; }
+    .e .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+    .e .ic { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+    .e .frow { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 7px; font-size: 12.5px; min-width: 0; }
+    .e .frow:hover { background: #11151b; }
+    .e .fname { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 12px; color: #d7dde6; }
+    .e .fdir { color: #566070; font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .e .stat { margin-left: auto; font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 11px; flex: 0 0 auto; }
+  </style>
+</helmet>
+<div class="e" style="width: 620px; height: 720px; background: #07090d; color: #d7dde6; display: flex; flex-direction: column; overflow: hidden">
+  <div style="display: flex; align-items: center; gap: 9px; padding: 11px 14px; color: #aeb8c6; font-size: 12px; font-weight: 500">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+    <span class="mono" style="color: #e9eef6">main</span>
+    <span style="color: #566070">→</span>
+    <span>árvore de trabalho</span>
+    <div style="flex: 1"></div>
+    <span style="color: #7a8698">⤢ ✕</span>
+  </div>
+  <div style="padding: 0 14px 10px; color: #566070; font-size: 11.5px; line-height: 1.5">
+    Arquivos recolhidos para diffs grandes. Selecione um para expandir.
+  </div>
+  <div style="flex: 1; min-height: 0; overflow: hidden; padding: 0 6px">
+    <div class="frow"><svg class="ic" style="color:#566070" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg><span class="fname">CLAUDE.md</span><span class="stat"><span style="color:#9ece6a">+15</span> <span style="color:#f7768e">−83</span></span></div>
+    <div class="frow"><svg class="ic" style="color:#566070" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg><span class="fname">brag-doc.md</span><span class="fdir">career</span><span class="stat"><span style="color:#9ece6a">+80</span> <span style="color:#f7768e">−9</span></span></div>
+    <div class="frow"><svg class="ic" style="color:#566070" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg><span class="fname">ISSUE-pagamentos-migration.md</span><span class="fdir">docs/issues</span><span class="stat"><span style="color:#9ece6a">+23</span> <span style="color:#f7768e">−2</span></span></div>
+    <div class="frow"><svg class="ic" style="color:#566070" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg><span class="fname">migration-lessons.md</span><span class="fdir">docs/lessons</span><span class="stat"><span style="color:#9ece6a">+244</span> <span style="color:#f7768e">−2</span></span></div>
+    <div class="frow"><svg class="ic" style="color:#566070" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg><span class="fname">current-work.md</span><span class="fdir">docs/status</span><span class="stat"><span style="color:#9ece6a">+10</span> <span style="color:#f7768e">−0</span></span></div>
+    <div class="frow"><svg class="ic" style="color:#566070" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg><span class="fname">journal.md</span><span class="fdir">.hark</span><span class="stat"><span style="color:#9ece6a">+335</span> <span style="color:#f7768e">−0</span></span></div>
+    <div class="frow"><svg class="ic" style="color:#566070" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg><span class="fname">live-snapshot.json</span><span class="fdir">docs/cluster/network</span><span class="stat"><span style="color:#9ece6a">+3839</span> <span style="color:#f7768e">−0</span></span></div>
+    <div style="color: #566070; font-size: 11.5px; padding: 10px 12px">e mais 21 arquivos</div>
+  </div>
+  <div style="padding: 12px 14px; border-top: 1px solid rgba(255,255,255,.06)">
+    <div style="display: flex; align-items: center; gap: 10px; background: #11151b; border-radius: 10px; padding: 10px 12px">
+      <span style="font-size: 12px; color: #7a8698">workspace-fabrica</span>
+      <span class="mono" style="background: #161c25; border-radius: 5px; padding: 2px 7px; font-size: 11.5px; color: #aeb8c6">main</span>
+      <span class="mono" style="font-size: 11.5px"><span style="color: #9ece6a">+13.522</span> <span style="color: #f7768e">−405</span></span>
+      <div style="flex: 1"></div>
+      <span style="background: #161c25; border-radius: 8px; padding: 6px 13px; font-size: 12.5px; color: #e9eef6">Fazer commit</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

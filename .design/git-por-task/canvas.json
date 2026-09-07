@@ -1,0 +1,15 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1280, "h": 840, "title": "Git por task · janela de projeto" },
+    { "file": "Board.dc.html", "x": 1400, "y": 0, "w": 560, "h": 720, "title": "O mesmo estado no board" },
+    { "file": "Espelho.dc.html", "x": 2080, "y": 0, "w": 620, "h": 720, "title": "O caminho que eu NÃO recomendo" },
+    { "file": "Escopo.dc.html", "x": 0, "y": 960, "w": 1320, "h": 640, "title": "Escopo e ordem" }
+  ],
+  "annotations": [
+    { "id": "tese", "x": 0, "y": -210, "w": 660, "text": "O Claude Code mostra o git DA SESSÃO ABERTA. O Hark tem 15 tasks em N repositórios — a pergunta que ninguém responde hoje é \"qual delas tem trabalho não commitado, qual tem PR, qual quebrou o CI\".\nEntão a proposta não é um cliente git no Hark: é o estado do trabalho aparecer onde a orquestração já vive (sidebar, board, card) e responder por voz." },
+    { "id": "nota-projeto", "x": -380, "y": 0, "w": 340, "text": "Na janela de projeto: um sinal por chat na sidebar (PR + CI, ou contagem do que falta commitar), uma régua fina de uma linha no topo do composer com o estado do repo daquela task, e o PR como card no fluxo da conversa — ele nasceu de um turno, vive nele." },
+    { "id": "nota-espelho", "x": 2080, "y": -150, "w": 620, "text": "Esta é a cópia fiel do painel do Claude Code: árvore de trabalho com diffstat por arquivo e o botão de commit.\nDesenhei para a comparação ser honesta — e para argumentar contra: é a esteira rolante que a F8.0 mandou parar de perseguir, com o app oficial aberto ao lado fazendo melhor. Se você quiser mesmo, é a folha para apontar." },
+    { "id": "nota-voz", "x": 1400, "y": 780, "w": 560, "text": "A parte que só o Hark faz: \"o que falta commitar?\" varre as tasks vivas e responde local, zero token. \"abre o PR dessa task\" e \"o CI passou?\" idem — o catálogo de mira por voz já existe, ganha um campo novo." }
+  ],
+  "launch": { "view": "canvas" }
+}
