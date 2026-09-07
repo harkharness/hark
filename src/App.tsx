@@ -16,6 +16,7 @@ import FilesPanel from "./components/FilesPanel";
 import Modals, { type Pending } from "./components/Modals";
 import ModeSelect from "./components/ModeSelect";
 import ModelSelect, { type ModelTiers } from "./components/ModelSelect";
+import EffortSelect from "./components/EffortSelect";
 import PanelFrame from "./components/PanelFrame";
 import QuickOpen from "./components/QuickOpen";
 import ChatPalette from "./components/ChatPalette";
@@ -140,6 +141,8 @@ export default function App({
   /** Window's model choice ("" = auto/router); focused live tasks switch
    *  the process, otherwise it seeds new chats born here. */
   const [modelDefault, setModelDefault] = useState<string>("");
+  /** Window default for --effort; "" means the flag is not passed at all. */
+  const [effortDefault, setEffortDefault] = useState<string>("");
   const [tiers, setTiers] = useState<ModelTiers>({
     light: "haiku", standard: "sonnet", heavy: "opus", max: "fable",
   });
@@ -741,7 +744,14 @@ export default function App({
     // and a clock nobody stops ticks forever.
     let live = false;
     try {
-      const out = await ipc.workerStart(instruction, sessionId ?? null, modeDefault ?? undefined, undefined, modelDefault || undefined);
+      const out = await ipc.workerStart(
+        instruction,
+        sessionId ?? null,
+        modeDefault ?? undefined,
+        undefined,
+        modelDefault || undefined,
+        effortDefault || undefined,
+      );
       if (out.status === "started") {
         const label =
           focusedTask && sessionId === focusedTask.sessionId
@@ -785,7 +795,13 @@ export default function App({
     beginTurn(from);
     let live = false;
     try {
-      const out = await ipc.chatStart(project.path, instruction, modeDefault ?? undefined, modelDefault || undefined);
+      const out = await ipc.chatStart(
+        project.path,
+        instruction,
+        modeDefault ?? undefined,
+        modelDefault || undefined,
+        effortDefault || undefined,
+      );
       if (out.status === "started") {
         const label = instruction.split(/\s+/).slice(0, 5).join(" ");
         push({ who: "user", text: instruction, task: label });
@@ -1180,7 +1196,14 @@ export default function App({
       push({ who: "user", text, task: draft.title });
       beginTurn(`${draft.title} (fork)`);
       const out = await ipc
-        .workerStart(text, draft.sessionId, modeDefault ?? undefined, true, modelDefault || undefined)
+        .workerStart(
+          text,
+          draft.sessionId,
+          modeDefault ?? undefined,
+          true,
+          modelDefault || undefined,
+          effortDefault || undefined,
+        )
         .catch((err) => {
           nudgeRef.current(err);
           push({ who: "sys", text: `fork: ${agentError(err)}` });
@@ -1305,6 +1328,29 @@ export default function App({
       return;
     }
     setModelDefault(model);
+  }
+
+  /** Effort the pill shows: the focused live task's, else this window's. */
+  const currentEffort =
+    (focused ? liveWorkers[focused]?.directives.effort : undefined) ?? effortDefault;
+
+  /** Same contract as the model pill: a live task reopens on the same
+   *  session, nothing focused sets the window default. "" clears the
+   *  directive instead of picking a level. */
+  function selectEffort(effort: string) {
+    const taskId = focused;
+    if (taskId && liveWorkers[taskId]) {
+      ipc
+        .workerSetEffort(taskId, effort)
+        .then((out) => {
+          setLiveWorkers((old) =>
+            old[taskId] ? { ...old, [taskId]: { ...old[taskId], directives: out.directives } } : old,
+          );
+        })
+        .catch((err) => push({ who: "sys", text: `esforço: ${err}`, task: labelFor(taskId) }));
+      return;
+    }
+    setEffortDefault(effort);
   }
 
   /** Mode the pill shows: the focused live task's, else the window/config default. */
@@ -2484,6 +2530,7 @@ export default function App({
                 <ModeSelect
                   value={currentMode}
                   appliesTo={focused ? labelFor(focused) : undefined}
+                  windowDefault={modeDefault ?? overview?.default_mode ?? undefined}
                   onSelect={selectMode}
                 />
                 <ModelSelect
@@ -2491,7 +2538,13 @@ export default function App({
                   liveModel={liveModel}
                   tiers={tiers}
                   appliesTo={focused ? labelFor(focused) : undefined}
+                  windowDefault={modelDefault}
                   onSelect={selectModel}
+                />
+                <EffortSelect
+                  value={currentEffort ?? ""}
+                  appliesTo={focused ? labelFor(focused) : undefined}
+                  onSelect={selectEffort}
                 />
                 <WorkerChips
                   liveWorkers={liveWorkers}

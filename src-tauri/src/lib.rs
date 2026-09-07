@@ -750,6 +750,7 @@ fn worker_start(
     session_id: Option<String>,
     mode: Option<String>,
     model: Option<String>,
+    effort: Option<String>,
     fork: Option<bool>,
 ) -> Result<DispatchOut, String> {
     let fork = fork.unwrap_or(false);
@@ -829,6 +830,12 @@ fn worker_start(
         directives.model =
             hark_core::domain::intent::worker_model_hint(&instruction, &config.models());
     }
+    // Effort precedence: spoken ("capricha") > window selector. Absent on
+    // both sides means no --effort at all, which the CLI answers with its
+    // own default — a real third state the selector can return to.
+    directives.effort = directives.effort.or_else(|| {
+        effort.as_deref().and_then(hark_core::domain::directives::Effort::from_flag)
+    });
     let mut spawn = fresh_spawn(
         &config,
         planned.workspace_root.clone(),
@@ -1256,6 +1263,7 @@ fn chat_start(
     instruction: String,
     mode: Option<String>,
     model: Option<String>,
+    effort: Option<String>,
 ) -> Result<DispatchOut, String> {
     let config = Config::load();
     let root = std::path::PathBuf::from(hark_core::config::expand_home(&project_path));
@@ -1280,6 +1288,9 @@ fn chat_start(
         .or_else(|| mode.as_deref().and_then(hark_core::domain::directives::Mode::from_flag))
         .or_else(|| config.default_worker_mode());
     directives.model = directives.model.or(model.filter(|m| !m.is_empty()));
+    directives.effort = directives.effort.or_else(|| {
+        effort.as_deref().and_then(hark_core::domain::directives::Effort::from_flag)
+    });
     let spawn = fresh_spawn(&config, root, String::new(), instruction, directives.clone());
     start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
     Ok(DispatchOut::Started { task_id, directives })
@@ -1981,10 +1992,61 @@ struct SetModeOut {
     restarted: bool,
 }
 
+/// The one path every directive change takes. `change` edits a copy of the
+/// live directives and says whether anything moved; `stalled` is what to
+/// tell the user when a turn in flight owns the process.
+///
+/// A turn in flight is NEVER interrupted for a flag. Reopening under a
+/// running tool call once destroyed a turn with seven calls in it: the
+/// shutdown cut the transport mid-call, and the resume landed on a
+/// transcript whose last entry was an unanswered tool_use, so the new
+/// process died on arrival too.
+fn switch_directives(
+    app: &AppHandle,
+    live: &State<'_, LiveWorkers>,
+    task_id: &str,
+    change: impl FnOnce(&mut hark_core::domain::directives::Directives) -> bool,
+    stalled: impl FnOnce(&hark_core::domain::directives::Directives) -> String,
+) -> Result<SetModeOut, String> {
+    let handle = live
+        .0
+        .lock()
+        .unwrap()
+        .get(task_id)
+        .cloned()
+        .ok_or("worker não está mais ativo")?;
+    let mut next = handle.spec.directives.clone();
+    if !change(&mut next) {
+        return Ok(SetModeOut { directives: next, restarted: false });
+    }
+    let in_flight = app
+        .state::<BatchState>()
+        .0
+        .lock()
+        .unwrap()
+        .get(task_id)
+        .is_some_and(|e| e.in_flight);
+    if in_flight {
+        emit_event(
+            &app.clone(),
+            serde_json::json!({ "kind": "status", "text": stalled(&next) }),
+        );
+        return Ok(SetModeOut { directives: next, restarted: false });
+    }
+    emit_event(
+        app,
+        serde_json::json!({ "kind": "status",
+            "text": format!("reabrindo a thread com {}", describe(&next)) }),
+    );
+    handle.session.shutdown();
+    let spec = SessionSpec { directives: next.clone(), ..handle.spec.clone() };
+    start_worker(app, live, task_id, spec).map_err(|e| e.to_string())?;
+    Ok(SetModeOut { directives: next, restarted: true })
+}
+
 /// Switch a live worker's permission mode WITHOUT sending a message: the
-/// UI selector. Flags are per-process, so this restarts the worker on the
-/// same session (context re-cached, no text reaches the model) — but never
-/// while a turn is running.
+/// UI selector. Flags are per-process, so this reopens the worker on the
+/// same session (context re-cached, no text reaches the model).
 #[tauri::command]
 fn worker_set_mode(
     app: AppHandle,
@@ -1995,61 +2057,24 @@ fn worker_set_mode(
     let Some(mode) = hark_core::domain::directives::Mode::from_flag(&mode) else {
         return Err(format!("modo desconhecido: {mode}"));
     };
-    let handle = live
-        .0
-        .lock()
-        .unwrap()
-        .get(&task_id)
-        .cloned()
-        .ok_or("worker não está mais ativo")?;
-    let mut next = handle.spec.directives.clone();
-    if next.mode == Some(mode) {
-        return Ok(SetModeOut { directives: next, restarted: false });
-    }
-    next.mode = Some(mode);
-    // A turn in flight OWNS the process. Reopening it here destroyed a
-    // turn with seven tool calls in it: the shutdown cut the transport
-    // mid-call, and the resume landed on a transcript whose last entry was
-    // an unanswered tool_use, so the new process died on arrival too. The
-    // flag waits for the next spawn; the window relaxes this turn's
-    // permissions on its own, which is what the user actually asked for.
-    let in_flight = app
-        .state::<BatchState>()
-        .0
-        .lock()
-        .unwrap()
-        .get(&task_id)
-        .is_some_and(|e| e.in_flight);
-    if in_flight {
-        // Nothing is stored here on purpose: the window owns the intent and
-        // re-applies it the moment the turn lands, when a restart is free
-        // of consequence.
-        emit_event(
-            &app,
-            serde_json::json!({ "kind": "status",
-                "text": format!("{} — sem reabrir a thread: o turno em voo continua",
-                    describe(&next)) }),
-        );
-        return Ok(SetModeOut { directives: next, restarted: false });
-    }
-    emit_event(
+    switch_directives(
         &app,
-        serde_json::json!({ "kind": "status",
-            "text": format!("reabrindo a thread com {}", describe(&next)) }),
-    );
-    handle.session.shutdown();
-    let spec = SessionSpec {
-        directives: next.clone(),
-        ..handle.spec.clone()
-    };
-    start_worker(&app, &live, &task_id, spec).map_err(|e| e.to_string())?;
-    Ok(SetModeOut { directives: next, restarted: true })
+        &live,
+        &task_id,
+        |d| {
+            let moved = d.mode != Some(mode);
+            d.mode = Some(mode);
+            moved
+        },
+        // Nothing is stored on purpose: the window owns the intent and
+        // re-applies it the moment the turn lands, when a reopen is free
+        // of consequence.
+        |d| format!("{} — sem reabrir a thread: o turno em voo continua", describe(d)),
+    )
 }
 
-/// Switch the focused task's MODEL: same contract as worker_set_mode —
-/// flags are per-process, so an idle thread reopens on the same session;
-/// a turn in flight is never interrupted (the model applies on the next
-/// reopen — unlike modes, the window cannot emulate a model change).
+/// Switch the focused task's MODEL: same contract as the mode selector,
+/// except the window cannot emulate a model change, so it simply waits.
 #[tauri::command]
 fn worker_set_model(
     app: AppHandle,
@@ -2057,43 +2082,51 @@ fn worker_set_model(
     task_id: String,
     model: String,
 ) -> Result<SetModeOut, String> {
-    let handle = live
-        .0
-        .lock()
-        .unwrap()
-        .get(&task_id)
-        .cloned()
-        .ok_or("worker não está mais ativo")?;
-    let mut next = handle.spec.directives.clone();
     let target = (!model.is_empty()).then_some(model);
-    if next.model == target {
-        return Ok(SetModeOut { directives: next, restarted: false });
-    }
-    next.model = target;
-    let in_flight = app
-        .state::<BatchState>()
-        .0
-        .lock()
-        .unwrap()
-        .get(&task_id)
-        .is_some_and(|e| e.in_flight);
-    if in_flight {
-        emit_event(
-            &app,
-            serde_json::json!({ "kind": "status",
-                "text": "modelo trocado — vale na próxima abertura da thread (o turno em voo continua)" }),
-        );
-        return Ok(SetModeOut { directives: next, restarted: false });
-    }
-    emit_event(
+    switch_directives(
         &app,
-        serde_json::json!({ "kind": "status",
-            "text": format!("reabrindo a thread com {}", describe(&next)) }),
-    );
-    handle.session.shutdown();
-    let spec = SessionSpec { directives: next.clone(), ..handle.spec.clone() };
-    start_worker(&app, &live, &task_id, spec).map_err(|e| e.to_string())?;
-    Ok(SetModeOut { directives: next, restarted: true })
+        &live,
+        &task_id,
+        |d| {
+            let moved = d.model != target;
+            d.model = target;
+            moved
+        },
+        |_| {
+            "modelo trocado — vale na próxima abertura da thread (o turno em voo continua)"
+                .to_string()
+        },
+    )
+}
+
+/// Switch the focused task's reasoning EFFORT. An empty string clears the
+/// directive: no `--effort` at all, which is not the same as "low" — it
+/// hands the choice back to the CLI's own default.
+#[tauri::command]
+fn worker_set_effort(
+    app: AppHandle,
+    live: State<'_, LiveWorkers>,
+    task_id: String,
+    effort: String,
+) -> Result<SetModeOut, String> {
+    let target = hark_core::domain::directives::Effort::from_flag(&effort);
+    if target.is_none() && !effort.is_empty() {
+        return Err(format!("esforço desconhecido: {effort}"));
+    }
+    switch_directives(
+        &app,
+        &live,
+        &task_id,
+        |d| {
+            let moved = d.effort != target;
+            d.effort = target;
+            moved
+        },
+        |_| {
+            "esforço trocado — vale na próxima abertura da thread (o turno em voo continua)"
+                .to_string()
+        },
+    )
 }
 
 /// End the conversation: EOF + kill, board moves to waiting.
@@ -4072,6 +4105,7 @@ pub fn run() {
             hark_chat_status,
             worker_set_mode,
             worker_set_model,
+            worker_set_effort,
             worker_stop,
             chat_start,
             project_add,

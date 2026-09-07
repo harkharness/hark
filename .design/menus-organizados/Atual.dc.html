@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif; }
+    a { color: #7aa2f7; } a:hover { color: #a6c1fb; }
+  </style>
+</helmet>
+<div style="width: 560px; height: 460px; box-sizing: border-box; background: #0b0e12; display: flex; flex-direction: column; justify-content: flex-end; padding: 16px 16px 14px; position: relative">
+
+  <div style="position: absolute; top: 14px; left: 16px; font-size: 10.5px; letter-spacing: .06em; color: #7a8698">COMO ESTÁ HOJE</div>
+
+  <!-- the menu, exactly as the cascade renders it today -->
+  <div style="width: 280px; box-sizing: border-box; background: #11151b; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.45); margin: 0 0 6px 96px">
+    <div style="color: #7a8698; font-size: 10.5px; font-weight: 500; padding: 4px 8px 6px">modo · novas tasks</div>
+
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; box-sizing: border-box; padding: 6px 9px; border-radius: 8px; background: rgba(122,162,247,.12)">
+      <b style="font-size: 12.5px; color: #d7dde6; line-height: 16px">auto</b>
+      <span style="color: #7a8698; font-size: 11px; line-height: 15px; text-align: left">o roteador escolhe (frases como "pensa melhor" sobem o tier)</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; box-sizing: border-box; padding: 6px 9px; border-radius: 8px">
+      <b style="font-size: 12.5px; color: #d7dde6; line-height: 16px">haiku</b>
+      <span style="color: #7a8698; font-size: 11px; line-height: 15px; text-align: left">leve · perguntas e triagem</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; box-sizing: border-box; padding: 6px 9px; border-radius: 8px">
+      <b style="font-size: 12.5px; color: #d7dde6; line-height: 16px">sonnet</b>
+      <span style="color: #7a8698; font-size: 11px; line-height: 15px; text-align: left">padrão · trabalho do dia a dia</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; box-sizing: border-box; padding: 6px 9px; border-radius: 8px">
+      <b style="font-size: 12.5px; color: #d7dde6; line-height: 16px">opus</b>
+      <span style="color: #7a8698; font-size: 11px; line-height: 15px; text-align: left">pesado · raciocínio fundo</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; box-sizing: border-box; padding: 6px 9px; border-radius: 8px">
+      <b style="font-size: 12.5px; color: #d7dde6; line-height: 16px">fable</b>
+      <span style="color: #7a8698; font-size: 11px; line-height: 15px; text-align: left">máximo · o melhor disponível</span>
+    </div>
+  </div>
+
+  <!-- composer control row -->
+  <div style="background: #11151b; border: 1px solid rgba(255,255,255,.07); border-radius: 14px">
+    <div style="height: 34px"></div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 2px 10px 9px">
+      <div style="display: flex; gap: 6px; align-items: center; flex: 1">
+        <span style="display: inline-flex; align-items: center; gap: 5px; background: #161c25; color: #7a8698; border-radius: 999px; padding: 5px 12px; font-size: 12px">Manual
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 5px; background: #161c25; color: #d7dde6; border-radius: 999px; padding: 5px 12px; font-size: 12px">auto
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+        </span>
+      </div>
+      <span style="width: 32px; height: 32px; border-radius: 50%; background: #161c25; display: inline-flex; align-items: center; justify-content: center; color: #d7dde6">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19v3"/><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M19 10a7 7 0 0 1-14 0"/></svg>
+      </span>
+      <span style="width: 32px; height: 32px; border-radius: 50%; background: #7aa2f7; display: inline-flex; align-items: center; justify-content: center; color: #0b0e12">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+      </span>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

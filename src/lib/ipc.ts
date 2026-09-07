@@ -75,12 +75,15 @@ export const workerStart = (
   fork?: boolean,
   /** Window's model selector (spoken directives still win). */
   model?: string,
+  /** Window's effort selector; "" or undefined means no --effort at all. */
+  effort?: string,
 ) =>
   invoke<DispatchOutcome>("worker_start", {
     instruction,
     sessionId,
     mode: mode ?? null,
     model: model ?? null,
+    effort: effort || null,
     fork: fork ?? null,
   });
 
@@ -159,8 +162,20 @@ export const harkChatStatus = () =>
   invoke<{ alive: boolean; session_id: string | null }>("hark_chat_status");
 
 /** Brand-new Claude Code session inside a project directory. */
-export const chatStart = (projectPath: string, instruction: string, mode?: string, model?: string) =>
-  invoke<DispatchOutcome>("chat_start", { projectPath, instruction, mode: mode ?? null, model: model ?? null });
+export const chatStart = (
+  projectPath: string,
+  instruction: string,
+  mode?: string,
+  model?: string,
+  effort?: string,
+) =>
+  invoke<DispatchOutcome>("chat_start", {
+    projectPath,
+    instruction,
+    mode: mode ?? null,
+    model: model ?? null,
+    effort: effort || null,
+  });
 
 /** Sessions a human is holding at a terminal (ours or any other app). */
 export const sessionOwners = () =>
@@ -325,6 +340,9 @@ export const workerSetMode = (taskId: string, mode: string) =>
   invoke<{ directives: Directives; restarted: boolean }>("worker_set_mode", { taskId, mode });
 export const workerSetModel = (taskId: string, model: string) =>
   invoke<{ directives: Directives; restarted: boolean }>("worker_set_model", { taskId, model });
+/** Reasoning effort; "" clears the directive (back to the CLI's default). */
+export const workerSetEffort = (taskId: string, effort: string) =>
+  invoke<{ directives: Directives; restarted: boolean }>("worker_set_effort", { taskId, effort });
 
 /* ---- global voice (HUD) ---- */
 export const planUtterance = (text: string) =>

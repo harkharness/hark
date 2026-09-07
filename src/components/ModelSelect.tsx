@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { ChevronUp } from "lucide-react";
+import PillMenu, { type PillItem } from "./PillMenu";
 import { shortModel } from "../lib/format";
 import { t } from "../lib/i18n";
 
@@ -19,6 +18,7 @@ export default function ModelSelect({
   liveModel,
   tiers,
   appliesTo,
+  windowDefault,
   onSelect,
 }: {
   /** Selected model ("" = auto/router). */
@@ -27,49 +27,31 @@ export default function ModelSelect({
   liveModel?: string | null;
   tiers: ModelTiers;
   appliesTo?: string;
+  windowDefault?: string;
   onSelect: (model: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const shown = shortModel(liveModel ?? (value || undefined)) === "?"
-    ? t("model_auto")
-    : shortModel(liveModel ?? value);
-  const options: { model: string; name: string; hint: string }[] = [
-    { model: "", name: t("model_auto"), hint: t("model_auto_hint") },
-    { model: tiers.light, name: shortModel(tiers.light), hint: t("tier_light") },
-    { model: tiers.standard, name: shortModel(tiers.standard), hint: t("tier_standard") },
-    { model: tiers.heavy, name: shortModel(tiers.heavy), hint: t("tier_heavy") },
-    { model: tiers.max, name: shortModel(tiers.max), hint: t("tier_max") },
-  ];
+  const shown =
+    shortModel(liveModel ?? (value || undefined)) === "?"
+      ? t("model_auto")
+      : shortModel(liveModel ?? value);
+  const items: PillItem[] = [
+    { value: "", name: t("model_auto"), hint: t("model_auto_hint"), title: t("model_auto_title") },
+    { value: tiers.light, name: shortModel(tiers.light), hint: t("tier_light") },
+    { value: tiers.standard, name: shortModel(tiers.standard), hint: t("tier_standard") },
+    { value: tiers.heavy, name: shortModel(tiers.heavy), hint: t("tier_heavy") },
+    { value: tiers.max, name: shortModel(tiers.max), hint: t("tier_max") },
+  ].map((i) => ({ ...i, isDefault: !!appliesTo && i.value === (windowDefault ?? "") }));
 
   return (
-    <span className="mode-anchor">
-      <button
-        className="mode-pill"
-        title={appliesTo ? t("model_pill_task", { name: appliesTo }) : t("model_pill_window")}
-        onClick={() => setOpen((o) => !o)}
-      >
-        {shown} <ChevronUp size={11} />
-      </button>
-      {open && (
-        <div className="mode-menu" onMouseLeave={() => setOpen(false)}>
-          <div className="mode-menu-head">
-            {appliesTo ? t("mode_menu_task", { name: appliesTo.slice(0, 26) }) : t("mode_menu_new")}
-          </div>
-          {options.map((m) => (
-            <button
-              key={m.model || "auto"}
-              className={m.model === value ? "on" : ""}
-              onClick={() => {
-                setOpen(false);
-                onSelect(m.model);
-              }}
-            >
-              <b>{m.name}</b>
-              <span>{m.hint}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </span>
+    <PillMenu
+      label={shown}
+      title={appliesTo ? t("model_pill_task", { name: appliesTo }) : t("model_pill_window")}
+      head={
+        appliesTo ? t("model_menu_task", { name: appliesTo.slice(0, 26) }) : t("model_menu_new")
+      }
+      items={items}
+      value={value}
+      onPick={onSelect}
+    />
   );
 }

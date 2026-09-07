@@ -71,6 +71,19 @@ impl Effort {
             Effort::Max => "max",
         }
     }
+
+    /// Inverse of `as_flag`, for the UI effort selector. An empty string is
+    /// how the selector says "no directive at all" — that is None, not a level.
+    pub fn from_flag(flag: &str) -> Option<Self> {
+        match flag {
+            "low" => Some(Effort::Low),
+            "medium" => Some(Effort::Medium),
+            "high" => Some(Effort::High),
+            "xhigh" => Some(Effort::XHigh),
+            "max" => Some(Effort::Max),
+            _ => None,
+        }
+    }
 }
 
 /// What the user asked for, beyond the task itself.
@@ -209,6 +222,17 @@ mod tests {
         // Near-misses must NOT unlock it.
         assert_eq!(parse("ignora esse arquivo").mode, None);
         assert_eq!(parse("sem parar pra perguntar do lint").mode, None);
+    }
+
+    #[test]
+    fn effort_round_trips_through_its_flag() {
+        for e in [Effort::Low, Effort::Medium, Effort::High, Effort::XHigh, Effort::Max] {
+            assert_eq!(Effort::from_flag(e.as_flag()), Some(e));
+        }
+        // The selector clears the directive with an empty string, and a word
+        // that merely looks like a level must never become one.
+        assert_eq!(Effort::from_flag(""), None);
+        assert_eq!(Effort::from_flag("maximo"), None);
     }
 
     #[test]

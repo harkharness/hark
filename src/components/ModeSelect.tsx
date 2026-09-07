@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { ChevronUp } from "lucide-react";
+import PillMenu, { type PillItem } from "./PillMenu";
 import { t } from "../lib/i18n";
 
 const MODES = [
@@ -18,50 +17,35 @@ const MODES = [
 export default function ModeSelect({
   value,
   appliesTo,
+  windowDefault,
   onSelect,
 }: {
   /** Current mode flag ("manual" | "acceptEdits" | "plan" | "auto" | "bypass"). */
   value: string;
   /** Focused live task name, when the change applies to it. */
   appliesTo?: string;
+  /** This window's default — badged while the menu is aimed at a task. */
+  windowDefault?: string;
   onSelect: (flag: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const current = MODES.find((m) => m.flag === value) ?? MODES[0];
+  const items: PillItem[] = MODES.map((m) => ({
+    value: m.flag,
+    name: t(m.name),
+    hint: t(m.hint),
+    // "aceita tudo" is a warning, not a description.
+    danger: m.flag === "bypass",
+    isDefault: !!appliesTo && m.flag === windowDefault,
+  }));
 
   return (
-    <span className="mode-anchor">
-      <button
-        className="mode-pill"
-        title={
-          appliesTo
-            ? t("mode_pill_task", { name: appliesTo })
-            : t("mode_pill_window")
-        }
-        onClick={() => setOpen((o) => !o)}
-      >
-        {t(current.name)} <ChevronUp size={11} />
-      </button>
-      {open && (
-        <div className="mode-menu" onMouseLeave={() => setOpen(false)}>
-          <div className="mode-menu-head">
-            {appliesTo ? t("mode_menu_task", { name: appliesTo.slice(0, 26) }) : t("mode_menu_new")}
-          </div>
-          {MODES.map((m) => (
-            <button
-              key={m.flag}
-              className={m.flag === value ? "on" : ""}
-              onClick={() => {
-                setOpen(false);
-                onSelect(m.flag);
-              }}
-            >
-              <b>{t(m.name)}</b>
-              <span>{t(m.hint)}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </span>
+    <PillMenu
+      label={t(current.name)}
+      title={appliesTo ? t("mode_pill_task", { name: appliesTo }) : t("mode_pill_window")}
+      head={appliesTo ? t("mode_menu_task", { name: appliesTo.slice(0, 26) }) : t("mode_menu_new")}
+      items={items}
+      value={value}
+      onPick={onSelect}
+    />
   );
 }
