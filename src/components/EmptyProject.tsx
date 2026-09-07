@@ -64,9 +64,9 @@ export default function EmptyProject({
     <div className="empty-project">
       <div className="ep-hero">
         <span className="ep-orb">
-          <span style={{ height: 12 }} />
-          <span style={{ height: 18 }} />
-          <span style={{ height: 10 }} />
+          <span style={{ height: 20 }} />
+          <span style={{ height: 30 }} />
+          <span style={{ height: 16 }} />
         </span>
         <div className="ep-name">{project?.name ?? "hark"}</div>
         <div className="ep-sub">

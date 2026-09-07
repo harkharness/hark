@@ -241,18 +241,22 @@ body {
     var(--bg) 60%
   );
 }
-.ep-hero { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.ep-hero { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+/* The mark of the empty project. What matters here is the FILL, not the
+   diameter: at 46px with 3px bars the waveform took a third of the circle
+   and the thing read as an empty ring with specks in it. The bars now
+   inhabit it. No glow — .empty-project already lays a radial behind. */
 .ep-orb {
-  position: relative; width: 46px; height: 46px; border-radius: 50%;
+  position: relative; width: 64px; height: 64px; border-radius: 50%;
   background: conic-gradient(from 40deg, #7aa2f7, #bb9af7, #7dcfff, #7aa2f7);
-  display: flex; align-items: center; justify-content: center; gap: 2.5px;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
 }
 .ep-orb::before {
   content: ""; position: absolute; inset: 1.5px; border-radius: 50%;
   background: #0d1117;
 }
 .ep-orb > span {
-  position: relative; width: 3px; border-radius: 2px; background: var(--accent);
+  position: relative; width: 5px; border-radius: 2.5px; background: var(--accent);
 }
 .ep-orb > span:nth-child(2) { background: #bb9af7; }
 .ep-orb > span:nth-child(3) { background: var(--hl-meta); }
