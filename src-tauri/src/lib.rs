@@ -3720,6 +3720,12 @@ fn open_project_window(
     tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
         .title(format!("Hark — {name}"))
         .inner_size(1280.0, 820.0)
+        // The traffic lights float OVER the page so the sidebar toggle can
+        // sit beside them, the way every editor with a rail does it. The
+        // title stays for the window menu and Mission Control, just not
+        // painted across a strip of its own.
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
         // wry's native drop target swallows DOM dragover/drop; without this
         // the board's HTML5 card drag never lands (we take no file drops).
         .disable_drag_drop_handler()

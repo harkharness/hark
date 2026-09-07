@@ -2220,8 +2220,9 @@ export default function App({
 
   return (
     <div className="app">
-      {/* Sidebar toggle floats where the topbar used to be — the topbar
-          itself is gone: that strip was pure wasted height. */}
+      {/* The title bar is an Overlay: this strip drags the window, and the
+          sidebar toggle sits in it beside the traffic lights. */}
+      <div className="titlebar-drag" data-tauri-drag-region />
       <button
         className={`side-toggle-float ${sidebarOpen ? "" : "closed"}`}
         title={sidebarOpen ? t("side_hide") : t("side_show")}

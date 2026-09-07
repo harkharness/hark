@@ -2046,15 +2046,26 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .frame.collapsed .frame-title { color: var(--dim); }
 
 /* ---- topbar is gone: controls live on the composer row ---- */
+/* Beside the traffic lights, in the title bar's own strip (the window
+   is built with an Overlay title bar for exactly this). Adrift at the
+   top of the rail it belonged to nothing; here it reads as window
+   chrome, which is what it is. */
 .side-toggle-float {
-  position: absolute; top: 10px; left: 10px; z-index: 8;
+  position: fixed; top: 4px; left: 78px; z-index: 9;
   display: flex; align-items: center; justify-content: center;
   width: 26px; height: 24px; border-radius: 7px; cursor: pointer;
   background: transparent; color: var(--dim); border: none;
 }
 .side-toggle-float:hover { color: var(--text); background: rgba(255,255,255,.06); }
-.app { position: relative; }
-.sidebar { padding-top: 38px; }
+/* The rest of that strip drags the window, as a title bar must. */
+.titlebar-drag {
+  position: fixed; top: 0; left: 0; right: 0; height: 30px; z-index: 7;
+}
+/* Only the project window renders .app, and that window is built with an
+   Overlay title bar: the strip is ours, so the layout starts under it
+   instead of every column pushing its own top padding. */
+.app { position: relative; padding-top: 30px; }
+.sidebar { padding-top: 4px; }
 .inputbar-row .scope {
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--dim); border: none; border-radius: 7px; padding: 5px 7px;
