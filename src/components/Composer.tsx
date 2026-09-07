@@ -7,7 +7,6 @@ import {
   type Attachment,
   fenceSegments,
   groupBlocks,
-  hasFence,
   hasRich,
   insideOpenFence,
   paint,
@@ -24,6 +23,35 @@ type Mention = {
 
 type SlashHit = { name: string; desc?: string };
 type Slash = { hits: SlashHit[]; sel: number };
+
+/** What you sent, oldest first — the up arrow walks back through it like
+ *  a shell. Per surface (the thread's project, or the mother), kept in
+ *  localStorage so closing the window does not forget the last hour. */
+const HISTORY_MAX = 50;
+
+function readHistory(scope: string): string[] {
+  try {
+    const raw = localStorage.getItem(`hark.composer.history.${scope}`);
+    const all = raw ? JSON.parse(raw) : [];
+    return Array.isArray(all) ? all.filter((l): l is string => typeof l === "string") : [];
+  } catch {
+    // Private windows and blocked site data throw on read: no history
+    // is a fine composer, a crashed one is not.
+    return [];
+  }
+}
+
+function pushHistory(scope: string, line: string): string[] {
+  const all = readHistory(scope);
+  // Sending the same thing twice adds one entry, like every shell.
+  const next = all[all.length - 1] === line ? all : [...all, line].slice(-HISTORY_MAX);
+  try {
+    localStorage.setItem(`hark.composer.history.${scope}`, JSON.stringify(next));
+  } catch {
+    /* nothing to do: the in-memory list still walks this session */
+  }
+  return next;
+}
 
 /** Commands Hark resolves itself; everything else in the palette is the
  *  CLI's own list (from the session's init event) sent verbatim. */
@@ -80,6 +108,13 @@ export default function Composer({
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<number>(0);
+  /** Where the up arrow is standing in the sent history (null = typing). */
+  const [histAt, setHistAt] = useState<number | null>(null);
+  const histRef = useRef<string[]>([]);
+  /** What was in the box when history navigation started, handed back on
+   *  the way down past the newest entry. */
+  const draftRef = useRef("");
+  const histScope = activeProject?.path ?? "hark";
   /** CLI slash list, fetched once per composer (cheap local lookup). */
   const cliSlash = useRef<string[] | null>(null);
 
@@ -195,10 +230,54 @@ export default function Composer({
     });
   }
 
+  /** Replace the whole box and park the caret at the end (history recall,
+   *  which should read as "this is what you typed", ready to edit). */
+  function replaceText(value: string) {
+    setText(value);
+    setCaret(value.length);
+    requestAnimationFrame(() => {
+      const el = areaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(value.length, value.length);
+      autoGrow();
+    });
+  }
+
+  /** Walk the sent history: -1 is older, +1 newer. Returns false when
+   *  there is nowhere to go, so the arrow keeps its normal job. */
+  function recall(dir: -1 | 1): boolean {
+    if (histAt === null) {
+      if (dir === 1) return false;
+      // Re-read on entry: another window in this project may have sent
+      // something since this composer mounted.
+      histRef.current = readHistory(histScope);
+      if (histRef.current.length === 0) return false;
+      draftRef.current = text;
+      setHistAt(histRef.current.length - 1);
+      replaceText(histRef.current[histRef.current.length - 1]);
+      return true;
+    }
+    const next = histAt + dir;
+    if (next < 0) return true; // already at the oldest: stay, don't fall through
+    if (next >= histRef.current.length) {
+      // Past the newest entry the draft comes back, exactly as left.
+      setHistAt(null);
+      replaceText(draftRef.current);
+      return true;
+    }
+    setHistAt(next);
+    replaceText(histRef.current[next]);
+    return true;
+  }
+
   function send() {
     if (!text.trim() || disabled) return;
     const t = text;
     const imgs = images;
+    histRef.current = pushHistory(histScope, t);
+    setHistAt(null);
+    draftRef.current = "";
     setText("");
     setCaret(0);
     setImages([]);
@@ -300,6 +379,21 @@ export default function Composer({
       }
       if (e.key === "Escape") {
         setMention(null);
+        return;
+      }
+    }
+    // Up arrow on the first line recalls what you sent, like a shell;
+    // down walks back and hands the draft over past the newest entry.
+    // Multi-line editing keeps the arrows: only a caret with no newline
+    // behind it (above) or ahead of it (below) is a history request.
+    if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.altKey && !e.metaKey) {
+      const pos = areaRef.current?.selectionStart ?? 0;
+      const asks =
+        e.key === "ArrowUp"
+          ? !text.slice(0, pos).includes("\n")
+          : histAt !== null && !text.slice(pos).includes("\n");
+      if (asks && recall(e.key === "ArrowUp" ? -1 : 1)) {
+        e.preventDefault();
         return;
       }
     }
@@ -422,7 +516,7 @@ export default function Composer({
             itself renders transparent glyphs and keeps the caret, the
             selection and every native editing behaviour. */}
         <div
-          className={`composer-mirror ${hasFence(text) ? "has-fence" : ""}`}
+          className="composer-mirror"
           aria-hidden="true"
           ref={mirrorRef}
         >
@@ -459,7 +553,7 @@ export default function Composer({
         </div>
         <textarea
           ref={areaRef}
-          className={`${hasFence(text) ? "has-fence" : ""} ${hasRich(text) ? "has-rich" : ""}`}
+          className={hasRich(text) ? "has-rich" : ""}
           rows={1}
           autoFocus={autoFocus}
           placeholder={placeholder}

@@ -2076,16 +2076,19 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   pointer-events: none;
   color: var(--text);
   border-radius: 14px;
+  /* The block boxes sit at z-index -1 so text paints over them. Without
+     a stacking context of its own they sink BEHIND the composer's panel
+     and the box is invisible however bright you paint it — that was the
+     "I still can't see the box" bug, not the colour. */
+  isolation: isolate;
 }
-/* Both sides go monospace together. Mixing proportional prose with a
-   monospace block would make the mirror wrap differently from the
-   textarea, and the caret would drift away from the glyphs under it —
-   a prettier composer nobody can type in. */
-.composer textarea.has-fence,
-.composer-mirror.has-fence {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 12.5px;
-}
+/* ONE family for the whole box, always. A textarea cannot switch font
+   mid-text, and the mirror must wrap glyph-for-glyph with it, so a
+   monospace run inside prose would drift the caret away from the
+   letters under it. Typing a block used to flip the WHOLE composer to
+   monospace — every line of portuguese with it. A block is marked by
+   its box and its colour instead; the transcript still renders it in
+   mono, where there is no caret to keep honest. */
 /* Any styled token (fence, `code`, "> quote") flips the textarea to
    transparent glyphs: the mirror paints the look, the textarea keeps the
    caret, selection and editing. Deleting a marker character reverts the
@@ -2097,15 +2100,19 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    fence lines, so nothing reads as stray blank lines. */
 .composer-mirror .cm-fence {
   color: var(--code-fg, #c8d3f5);
+  font-variant-numeric: tabular-nums;
+  font-variant-ligatures: none;
 }
 .composer-mirror .cm-fblock {
   position: absolute;
-  left: 5px;
-  right: 5px;
+  /* Inset to the text's own left edge (the mirror's 14px padding minus
+     the box's breathing room), so it never touches the card's border. */
+  left: 8px;
+  right: 8px;
   display: none;
-  /* LIGHTER than the input's panel — #10151d over #11151b was invisible. */
-  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
-  box-shadow: 0 0 0 1px var(--border-strong);
+  /* A step above the composer's own panel, like the block in the chat. */
+  background: var(--panel-2);
+  box-shadow: 0 0 0 1px var(--border);
   border-radius: 8px;
   z-index: -1;
 }
@@ -2114,8 +2121,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    room, the backticks become the chip's side padding. */
 .composer-mirror .cm-marker { color: transparent; }
 .composer-mirror .cm-code {
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
-  box-shadow: 0 0 0 1px var(--border);
+  background: var(--panel-2);
   border-radius: 5px;
   color: var(--warn);
 }
