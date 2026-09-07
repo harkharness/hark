@@ -47,6 +47,50 @@ export function openFencePair(text: string, caret: number): { text: string; care
   return { text: `${opened}\n\`\`\`\n${text.slice(caret)}`, caret: opened.length };
 }
 
+/** Leave the block the caret is standing in, whatever shape it is in:
+ *  close it if it was never closed, add the line under the closing fence
+ *  if there wasn't one, and land the caret on that line.
+ *
+ *  This exists because "just press down" is not a promise the composer
+ *  can keep — the fences paint invisible, so a caret parked on one looks
+ *  identical to a caret past it, and a draft can always end mid-block. */
+export function exitFence(text: string, caret: number): { text: string; caret: number } {
+  const lines = text.split("\n");
+  let line = 0;
+  for (let at = 0; line < lines.length; line++) {
+    const end = at + lines[line].length;
+    if (caret <= end) break;
+    at = end + 1;
+  }
+  const out = [...lines];
+  let close = out.findIndex((l, i) => i >= line && isFenceLine(l));
+  if (close === -1) {
+    // Unterminated: close it right under the code, never past prose the
+    // user wrote below.
+    out.splice(line + 1, 0, "```");
+    close = line + 1;
+  }
+  if (close === out.length - 1) out.push("");
+  return {
+    text: out.join("\n"),
+    caret: out.slice(0, close + 1).join("\n").length + 1,
+  };
+}
+
+/** Should the down arrow LEAVE the block instead of moving a line? Yes
+ *  when the caret is inside one and the line below is either nothing at
+ *  all or the closing fence itself — the fence paints invisible, so
+ *  stepping onto it looks like the arrow did nothing, and whatever you
+ *  type next destroys the marker. */
+export function wantsExit(text: string, caret: number): boolean {
+  if (!insideOpenFence(text, caret)) return false;
+  const nl = text.indexOf("\n", caret);
+  if (nl === -1) return true;
+  const rest = text.slice(nl + 1);
+  const cut = rest.indexOf("\n");
+  return isFenceLine(cut === -1 ? rest : rest.slice(0, cut));
+}
+
 /** Does the draft contain a fenced block at all? Drives the monospace
  *  switch: prose stays proportional until code is actually present. */
 export function hasFence(text: string): boolean {

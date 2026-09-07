@@ -8,9 +8,11 @@ import {
   fenceSegments,
   groupBlocks,
   hasRich,
+  exitFence,
   insideOpenFence,
   openFencePair,
   paint,
+  wantsExit,
 } from "../lib/composerText";
 
 
@@ -251,6 +253,19 @@ export default function Composer({
     });
   }
 
+  /** Apply a computed edit and park the caret exactly where it says. */
+  function applyEdit(next: { text: string; caret: number }) {
+    setText(next.text);
+    setCaret(next.caret);
+    requestAnimationFrame(() => {
+      const el = areaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(next.caret, next.caret);
+      autoGrow();
+    });
+  }
+
   /** Walk the sent history: -1 is older, +1 newer. Returns false when
    *  there is nowhere to go, so the arrow keeps its normal job. */
   function recall(dir: -1 | 1): boolean {
@@ -389,6 +404,18 @@ export default function Composer({
         return;
       }
     }
+    // Down arrow inside a block is the way OUT when there is nothing
+    // useful below: the last line of the draft, or a closing fence that
+    // is itself the last line (invisible, so "down" looked like nothing
+    // happened and the next keystroke landed inside the marker).
+    if (e.key === "ArrowDown" && !e.altKey && !e.metaKey) {
+      const pos = areaRef.current?.selectionStart ?? 0;
+      if (wantsExit(text, pos)) {
+        e.preventDefault();
+        applyEdit(exitFence(text, pos));
+        return;
+      }
+    }
     // Up arrow on the first line recalls what you sent, like a shell;
     // down walks back and hands the draft over past the newest entry.
     // Multi-line editing keeps the arrows: only a caret with no newline
@@ -423,15 +450,8 @@ export default function Composer({
       // the "block keeps reopening" loop the user could never leave.
       if (el && fence && pos === (el.selectionEnd ?? pos) && !insideOpenFence(text, pos)) {
         e.preventDefault();
-        const opened = openFencePair(text, pos);
-        setText(opened.text);
         // Land between the fences on the next paint.
-        setCaret(opened.caret);
-        requestAnimationFrame(() => {
-          el.selectionStart = opened.caret;
-          el.selectionEnd = opened.caret;
-          el.focus();
-        });
+        applyEdit(openFencePair(text, pos));
         return;
       }
     }
@@ -443,10 +463,21 @@ export default function Composer({
         send();
         return;
       }
-      // Inside a code block Enter is a NEWLINE, never a send: writing the
-      // second line of a snippet used to fire the message off half
-      // written, closing fence and all.
-      if (insideOpenFence(text, areaRef.current?.selectionStart ?? 0)) return;
+      const pos = areaRef.current?.selectionStart ?? 0;
+      if (insideOpenFence(text, pos)) {
+        // Enter on an EMPTY line inside the block leaves it, the way
+        // every block editor works — the second obvious exit.
+        const from = text.lastIndexOf("\n", Math.max(0, pos - 1)) + 1;
+        const to = text.indexOf("\n", pos) === -1 ? text.length : text.indexOf("\n", pos);
+        if (text.slice(from, to).trim() === "") {
+          e.preventDefault();
+          applyEdit(exitFence(text, pos));
+          return;
+        }
+        // Otherwise Enter is a NEWLINE, never a send: writing the second
+        // line of a snippet used to fire the message off half written.
+        return;
+      }
       e.preventDefault();
       send();
     }

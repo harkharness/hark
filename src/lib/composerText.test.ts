@@ -1,5 +1,46 @@
 import { describe, expect, it } from "vitest";
-import { fenceSegments, insideOpenFence, isFenceLine, openFencePair, paint } from "./composerText";
+import {
+  exitFence,
+  fenceSegments,
+  insideOpenFence,
+  isFenceLine,
+  openFencePair,
+  paint,
+  wantsExit,
+} from "./composerText";
+
+describe("exitFence — the way out, whatever state the block is in", () => {
+  it("closes an unterminated block and lands after it", () => {
+    const open = "```\nconst x = 1;";
+    const { text, caret } = exitFence(open, open.length);
+    expect(insideOpenFence(text, caret)).toBe(false);
+    expect(text).toBe("```\nconst x = 1;\n```\n");
+    expect(caret).toBe(text.length);
+  });
+
+  it("adds the missing line when the closing fence is the last one", () => {
+    const closed = "```\nconst x = 1;\n```";
+    const { text, caret } = exitFence(closed, 6);
+    expect(text).toBe("```\nconst x = 1;\n```\n");
+    expect(insideOpenFence(text, caret)).toBe(false);
+  });
+
+  it("reuses the line that is already there instead of piling up blanks", () => {
+    const after = "```\nconst x = 1;\n```\ndepois";
+    const { text, caret } = exitFence(after, 6);
+    expect(text).toBe(after);
+    expect(text.slice(caret)).toBe("depois");
+  });
+
+  it("leaves prose after the block alone when the block is unterminated", () => {
+    // Caret inside an open block that has prose under it: closing must
+    // happen right after the code, not swallow the paragraph.
+    const messy = "```\ncode\nmais code";
+    const { text, caret } = exitFence(messy, messy.indexOf("mais"));
+    expect(text.startsWith("```\ncode\nmais code\n```")).toBe(true);
+    expect(insideOpenFence(text, caret)).toBe(false);
+  });
+});
 
 describe("fence lines", () => {
   it("is a fence only when the whole line is ``` plus a short language", () => {
@@ -70,6 +111,28 @@ function partAt(painted: ReturnType<typeof paint>, offset: number) {
   }
   return undefined;
 }
+
+describe("wantsExit — when the down arrow means 'leave'", () => {
+  it("leaves from the last line of an unterminated block", () => {
+    const open = "```\nFwkeijf\nskfoek";
+    expect(wantsExit(open, open.length)).toBe(true);
+  });
+
+  it("leaves when the line below is the closing fence", () => {
+    const closed = "```\ncode\n```\n";
+    expect(wantsExit(closed, closed.indexOf("code"))).toBe(true);
+  });
+
+  it("moves normally while there is still code below", () => {
+    const two = "```\nprimeira\nsegunda\n```\n";
+    expect(wantsExit(two, two.indexOf("primeira"))).toBe(false);
+  });
+
+  it("does nothing outside a block", () => {
+    const prose = "só texto\nmais texto";
+    expect(wantsExit(prose, 0)).toBe(false);
+  });
+});
 
 describe("a fence the caret stands on shows itself", () => {
   it("reveals the closing marker when the caret parks on its line", () => {
