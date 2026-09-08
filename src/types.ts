@@ -229,6 +229,7 @@ export type TaskCommandResult =
   | { kind: "renamed"; title: string }
   | { kind: "pinned"; title: string }
   | { kind: "archived"; title: string }
+  | { kind: "done"; title: string }
   | { kind: "open_file"; query: string; project?: string | null }
   | { kind: "project_added"; title: string; path: string }
   | { kind: "project_error"; title: string }

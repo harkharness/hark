@@ -3681,6 +3681,19 @@ fn task_command(
 
     let query = match &command {
         TaskCommand::Pin(q) | TaskCommand::Archive(q) => q,
+        // "fechamos essa task?" names nothing: it means the one on screen.
+        TaskCommand::Done(q) => match q.as_deref().filter(|q| !q.is_empty()) {
+            Some(q) => q,
+            None => match focused.as_deref().filter(|f| !f.is_empty()) {
+                Some(f) => f,
+                None => {
+                    return Ok(Some(serde_json::json!({
+                        "kind": "not_found",
+                        "query": "nenhuma task focada pra fechar",
+                    })))
+                }
+            },
+        },
         // "renomeia (esse chat) para X": an empty query means whatever the
         // window has focused right now.
         TaskCommand::Rename { query, .. } if query.is_empty() => {
@@ -3725,6 +3738,16 @@ fn task_command(
                 let tasks = hark_core::domain::board::toggle_pin(tasks, &title);
                 store.save_board(&tasks)?;
                 Ok(Some(serde_json::json!({ "kind": "pinned", "title": title })))
+            }
+            TaskCommand::Done(_) => {
+                let tasks = hark_core::domain::board::set_status(
+                    tasks,
+                    &title,
+                    hark_core::domain::board::TaskStatus::Done,
+                    &now_iso(),
+                );
+                store.save_board(&tasks)?;
+                Ok(Some(serde_json::json!({ "kind": "done", "title": title })))
             }
             TaskCommand::Archive(_) => {
                 let tasks = hark_core::domain::board::archive(tasks, &title);

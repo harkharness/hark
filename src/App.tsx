@@ -1200,6 +1200,13 @@ export default function App({
       } else if (cmd.kind === "project_offer") {
         setPending({ kind: "project-offer", query: cmd.query, candidates: cmd.candidates });
         say(st("sp_found_dirs", { n: cmd.candidates.length }));
+      } else if (cmd.kind === "done") {
+        // Closing the task you are in, from the chat. Before this the
+        // words went to the agent as work: "fechamos essa task?" spent
+        // real money asking a torn-down cluster whether it was gone.
+        push({ who: "sys", text: `task concluída: ${cmd.title}`, task: cmd.title });
+        say(st("sp_task_done"));
+        refresh();
       } else if (cmd.kind === "not_found") {
         push({ who: "sys", text: `nada bate com "${cmd.query}"` });
         say("Não achei isso no quadro.");

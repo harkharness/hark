@@ -16,6 +16,10 @@ pub enum TaskCommand {
     Rename { query: String, title: String },
     Pin(String),
     Archive(String),
+    /// Move a task to done. `None` means the one you are in — closing the
+    /// task you are looking at is the common case, and naming it again is
+    /// exactly the ceremony that made people type it at the agent instead.
+    Done(Option<String>),
     /// Open a file in the local viewer (zero tokens).
     OpenFile {
         query: String,
@@ -87,6 +91,15 @@ const RENAME_VERBS: &[&str] =
     &["renomeia", "renomear", "muda o titulo", "muda o título", "renomeie", "rename"];
 const PIN_VERBS: &[&str] = &["fixa ", "fixar ", "prende ", "pin "];
 const ARCHIVE_VERBS: &[&str] = &["arquiva ", "arquivar ", "archive "];
+/// Closing a task. The VERB alone is never enough — "fecha o PR" and
+/// "conclui a migração" are jobs, not board moves — so a match also needs
+/// the word task/tarefa/chat as the thing being closed.
+const DONE_VERBS: &[&str] = &[
+    "fecha", "fechar", "fechamos", "conclui", "concluir", "concluímos", "concluimos",
+    "concluída", "concluida", "concluído", "concluido", "termina", "terminar",
+    "terminamos", "encerra", "encerrar", "close", "closes", "finish", "done", "mark", "finished",
+];
+const DONE_OBJECTS: &[&str] = &["task", "tarefa", "chat"];
 const OPEN_FILE_VERBS: &[&str] = &[
     "abre o arquivo", "abra o arquivo", "abrir o arquivo", "mostra o arquivo",
     "open the file", "show the file", "open file",
@@ -382,6 +395,35 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
         let query = clean_rename_target(&query);
         return (!title.is_empty()).then_some(TaskCommand::Rename { query, title });
     }
+    // Closing a task. Both halves are required: a verb AND the word
+    // task/tarefa/chat as its object. The verb alone would swallow real
+    // work — "fecha o PR", "conclui a migração" — and a board move that
+    // eats a job is worse than no verb at all.
+    if DONE_VERBS.iter().any(|v| {
+        lower.split(|c: char| !c.is_alphanumeric()).any(|w| w == *v) || lower.contains(*v)
+    }) {
+        if let Some(object) = DONE_OBJECTS.iter().find(|o| {
+            lower.split(|c: char| !c.is_alphanumeric()).any(|w| w == **o)
+        }) {
+            let rest = after(object).unwrap_or_default();
+            // What follows the object is a NAME only if it is not just the
+            // verb finishing the sentence ("mark this task done", "essa
+            // task está concluída").
+            let name = clean_query(&rest)
+                .split_whitespace()
+                .filter(|w| {
+                    let w = w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+                    !w.is_empty()
+                        && !DONE_VERBS.contains(&w.as_str())
+                        && !FILLER.contains(&w.as_str())
+                        && w != "está"
+                        && w != "esta"
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            return Some(TaskCommand::Done((!name.is_empty()).then_some(name)));
+        }
+    }
     for (verbs, build) in [
         (OPEN_VERBS, TaskCommand::Open as fn(String) -> TaskCommand),
         (PIN_VERBS, TaskCommand::Pin),
@@ -534,6 +576,47 @@ mod tests {
                 title: "Assinaturas DNS".into()
             })
         );
+    }
+
+    #[test]
+    fn closing_the_task_you_are_in_is_a_command_not_work() {
+        // "só queria fechar essa task" went to the agent instead, which
+        // spent $7.68 probing a cluster that had already been torn down.
+        for said in [
+            "fechamos essa task?",
+            "fecha essa task",
+            "pode fechar essa task",
+            "conclui essa task",
+            "essa task está concluída",
+            "terminamos essa tarefa",
+            "close this task",
+            "mark this task done",
+        ] {
+            assert_eq!(parse(said), Some(TaskCommand::Done(None)), "{said}");
+        }
+    }
+
+    #[test]
+    fn closing_a_task_by_name_names_it() {
+        assert_eq!(
+            parse("fecha a task dos alertas"),
+            Some(TaskCommand::Done(Some("alertas".into())))
+        );
+    }
+
+    #[test]
+    fn closing_anything_that_is_not_a_task_is_real_work() {
+        // The object matters: these are jobs for the agent, and hijacking
+        // them into a board move would be worse than not having the verb.
+        for said in [
+            "fecha o PR",
+            "fecha a conexão do banco",
+            "conclui a migração de pagamentos",
+            "fechar o modal quando clicar fora",
+            "terminamos de escrever o teste",
+        ] {
+            assert_eq!(parse(said), None, "{said}");
+        }
     }
 
     #[test]
