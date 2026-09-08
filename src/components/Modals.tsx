@@ -27,7 +27,6 @@ export type Pending =
    *  picking one registers it and opens its window — never a dead end. */
   | { kind: "project-offer"; query: string; candidates: string[] }
   | { kind: "resume-task"; title: string; sessionId?: string; instruction: string }
-  | { kind: "task-summary"; taskId: string }
   | null;
 
 /** Confirmation/choice/resume/summary dialogs. Permission asks are NOT
@@ -36,10 +35,7 @@ export default function Modals({
   pending,
   setPending,
   focusedTaskTitle,
-  liveWorkers,
-  messages,
   onDispatch,
-  onFocusWorker,
   onPickSession,
   onPickProject,
   onPickTask,
@@ -48,10 +44,7 @@ export default function Modals({
   pending: Pending;
   setPending: (p: Pending) => void;
   focusedTaskTitle?: string;
-  liveWorkers: Record<string, LiveWorker>;
-  messages: Msg[];
   onDispatch: (instruction: string, sessionId?: string, taskTitle?: string) => void;
-  onFocusWorker: (taskId: string) => void;
   /** A recovered session becomes a task and opens its chat. */
   onPickSession: (hit: SessionHit) => void;
   /** project-offer pick: register the path and open its window. */
@@ -279,50 +272,5 @@ export default function Modals({
     );
   }
 
-  // task-summary
-  const worker = liveWorkers[pending.taskId];
-  return (
-    <div className="modal-backdrop" onClick={() => setPending(null)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>
-          ℹ {worker?.label ?? pending.taskId}
-          {worker && ` · ${worker.status === "running" ? t("m_running") : t("m_waiting_you")}`}
-        </h2>
-        <pre>
-          {messages
-            .filter((m) => "task" in m && m.task === (worker?.label ?? pending.taskId))
-            .slice(-14)
-            .map((m) => {
-              switch (m.who) {
-                case "user":
-                  return `você: ${m.text}`;
-                case "tool":
-                  return `  ⚙ ${m.name}`;
-                case "output":
-                  return `  ${m.error ? "✗" : "✓"} ${m.content.split("\n")[0]}`;
-                case "permission":
-                  return `  🔐 ${m.tool} ${m.decision ?? "aguardando"}`;
-                default:
-                  return `hark: ${"text" in m ? m.text : ""}`;
-              }
-            })
-            .join("\n") || t("m_no_events")}
-        </pre>
-        <div className="row">
-          <button
-            className="plain"
-            onClick={() => {
-              onFocusWorker(pending.taskId);
-              setPending(null);
-            }}
-          >
-            {t("m_focus")}
-          </button>
-          <button className="plain" onClick={() => setPending(null)}>
-            {t("m_close")}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  return null;
 }

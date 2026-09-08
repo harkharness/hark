@@ -177,3 +177,43 @@ misses, so the voice dominated the result. Only human speech settles quality.
 
 Therefore `domain::speech_model` recommends `small` wherever Metal is absent, and
 the onboarding explains why instead of labelling turbo "recommended" everywhere.
+
+### Interrupting a turn without killing the session (spike 4, 08/09)
+
+`spikes/interrupt/interrupt.sh`, against claude 2.1.x on stream-json stdio.
+The permission channel already proved client -> CLI `control_request` works;
+what was never tested is whether a RUNNING turn can be cut.
+
+Client writes on stdin:
+
+```json
+{"type":"control_request","request_id":"irq-1","request":{"subtype":"interrupt"}}
+```
+
+The CLI answers:
+
+```json
+{"type":"control_response","response":{"subtype":"success","request_id":"irq-1",
+ "response":{"still_queued":[]}}}
+```
+
+Measured, asking it to count to 600 and interrupting after 4s:
+
+- the turn was cut at **204** — a real mid-flight interrupt, not a no-op
+- the CLI injects a `user` event whose text is `[Request interrupted by user]`
+- the cut turn ends as `result` with **`subtype: "error_during_execution"` and
+  `is_error: true`, cost 0**
+- the process SURVIVED: the next user message was answered normally
+  (`result/success`), same `session_id`
+
+Two consequences for the UI:
+
+1. `is_error` on that result is NOT a failure — it is the user pressing stop.
+   Anything that reads results has to know an interrupt is in flight, or it
+   will report the user's own stop as an error and fail the task.
+2. `still_queued` says the CLI keeps a queue of messages sent during a turn.
+   That is the mechanism behind "interromper": write the new message, then
+   interrupt — the current turn stops and the queued message is what runs next.
+
+Interrupting when nothing is running is harmless: it answers `success` with an
+empty queue (first run of the spike, where the turn had already finished).

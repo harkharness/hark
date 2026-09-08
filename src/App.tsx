@@ -2571,13 +2571,6 @@ export default function App({
                       loadedTasks.current.add(label);
                     }
                   }}
-                  // Info is info. This used to open the Reader whenever the
-                  // session id was known — a read-only replay of the session
-                  // from disk, rendered under a live composer, showing the
-                  // very conversation the user was already in. It read as a
-                  // second, parallel chat. The Reader keeps its real job:
-                  // reading a session from HISTORY without spending a token.
-                  onInfo={(taskId) => setPending({ kind: "task-summary", taskId })}
                   onStop={stopWorker}
                   onRestartLight={(taskId) =>
                     ipc
@@ -2660,15 +2653,12 @@ export default function App({
         pending={pending}
         setPending={setPending}
         focusedTaskTitle={focusedTask?.title}
-        liveWorkers={liveWorkers}
-        messages={messages}
         onDispatch={(instruction, sessionId, taskTitle) => {
           setReading(null);
           const title = taskTitle ?? focusedTask?.title;
           if (title) reactivateIfDone(title);
           runDispatch(instruction, sessionId);
         }}
-        onFocusWorker={(taskId) => setFocused(taskId)}
         onPickSession={recoverSession}
         onPickTask={(title, sessionId) => openTaskByTitle(title, sessionId)}
         onPickProject={async (path) => {

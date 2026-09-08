@@ -1,46 +1,49 @@
-import { Info, Lock, RotateCcw, X } from "lucide-react";
+import { Lock, RotateCcw, X } from "lucide-react";
 import { directiveLabels } from "../lib/format";
 import type { LiveWorker } from "../types";
 import { t } from "../lib/i18n";
 
 /**
- * One chip per LIVE worker (status, directives, stop). The focused task
- * needs no chip: the sidebar already highlights it — clicking the active
- * item there again releases the focus.
+ * One chip per live worker you are NOT in — they are how you reach the
+ * other work, and their name is what makes them readable.
+ *
+ * The focused task gets NO chip. It used to get one with its label
+ * suppressed, which left a nameless card under the composer holding a
+ * dot, an ⓘ and an ✕ — three controls with nothing saying what they
+ * belonged to. The ✕ on it ended the whole session, which is not what an
+ * ✕ next to a running turn reads as. What that card was for now lives
+ * where it belongs: the turn's own status line, and Parar in the
+ * composer.
  */
 export default function WorkerChips({
   liveWorkers,
   focused,
   onToggleFocus,
-  onInfo,
   onStop,
   onRestartLight,
 }: {
   liveWorkers: Record<string, LiveWorker>;
   focused: string | null;
   onToggleFocus: (taskId: string) => void;
-  onInfo: (taskId: string) => void;
   onStop: (taskId: string) => void;
   /** Heavy session (context ≥70%): fresh session with a local brief. */
   onRestartLight?: (taskId: string) => void;
 }) {
   return (
     <>
-      {Object.entries(liveWorkers).map(([taskId, w]) => (
+      {Object.entries(liveWorkers)
+        .filter(([taskId]) => taskId !== focused)
+        .map(([taskId, w]) => (
         <span
           key={taskId}
-          className={`worker-chip ${w.status} ${focused === taskId ? "focused" : ""}`}
+          className={`worker-chip ${w.status}`}
           onClick={() => onToggleFocus(taskId)}
-          title={focused === taskId ? t("chip_focused") : t("chip_focus")}
+          title={t("chip_focus")}
         >
           <span className="dot" />
           {w.status === "awaiting" && <Lock size={11} />}
-          {/* The focused chip is CONTROLS, not a caption: the thread on
-              screen already says what this is, and the truncated label
-              read as random noise under the composer. Unfocused chips
-              keep their names — they are how you reach the other work. */}
-          {focused !== taskId && w.label}
-          {focused !== taskId && directiveLabels(w.directives).length > 0 && (
+          {w.label}
+          {directiveLabels(w.directives).length > 0 && (
             <span className="chip-mode">{directiveLabels(w.directives).join(" ")}</span>
           )}
           {(w.context_pct ?? 0) >= 0.7 && onRestartLight && (
@@ -56,16 +59,6 @@ export default function WorkerChips({
             </button>
           )}
           <button
-            className="info"
-            title={t("chip_summary")}
-            onClick={(e) => {
-              e.stopPropagation();
-              onInfo(taskId);
-            }}
-          >
-            <Info size={11} />
-          </button>
-          <button
             className="close"
             title={t("chip_stop")}
             onClick={(e) => {
@@ -76,7 +69,7 @@ export default function WorkerChips({
             <X size={11} />
           </button>
         </span>
-      ))}
+        ))}
     </>
   );
 }
