@@ -535,6 +535,24 @@ mod tests {
         assert_eq!(v["request"]["subtype"], "interrupt");
     }
 
+    /// RECORDED from a live CLI (spikes/), not written from memory. The
+    /// hand-written fixtures above are a convenience; this one is the
+    /// contract. A statusLine fixture guessed its keys once and the test
+    /// agreed with the bug for months, so the shapes that come from
+    /// someone else's program get pinned to something observed.
+    #[test]
+    fn a_recorded_result_parses_into_the_numbers_we_bill_on() {
+        let raw = include_str!("../fixtures/result.claude-2.1.x.json");
+        let v: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let turn = parse_result(&v).expect("a result event");
+        let m = turn.usage.first().expect("one model");
+        assert!(m.model.starts_with("claude-"), "model id: {}", m.model);
+        assert_eq!(m.usage.cache_read, 57_509);
+        assert_eq!(m.usage.cache_created, 1_645);
+        assert_eq!(m.context_window, Some(200_000));
+        assert!(m.cost_usd.is_some());
+    }
+
     #[test]
     fn permission_responses_serialize_to_protocol_shape() {
         let parsed = |s: String| serde_json::from_str::<serde_json::Value>(&s).unwrap();

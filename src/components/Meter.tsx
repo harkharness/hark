@@ -179,25 +179,37 @@ export function ContextRing({
   tokens,
   model,
 }: {
-  used: number;
+  /** null when nothing has reported yet — drawn empty, never as 0%. */
+  used: number | null;
   window?: number | null;
   /** Prompt size of the last turn — the fact behind the ratio. */
   tokens?: number | null;
   /** Which model that turn ran on; the window is a property of it. */
   model?: string | null;
 }) {
-  const trusted = used <= 1;
-  const tone = !trusted || used >= 0.9 ? "var(--err)" : used >= 0.7 ? "var(--warn)" : "var(--accent)";
+  // No reading yet is its own state. Vanishing made the control look like
+  // it had nothing to say; "0%" would have been a claim we cannot make.
+  const unknown = used == null;
+  const trusted = !unknown && used <= 1;
+  const tone = unknown
+    ? "var(--dim)"
+    : !trusted || used >= 0.9
+      ? "var(--err)"
+      : used >= 0.7
+        ? "var(--warn)"
+        : "var(--accent)";
   const r = 6;
   const circumference = 2 * Math.PI * r;
-  const arc = Math.min(used, 1);
+  const arc = unknown ? 0 : Math.min(used, 1);
   const win = window ? k(window) : "?";
   const on = model ? ` · ${model}` : "";
   return (
     <span
       className="ctx-ring"
       title={
-        trusted
+        unknown
+          ? "janela de contexto — sem leitura ainda; a primeira resposta desta sessão traz o número"
+          : trusted
           ? `janela de contexto · ${Math.round(used * 100)}% de ${win}${on}`
           : `prompt de ${tokens ? k(tokens) : "?"} tokens${on} — não bate com a janela informada (${win}), então a janela real é outra e a porcentagem seria inventada`
       }
@@ -216,7 +228,7 @@ export function ContextRing({
           transform="rotate(-90 8 8)"
         />
       </svg>
-      {trusted ? `${Math.round(used * 100)}%` : tokens ? k(tokens) : "?"}
+      {unknown ? "—" : trusted ? `${Math.round(used! * 100)}%` : tokens ? k(tokens) : "?"}
     </span>
   );
 }

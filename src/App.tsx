@@ -2487,11 +2487,15 @@ export default function App({
                       ${(costs[focusedTask?.title ?? ""] ?? 0).toFixed(2)}
                       {/* The context rides in the same pill: one click,
                           one popover, both facts about this thread. */}
-                      {shownContext && (
+                      {/* Always present while a chat is focused. It used to
+                          disappear whenever no source had a reading, which
+                          reads as "nothing to worry about" rather than
+                          "nobody has measured yet". */}
+                      {focusedTask && (
                         <ContextRing
-                          used={shownContext.pct}
-                          window={shownContext.window}
-                          tokens={shownContext.tokens}
+                          used={shownContext?.pct ?? null}
+                          window={shownContext?.window}
+                          tokens={shownContext?.tokens}
                           model={liveModel ?? currentModel ?? undefined}
                         />
                       )}
