@@ -1327,6 +1327,17 @@ export default function App({
       .catch(() => {});
   }, []);
 
+  /**
+   * A pill that changes THIS WINDOW's default is changing a preference,
+   * so it is written to config.toml. Picking opus and finding the pill
+   * blank after a restart was the complaint — session state was being
+   * used to hold something the user meant to keep. Changing a live task
+   * is NOT this: that is one task's directive, and it dies with it.
+   */
+  function rememberDefault(key: string, value: string) {
+    ipc.configWrite({ [key]: value }).catch(() => {});
+  }
+
   function selectModel(model: string) {
     const taskId = focused;
     if (taskId && liveWorkers[taskId]) {
@@ -1341,7 +1352,19 @@ export default function App({
       return;
     }
     setModelDefault(model);
+    rememberDefault("worker_model", model);
   }
+
+  // The pills come up where they were left. Seeded once, from config, the
+  // first time the overview lands: after that the window's own state is
+  // the truth, and every pick writes it back.
+  const pillsSeeded = useRef(false);
+  useEffect(() => {
+    if (pillsSeeded.current || !overview) return;
+    pillsSeeded.current = true;
+    setModelDefault(overview.default_model ?? "");
+    setEffortDefault(overview.default_effort ?? "");
+  }, [overview]);
 
   /** Effort the pill shows: the focused live task's, else this window's. */
   const currentEffort =
@@ -1364,6 +1387,7 @@ export default function App({
       return;
     }
     setEffortDefault(effort);
+    rememberDefault("worker_effort", effort);
   }
 
   /** Mode the pill shows: the focused live task's, else the window/config default. */
@@ -1430,6 +1454,7 @@ export default function App({
       return;
     }
     setModeDefault(flag);
+    rememberDefault("worker_mode", flag);
     push({ who: "sys", text: `novas tasks desta janela nascem no modo ${flag}` });
   }
 

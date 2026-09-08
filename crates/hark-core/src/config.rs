@@ -76,6 +76,13 @@ pub struct Config {
     /// none ("manual" | "acceptEdits" | "plan" | "auto" | "bypass").
     /// Empty = the CLI's own default (ask for everything).
     pub worker_mode: String,
+    /// Default model of new workers — the composer's model pill, kept
+    /// across restarts. Empty hands the choice to the router.
+    pub worker_model: String,
+    /// Default reasoning effort of new workers — the composer's effort
+    /// pill. Empty passes no `--effort` at all, which is not "low": it
+    /// leaves the CLI's own default in force.
+    pub worker_effort: String,
     /// The assistant's own name (persona of the mother's work chat, UI
     /// labels, spoken announcements).
     pub assistant_name: String,
@@ -164,6 +171,8 @@ impl Default for Config {
             worker_max_turns: 0,
             project_budgets: BTreeMap::new(),
             worker_mode: String::new(),
+            worker_model: String::new(),
+            worker_effort: String::new(),
             assistant_name: "Hark".into(),
             agent: AgentTable::default(),
             assist: AssistTable::default(),
@@ -459,6 +468,42 @@ pub fn patch_toml(text: &str, patch: &serde_json::Value) -> anyhow::Result<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_preference_is_written_even_when_the_file_never_had_the_key() {
+        // Every config in the wild predates these keys, so persisting a
+        // pill depends on the patch CREATING them, not merely updating.
+        let out = patch_toml(
+            "model = \"sonnet\"\nworker_mode = \"auto\"\n",
+            &serde_json::json!({ "worker_model": "claude-opus-5", "worker_effort": "max" }),
+        )
+        .unwrap();
+        let cfg: Config = toml::from_str(&out).unwrap();
+        assert_eq!(cfg.worker_model, "claude-opus-5");
+        assert_eq!(cfg.worker_effort, "max");
+        // and what was already there is left alone
+        assert_eq!(cfg.worker_mode, "auto");
+    }
+
+    #[test]
+    fn the_composer_pills_are_preferences_and_survive_a_restart() {
+        // Picking a model and an effort and finding them blank on the next
+        // boot was the complaint: these are preferences, not session state.
+        let cfg: Config = toml::from_str(
+            "worker_mode = \"auto\"\nworker_model = \"claude-opus-5\"\nworker_effort = \"max\"\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.worker_mode, "auto");
+        assert_eq!(cfg.worker_model, "claude-opus-5");
+        assert_eq!(cfg.worker_effort, "max");
+    }
+
+    #[test]
+    fn a_config_written_before_those_fields_existed_still_loads() {
+        let cfg: Config = toml::from_str("worker_mode = \"plan\"\n").unwrap();
+        assert_eq!(cfg.worker_model, "");
+        assert_eq!(cfg.worker_effort, "");
+    }
 
     #[test]
     fn an_agents_table_round_trips_and_overrides_one_field() {

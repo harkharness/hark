@@ -279,6 +279,8 @@ export type Overview = {
   theme: string;
   /** Config default permission mode for new workers ("" = CLI default). */
   default_mode: string;
+  default_model: string;
+  default_effort: string;
   /** UI language ("pt" | "en") — separate from the spoken one. */
   ui_language: string;
   /** SPOKEN language (STT/TTS) — drives the speech dictionary. */

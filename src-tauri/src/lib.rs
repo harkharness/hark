@@ -199,8 +199,12 @@ struct Overview {
     board: Vec<hark_core::domain::board::Task>,
     projects: Vec<hark_core::domain::project::Project>,
     theme: String,
-    /// Config default permission mode for new workers ("" = CLI default).
+    /// Config defaults for the composer's three pills. Empty means "no
+    /// directive": the CLI's own choice for mode and effort, the router's
+    /// for the model. They are preferences, so they outlive the window.
     default_mode: String,
+    default_model: String,
+    default_effort: String,
     /// UI language ("pt" | "en") — separate from the spoken one.
     ui_language: String,
     /// SPOKEN language (STT/TTS) — drives the speech dictionary.
@@ -280,6 +284,8 @@ fn overview() -> Overview {
             })
             .unwrap_or_default(),
         default_mode: config.worker_mode,
+        default_model: config.worker_model,
+        default_effort: config.worker_effort,
     }
 }
 
