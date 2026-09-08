@@ -1711,6 +1711,19 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .inputbar-row > button.send:hover { background: color-mix(in srgb, var(--accent) 88%, #fff); color: #0b0e12; }
 .inputbar-row > button.send:disabled { opacity: .45; cursor: default; }
+/* Both exist only while a turn runs. Stop is the round twin of the mic;
+   "interromper" is spelled out, because cutting the turn to run what you
+   just typed is not something an icon can promise. */
+.inputbar-row > button.stop {
+  width: 32px; height: 32px; padding: 0; border-radius: 50%;
+  background: var(--panel-2); color: var(--text); flex: 0 0 auto;
+}
+.inputbar-row > button.stop:hover { background: rgba(247,118,142,.14); color: var(--err); }
+.inputbar-row > button.interrupt {
+  padding: 5px 12px; border-radius: 999px; font-size: 12px;
+  background: var(--panel-2); color: var(--dim); flex: 0 0 auto; white-space: nowrap;
+}
+.inputbar-row > button.interrupt:hover { background: var(--panel-2); color: var(--text-strong); }
 .thumb { position: relative; }
 .thumb img { height: 34px; border-radius: 4px; border: 1px solid var(--border); }
 .thumb button {

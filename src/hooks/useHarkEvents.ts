@@ -133,6 +133,13 @@ export function useHarkEvents(h: Handlers) {
           label,
           `${ts()} ── turno ${ev.is_error ? "FALHOU " : ""}${ev.model ?? ""} $${(ev.cost_usd ?? 0).toFixed(4)}`,
         );
+        // The CLI reports an interrupted turn as an error (measured —
+        // spikes/FINDINGS.md). The shell already strips is_error for it;
+        // this says out loud that the turn ended because it was asked to,
+        // so a half-finished answer does not read as a crash.
+        if (ev.stopped) {
+          h.push({ who: "sys", text: "⏹ parado — a conversa continua", task: label });
+        }
         if (ev.cost_usd) h.addCost(label, ev.cost_usd);
         // The final assistant_text often equals the result: don't show twice.
         h.setMessages((old) => {

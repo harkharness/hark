@@ -66,6 +66,9 @@ impl AgentSession for PersistentWorker {
     ) -> anyhow::Result<()> {
         PersistentWorker::respond_permission(self, request_id, decision)
     }
+    fn interrupt(&self) -> anyhow::Result<()> {
+        PersistentWorker::interrupt(self)
+    }
     fn shutdown(&self) {
         PersistentWorker::shutdown(self)
     }

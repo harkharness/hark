@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Mic, SendHorizontal, X } from "lucide-react";
+import { Mic, SendHorizontal, Square, X } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
 import type { Project } from "../types";
@@ -80,6 +80,9 @@ export default function Composer({
   pendingPermissionId,
   onSubmit,
   onMic,
+  running,
+  onStop,
+  onInterrupt,
   onAnswerPermission,
   children,
   trailing,
@@ -95,6 +98,12 @@ export default function Composer({
   pendingPermissionId?: string;
   onSubmit: (text: string, images: Attachment[]) => void;
   onMic: () => void;
+  /** A turn is in flight on the focused thread. */
+  running?: boolean;
+  /** Stop that turn — the session stays. */
+  onStop?: () => void;
+  /** Cut the turn and make this text the thing that runs next. */
+  onInterrupt?: (text: string) => void;
   onAnswerPermission: (requestId: string, allow: boolean, always?: boolean) => void;
   children?: React.ReactNode;
   /** Window controls docked at the right of the control row (costs,
@@ -296,10 +305,11 @@ export default function Composer({
     return true;
   }
 
-  function send() {
-    if (!text.trim() || disabled) return;
+  /** Empty the composer and hand back what was in it — shared by send
+   *  and by "interromper", which submits the same draft down another
+   *  path. Clearing in one place keeps the two from drifting. */
+  function takeDraft(): string {
     const t = text;
-    const imgs = images;
     histRef.current = pushHistory(histScope, t);
     setHistAt(null);
     draftRef.current = "";
@@ -309,7 +319,13 @@ export default function Composer({
     setMention(null);
     setSlash(null);
     requestAnimationFrame(autoGrow);
-    onSubmit(t, imgs);
+    return t;
+  }
+
+  function send() {
+    if (!text.trim() || disabled) return;
+    const imgs = images;
+    onSubmit(takeDraft(), imgs);
   }
 
   /** Paste a screenshot: thumbnail up top, "[image N]" written at caret.
@@ -621,6 +637,23 @@ export default function Composer({
         <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title={t("speak_btn")}>
           <Mic size={15} />
         </button>
+        {/* Both only exist while a turn is running, and both sit on the
+            turn they act on — not as an ✕ on a nameless card somewhere.
+            They are different acts and get different controls: "parar"
+            cuts the turn and keeps the session; "interromper" cuts it and
+            makes what you just typed the thing that runs next. Sending
+            normally still queues, which is what you want when you are
+            adding to the work rather than redirecting it. */}
+        {running && onInterrupt && text.trim() && (
+          <button className="interrupt" onClick={() => onInterrupt(takeDraft())}>
+            {t("interrupt_btn")}
+          </button>
+        )}
+        {running && onStop && (
+          <button className="stop" onClick={onStop} title={t("stop_btn")}>
+            <Square size={12} />
+          </button>
+        )}
         <button className="send" onClick={send} disabled={disabled} title={t("send_btn")}>
           <SendHorizontal size={15} />
         </button>

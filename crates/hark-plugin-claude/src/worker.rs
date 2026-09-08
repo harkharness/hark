@@ -213,6 +213,20 @@ impl PersistentWorker {
         self.write_line(&permission_response(request_id, decision))
     }
 
+    /// Stop the turn in flight and keep the conversation. Distinct from
+    /// `shutdown`, which ends the session: after an interrupt the process
+    /// is still there and answers the next message.
+    pub fn interrupt(&self) -> anyhow::Result<()> {
+        let id = format!(
+            "irq-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        );
+        self.write_line(&crate::stream::interrupt_request(&id))
+    }
+
     /// Graceful shutdown: EOF on stdin ends the conversation; the reader
     /// loop sees the stream close. Kills after that as a safety net.
     pub fn shutdown(&self) {

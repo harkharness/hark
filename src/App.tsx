@@ -198,7 +198,6 @@ export default function App({
   const [speaking, setSpeaking] = useState(false);
   const [rateLimit, setRateLimit] = useState<import("./types").RateLimitState | null>(null);
   /** Timestamp of the last Esc, for the double-Esc worker abort. */
-  const lastEsc = useRef(0);
 
   const workersRef = useRef(liveWorkers);
   workersRef.current = liveWorkers;
@@ -209,6 +208,8 @@ export default function App({
   // stopWorker is declared below (hoisted); the ref keeps the Esc handler fresh.
   const stopWorkerRef = useRef<(taskId: string) => void>(() => {});
   stopWorkerRef.current = stopWorker;
+  const interruptRef = useRef<(taskId: string) => void>(() => {});
+  interruptRef.current = interruptWorker;
   // Same trick for the board→chat jump (mount effect and event listener).
   const openTaskRef = useRef<(title: string, sessionId?: string, note?: string) => void>(
     () => {},
@@ -632,17 +633,12 @@ export default function App({
           return;
         }
         ipc.speakStop().catch(() => {});
-        const now = Date.now();
-        if (now - lastEsc.current < 900) {
-          lastEsc.current = 0;
-          const target = focusedRef.current;
-          if (target) {
-            push({ who: "sys", text: "⏹ worker abortado (Esc duplo)", task: labelFor(target) });
-            stopWorkerRef.current(target);
-          }
-        } else {
-          lastEsc.current = now;
-        }
+        // Esc stops the TURN and keeps the conversation, which is what a
+        // stop key means next to running work. Ending the session is a
+        // louder, separate act — it does not belong on a keystroke people
+        // press to dismiss things.
+        const target = focusedRef.current;
+        if (target) interruptRef.current(target);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -726,11 +722,10 @@ export default function App({
     setFocused(taskId);
     setFocusedTask((old) => (old?.title === label ? old : { title: label, sessionId }));
     loadedTasks.current.add(label);
-    // The focus just moved without the user asking for it, so the next
-    // Enter lands somewhere they did not pick — that is the one thing
-    // worth saying. The task's name is already in the composer's
-    // placeholder right below, so repeating it here only added noise.
-    push({ who: "sys", text: "Enter agora vai para esta task", task: label });
+    // Nothing is announced here. The focus moving is real, but the
+    // composer's placeholder already names the task every message will
+    // go to, and it keeps saying so — a one-off line under the message
+    // repeated what the input field says permanently.
   }
 
   /**
@@ -1585,6 +1580,14 @@ export default function App({
       });
     };
     setTimeout(() => write(0), existing ? 120 : 700);
+  }
+
+  /** Cut the turn in flight; the conversation stays open. */
+  function interruptWorker(taskId: string) {
+    if (!liveWorkers[taskId]) return;
+    ipc
+      .workerInterrupt(taskId)
+      .catch((err) => push({ who: "sys", text: `parar: ${err}`, task: labelFor(taskId) }));
   }
 
   async function stopWorker(taskId: string) {
@@ -2532,6 +2535,20 @@ export default function App({
                 }
                 onSubmit={submit}
                 onMic={onMic}
+                running={!!turns[focusedTask?.title ?? GENERAL]}
+                onStop={focused ? () => interruptWorker(focused) : undefined}
+                onInterrupt={
+                  focused
+                    ? (text) => {
+                        // Queue it the normal way, then cut the turn: the
+                        // drain that follows a finished turn is what sends
+                        // it, so the message runs next instead of waiting
+                        // out work the user no longer wants.
+                        void submit(text, []);
+                        interruptWorker(focused);
+                      }
+                    : undefined
+                }
                 onAnswerPermission={answerPermission}
                 trailing={trailingControls}
                 banner={focusedRepo ? <RepoRuler state={focusedRepo} /> : undefined}

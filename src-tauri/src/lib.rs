@@ -1098,7 +1098,17 @@ fn start_worker_titled(
                     // act (auth → open a terminal with `claude` typed) and
                     // know it is fatal — the crash-resend must never replay
                     // a message into a session that cannot authenticate.
-                    let error_code = (turn.is_error
+                    // The user pressed stop: the CLI reports that turn as an
+                    // error, and it is not one. Taken here so the very next
+                    // turn is judged on its own.
+                    let stopped = app2
+                        .state::<Interrupting>()
+                        .0
+                        .lock()
+                        .unwrap()
+                        .remove(&task2);
+                    let is_error = turn.is_error && !stopped;
+                    let error_code = (is_error
                         && hark_plugin_claude::health::looks_unauthenticated(&turn.raw))
                     .then_some("agent_auth");
                     emit_event(
@@ -1107,7 +1117,8 @@ fn start_worker_titled(
                             "label": board_title,
                             "session_id": (!current_session.is_empty()).then_some(current_session.as_str()),
                             "error_code": error_code,
-                            "text": turn.raw, "cost_usd": turn.cost_usd, "model": turn.model, "is_error": turn.is_error,
+                            "text": turn.raw, "cost_usd": turn.cost_usd, "model": turn.model,
+                            "is_error": is_error, "stopped": stopped,
                             "usage": { "input": usage.input, "output": usage.output,
                                        "cache_read": usage.cache_read, "cache_created": usage.cache_created },
                             "context_pct": context_pct }),
@@ -1403,6 +1414,15 @@ fn worker_send(
 /// worker registry. Its session id lives in the global state so the chat
 /// survives app restarts.
 const HARK_CHAT_TASK: &str = "hark-chat";
+
+/// Tasks whose current turn the user just stopped.
+///
+/// An interrupted turn comes back from the CLI as `is_error: true` with
+/// cost 0 (measured — spikes/FINDINGS.md). Without this the window would
+/// report the user's own stop as a failure and fail the card. Set by
+/// `worker_interrupt`, taken by the turn that follows it.
+#[derive(Default)]
+pub(crate) struct Interrupting(pub(crate) Mutex<std::collections::HashSet<String>>);
 
 /// Opt-in message batching (`batch_messages = true`): follow-ups sent
 /// while a turn is in flight queue up and land as ONE message when the
@@ -2127,6 +2147,35 @@ fn worker_set_effort(
                 .to_string()
         },
     )
+}
+
+/// Stop the turn in flight and KEEP the conversation — what the stop
+/// button next to a running turn means. Ending the session is a separate,
+/// louder act (`worker_stop`).
+///
+/// Harmless with nothing running: the CLI answers success on an empty
+/// queue.
+#[tauri::command]
+fn worker_interrupt(
+    app: AppHandle,
+    live: State<'_, LiveWorkers>,
+    task_id: String,
+) -> Result<(), String> {
+    let handle = live
+        .0
+        .lock()
+        .unwrap()
+        .get(&task_id)
+        .cloned()
+        .ok_or("worker não está mais ativo")?;
+    // Marked BEFORE the write: the result can come back faster than this
+    // function returns, and it is the result that reads the flag.
+    app.state::<Interrupting>().0.lock().unwrap().insert(task_id.clone());
+    if let Err(err) = handle.session.interrupt() {
+        app.state::<Interrupting>().0.lock().unwrap().remove(&task_id);
+        return Err(err.to_string());
+    }
+    Ok(())
 }
 
 /// End the conversation: EOF + kill, board moves to waiting.
@@ -4085,6 +4134,7 @@ pub fn run() {
         .manage(Pending(Mutex::new(HashMap::new())))
         .manage(PermLog::default())
         .manage(BatchState::default())
+        .manage(Interrupting::default())
         .manage(MicLease::default())
         .manage(LiveWorkers(Mutex::new(HashMap::new())))
         .manage(WorkerPermissions(Mutex::new(HashMap::new())))
@@ -4137,6 +4187,7 @@ pub fn run() {
             worker_set_mode,
             worker_set_model,
             worker_set_effort,
+            worker_interrupt,
             worker_stop,
             chat_start,
             project_add,

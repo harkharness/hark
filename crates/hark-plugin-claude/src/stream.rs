@@ -123,6 +123,23 @@ pub fn user_message(text: &str, images: &[(String, String)]) -> String {
 }
 
 /// Serialize the user's decision into the control protocol response line.
+/// Cut the turn in flight WITHOUT ending the session — what "parar" means
+/// next to a running turn, as opposed to closing the conversation.
+///
+/// Measured against the CLI (spikes/FINDINGS.md): it answers
+/// `control_response/success` carrying `still_queued`, the running turn
+/// comes back as `is_error: true` with cost 0, and the process goes on to
+/// answer the next message on the same session. Sending it with nothing
+/// running is harmless.
+pub fn interrupt_request(request_id: &str) -> String {
+    serde_json::json!({
+        "type": "control_request",
+        "request_id": request_id,
+        "request": { "subtype": "interrupt" }
+    })
+    .to_string()
+}
+
 pub fn permission_response(request_id: &str, decision: PermissionDecision) -> String {
     let inner = match decision {
         PermissionDecision::Allow => serde_json::json!({ "behavior": "allow" }),
@@ -505,6 +522,17 @@ mod tests {
                 slash_commands: vec!["compact".into(), "usage".into(), "design".into()],
             }
         );
+    }
+
+    #[test]
+    fn an_interrupt_is_the_shape_the_cli_actually_answers() {
+        // Not invented: measured against the real binary in
+        // spikes/FINDINGS.md — this cut a turn at 204 of 600 and left the
+        // session alive to answer the next message.
+        let v: serde_json::Value = serde_json::from_str(&interrupt_request("irq-7")).unwrap();
+        assert_eq!(v["type"], "control_request");
+        assert_eq!(v["request_id"], "irq-7");
+        assert_eq!(v["request"]["subtype"], "interrupt");
     }
 
     #[test]

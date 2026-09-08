@@ -57,7 +57,10 @@ export default function TurnStatus({ state }: { state: TurnState }) {
   const seconds = Math.floor(ms / 1000);
   // chars/4 is the same proxy the prompt budget uses. Marked "~" because
   // it IS an estimate: the real count arrives with the finished turn.
-  const tokens = Math.round(state.chars / 4);
+  // Past a thousand it reads as "1.2k": five digits ticking up drew the
+  // eye to a number nobody is counting.
+  const raw = Math.round(state.chars / 4);
+  const tokens = raw >= 1000 ? `${(raw / 1000).toFixed(1)}k` : String(raw);
 
   return (
     <div className="turnstatus" role="status" aria-live="polite">
@@ -65,7 +68,7 @@ export default function TurnStatus({ state }: { state: TurnState }) {
         ✳
       </span>
       <span className="ts-time">{elapsed(ms)}</span>
-      {tokens > 0 && (
+      {raw > 0 && (
         <>
           <span className="ts-dot">·</span>
           <span className="ts-tokens">{st("sp_ts_tokens", { n: tokens })}</span>

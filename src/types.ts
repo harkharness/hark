@@ -31,6 +31,8 @@ export type HarkEvent =
       cost_usd?: number;
       model?: string;
       is_error: boolean;
+      /** The user stopped this turn; the CLI's own error flag is not one. */
+      stopped?: boolean;
       /** Failure class of an error turn ("agent_auth"): fatal — never
        *  auto-resent, and the window offers the remedy. */
       error_code?: string | null;
