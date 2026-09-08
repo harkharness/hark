@@ -6,6 +6,7 @@ pub mod git_collect;
 pub mod memory_files;
 pub mod model_fetch;
 pub mod say_tts;
+pub mod shell_env;
 pub mod sqlite_store;
 pub mod state_file;
 pub mod whisper_stt;

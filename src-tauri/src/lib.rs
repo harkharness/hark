@@ -4037,7 +4037,38 @@ fn build_native_menu(
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Give the agent the environment the user actually has.
+///
+/// Started from the Dock, a macOS app is launched by launchd, not by a
+/// shell: it gets `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else. Every
+/// process we spawn inherits that, so the agent CLI runs the user's own
+/// hooks and MCP launchers with a PATH their shell has never produced —
+/// and `node`, `rtk`, `gh`, `python` fail with "command not found" for
+/// tools that plainly exist. It cost a whole session on a packaged build:
+/// the hooks died, a Bash call stalled on its PreToolUse hook, and the
+/// chat simply stopped answering. From `npm run tauri dev` it never
+/// reproduces, because the terminal's PATH comes along for the ride.
+///
+/// Must run before anything spawns a thread: set_var is only sound while
+/// we are still single-threaded.
+fn ensure_agent_path() {
+    use hark_core::domain::shell_path;
+    let current = std::env::var("PATH").unwrap_or_default();
+    // A shell started us; its PATH is already the user's real answer.
+    if !shell_path::looks_minimal(&current) {
+        return;
+    }
+    let login = hark_core::adapters::shell_env::login_path().unwrap_or_default();
+    let extras = hark_core::adapters::shell_env::well_known_bins();
+    let merged = shell_path::merge(&current, &login, &extras);
+    if merged != current {
+        eprintln!("hark: PATH de GUI reparado ({} entradas)", merged.split(':').count());
+        std::env::set_var("PATH", merged);
+    }
+}
+
 pub fn run() {
+    ensure_agent_path();
     tauri::Builder::default()
         // Native macOS menu: the standard set plus "Settings…" (Cmd+,)
         // under the app's own submenu — it fronts the MOTHER window with

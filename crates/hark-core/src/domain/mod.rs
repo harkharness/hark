@@ -25,6 +25,7 @@ pub mod reply;
 pub mod prompt;
 pub mod repo;
 pub mod savings;
+pub mod shell_path;
 pub mod precheck;
 pub mod snapshot;
 pub mod speech_model;
