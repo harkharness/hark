@@ -154,12 +154,28 @@ export function Gauge({
 /** The context window as a 14px ring plus its number. Inline content,
  *  not a pill of its own: it rides INSIDE the cost button so one control
  *  carries both readings of "how much has this thread spent". */
-export function ContextRing({ used }: { used: number }) {
+/**
+ * How full the context window is. `used` is NOT clamped by the shell: a
+ * value over 1 means the window we were told about is not the one in
+ * force, and the ring says so out loud rather than sitting at a serene
+ * 100% — that reading sent someone to /compact a session the agent then
+ * refused to compact.
+ */
+export function ContextRing({ used, window }: { used: number; window?: number | null }) {
   const tone = used >= 0.9 ? "var(--err)" : used >= 0.7 ? "var(--warn)" : "var(--accent)";
   const r = 6;
   const circumference = 2 * Math.PI * r;
+  const arc = Math.min(used, 1);
+  const win = window ? `${Math.round(window / 1000)}k` : "?";
   return (
-    <span className="ctx-ring" title={`janela de contexto · ${Math.round(used * 100)}%`}>
+    <span
+      className="ctx-ring"
+      title={
+        used > 1
+          ? `janela de contexto · ${Math.round(used * 100)}% de ${win} — o prompt passou da janela que o modelo informou, então a janela real é outra`
+          : `janela de contexto · ${Math.round(used * 100)}% de ${win}`
+      }
+    >
       <svg width="14" height="14" viewBox="0 0 16 16">
         <circle cx="8" cy="8" r={r} fill="none" stroke="var(--panel-2)" strokeWidth="2.6" />
         <circle
@@ -170,7 +186,7 @@ export function ContextRing({ used }: { used: number }) {
           stroke={tone}
           strokeWidth="2.6"
           strokeLinecap="round"
-          strokeDasharray={`${used * circumference} ${circumference}`}
+          strokeDasharray={`${arc * circumference} ${circumference}`}
           transform="rotate(-90 8 8)"
         />
       </svg>

@@ -38,6 +38,8 @@ export type HarkEvent =
       error_code?: string | null;
       usage?: TurnUsage;
       context_pct?: number | null;
+      /** The window the model said it had — lets the reading be checked. */
+      context_window?: number | null;
     }
   | {
       kind: "rate_limit";
@@ -139,6 +141,8 @@ export type LiveWorker = {
   directives: Directives;
   /** How full the session's context window is (0..1), from the last turn. */
   context_pct?: number | null;
+  /** The window the model reported for that turn. */
+  context_window?: number | null;
   /** Model that produced the last turn (the pill shows the truth). */
   model?: string | null;
 };

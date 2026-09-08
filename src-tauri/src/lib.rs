@@ -1077,23 +1077,20 @@ fn start_worker_titled(
                         },
                         &turn,
                     );
-                    // Aggregate usage + how full the context window is.
+                    // Tokens SUM across models (the bill is one bill); how
+                    // full the window is does NOT — see domain::spend.
                     let mut usage = hark_plugin_claude::stream::TokenUsage::default();
-                    let mut window: Option<u64> = None;
                     for m in &turn.usage {
                         usage.input += m.usage.input;
                         usage.output += m.usage.output;
                         usage.cache_read += m.usage.cache_read;
                         usage.cache_created += m.usage.cache_created;
-                        if m.context_window.unwrap_or(0) > window.unwrap_or(0) {
-                            window = m.context_window;
-                        }
                     }
-                    let context_pct = window.filter(|w| *w > 0).map(|w| {
-                        ((usage.input + usage.cache_read + usage.cache_created) as f64
-                            / w as f64)
-                            .min(1.0)
-                    });
+                    let context_pct = hark_core::domain::spend::context_fill(&turn.usage);
+                    // The window each model said it had, so the reading can
+                    // be checked instead of believed.
+                    let context_window =
+                        turn.usage.iter().filter_map(|m| m.context_window).max();
                     // A failed turn carries its CLASS, so the windows can
                     // act (auth → open a terminal with `claude` typed) and
                     // know it is fatal — the crash-resend must never replay
@@ -1121,7 +1118,8 @@ fn start_worker_titled(
                             "is_error": is_error, "stopped": stopped,
                             "usage": { "input": usage.input, "output": usage.output,
                                        "cache_read": usage.cache_read, "cache_created": usage.cache_created },
-                            "context_pct": context_pct }),
+                            "context_pct": context_pct,
+                            "context_window": context_window }),
                     );
                     // Batching: everything queued during this turn goes out
                     // now as ONE message; empty queue clears the flag.

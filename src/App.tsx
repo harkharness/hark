@@ -274,7 +274,16 @@ export default function App({
     if (m.who !== "hark") return m;
     const thread = m.task ?? currentThread() ?? "";
     const asked = compacting.current.delete(thread);
-    if (!asked && !COMPACTION_HEAD.test(m.text)) return m;
+    const isSummary = COMPACTION_HEAD.test(m.text);
+    if (!asked && !isSummary) return m;
+    // We asked and what came back is not a summary: the agent declined.
+    // Folded as a "compaction" it became a bare English sentence sitting
+    // where a summary should be ("Not enough messages to compact."), which
+    // reads like the compaction happened and produced that. It is a
+    // refusal, and it says so as one.
+    if (asked && !isSummary && m.text.trim().length < 200) {
+      return { who: "sys", text: `não deu para compactar: ${m.text.trim()}`, task: m.task };
+    }
     return { who: "compact", text: m.text, task: m.task };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -2401,7 +2410,10 @@ export default function App({
                       {/* The context rides in the same pill: one click,
                           one popover, both facts about this thread. */}
                       {focused && liveWorkers[focused]?.context_pct != null && (
-                        <ContextRing used={liveWorkers[focused]!.context_pct!} />
+                        <ContextRing
+                          used={liveWorkers[focused]!.context_pct!}
+                          window={liveWorkers[focused]!.context_window}
+                        />
                       )}
                     </button>
                     {scopeInfo && (

@@ -143,6 +143,30 @@ pub fn rows_from_turn(
         .collect()
 }
 
+/// How full the context window is, from a turn's per-model usage.
+///
+/// The prompt of a turn IS the context, so the measure is prompt over
+/// window. The trap is that one turn touches SEVERAL models — the main
+/// one plus whatever answered a cheap side question — and each carries
+/// its own prompt and its own window. Adding those prompts together and
+/// dividing by the biggest window adds two unrelated conversations and
+/// reports the total as one model's occupancy. Each model is measured
+/// against its own window; the fullest one is the answer.
+///
+/// Not clamped: a ratio above 1.0 means the window we were told about is
+/// not the window in force, and hiding that behind a confident 100% is
+/// how a wrong number passes for a right one.
+pub fn context_fill(usage: &[hark_agent::ModelUsage]) -> Option<f64> {
+    usage
+        .iter()
+        .filter_map(|m| {
+            let window = m.context_window.filter(|w| *w > 0)?;
+            let prompt = m.usage.input + m.usage.cache_read + m.usage.cache_created;
+            Some(prompt as f64 / window as f64)
+        })
+        .fold(None, |best: Option<f64>, r| Some(best.map_or(r, |b| b.max(r))))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,6 +182,55 @@ mod tests {
             model: None,
             usage,
         }
+    }
+
+    fn used(name: &str, prompt: u64, window: Option<u64>) -> ModelUsage {
+        ModelUsage {
+            model: name.into(),
+            usage: hark_agent::TokenUsage { input: prompt, output: 0, cache_read: 0, cache_created: 0 },
+            cost_usd: None,
+            context_window: window,
+        }
+    }
+
+    #[test]
+    fn two_models_in_one_turn_are_never_added_together() {
+        // The big model is 80% full; a cheap side question filled half of
+        // its own small window. Adding the prompts and dividing by the
+        // larger window claimed 90% — two conversations counted as one.
+        let fill = context_fill(&[
+            used("opus", 800_000, Some(1_000_000)),
+            used("haiku", 100_000, Some(200_000)),
+        ]);
+        assert_eq!(fill, Some(0.8));
+    }
+
+    #[test]
+    fn the_fullest_model_is_the_answer() {
+        let fill = context_fill(&[
+            used("opus", 100_000, Some(1_000_000)),
+            used("haiku", 180_000, Some(200_000)),
+        ]);
+        assert_eq!(fill, Some(0.9));
+    }
+
+    #[test]
+    fn a_window_nobody_reported_is_not_a_measurement() {
+        assert_eq!(context_fill(&[used("x", 50_000, None)]), None);
+        assert_eq!(context_fill(&[]), None);
+        // One model without a window must not sink one that has it.
+        assert_eq!(
+            context_fill(&[used("x", 9_000, None), used("opus", 500_000, Some(1_000_000))]),
+            Some(0.5)
+        );
+    }
+
+    #[test]
+    fn overflowing_the_window_is_reported_not_hidden() {
+        // Exactly the case that showed a confident 100%: the window we were
+        // told about is not the one in force. Saying 1.25 is what makes
+        // that visible instead of plausible.
+        assert_eq!(context_fill(&[used("opus", 250_000, Some(200_000))]), Some(1.25));
     }
 
     fn model(name: &str, cost: f64) -> ModelUsage {

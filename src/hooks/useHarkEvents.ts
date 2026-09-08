@@ -176,6 +176,7 @@ export function useHarkEvents(h: Handlers) {
                   ...old[ev.task_id],
                   status: "turn_done",
                   context_pct: ev.context_pct ?? old[ev.task_id].context_pct,
+                  context_window: ev.context_window ?? old[ev.task_id].context_window,
                   model: ev.model ?? old[ev.task_id].model,
                 },
               }

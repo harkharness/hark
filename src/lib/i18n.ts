@@ -11,8 +11,8 @@ const pt = {
   // composer / app chrome
   composer_idle: 'pergunte ("pendências de hoje?"), mande trabalho, @arquivo, Cmd+P abre arquivos',
   composer_draft: "primeira mensagem do novo chat em {name}…",
-  composer_worker: "→ {name} (Enter manda pra esta task · \"hark, …\" fala com o hark)",
-  composer_task: "→ {name} (Enter manda pra esta task · \"hark, …\" fala com o hark)",
+  composer_worker: "→ {name} · \"hark, …\" fala com o hark",
+  composer_task: "→ {name} · \"hark, …\" fala com o hark",
   frame_file: "Arquivo",
   frame_terminal: "Terminal",
   frame_board: "Board",
@@ -512,8 +512,8 @@ const pt = {
 const en: Record<keyof typeof pt, string> = {
   composer_idle: 'ask ("what\'s pending today?"), send work, @file, Cmd+P opens files',
   composer_draft: "first message of the new chat in {name}…",
-  composer_worker: "→ {name} (Enter sends to this task · \"hark, …\" talks to hark)",
-  composer_task: "→ {name} (Enter sends to this task · \"hark, …\" talks to hark)",
+  composer_worker: "→ {name} · \"hark, …\" talks to hark",
+  composer_task: "→ {name} · \"hark, …\" talks to hark",
   frame_file: "File",
   frame_terminal: "Terminal",
   frame_board: "Board",
