@@ -143,6 +143,23 @@ pub fn rows_from_turn(
         .collect()
 }
 
+/// The context window actually in force for a model.
+///
+/// A model id can carry the window it was asked to run with — the 1M
+/// beta shows up as `claude-opus-5[1m]` — while the turn keeps reporting
+/// the base window. Believing the report turned a 464k prompt into "232%
+/// of the window", which then tripped every heavy-session warning on a
+/// session that was under half full. The id wins, but only upwards: a
+/// reported window larger than the marker is the better number.
+pub fn effective_window(model: &str, reported: Option<u64>) -> Option<u64> {
+    let declared = model.to_ascii_lowercase().contains("[1m]").then_some(1_000_000);
+    match (declared, reported) {
+        (Some(d), Some(r)) => Some(d.max(r)),
+        (Some(d), None) => Some(d),
+        (None, r) => r,
+    }
+}
+
 /// How full the context window is, from a turn's per-model usage.
 ///
 /// The prompt of a turn IS the context, so the measure is prompt over
@@ -160,7 +177,7 @@ pub fn context_fill(usage: &[hark_agent::ModelUsage]) -> Option<f64> {
     usage
         .iter()
         .filter_map(|m| {
-            let window = m.context_window.filter(|w| *w > 0)?;
+            let window = effective_window(&m.model, m.context_window).filter(|w| *w > 0)?;
             let prompt = m.usage.input + m.usage.cache_read + m.usage.cache_created;
             Some(prompt as f64 / window as f64)
         })
@@ -191,6 +208,25 @@ mod tests {
             cost_usd: None,
             context_window: window,
         }
+    }
+
+    #[test]
+    fn a_model_that_declares_a_million_is_not_measured_against_two_hundred_thousand() {
+        // Observed: the pill reads "opus-5[1m]" and the turn still reports
+        // contextWindow 200000, so a 464k prompt came out as 232% of the
+        // window. The id is the honest source — it is what the CLI was
+        // asked to run with.
+        assert_eq!(effective_window("claude-opus-5[1m]", Some(200_000)), Some(1_000_000));
+        assert_eq!(effective_window("claude-opus-5[1M]", None), Some(1_000_000));
+    }
+
+    #[test]
+    fn a_model_that_declares_nothing_keeps_what_it_reported() {
+        assert_eq!(effective_window("claude-opus-5", Some(200_000)), Some(200_000));
+        assert_eq!(effective_window("claude-haiku-4-5", Some(200_000)), Some(200_000));
+        assert_eq!(effective_window("claude-opus-5", None), None);
+        // A bigger reported window is never talked down by the marker.
+        assert_eq!(effective_window("claude-opus-5[1m]", Some(2_000_000)), Some(2_000_000));
     }
 
     #[test]

@@ -1283,17 +1283,15 @@ export default function App({
       //
       // The local prechecks stay: their numbers come from this machine,
       // they cannot hallucinate, and they cost nothing.
+      // A heavy session is worth SAYING and never worth a gate. This used
+      // to stop the send, reprint the message in a textarea and ask
+      // "Despachar tarefa? confirmar / cancelar" — asking someone to
+      // confirm words they had just typed and pressed Enter on. The
+      // expensive case is already handled without asking anyone: a turn
+      // that comes back over 85% compacts the thread by itself.
       const warnings = await ipc.dispatchPrechecks(focusedTask.sessionId).catch(() => []);
-      if (warnings.length > 0) {
-        // The modal announces itself out loud and listens for the
-        // verdict (the voice loop above) — no extra say() here.
-        setPending({
-          kind: "confirm-dispatch",
-          instruction: text,
-          sessionId: focusedTask.sessionId,
-          warnings,
-        });
-        return;
+      for (const warn of warnings) {
+        push({ who: "sys", text: `⚠ ${warn.text}`, task: focusedTask.title });
       }
       await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text, images, false);
       return;

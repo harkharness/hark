@@ -122,7 +122,7 @@ impl SqliteStore {
             .conn
             .query_row(
                 "SELECT input_tokens, output_tokens, cache_read_tokens,
-                        cache_created_tokens, context_window
+                        cache_created_tokens, context_window, model
                  FROM spend
                  WHERE session_id = ?1 AND source = 'live' AND is_sidechain = 0
                  ORDER BY ts DESC, id DESC LIMIT 1",
@@ -137,7 +137,14 @@ impl SqliteStore {
                         cache_read,
                         cache_created,
                         total: input + cache_read + cache_created,
-                        context_window: r.get::<_, Option<i64>>(4)?.map(|w| w as u64),
+                        // The window the row RECORDED, corrected by what
+                        // the model id declares: rows written before that
+                        // was understood still carry 200000 for a model
+                        // that ran with a million.
+                        context_window: crate::domain::spend::effective_window(
+                            &r.get::<_, String>(5).unwrap_or_default(),
+                            r.get::<_, Option<i64>>(4)?.map(|w| w as u64),
+                        ),
                     })
                 },
             )
