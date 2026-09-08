@@ -253,11 +253,28 @@ export default function App({
   const runInTerminalRef = useRef<(cmd: string, execute: boolean) => void>(() => {});
 
   const push = useCallback(
-    (m: Msg) =>
-      setMessages((old) => [
+    (m: Msg) => {
+      // ONCE: asCompaction consumes the "we asked for it" flag, so calling
+      // it a second time would see a compaction as ordinary prose.
+      const folded = asCompaction(m);
+      // A compaction makes every context reading obsolete. The turn that
+      // DID the compacting carries the whole pre-compaction prompt — the
+      // largest the session ever was — so leaving it on the ring shows a
+      // session at its fullest at the exact moment it got emptied. The
+      // new size is unknown until the next turn reports one, and showing
+      // nothing is the honest version of not knowing.
+      if (folded.who === "compact") {
+        setLedgerCtx(null);
+        const thread = m.task ?? currentThread() ?? "";
+        setLiveWorkers((old) => {
+          const id = Object.keys(old).find((k) => old[k].label === thread);
+          return id ? { ...old, [id]: { ...old[id], context_pct: null } } : old;
+        });
+      }
+      return setMessages((old) => [
         ...old,
         {
-          ...asCompaction(m),
+          ...folded,
           // An untagged message belongs to the general chat, so with a task
           // focused it is pushed straight out of view. Whatever is added
           // while a chat is open belongs to that chat unless the caller
@@ -267,7 +284,8 @@ export default function App({
             ? { ts: Date.now() }
             : {}),
         },
-      ]),
+      ]);
+    },
     [currentThread],
   );
   /** Turn an agent reply that is really a compaction summary into the
@@ -1325,7 +1343,9 @@ export default function App({
   // then a warning quoted a context percentage the user had no way of
   // seeing anywhere. The ledger knows it: read the focused session's last
   // turn and show that until a live turn overwrites it.
-  const [ledgerCtx, setLedgerCtx] = useState<{ pct: number; window?: number | null } | null>(null);
+  const [ledgerCtx, setLedgerCtx] = useState<
+    { pct: number; window?: number | null; tokens: number } | null
+  >(null);
   useEffect(() => {
     const session = focusedTask?.sessionId;
     if (!session) {
@@ -1338,7 +1358,7 @@ export default function App({
         const window = w.context_window ?? 0;
         setLedgerCtx(
           window > 0 && w.last_total_tokens > 0
-            ? { pct: w.last_total_tokens / window, window }
+            ? { pct: w.last_total_tokens / window, window, tokens: w.last_total_tokens }
             : null,
         );
       })
@@ -1352,6 +1372,11 @@ export default function App({
       ? {
           pct: liveWorkers[focused]!.context_pct!,
           window: liveWorkers[focused]!.context_window,
+          // The prompt behind the ratio, so the ring can fall back to a
+          // fact when the ratio itself cannot be trusted.
+          tokens: Math.round(
+            liveWorkers[focused]!.context_pct! * (liveWorkers[focused]!.context_window ?? 0),
+          ),
         }
       : null) ?? ledgerCtx;
 
@@ -2437,7 +2462,12 @@ export default function App({
                       {/* The context rides in the same pill: one click,
                           one popover, both facts about this thread. */}
                       {shownContext && (
-                        <ContextRing used={shownContext.pct} window={shownContext.window} />
+                        <ContextRing
+                          used={shownContext.pct}
+                          window={shownContext.window}
+                          tokens={shownContext.tokens}
+                          model={liveModel ?? currentModel ?? undefined}
+                        />
                       )}
                     </button>
                     {scopeInfo && (

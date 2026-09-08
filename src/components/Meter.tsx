@@ -161,19 +161,45 @@ export function Gauge({
  * 100% — that reading sent someone to /compact a session the agent then
  * refused to compact.
  */
-export function ContextRing({ used, window }: { used: number; window?: number | null }) {
-  const tone = used >= 0.9 ? "var(--err)" : used >= 0.7 ? "var(--warn)" : "var(--accent)";
+const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : `${n}`);
+
+/**
+ * How full the context window is.
+ *
+ * A percentage is only worth showing when we can say what it is a
+ * percentage OF. When the prompt exceeds the window the model reported,
+ * that report is not the window in force, and every percentage built on
+ * it is fiction — "232%" was as useless as the confident 100% it
+ * replaced. In that case the ring shows the one number that is certainly
+ * true, the prompt itself, and the tooltip says why.
+ */
+export function ContextRing({
+  used,
+  window,
+  tokens,
+  model,
+}: {
+  used: number;
+  window?: number | null;
+  /** Prompt size of the last turn — the fact behind the ratio. */
+  tokens?: number | null;
+  /** Which model that turn ran on; the window is a property of it. */
+  model?: string | null;
+}) {
+  const trusted = used <= 1;
+  const tone = !trusted || used >= 0.9 ? "var(--err)" : used >= 0.7 ? "var(--warn)" : "var(--accent)";
   const r = 6;
   const circumference = 2 * Math.PI * r;
   const arc = Math.min(used, 1);
-  const win = window ? `${Math.round(window / 1000)}k` : "?";
+  const win = window ? k(window) : "?";
+  const on = model ? ` · ${model}` : "";
   return (
     <span
       className="ctx-ring"
       title={
-        used > 1
-          ? `janela de contexto · ${Math.round(used * 100)}% de ${win} — o prompt passou da janela que o modelo informou, então a janela real é outra`
-          : `janela de contexto · ${Math.round(used * 100)}% de ${win}`
+        trusted
+          ? `janela de contexto · ${Math.round(used * 100)}% de ${win}${on}`
+          : `prompt de ${tokens ? k(tokens) : "?"} tokens${on} — não bate com a janela informada (${win}), então a janela real é outra e a porcentagem seria inventada`
       }
     >
       <svg width="14" height="14" viewBox="0 0 16 16">
@@ -190,7 +216,7 @@ export function ContextRing({ used, window }: { used: number; window?: number | 
           transform="rotate(-90 8 8)"
         />
       </svg>
-      {Math.round(used * 100)}%
+      {trusted ? `${Math.round(used * 100)}%` : tokens ? k(tokens) : "?"}
     </span>
   );
 }
