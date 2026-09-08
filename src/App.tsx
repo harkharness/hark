@@ -726,17 +726,26 @@ export default function App({
     setFocused(taskId);
     setFocusedTask((old) => (old?.title === label ? old : { title: label, sessionId }));
     loadedTasks.current.add(label);
-    push({
-      who: "sys",
-      text: `worker ativo (${label}); mensagens continuam esta task`,
-      task: label,
-    });
+    // The focus just moved without the user asking for it, so the next
+    // Enter lands somewhere they did not pick — that is the one thing
+    // worth saying. The task's name is already in the composer's
+    // placeholder right below, so repeating it here only added noise.
+    push({ who: "sys", text: "Enter agora vai para esta task", task: label });
   }
 
-  async function runDispatch(instruction: string, sessionId?: string) {
+  /**
+   * `alreadyShown` is for the composer: what was typed is sitting right
+   * above as the user's own message, and echoing it back as a system line
+   * said the same sentence twice. Every other caller (voice, the confirm
+   * modal, the candidate picker) dispatches text the thread has NOT shown,
+   * and there the echo is the only record of what was sent.
+   */
+  async function runDispatch(instruction: string, sessionId?: string, alreadyShown = false) {
     setBusy("despachando…");
     const from = currentThread() ?? GENERAL;
-    push({ who: "sys", text: `dispatch: ${instruction}` });
+    if (!alreadyShown) {
+      push({ who: "sys", text: `dispatch: ${instruction}` });
+    }
     // Spawning a worker takes seconds before the first event: the clock
     // starts with the dispatch, not with the agent's first word.
     beginTurn(from);
@@ -2018,7 +2027,7 @@ export default function App({
         });
       return;
     }
-    await runDispatch(text, sessionId);
+    await runDispatch(text, sessionId, true);
   }
 
   function startDraftChat(project: Project) {
