@@ -1338,6 +1338,23 @@ export default function App({
     (focused ? liveWorkers[focused]?.directives.model : undefined) ?? modelDefault;
   const liveModel = focused ? liveWorkers[focused]?.model : undefined;
 
+  // THE authoritative context reading: the CLI's own, teed by the
+  // statusLine bridge. Everything below it is inference from billing
+  // tokens, which was wrong in five different ways before this was
+  // noticed — it read 232% for a session the CLI itself called 10%,
+  // because the window it divides by is only ever a guess. The bridge is
+  // opt-in, so the inference stays as the fallback, but it is no longer
+  // the plan.
+  const [truth, setTruth] = useState<import("./types").StatusLine | null>(null);
+  useEffect(() => {
+    const read = () => {
+      ipc.subscriptionLimits().then(setTruth).catch(() => {});
+    };
+    read();
+    const id = window.setInterval(read, 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   // The ring used to appear only once a live worker had finished a turn
   // in THIS window. Reopening a heavy chat, it was simply absent — and
   // then a warning quoted a context percentage the user had no way of
@@ -1365,9 +1382,18 @@ export default function App({
       .catch(() => setLedgerCtx(null));
   }, [focusedTask?.sessionId, liveWorkers[focused ?? ""]?.context_pct]);
 
-  /** What the ring shows: the live turn when there is one, else the last
-   *  turn the ledger recorded for this session. */
+  /** What the ring shows, best source first: the CLI's own reading for
+   *  THIS session, then the live turn, then the ledger. */
   const shownContext =
+    (truth?.context_used != null &&
+    truth.session_id &&
+    focusedTask?.sessionId === truth.session_id
+      ? {
+          pct: truth.context_used,
+          window: truth.context_window,
+          tokens: truth.context_tokens ?? 0,
+        }
+      : null) ??
     (focused && liveWorkers[focused]?.context_pct != null
       ? {
           pct: liveWorkers[focused]!.context_pct!,

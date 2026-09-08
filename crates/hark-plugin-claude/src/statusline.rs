@@ -59,12 +59,18 @@ pub fn parse(text: &str) -> Option<StatusLine> {
         .and_then(|c| c.get("used_percentage"))
         .and_then(|v| v.as_f64())
         .map(ratio);
-    let context_tokens = context
-        .and_then(|c| c.get("used_tokens").or_else(|| c.get("input_tokens")))
-        .and_then(|v| v.as_u64());
-    let context_window = context
-        .and_then(|c| c.get("context_window").or_else(|| c.get("size")))
-        .and_then(|v| v.as_u64());
+    // Real keys first — "total_input_tokens" and "context_window_size" are
+    // what a live 2.1.236 sends. The others were guesses written from
+    // memory, and because the fixture guessed the same way the test agreed
+    // with the bug: the window came back None and Hark inferred one from
+    // billing tokens instead. They stay as fallbacks, not as the plan.
+    let pick = |c: &serde_json::Map<String, serde_json::Value>, keys: &[&str]| {
+        keys.iter().find_map(|k| c.get(*k)).and_then(|v| v.as_u64())
+    };
+    let context_tokens =
+        context.and_then(|c| pick(c, &["total_input_tokens", "used_tokens", "input_tokens"]));
+    let context_window =
+        context.and_then(|c| pick(c, &["context_window_size", "context_window", "size"]));
 
     let mut limits: Vec<LimitWindow> = root
         .get("rate_limits")
@@ -122,6 +128,40 @@ mod tests {
         "seven_day_fable": { "used_percentage": 76 }
       }
     }"#;
+
+    /// RECORDED from a live statusLine on claude 2.1.236 — the shape the
+    /// CLI actually sends. The hand-written PAYLOAD above guessed
+    /// "used_tokens" and "context_window"; the real keys are
+    /// "total_input_tokens" and "context_window_size", so the parser found
+    /// no window and Hark went off and inferred one from billing tokens
+    /// instead. It read 232% for a session the CLI itself called 10%.
+    const OBSERVED: &str = r#"{
+      "session_id": "e3469264",
+      "model": { "id": "claude-opus-5[1m]", "display_name": "Opus 5 (1M context)" },
+      "version": "2.1.236",
+      "context_window": {
+        "total_input_tokens": 95471,
+        "total_output_tokens": 1088,
+        "context_window_size": 1000000,
+        "current_usage": {
+          "input_tokens": 2,
+          "output_tokens": 1088,
+          "cache_creation_input_tokens": 827,
+          "cache_read_input_tokens": 94642
+        },
+        "used_percentage": 10,
+        "remaining_percentage": 90
+      }
+    }"#;
+
+    #[test]
+    fn reads_the_window_the_cli_actually_sends() {
+        let line = parse(OBSERVED).unwrap();
+        assert_eq!(line.context_window, Some(1_000_000));
+        assert_eq!(line.context_tokens, Some(95_471));
+        assert!((line.context_used.unwrap() - 0.10).abs() < 1e-9);
+        assert_eq!(line.model.as_deref(), Some("Opus 5 (1M context)"));
+    }
 
     #[test]
     fn reads_context_and_every_limit_window() {
