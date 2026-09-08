@@ -16,6 +16,10 @@ import type { OpenFile } from "./types";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { Settings as SettingsIcon } from "lucide-react";
 import { useHarkEvents } from "./hooks/useHarkEvents";
+import { useWorkerDefaults } from "./hooks/useWorkerDefaults";
+import ModeSelect from "./components/ModeSelect";
+import ModelSelect from "./components/ModelSelect";
+import EffortSelect from "./components/EffortSelect";
 import { agentError, askReplyMsg, isAuthError } from "./lib/format";
 import Composer from "./components/Composer";
 import { toImagePair, type Attachment } from "./lib/composerText";
@@ -136,6 +140,25 @@ export default function Mother() {
   const [chatCost, setChatCost] = useState(0);
   const [chatCtx, setChatCtx] = useState<number | null>(null);
   const [chatLive, setChatLive] = useState(false);
+  // The same defaults the project windows use, read from and written to
+  // the same config keys: expanded, this IS a project chat, so its pills
+  // must not remember something different.
+  const defaults = useWorkerDefaults(overview);
+
+  /** A pill on the mother: records the window default always, and applies
+   *  to the hark-chat worker while it is live. The project window's mode
+   *  pill does more — it can answer permissions itself for a turn already
+   *  in flight — and that half stays there, because the mother has no
+   *  such turn to rescue. */
+  function pillPick(
+    apply: (taskId: string, value: string) => Promise<unknown>,
+    remember: (value: string) => void,
+  ) {
+    return (value: string) => {
+      remember(value);
+      if (chatLive) void apply(HARK_CHAT, value).catch(() => {});
+    };
+  }
   /** Voice on/off, visible and standardized with the project windows. */
   const [speak, setSpeak] = useState(true);
   const speakRef = useRef(true);
@@ -1353,7 +1376,36 @@ export default function Mother() {
               onMic={onMic}
               onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
               trailing={motherTrailing}
-            />
+              running={!!busy}
+              onStop={
+                chatLive ? () => void ipc.workerInterrupt(HARK_CHAT).catch(() => {}) : undefined
+              }
+              onInterrupt={
+                chatLive
+                  ? (text) => {
+                      void submit(text, []);
+                      void ipc.workerInterrupt(HARK_CHAT).catch(() => {});
+                    }
+                  : undefined
+              }
+            >
+              {/* Expanded, this IS a project chat: the same three pills on
+                  the same config keys, with the same contract — the window
+                  default is a preference, a live task's is a directive. */}
+              <ModeSelect
+                value={defaults.modeInForce}
+                onSelect={pillPick(ipc.workerSetMode, defaults.setModeDefault)}
+              />
+              <ModelSelect
+                value={defaults.model}
+                tiers={defaults.tiers}
+                onSelect={pillPick(ipc.workerSetModel, defaults.setModelDefault)}
+              />
+              <EffortSelect
+                value={defaults.effort}
+                onSelect={pillPick(ipc.workerSetEffort, defaults.setEffortDefault)}
+              />
+            </Composer>
           </div>
           {(termOpen || filesOpen) && (
             <>

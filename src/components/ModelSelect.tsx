@@ -6,6 +6,16 @@ import { t } from "../lib/i18n";
  *  (with the router's own defaults as fallback — intent.rs). */
 export type ModelTiers = { light: string; standard: string; heavy: string; max: string };
 
+/** The router's own defaults (intent.rs). Both the project windows and
+ *  the mother read them from here so the two pills cannot offer
+ *  different models. */
+export const DEFAULT_TIERS: ModelTiers = {
+  light: "haiku",
+  standard: "sonnet",
+  heavy: "opus",
+  max: "fable",
+};
+
 /**
  * The model pill beside the mode pill: shows the model actually producing
  * the focused thread's turns; picking one switches THAT task (process

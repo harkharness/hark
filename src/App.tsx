@@ -15,7 +15,7 @@ import FilesEditor, { FileTabs } from "./components/FilesEditor";
 import FilesPanel from "./components/FilesPanel";
 import Modals, { type Pending } from "./components/Modals";
 import ModeSelect from "./components/ModeSelect";
-import ModelSelect, { type ModelTiers } from "./components/ModelSelect";
+import ModelSelect from "./components/ModelSelect";
 import EffortSelect from "./components/EffortSelect";
 import PanelFrame from "./components/PanelFrame";
 import QuickOpen from "./components/QuickOpen";
@@ -28,6 +28,7 @@ import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
 import WorkerChips from "./components/WorkerChips";
 import TurnStatus, { type TurnState } from "./components/TurnStatus";
+import { useWorkerDefaults } from "./hooks/useWorkerDefaults";
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import { useRepoStates } from "./hooks/useRepoStates";
 import RepoRuler from "./components/RepoRuler";
@@ -59,6 +60,12 @@ export default function App({
 }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
+  // Mode/model/effort defaults for this window — seeded from config and
+  // written back on every pick. Shared with the mother's chat.
+  const defaults = useWorkerDefaults(overview ?? null);
+  const modeDefault = defaults.mode;
+  const modelDefault = defaults.model;
+  const effortDefault = defaults.effort;
   // Every Claude Code session of this project (index), newest first.
   const [chats, setChats] = useState<SessionHit[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -137,15 +144,11 @@ export default function App({
   const history = useRef<Map<string, { count: number; firstKey: string }>>(new Map());
 
   // Mode chosen on the selector for NEW tasks (null = config default).
-  const [modeDefault, setModeDefault] = useState<string | null>(null);
+
   /** Window's model choice ("" = auto/router); focused live tasks switch
    *  the process, otherwise it seeds new chats born here. */
-  const [modelDefault, setModelDefault] = useState<string>("");
-  /** Window default for --effort; "" means the flag is not passed at all. */
-  const [effortDefault, setEffortDefault] = useState<string>("");
-  const [tiers, setTiers] = useState<ModelTiers>({
-    light: "haiku", standard: "sonnet", heavy: "opus", max: "fable",
-  });
+
+
   // Per-thread raw worker feed (the task's "terminal") and window spend.
   /** The worker's raw event lines. Its only reader was the terminal's
    *  feed tab, which is gone (the transcript already shows tool calls),
@@ -1311,32 +1314,6 @@ export default function App({
     (focused ? liveWorkers[focused]?.directives.model : undefined) ?? modelDefault;
   const liveModel = focused ? liveWorkers[focused]?.model : undefined;
 
-  useEffect(() => {
-    ipc
-      .configRead()
-      .then((snap) => {
-        const v = snap.values as { models?: Partial<ModelTiers>; model?: string };
-        const m = v.models ?? {};
-        setTiers({
-          light: m.light || "haiku",
-          standard: m.standard || v.model || "sonnet",
-          heavy: m.heavy || "opus",
-          max: m.max || "fable",
-        });
-      })
-      .catch(() => {});
-  }, []);
-
-  /**
-   * A pill that changes THIS WINDOW's default is changing a preference,
-   * so it is written to config.toml. Picking opus and finding the pill
-   * blank after a restart was the complaint — session state was being
-   * used to hold something the user meant to keep. Changing a live task
-   * is NOT this: that is one task's directive, and it dies with it.
-   */
-  function rememberDefault(key: string, value: string) {
-    ipc.configWrite({ [key]: value }).catch(() => {});
-  }
 
   function selectModel(model: string) {
     const taskId = focused;
@@ -1351,20 +1328,8 @@ export default function App({
         .catch((err) => push({ who: "sys", text: `modelo: ${err}`, task: labelFor(taskId) }));
       return;
     }
-    setModelDefault(model);
-    rememberDefault("worker_model", model);
+    defaults.setModelDefault(model);
   }
-
-  // The pills come up where they were left. Seeded once, from config, the
-  // first time the overview lands: after that the window's own state is
-  // the truth, and every pick writes it back.
-  const pillsSeeded = useRef(false);
-  useEffect(() => {
-    if (pillsSeeded.current || !overview) return;
-    pillsSeeded.current = true;
-    setModelDefault(overview.default_model ?? "");
-    setEffortDefault(overview.default_effort ?? "");
-  }, [overview]);
 
   /** Effort the pill shows: the focused live task's, else this window's. */
   const currentEffort =
@@ -1386,15 +1351,12 @@ export default function App({
         .catch((err) => push({ who: "sys", text: `esforço: ${err}`, task: labelFor(taskId) }));
       return;
     }
-    setEffortDefault(effort);
-    rememberDefault("worker_effort", effort);
+    defaults.setEffortDefault(effort);
   }
 
   /** Mode the pill shows: the focused live task's, else the window/config default. */
   const currentMode =
-    (focused ? liveWorkers[focused]?.directives.mode : undefined) ??
-    modeDefault ??
-    (overview?.default_mode || "manual");
+    (focused ? liveWorkers[focused]?.directives.mode : undefined) ?? defaults.modeInForce;
 
   /** Modes that mean "stop asking me": relaxing one mid-turn is answered
    *  by the window itself, since the process keeps its flags until it
@@ -1453,8 +1415,7 @@ export default function App({
         .catch((err) => push({ who: "sys", text: `modo: ${err}` }));
       return;
     }
-    setModeDefault(flag);
-    rememberDefault("worker_mode", flag);
+    defaults.setModeDefault(flag);
     push({ who: "sys", text: `novas tasks desta janela nascem no modo ${flag}` });
   }
 
@@ -2593,13 +2554,13 @@ export default function App({
                 <ModeSelect
                   value={currentMode}
                   appliesTo={focused ? labelFor(focused) : undefined}
-                  windowDefault={modeDefault ?? overview?.default_mode ?? undefined}
+                  windowDefault={defaults.modeInForce}
                   onSelect={selectMode}
                 />
                 <ModelSelect
                   value={currentModel ?? ""}
                   liveModel={liveModel}
-                  tiers={tiers}
+                  tiers={defaults.tiers}
                   appliesTo={focused ? labelFor(focused) : undefined}
                   windowDefault={modelDefault}
                   onSelect={selectModel}
