@@ -303,19 +303,11 @@ export default function Transcript({
         )
       ) : (
         <div className="bubble">
-          {/* Who is speaking, said once and quietly — the canvas' shape:
-              a label over prose instead of a bubble on the margin. */}
-          {(m.who === "user" || m.who === "hark") && (
-            <span className="msg-who">
-              {m.who === "user" ? t("tag_you") : "hark"}
-              {m.ts
-                ? ` · ${new Date(m.ts).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}`
-                : ""}
-            </span>
-          )}
+          {/* No "você ·" / "hark ·" label: who spoke is the SHAPE now.
+              Reopening a long history, two identical columns of prose with
+              a small caption over each was unreadable — the eye has to
+              read the label to know whose words it is looking at, on every
+              single message. The time already lives in the hover bar. */}
           {m.who === "hark" ? (
             <>
               <div className="fala">

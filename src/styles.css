@@ -863,19 +863,21 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   min-height: 0;
 }
 .msg { max-width: 100%; white-space: pre-wrap; word-break: break-word; line-height: 1.65; }
-/* You: a soft pill on the right. Hark: plain prose on the page — replies
-   read like a document, not like text trapped in a box (Claude Code). */
-/* Both voices read as one document, the way the canvas drew it: a quiet
-   label over plain prose. The bubble pushed every question to the right
-   margin and cut the reading column in half. */
-.msg.user { align-self: stretch; max-width: 100%; }
+/* Who spoke is the SHAPE, not a caption. This was label-over-prose for a
+   while, on the theory that a right-hand bubble halves the reading
+   column — true, and beside the point: in a reopened history the two
+   voices became two identical columns of grey text, and telling them
+   apart meant reading a caption on every message. You get a pill on the
+   right; hark keeps the full column, because the long answers are the
+   ones that need it. */
+.msg.user { align-self: flex-end; max-width: min(76%, 560px); }
 .msg.user .bubble {
-  background: none; border: none; border-radius: 0; padding: 0;
-  color: var(--text-strong);
+  background: var(--panel-2); border: none; border-radius: 14px;
+  padding: 9px 14px; color: var(--text-strong);
 }
-.msg-who {
-  display: block; color: var(--dim); font-size: 11px; margin-bottom: 4px;
-}
+/* The hover bar hangs under its own message, so on the right it has to
+   hang from the right edge. */
+.msg.user .msg-actions { left: auto; right: 0; }
 .msg.hark { align-self: stretch; }
 .msg.hark .bubble { background: none; border: none; border-radius: 0; padding: 0; }
 .msg.sys { align-self: center; color: var(--dim); font-size: 12px; opacity: .85; }
