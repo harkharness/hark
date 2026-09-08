@@ -10,6 +10,9 @@ export type Pending =
       warning?: string;
       /** Local prechecks: true numbers, each with actions. */
       warnings?: DispatchWarning[];
+      /** The text was TYPED, not heard. Nothing to re-read and nothing to
+       *  correct: the only open question is the warning's. */
+      typed?: boolean;
     }
   | { kind: "pick-session"; query: string; candidates: SessionHit[] }
   /** Board tasks too close to call: the user picks, never a silent guess. */
@@ -158,7 +161,7 @@ export default function Modals({
       <div className="modal-backdrop">
         <div className="modal">
           <h2>
-            {t("m_dispatch_q")}
+            {pending.typed ? t("m_heavy_q") : t("m_dispatch_q")}
             {pending.sessionId && focusedTaskTitle && (
               <span className="reader-meta"> → {focusedTaskTitle}</span>
             )}
@@ -183,8 +186,11 @@ export default function Modals({
               )}
             </div>
           ))}
-          {/* EDITABLE: STT gets words wrong; fix them right here (or say
-              the whole thing again — the voice loop swaps this text). */}
+          {/* EDITABLE only when the words were HEARD: STT gets them wrong,
+              so fix them here (or say the whole thing again — the voice
+              loop swaps this text). Typed, they are already right, and
+              reprinting them to be confirmed was the whole complaint. */}
+          {!pending.typed && (
           <textarea
             className="resume-input"
             autoFocus
@@ -199,13 +205,14 @@ export default function Modals({
             }}
             rows={5}
           />
+          )}
           <div className="row">
-            <span className="modal-hint">{t("m_dispatch_hint")}</span>
+            <span className="modal-hint">{pending.typed ? "" : t("m_dispatch_hint")}</span>
             <button className="plain" onClick={() => setPending(null)}>
               {t("m_cancel")}
             </button>
             <button className="allow" onClick={confirm}>
-              {t("m_confirm")}
+              {pending.typed ? t("m_send_anyway") : t("m_confirm")}
             </button>
           </div>
         </div>

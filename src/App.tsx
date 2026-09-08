@@ -1283,15 +1283,23 @@ export default function App({
       //
       // The local prechecks stay: their numbers come from this machine,
       // they cannot hallucinate, and they cost nothing.
-      // A heavy session is worth SAYING and never worth a gate. This used
-      // to stop the send, reprint the message in a textarea and ask
-      // "Despachar tarefa? confirmar / cancelar" — asking someone to
-      // confirm words they had just typed and pressed Enter on. The
-      // expensive case is already handled without asking anyone: a turn
-      // that comes back over 85% compacts the thread by itself.
+      // A genuinely heavy session is worth stopping for — compacting
+      // before an expensive turn is the cheap version of what happens
+      // anyway. What was NOT worth stopping for was the old shape: the
+      // message reprinted in a textarea under "Despachar tarefa?", asking
+      // someone to confirm words they had just typed. `typed` drops the
+      // textarea and leaves the only open question, which is the
+      // warning's: compact first, or send as is.
       const warnings = await ipc.dispatchPrechecks(focusedTask.sessionId).catch(() => []);
-      for (const warn of warnings) {
-        push({ who: "sys", text: `⚠ ${warn.text}`, task: focusedTask.title });
+      if (warnings.length > 0) {
+        setPending({
+          kind: "confirm-dispatch",
+          instruction: text,
+          sessionId: focusedTask.sessionId,
+          warnings,
+          typed: true,
+        });
+        return;
       }
       await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text, images, false);
       return;
@@ -1311,6 +1319,41 @@ export default function App({
   const currentModel =
     (focused ? liveWorkers[focused]?.directives.model : undefined) ?? modelDefault;
   const liveModel = focused ? liveWorkers[focused]?.model : undefined;
+
+  // The ring used to appear only once a live worker had finished a turn
+  // in THIS window. Reopening a heavy chat, it was simply absent — and
+  // then a warning quoted a context percentage the user had no way of
+  // seeing anywhere. The ledger knows it: read the focused session's last
+  // turn and show that until a live turn overwrites it.
+  const [ledgerCtx, setLedgerCtx] = useState<{ pct: number; window?: number | null } | null>(null);
+  useEffect(() => {
+    const session = focusedTask?.sessionId;
+    if (!session) {
+      setLedgerCtx(null);
+      return;
+    }
+    ipc
+      .sessionContextWeight(session)
+      .then((w) => {
+        const window = w.context_window ?? 0;
+        setLedgerCtx(
+          window > 0 && w.last_total_tokens > 0
+            ? { pct: w.last_total_tokens / window, window }
+            : null,
+        );
+      })
+      .catch(() => setLedgerCtx(null));
+  }, [focusedTask?.sessionId, liveWorkers[focused ?? ""]?.context_pct]);
+
+  /** What the ring shows: the live turn when there is one, else the last
+   *  turn the ledger recorded for this session. */
+  const shownContext =
+    (focused && liveWorkers[focused]?.context_pct != null
+      ? {
+          pct: liveWorkers[focused]!.context_pct!,
+          window: liveWorkers[focused]!.context_window,
+        }
+      : null) ?? ledgerCtx;
 
 
   function selectModel(model: string) {
@@ -2393,11 +2436,8 @@ export default function App({
                       ${(costs[focusedTask?.title ?? ""] ?? 0).toFixed(2)}
                       {/* The context rides in the same pill: one click,
                           one popover, both facts about this thread. */}
-                      {focused && liveWorkers[focused]?.context_pct != null && (
-                        <ContextRing
-                          used={liveWorkers[focused]!.context_pct!}
-                          window={liveWorkers[focused]!.context_window}
-                        />
+                      {shownContext && (
+                        <ContextRing used={shownContext.pct} window={shownContext.window} />
                       )}
                     </button>
                     {scopeInfo && (
