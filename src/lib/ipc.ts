@@ -392,6 +392,8 @@ export type ConfigSnapshot = {
     worker_budget_usd: number;
     worker_max_turns: number;
     worker_mode: string;
+    worker_model: string;
+    worker_effort: string;
     assistant_name: string;
     auto_update: boolean;
     models: { light?: string | null; standard?: string | null; heavy?: string | null; max?: string | null };

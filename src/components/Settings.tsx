@@ -12,6 +12,21 @@ import {
 
 type Section = "geral" | "plugins" | "voz" | "workers" | "avancado";
 
+/** The composer's three pills write these same keys, so Settings offers
+ *  the same choices — including the empty one, which is a real state in
+ *  both: no --effort at all, and the router picking the model. */
+/** Aliases, not tier legends: a one-line <select> should say WHICH model
+ *  is being pinned. The composer's pill is where the tiers are explained. */
+const WORKER_MODEL_ALIASES = ["haiku", "sonnet", "opus", "fable"];
+const EFFORT_OPTIONS: [string, string][] = [
+  ["", "effort_default"],
+  ["low", "effort_low"],
+  ["medium", "effort_medium"],
+  ["high", "effort_high"],
+  ["xhigh", "effort_xhigh"],
+  ["max", "effort_max"],
+];
+
 const MODE_OPTIONS: [string, string][] = [
   ["", "mode_cli"],
   ["manual", "mode_manual"],
@@ -371,6 +386,25 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
                 keyName="worker_mode"
                 value={v.worker_mode}
                 options={MODE_OPTIONS.map(([val, k]) => [val, t(k as never)] as [string, string])}
+              />
+              <Select
+                label={t("set_worker_model")}
+                hint={t("set_worker_model_hint")}
+                keyName="worker_model"
+                value={v.worker_model}
+                options={[
+                  ["", t("model_auto")] as [string, string],
+                  ...WORKER_MODEL_ALIASES.map((a) => [a, a] as [string, string]),
+                ]}
+              />
+              <Select
+                label={t("set_worker_effort")}
+                hint={t("set_worker_effort_hint")}
+                keyName="worker_effort"
+                value={v.worker_effort}
+                options={EFFORT_OPTIONS.map(
+                  ([val, k]) => [val, t(k as never)] as [string, string],
+                )}
               />
               <Field
                 label={t("set_budget")}
