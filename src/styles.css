@@ -2428,6 +2428,16 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .plugin-badge.on { border-color: color-mix(in srgb, var(--ok) 45%, transparent); color: var(--ok); }
 .plugin-badge.pick { border-color: color-mix(in srgb, var(--accent) 45%, transparent); color: var(--accent); }
 .plugin-badge.warn { border-color: color-mix(in srgb, var(--warn) 45%, transparent); color: var(--warn); }
+/* The "off" badge is also the switch: a button in badge clothing. */
+button.plugin-toggle { cursor: pointer; background: transparent; font: inherit; font-size: 10.5px; }
+button.plugin-toggle:hover { color: var(--text); border-color: var(--border-strong); }
+/* Turning an agent off is rare: the control shows up on hover only. */
+.plugin-toggle-off {
+  margin-left: 6px; flex-shrink: 0; border: none; background: transparent;
+  color: var(--dim); font: inherit; font-size: 10.5px; cursor: pointer; opacity: 0;
+}
+.plugin-card:hover .plugin-toggle-off { opacity: .8; }
+.plugin-toggle-off:hover { color: var(--warn); }
 .plugin-path { font-family: var(--font-mono); font-size: 11px; color: var(--dim); word-break: break-all; }
 .plugin-install { display: flex; flex-direction: column; gap: 8px; }
 .plugin-caps { display: flex; flex-wrap: wrap; gap: 5px; }

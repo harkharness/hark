@@ -56,6 +56,16 @@ export default function PluginsPanel({
     }
   };
 
+  /** On/off is config (`[agents.<id>] enabled`); the card is the switch. */
+  const toggle = async (id: string, enabled: boolean) => {
+    try {
+      await ipc.agentPluginEnable(id, enabled);
+      await load();
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   return (
     <div className="plugins">
       {!compact && (
@@ -87,12 +97,33 @@ export default function PluginsPanel({
               ) : usable ? (
                 <span className="plugin-badge pick">{t("pl_use")}</span>
               ) : !p.enabled ? (
-                <span className="plugin-badge">{t("pl_off")}</span>
-              ) : p.detected ? (
-                // Installed and switched on, but Hark cannot drive it yet.
-                <span className="plugin-badge">{t("pl_soon")}</span>
+                // Off in config. The badge IS the switch: a built-in that
+                // ships off (claude over ACP) was unreachable without
+                // editing the file.
+                <button
+                  className="plugin-badge plugin-toggle"
+                  title={t("pl_enable_hint")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void toggle(p.id, true);
+                  }}
+                >
+                  {t("pl_off")} · {t("pl_enable")}
+                </button>
               ) : (
                 <span className="plugin-badge warn">{t("pl_missing")}</span>
+              )}
+              {p.enabled && !p.selected && (
+                <button
+                  className="plugin-toggle-off"
+                  title={t("pl_disable_hint")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void toggle(p.id, false);
+                  }}
+                >
+                  {t("pl_disable")}
+                </button>
               )}
             </div>
 

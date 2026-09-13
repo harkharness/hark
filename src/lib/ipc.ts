@@ -505,3 +505,6 @@ export type AgentPlugin = {
 };
 export const agentPlugins = () => invoke<AgentPlugin[]>("agent_plugins");
 export const agentPluginSelect = (id: string) => invoke("agent_plugin_select", { id });
+/** `[agents.<id>] enabled` — the catalog's on/off switch, persisted in config. */
+export const agentPluginEnable = (id: string, enabled: boolean) =>
+  invoke("agent_plugin_enable", { id, enabled });

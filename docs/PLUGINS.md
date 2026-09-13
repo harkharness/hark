@@ -80,9 +80,11 @@ ACP one for everything that speaks the Agent Client Protocol:
 | `kiro` | acp | `kiro-cli acp` | `kiro-cli login` |
 | `claude-acp` | acp (off by default) | `claude-code-acp` | `claude /login` |
 
-Detected = the binary answers `which`; usable = detected and enabled. The
-selected agent (`[agent] plugin = "<id>"`, or Settings › Plugins) opens
-NEW sessions. An EXISTING session is always resumed by the agent that
+Detected = the binary answers `which`; usable = detected and enabled.
+Settings › Plugins is the catalog: it selects the default, and switches
+entries on and off (`[agents.<id>] enabled`) — built-ins that ship off,
+like claude over ACP, are one click away rather than a config edit. The
+selected agent (`[agent] plugin = "<id>"`) opens NEW sessions. An EXISTING session is always resumed by the agent that
 created it — the worker registry remembers, and a session it never saw
 came from the claude history index and stays claude's. Switching the
 default never hands one agent's session to another.

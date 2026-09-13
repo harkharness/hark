@@ -1790,6 +1790,31 @@ fn agent_plugin_select(id: String) -> Result<(), String> {
     std::fs::write(&path, out).map_err(|e| e.to_string())
 }
 
+/// Switch a registry entry on or off (`[agents.<id>] enabled`). Built-ins
+/// that ship off — claude over ACP duplicates the native plugin's
+/// subscription — used to be reachable only by editing the config file;
+/// the catalog card is where the user is looking, so the switch lives
+/// there. Off is an override like any other: the entry stays known,
+/// detected or not, and comes back with one click.
+#[tauri::command]
+fn agent_plugin_enable(id: String, enabled: bool) -> Result<(), String> {
+    use hark_core::domain::agents;
+    let config = Config::load();
+    let entries = agents::merge(&config.agents);
+    agents::resolve(&entries, &id).ok_or_else(|| format!("agente desconhecido: {id}"))?;
+    let path = hark_core::config::config_path();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let out = hark_core::config::patch_toml(
+        &text,
+        &serde_json::json!({ format!("agents.{id}.enabled"): enabled }),
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::write(&path, out).map_err(|e| e.to_string())
+}
+
 /// Everything the first-run wizard needs to decide what to show: which
 /// pieces exist (config, whisper model, claude binary, history) and the
 /// current values to pre-fill.
@@ -4439,6 +4464,7 @@ pub fn run() {
             setup_status,
             agent_plugins,
             agent_plugin_select,
+            agent_plugin_enable,
             setup_download_model,
             setup_mark_done,
             board_subtask_toggle,
