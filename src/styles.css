@@ -1453,7 +1453,9 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 6px 16px 10px;
+  /* No bottom pad: the window gutter below (.app) is the composer's only
+     gap to the frame, so it matches the sidebar's and the rail's. */
+  padding: 6px 16px 0;
   background: var(--bg);
 }
 .inputbar-row {
@@ -2193,7 +2195,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    height, so the divider costs 6px and still catches the pointer over
    14px. A resize edge has to be easy to hit; it does not have to be
    visible furniture. */
-.rail-slot .frame { margin: 2px 4px; }
+.rail-slot .frame { margin: 2px 0 2px 4px; }
 .rail-vhandle {
   flex: 0 0 2px; cursor: row-resize; border-radius: 2px; margin: 0 8px;
   position: relative;
@@ -2240,12 +2242,12 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    layout starts at the very top and the chat's own title bar occupies it
    — the way a document window puts its document's name up there. Only
    the SIDEBAR sits under the traffic lights, so only it pays the offset. */
-.app { position: relative; padding-top: 0; }
+.app { position: relative; padding: 0 6px 6px; }
 .sidebar { padding-top: 34px; }
 /* Sidebar collapsed, the chat column reaches the window edge — and its
    title bar runs straight into the traffic lights and the toggle that
    closed it. The title steps aside for the chrome that is already there. */
-.app.side-closed .chat-title-head { padding-left: 112px; }
+.app.side-closed .chat-title-head { padding-left: 106px; }
 .inputbar-row .scope {
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--dim); border: none; border-radius: 7px; padding: 5px 7px;

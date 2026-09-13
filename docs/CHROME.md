@@ -121,6 +121,26 @@ sat indented like a paragraph; it is chrome, and chrome uses the edges.
 Every bar in the app — chat title, panel headers — starts at 12px and
 ends at 8px.
 
+## The window gutter is 6px, and it is the only one
+
+`.app` holds a `0 6px 6px` padding: every panel floats 6px off the
+window frame on the left, the right and the bottom. The top is 0 on
+purpose — that strip is the title bar and the OS paints the traffic
+lights in it at a fixed spot, so anything pushed down there stops
+lining up with them.
+
+The gutter is the ONLY gap between the frame and the outermost painted
+surface, so nothing may add a second one on top of it:
+
+- the rail's frames carry `margin: 2px 0 2px 4px` — the 4px separates
+  them from the chat column, the right side is the gutter's job;
+- `.inputbar` has no bottom padding, so the composer card's gap to the
+  frame is the same 6px the sidebar has.
+
+Add spacing outside a panel and you get 6 + yours, which reads as a
+crooked window. Spacing INSIDE a panel is free — that is its own
+rhythm, not the frame's.
+
 ## The overlay title bar is ours to use
 
 The project window is built with `TitleBarStyle::Overlay` and
