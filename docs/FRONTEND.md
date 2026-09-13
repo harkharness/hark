@@ -31,6 +31,10 @@ src/
     ToolCall.tsx      per-tool payload rendering (Bash → shell block, …)
 ```
 
+See `docs/CHROME.md` for the visual grammar — tokens, elevation,
+dividers, panel headers, the overlay title bar, and the cascade traps
+that made several of them look like design decisions when they were not.
+
 ## Rules
 
 1. **Components never call `invoke`.** Everything goes through `lib/ipc.ts`,
