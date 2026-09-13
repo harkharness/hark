@@ -7,7 +7,6 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{mpsc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, State};
-use hark_plugin_claude::cli::ClaudeCli;
 use hark_core::adapters::git_collect::GitCli;
 use hark_plugin_claude::live::ClaudeAgentsCli;
 use hark_core::adapters::memory_files::{self, HarkDir};
@@ -58,8 +57,23 @@ fn backend_for(config: &Config, agent: &str) -> std::sync::Arc<dyn AgentBackend>
             env,
             entry.memory_file,
             entry.login_hint,
+            config.data_dir(),
         ))
     }
+}
+
+/// The one-shot runner for the cheap lane (voice ask, intent router,
+/// dispatch gate): `[agent] ask` when set and usable, else the same choice
+/// a new chat makes. Claude answers under a real schema; an ACP agent is
+/// asked for JSON in the prompt and read leniently — so a machine with no
+/// claude at all still has a voice.
+fn ask_runner(config: &Config) -> Box<dyn AgentRunner + Send + Sync> {
+    use hark_core::domain::agents;
+    let entries = agents::merge(&config.agents);
+    let detected = agents_detected(config, &entries);
+    let preference = if config.agent.ask.is_empty() { &config.agent.plugin } else { &config.agent.ask };
+    let id = agents::default_agent(&entries, &detected, preference).unwrap_or_else(|| "claude".into());
+    backend_for(config, &id).runner()
 }
 
 /// The registry id a NEW session opens with: the user's pick when it is
@@ -88,18 +102,6 @@ fn agent_for(config: &Config, session_id: &str) -> String {
     } else {
         owner_of_session(config, session_id)
     }
-}
-
-/// The plain claude entry's base env. A gateway the user configured on
-/// the builtin itself (`[agents.claude] env = {…}`) reaches the one-shot
-/// ask and gate too — nothing slips past it. (A gateway TWIN entry only
-/// covers the workers that select it; the ask/gate lane still runs the
-/// plain entry until F9.5 routes it per agent.)
-fn claude_env(config: &Config) -> Vec<(String, String)> {
-    use hark_core::domain::agents;
-    agents::resolve(&agents::merge(&config.agents), "claude")
-        .map(|e| e.env_pairs())
-        .unwrap_or_default()
 }
 
 /// The backend that OWNS an existing session. A session is resumed by
@@ -740,17 +742,13 @@ fn ask_text(
     let live = ClaudeAgentsCli {
         claude_bin: config.claude_bin_resolved(),
     };
-    let runner = ClaudeCli {
-        claude_bin: config.claude_bin_resolved(),
-        work_dir: config.data_dir(),
-        envs: claude_env(&config),
-    };
+    let runner = ask_runner(&config);
     // The UI's focused project scopes this question (click = context).
     let active_project = match (project_name, project_path) {
         (Some(name), Some(path)) => Some(hark_core::domain::project::Project { name, path }),
         _ => None,
     };
-    let mut deps = build_deps(&config, &mut store, &live, &runner, active_project);
+    let mut deps = build_deps(&config, &mut store, &live, runner.as_ref(), active_project);
     let images = images.unwrap_or_default();
     let result = ask_with_image(&question, &images, &mut deps, &mut |event| {
         if let ClaudeEvent::ToolUse { name, input } = event {
@@ -1024,8 +1022,13 @@ fn start_worker_titled(
                         // worker registry; only its session id persists so
                         // the next send resumes the same conversation.
                         let mut gstate = state_file::load(&config.data_dir());
-                        if gstate.hark_chat_session.as_deref() != Some(session_id.as_str()) {
+                        if gstate.hark_chat_session.as_deref() != Some(session_id.as_str())
+                            || gstate.hark_chat_agent.as_deref() != Some(agent_id.as_str())
+                        {
                             gstate.hark_chat_session = Some(session_id.clone());
+                            // The chat belongs to the backend that opened
+                            // it; the next resume goes there.
+                            gstate.hark_chat_agent = Some(agent_id.clone());
                             let _ = state_file::save(&config.data_dir(), &gstate);
                         }
                         emit_event(
@@ -1898,14 +1901,17 @@ fn setup_mark_done() -> Result<(), String> {
 /// it belongs to the user and to the model's own edits — NEVER overwritten.
 pub(crate) fn ensure_persona(config: &Config) {
     // One soul, many mouths: HARK.md is canonical; each agent's memory
-    // file (the name its CLI auto-loads — capabilities().memory_file) is a
-    // symlink to it, so Claude and a future Gemini share the same persona
-    // and the same accumulated learnings.
+    // file (the name its CLI auto-loads — the registry's memory_file:
+    // CLAUDE.md, GEMINI.md, AGENTS.md) is a symlink to it, so every
+    // enabled backend shares the same persona and the same learnings.
     let dir = config.data_dir();
-    let mouths: Vec<String> = [hark_plugin_claude::capabilities().memory_file]
+    let mut mouths: Vec<String> = hark_core::domain::agents::merge(&config.agents)
         .into_iter()
-        .flatten()
+        .filter(|e| e.enabled)
+        .filter_map(|e| e.memory_file)
         .collect();
+    mouths.sort();
+    mouths.dedup();
     let mouth_refs: Vec<&str> = mouths.iter().map(String::as_str).collect();
     hark_core::adapters::memory_files::ensure_soul_links(&dir, "HARK.md", &mouth_refs);
     let path = dir.join("HARK.md");
@@ -2043,17 +2049,22 @@ fn hark_chat_send(
     }
 
     let config = Config::load();
-    // Resume only a session whose log file still exists; otherwise start
-    // fresh (a stale id would make the spawn die silently).
-    let stored = state_file::load(&config.data_dir()).hark_chat_session;
-    let session = stored.filter(|id| {
-        SqliteStore::open(&config.data_dir().join("index.db"))
-            .ok()
-            .and_then(|store| {
-                use hark_core::ports::SessionStore;
-                store.session_path(id).ok().flatten()
-            })
-            .is_some_and(|path| std::path::Path::new(&path).exists())
+    let gstate = state_file::load(&config.data_dir());
+    // The chat is resumed by the backend that opened it (a state file
+    // from before this field reads as claude, which is what it was).
+    let owner = gstate.hark_chat_agent.clone().unwrap_or_else(|| "claude".into());
+    // Claude sessions live in files: resume only one whose log still
+    // exists, else a stale id makes the spawn die silently. An ACP agent
+    // keeps its own sessions; the id is trusted and session/load decides.
+    let session = gstate.hark_chat_session.filter(|id| {
+        agent_plugin(&config, &owner) != "claude"
+            || SqliteStore::open(&config.data_dir().join("index.db"))
+                .ok()
+                .and_then(|store| {
+                    use hark_core::ports::SessionStore;
+                    store.session_path(id).ok().flatten()
+                })
+                .is_some_and(|path| std::path::Path::new(&path).exists())
     });
 
     ensure_persona(&config);
@@ -2067,6 +2078,11 @@ fn hark_chat_send(
         text,
         directives,
     );
+    if resumed {
+        // The chat is off the worker registry, so `agent_for` cannot know
+        // its owner: the state file does.
+        spawn.agent = owner;
+    }
     // The budget ceiling exists for dispatched workers, whose runaway is
     // the risk it guards. The assistant is the product's front door and
     // long-lived by design: with the cap it died at the $2 process line,
@@ -3330,11 +3346,7 @@ fn classify_utterance(
         });
     }
 
-    let runner = hark_plugin_claude::cli::ClaudeCli {
-        claude_bin: config.claude_bin_resolved(),
-        work_dir: data_dir.clone(),
-        envs: claude_env(&config),
-    };
+    let runner = ask_runner(&config);
     let prompt = vi::build_prompt(&utterance, &catalog);
     let request = hark_core::ports::TurnRequest {
         prompt: &prompt,
@@ -3592,13 +3604,9 @@ fn evaluate(
             .collect(),
     };
 
-    // Same seam as the voice ask: the plugin's schema-constrained one-shot
-    // runner — the gate stopped owning a hand-rolled spawn of the CLI.
-    let runner = hark_plugin_claude::cli::ClaudeCli {
-        claude_bin: config.claude_bin_resolved(),
-        work_dir: config.data_dir(),
-        envs: claude_env(&config),
-    };
+    // Same seam as the voice ask: the selected backend's one-shot runner —
+    // the gate stopped owning a hand-rolled spawn of the CLI.
+    let runner = ask_runner(&config);
     let prompt = gate::build_prompt(&message, &ctx);
     let request = hark_core::ports::TurnRequest {
         prompt: &prompt,
@@ -3630,9 +3638,20 @@ fn evaluate(
         },
         &turn,
     );
-    let mut decision = decision_parse
-        .map_err(|e| format!("gate parse: {e}"))?
-        .sanitized();
+    let mut decision = match decision_parse {
+        Ok(decision) => decision.sanitized(),
+        // No structured answer at all — an agent without a schema mode
+        // that did not write JSON. The safe reading is "ask the human":
+        // a confirmation on the focused task, never a silent dispatch.
+        Err(e) if turn.reply.is_none() && !turn.is_error => hark_core::domain::gate::GateDecision {
+            acao: hark_core::domain::gate::GateAction::ContinuarTask,
+            confianca: 0.0,
+            motivo: format!("avaliador sem resposta estruturada ({e})"),
+            aviso: None,
+            task_alvo: None,
+        },
+        Err(e) => return Err(format!("gate parse: {e}")),
+    };
     // An aviso citing tools/MCPs or carrying numbers is fabricated by
     // construction (the gate receives neither) — drop it BEFORE it can
     // force a confirmation.

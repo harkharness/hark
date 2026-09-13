@@ -107,9 +107,10 @@ ask, the gate — goes through the company's LiteLLM with the whole native
 experience intact. A LiteLLM that aliases model names can answer with a
 non-Anthropic model (DeepSeek, say); Hark never knows and never needs to.
 A second entry with `plugin = "claude"` and its own `env` keeps both
-routes side by side — only the workers follow a twin; the ask/gate lane
-runs the plain entry until F9.5 routes it per agent. `env` values are
-the user's own config and are never logged.
+routes side by side. The cheap lane (voice ask, intent router, dispatch
+gate) follows `[agent] ask` when set, else the same agent new chats open
+with — so a twin selected as the default also answers the voice. `env`
+values are the user's own config and are never logged.
 
 ACP agents that take an OpenAI-compatible base URL (codex, dsh) reach a
 gateway through their own config; Hark passes their `env` through too.
@@ -136,9 +137,14 @@ fixtures come from the wire, not from the spec). Per capability:
   window (the context ring); cost is the delta of the session's running
   total.
 - **resume** — `session/load`, when the agent announces `loadSession`.
-- **history, live list, structured ask, fork** — absent. The session
-  browser, the terminal mirror and the voice ask degrade until F9.4
-  (a hark-side recorder) and F9.5 (lenient JSON extraction) give them
+- **structured ask** (voice ask, intent router, dispatch gate) — no
+  schema mode, so the schema goes INTO the prompt and the answer is read
+  leniently (`reply::extract_lenient`: the object, a fenced block, prose
+  around an object). One fresh session per question, closed right after.
+  When the agent writes no JSON at all, the gate degrades to "confirm"
+  (never a silent dispatch) and the ask reads the prose.
+- **history, live list, fork** — absent. The session browser and the
+  terminal mirror degrade until F9.4 (a hark-side recorder) gives them
   back.
 - `fs/*` and `terminal/*` are declined at initialize: the agent uses its
   own tools; Hark answers `-32601` if asked anyway.

@@ -7,6 +7,7 @@
 //! real agent; then the runtime — framing (`rpc`), the live session
 //! (`session`) and the backend seam (`backend`).
 
+pub mod ask;
 pub mod backend;
 pub mod caps;
 pub mod rpc;

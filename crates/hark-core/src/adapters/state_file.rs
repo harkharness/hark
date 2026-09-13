@@ -17,6 +17,9 @@ pub struct GlobalState {
     /// `alias` keeps state files written under the old product name loading.
     #[serde(alias = "vox_chat_session")]
     pub hark_chat_session: Option<String>,
+    /// Which backend owns that chat session; a resume goes to it, not to
+    /// whatever the default is today.
+    pub hark_chat_agent: Option<String>,
     /// First-run wizard completed (or explicitly skipped) on this machine.
     pub onboarded: bool,
 }

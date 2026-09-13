@@ -55,6 +55,8 @@ pub struct Opening<'a> {
     /// Empty = a brand-new session; otherwise `session/load` this one.
     pub session_id: &'a str,
     pub instruction: &'a str,
+    /// Pasted screenshots riding on the opening prompt: (media type, base64).
+    pub images: &'a [(String, String)],
     pub memory_file: Option<String>,
 }
 
@@ -155,7 +157,7 @@ fn handshake(
     *session.session_id.lock().unwrap_or_else(|e| e.into_inner()) = session_id.clone();
     let _ = started.send(AgentEvent::SessionStarted { session_id, slash_commands: Vec::new() });
 
-    session.prompt(opening.instruction, &[])?;
+    session.prompt(opening.instruction, opening.images)?;
     Ok(negotiated)
 }
 
@@ -630,6 +632,76 @@ impl hark_core::ports::AgentSession for AcpSession {
     }
 }
 
+/// A scripted agent on the far end of two pipes, for this crate's tests:
+/// the session's own suite and the one-shot ask's.
+#[cfg(test)]
+pub(crate) mod fake {
+    use super::Wire;
+    use crate::rpc::{self, Incoming};
+    use serde_json::{json, Value};
+    use std::io::{BufRead, BufReader, Write};
+    use std::sync::{Arc, Mutex};
+
+    /// The real `initialize` answer from gemini-cli 0.46.0 on this machine.
+    pub const GEMINI_INIT: &str = include_str!("../fixtures/initialize.gemini-0.46.0.json");
+
+    /// Everything hark sent, in order — the assertions read it back.
+    pub type Seen = Arc<Mutex<Vec<Incoming>>>;
+
+    /// `script` sees every message hark sends and gets a `say` to write
+    /// one line back. Runs until hark hangs up.
+    pub fn fake_agent(
+        script: impl FnMut(&Incoming, &mut dyn FnMut(String)) + Send + 'static,
+    ) -> (Wire, Seen) {
+        let (agent_reads, hark_writes) = std::io::pipe().expect("pipe");
+        let (hark_reads, agent_writes) = std::io::pipe().expect("pipe");
+        let seen: Seen = Arc::default();
+        let seen2 = seen.clone();
+        std::thread::spawn(move || {
+            let mut out = agent_writes;
+            let mut script = script;
+            for line in BufReader::new(agent_reads).lines().map_while(Result::ok) {
+                if let Some(msg) = rpc::parse(&line) {
+                    seen2.lock().unwrap().push(msg.clone());
+                    let mut say = |s: String| {
+                        let _ = writeln!(out, "{s}");
+                    };
+                    script(&msg, &mut say);
+                }
+            }
+        });
+        (Wire { reader: Box::new(hark_reads), writer: Box::new(hark_writes) }, seen)
+    }
+
+    /// An agent that handshakes like gemini and hands every prompt to
+    /// `on_prompt(prompt request id, params, say)`.
+    pub fn gemini_like(
+        mut on_prompt: impl FnMut(u64, &Value, &mut dyn FnMut(String)) + Send + 'static,
+    ) -> impl FnMut(&Incoming, &mut dyn FnMut(String)) + Send + 'static {
+        move |msg, say| {
+            if let Incoming::Request { id, method, params } = msg {
+                match method.as_str() {
+                    "initialize" => say(rpc::response(id, serde_json::from_str(GEMINI_INIT).unwrap())),
+                    "session/new" => say(rpc::response(id, json!({ "sessionId": "s-1" }))),
+                    "session/load" => say(rpc::response(id, json!({}))),
+                    "session/prompt" => on_prompt(id.as_u64().unwrap(), params, say),
+                    _ => say(rpc::error_response(id, -32601, "not in this script")),
+                }
+            }
+        }
+    }
+
+    pub fn update(update: Value) -> String {
+        rpc::notification("session/update", json!({ "sessionId": "s-1", "update": update }))
+    }
+    pub fn chunk(text: &str) -> Value {
+        json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": text } })
+    }
+    pub fn end_turn(id: u64) -> String {
+        rpc::response(&json!(id), json!({ "stopReason": "end_turn" }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -705,6 +777,7 @@ mod tests {
             cwd: std::path::Path::new("/tmp/proj"),
             session_id,
             instruction,
+            images: &[],
             memory_file: Some("GEMINI.md".into()),
         }
     }

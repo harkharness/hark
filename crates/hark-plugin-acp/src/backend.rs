@@ -16,6 +16,9 @@ pub struct AcpBackend {
     pub env: Vec<(String, String)>,
     pub memory_file: Option<String>,
     pub login_hint: Option<String>,
+    /// Neutral cwd for the one-shot runner (ask/gate) — the data dir,
+    /// never a project, so no project file leaks into a cheap question.
+    pub work_dir: std::path::PathBuf,
     /// The sheet the agent answered at its last handshake, once it has.
     negotiated: Mutex<Option<Negotiated>>,
 }
@@ -28,6 +31,7 @@ impl AcpBackend {
         env: Vec<(String, String)>,
         memory_file: Option<String>,
         login_hint: Option<String>,
+        work_dir: std::path::PathBuf,
     ) -> Self {
         Self {
             id: id.into(),
@@ -36,6 +40,7 @@ impl AcpBackend {
             env,
             memory_file,
             login_hint,
+            work_dir,
             negotiated: Mutex::new(None),
         }
     }
@@ -78,6 +83,7 @@ impl AgentBackend for AcpBackend {
             cwd: &spec.cwd,
             session_id: &spec.session_id,
             instruction: &spec.instruction,
+            images: &[],
             memory_file: self.memory_file.clone(),
         };
         let connected = crate::session::connect(
@@ -99,33 +105,25 @@ impl AgentBackend for AcpBackend {
     }
 
     fn runner(&self) -> Box<dyn AgentRunner + Send + Sync> {
-        Box::new(Unstructured { id: self.id.clone() })
+        // No schema mode over ACP: the schema goes into the prompt and the
+        // answer is read leniently (ask.rs).
+        Box::new(crate::ask::AcpRunner {
+            id: self.id.clone(),
+            cmd: self.cmd.clone(),
+            args: self.args.clone(),
+            env: self.env.clone(),
+            work_dir: self.work_dir.clone(),
+        })
     }
 }
 
 /// The same health codes the claude plugin uses, so the windows render
 /// a missing agent the same way whatever speaks it.
-fn spawn_error(cmd: &str, err: &std::io::Error) -> String {
+pub(crate) fn spawn_error(cmd: &str, err: &std::io::Error) -> String {
     match err.kind() {
         std::io::ErrorKind::NotFound => format!("agent_missing: {cmd} ({err})"),
         std::io::ErrorKind::PermissionDenied => format!("agent_blocked: {cmd} ({err})"),
         _ => format!("agent_failed: {cmd} ({err})"),
-    }
-}
-
-/// ACP has no schema-constrained one-shot. Until the lenient-extraction
-/// lane lands (F9.5), the ask says so instead of pretending.
-struct Unstructured {
-    id: String,
-}
-
-impl AgentRunner for Unstructured {
-    fn ask(
-        &self,
-        _request: &hark_core::ports::TurnRequest,
-        _on_event: &mut dyn FnMut(&hark_agent::AgentEvent),
-    ) -> anyhow::Result<hark_agent::TurnResult> {
-        anyhow::bail!("agent_failed: {} não responde perguntas estruturadas (ask/gate) ainda", self.id)
     }
 }
 
@@ -149,7 +147,7 @@ mod tests {
 
     #[test]
     fn a_missing_binary_is_reported_as_missing_with_its_name() {
-        let backend = AcpBackend::new("ghost", "hark-no-such-agent-xyz", vec![], vec![], None, None);
+        let backend = AcpBackend::new("ghost", "hark-no-such-agent-xyz", vec![], vec![], None, None, std::env::temp_dir());
         let Err(err) = backend.spawn(&spec()) else { panic!("cannot spawn") };
         let err = err.to_string();
         assert!(err.starts_with("agent_missing: hark-no-such-agent-xyz"), "{err}");
@@ -157,7 +155,7 @@ mod tests {
 
     #[test]
     fn before_any_handshake_the_sheet_is_the_pessimistic_default() {
-        let backend = AcpBackend::new("x", "x", vec![], vec![], Some("X.md".into()), None);
+        let backend = AcpBackend::new("x", "x", vec![], vec![], Some("X.md".into()), None, std::env::temp_dir());
         let caps = backend.capabilities();
         assert!(caps.permissions);
         assert!(!caps.history && !caps.resume && !caps.fork);
@@ -186,6 +184,7 @@ mod tests {
             vec![],
             Some("GEMINI.md".into()),
             Some("gemini".into()),
+            std::env::temp_dir(),
         );
         match backend.spawn(&spec()) {
             Err(err) => {
