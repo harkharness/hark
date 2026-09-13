@@ -534,6 +534,31 @@ name = "Codex"
     }
 
     #[test]
+    fn the_catalog_switch_turns_a_built_in_on_and_off_by_dotted_key() {
+        // Settings › Plugins writes exactly this patch. claude-acp ships
+        // off and its id carries a hyphen, which the dotted path and the
+        // merge with the built-in must both survive — otherwise the one
+        // card the switch was built for is the one it cannot turn on.
+        let on = patch_toml("", &serde_json::json!({ "agents.claude-acp.enabled": true }))
+            .expect("patch on");
+        let config: Config = toml::from_str(&on).expect("parses");
+        let merged = crate::domain::agents::merge(&config.agents);
+        let acp = crate::domain::agents::resolve(&merged, "claude-acp").expect("claude-acp");
+        assert!(acp.enabled, "the switch turned it on:\n{on}");
+        assert_eq!(acp.cmd, "claude-code-acp", "the built-in's other fields survive");
+
+        let off = patch_toml(&on, &serde_json::json!({ "agents.claude-acp.enabled": false }))
+            .expect("patch off");
+        let config: Config = toml::from_str(&off).expect("parses");
+        let merged = crate::domain::agents::merge(&config.agents);
+        let acp = crate::domain::agents::resolve(&merged, "claude-acp").expect("claude-acp");
+        assert!(!acp.enabled, "the switch turned it off:\n{off}");
+        // The agent nobody touched keeps its own default.
+        let claude = crate::domain::agents::resolve(&merged, "claude").expect("claude");
+        assert!(claude.enabled);
+    }
+
+    #[test]
     fn a_config_with_no_agents_table_still_knows_every_builtin() {
         let config: Config = toml::from_str("model = \"sonnet\"\n").expect("parses");
         assert!(config.agents.is_empty());
