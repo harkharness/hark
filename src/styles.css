@@ -2193,6 +2193,10 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    the SIDEBAR sits under the traffic lights, so only it pays the offset. */
 .app { position: relative; padding-top: 0; }
 .sidebar { padding-top: 34px; }
+/* Sidebar collapsed, the chat column reaches the window edge — and its
+   title bar runs straight into the traffic lights and the toggle that
+   closed it. The title steps aside for the chrome that is already there. */
+.app.side-closed .chat-title-head { padding-left: 112px; }
 .inputbar-row .scope {
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--dim); border: none; border-radius: 7px; padding: 5px 7px;

@@ -2371,7 +2371,7 @@ export default function App({
   );
 
   return (
-    <div className="app">
+    <div className={`app ${sidebarOpen ? "" : "side-closed"}`}>
       {/* The title bar is an Overlay: this strip drags the window, and the
           sidebar toggle sits in it beside the traffic lights. */}
       <div className="titlebar-drag" data-tauri-drag-region />
