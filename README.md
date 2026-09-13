@@ -52,6 +52,14 @@ secret — a PAT with write access to that public repo.
 
 ## What it does
 
+- **One cockpit, many agents.** Claude Code is the native backend; anything
+  that speaks the Agent Client Protocol — Gemini CLI, Codex, the DeepSeek
+  harness, AWS Kiro — is one registry line away, with the same transcript,
+  permission cards, board and ledger. Pick the agent in Settings › Plugins;
+  a session always stays with the agent that opened it. Claude Code also
+  runs through a company gateway (LiteLLM: `ANTHROPIC_BASE_URL` in the
+  entry's `env`) with the whole native experience intact. See
+  `docs/PLUGINS.md`.
 - **One global voice surface.** A hotkey opens a floating HUD anywhere: speak,
   see the transcription and the resolved *destination* before anything runs,
   confirm by staying silent (when the target is the focused chat) or by voice
