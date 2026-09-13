@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { keepIfSame } from "./lib/settle";
 import {
   Panel,
   PanelGroup,
@@ -421,11 +422,14 @@ export default function App({
       ipc
         .sessionOwners()
         .then((list) => {
-          if (alive) setOwners(list);
+          // Same answer → same reference → no render (lib/settle.ts).
+          if (alive) setOwners(keepIfSame(list));
         })
         .catch(() => {});
     tick();
-    const id = setInterval(tick, 2500);
+    // One period of the Rust side's cache (session_owners): every window
+    // asking within it shares ONE `claude agents` spawn.
+    const id = setInterval(tick, 3000);
     return () => {
       alive = false;
       clearInterval(id);
@@ -1434,7 +1438,10 @@ export default function App({
   const [truth, setTruth] = useState<import("./types").StatusLine | null>(null);
   useEffect(() => {
     const read = () => {
-      ipc.subscriptionLimits().then(setTruth).catch(() => {});
+      ipc
+        .subscriptionLimits()
+        .then((v) => setTruth(keepIfSame(v)))
+        .catch(() => {});
     };
     read();
     const id = window.setInterval(read, 15_000);
@@ -2284,10 +2291,17 @@ export default function App({
     say(st("sp_resuming", { t: task.title }));
   }
 
-  const visibleMessages = messages.filter((m) => {
-    const thread = "task" in m ? (m.task ?? null) : null;
-    return thread === (focusedTask?.title ?? null);
-  });
+  // Memoised: a fresh filter() every render is O(n) for nothing and hands
+  // the transcript a new array, re-running its scroll effect each time.
+  const focusedTitle = focusedTask?.title ?? null;
+  const visibleMessages = useMemo(
+    () =>
+      messages.filter((m) => {
+        const thread = "task" in m ? (m.task ?? null) : null;
+        return thread === focusedTitle;
+      }),
+    [messages, focusedTitle],
+  );
 
   // Typed windows, shared by the tiled layout and the expanded mode.
   /** Drag-to-reorder wiring for a rail panel's header. */

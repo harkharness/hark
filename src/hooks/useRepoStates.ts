@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import * as ipc from "../lib/ipc";
+import { keepIfSame } from "../lib/settle";
 import type { RepoState } from "../types";
 
 /** How often the working tree is re-read. Git is cheap and cached in
@@ -27,7 +28,8 @@ export function useRepoStates(paths: string[]): Record<string, RepoState> {
     const read = () =>
       ipc
         .repoStates(key.split("|"))
-        .then((next) => alive && setStates(next))
+        // An unchanged tree keeps the old reference: no render (settle.ts).
+        .then((next) => alive && setStates(keepIfSame(next)))
         // A missing git, an unreadable repo: the chips just stay away.
         .catch(() => {});
     read();

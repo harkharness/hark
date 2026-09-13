@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -51,7 +52,7 @@ function textOf(node: ReactNode): string {
  * blocks grow action buttons: run in the terminal, insert without
  * running, copy — the Claude Code flow.
  */
-export default function Markdown({
+function Markdown({
   children,
   onRun,
   onOpenPath,
@@ -166,3 +167,11 @@ export default function Markdown({
     </div>
   );
 }
+
+/**
+ * Memoised on the text and the two callbacks. A render here is a full
+ * parse plus a syntax highlight, and a thread re-rendering for any reason
+ * used to pay it once per message — the transcript hands down stable
+ * callbacks precisely so this comparison can succeed.
+ */
+export default memo(Markdown);

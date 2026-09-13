@@ -1,4 +1,13 @@
-import { useEffect, useId, useReducer, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Check, ChevronDown, Copy, Lock, RefreshCw, Square, Volume2, X } from "lucide-react";
@@ -76,6 +85,25 @@ function useSpeaking(id: string) {
   };
 }
 
+/**
+ * One function identity for the life of the component, always calling the
+ * LATEST version handed in. The identity changes only when the callback
+ * appears or disappears — "has a run button" is a real difference, and
+ * Markdown decides it by `onRun` being there at all.
+ */
+function useLatest<F extends ((...args: never[]) => unknown) | undefined>(fn: F): F {
+  const ref = useRef(fn);
+  useLayoutEffect(() => {
+    ref.current = fn;
+  });
+  const stable = useCallback(
+    (...args: unknown[]) =>
+      (ref.current as ((...a: unknown[]) => unknown) | undefined)?.(...args),
+    [],
+  );
+  return (fn ? stable : undefined) as F;
+}
+
 /** Deliverable-style tools stay visible on their own — never grouped. */
 const STANDALONE_TOOLS = new Set(["SendUserFile", "ExitPlanMode"]);
 
@@ -125,11 +153,14 @@ function TimeAgo({ ts }: { ts: number }) {
  */
 function MsgActions({
   copyText,
-  speakText,
+  speakSource,
   ts,
 }: {
   copyText: string;
-  speakText?: string;
+  /** Raw markdown; turned into speech text on the click, not on every
+   *  render — eight regex passes over a long reply, per row, per render,
+   *  was part of what made a thread crawl. */
+  speakSource?: string;
   ts?: number;
 }) {
   const [copied, setCopied] = useState(false);
@@ -148,7 +179,7 @@ function MsgActions({
     // Kill any other message still talking before starting this one.
     await ipc.speakStop().catch(() => {});
     claim();
-    ipc.speak(speakText ?? "").catch(() => release());
+    ipc.speak(speakable(speakSource ?? "")).catch(() => release());
   }
 
   return (
@@ -163,7 +194,7 @@ function MsgActions({
       >
         {copied ? <Check size={13} /> : <Copy size={13} />}
       </button>
-      {speakText && (
+      {speakSource && (
         <button
           className={speaking ? "speaking" : ""}
           title={speaking ? t("msg_stop") : t("msg_listen")}
@@ -177,62 +208,38 @@ function MsgActions({
   );
 }
 
+/** What one row of the thread needs — and nothing that changes when the
+ *  thread does not. `m` is compared by identity: `push` appends, and
+ *  every `setMessages(old.map(...))` keeps untouched messages `===`. */
+type RowProps = {
+  m: Msg;
+  /** The task's CURRENT directives, for the cost line under a reply. */
+  directives?: Directives;
+  onAnswerPermission: (requestId: string, allow: boolean, always?: boolean) => void;
+  onOpenPath: (path: string) => void;
+  onRunCommand?: (cmd: string, execute: boolean) => void;
+  onQueuedNow?: (msgId: string, taskLabel?: string) => void;
+  onQueuedDrop?: (msgId: string, taskLabel?: string) => void;
+};
+
 /**
- * The visible thread: one task at a time (or the general hark conversation).
- * Pure rendering; all state lives in App.
+ * One message. Memoised, because the thread re-renders far more often
+ * than any message changes — a poll settling, a reply landing, a turn
+ * reporting — and each render of a reply is a markdown parse plus a
+ * syntax highlight. With 200 rows on screen that was seconds per render,
+ * every few seconds, on an idle window (measured 13/09; docs/FRONTEND.md).
  */
-export default function Transcript({
-  messages,
-  directivesFor,
+const Row = memo(function Row({
+  m,
+  directives,
   onAnswerPermission,
   onOpenPath,
   onRunCommand,
-  onLoadOlder,
   onQueuedNow,
   onQueuedDrop,
-}: {
-  messages: Msg[];
-  directivesFor: (taskLabel?: string) => Directives | undefined;
-  onAnswerPermission: (requestId: string, allow: boolean, always?: boolean) => void;
-  onOpenPath: (path: string) => void;
-  /** ▶ on shell blocks: send the command to the in-app terminal. */
-  onRunCommand?: (cmd: string, execute: boolean) => void;
-  /** Reach further back in this thread's log. Absent at the beginning of
-   *  the history, or with no thread focused. */
-  onLoadOlder?: () => void;
-  /** A waiting message jumps the queue: the running turn is cut and this
-   *  one runs next. */
-  onQueuedNow?: (msgId: string, taskLabel?: string) => void;
-  /** ...or never runs at all. */
-  onQueuedDrop?: (msgId: string, taskLabel?: string) => void;
-}) {
-  const endRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const lastRef = useRef<Msg | null>(null);
-  // Starts true: a thread that has just opened is AT its end, and the
-  // first append is what puts it there on screen.
-  const atBottomRef = useRef(true);
-  const [atBottom, setAtBottom] = useState(true);
-
-  const toEnd = (behavior: ScrollBehavior = "smooth") =>
-    endRef.current?.scrollIntoView({ behavior });
-
-  // Follow the conversation only when something was ADDED to the end.
-  // Loading older history prepends, and jumping to the bottom right after
-  // would throw away exactly what the click asked to see.
-  useEffect(() => {
-    const last = messages.at(-1) ?? null;
-    if (last === lastRef.current) return;
-    lastRef.current = last;
-    // Reading back through a long thread is work: an arriving reply must
-    // not yank the page out from under it. Your OWN message is different
-    // — you just sent it, you want to watch it land.
-    if (!atBottomRef.current && last?.who !== "user") return;
-    toEnd();
-  }, [messages]);
-
-  const renderOne = (m: Msg, i: number): ReactNode => (
-    <div key={i} className={`msg ${m.who}`}>
+}: RowProps) {
+  return (
+    <div className={`msg ${m.who}`}>
       {m.who === "sys" ? (
         <span>{m.text}</span>
       ) : m.who === "usage" ? (
@@ -363,7 +370,7 @@ export default function Transcript({
                 >
                   {[
                     shortModel(m.model),
-                    ...directiveLabels(directivesFor(m.task)),
+                    ...directiveLabels(directives),
                     `$${(m.cost ?? 0).toFixed(4)}`,
                   ].join(" · ")}
                 </span>
@@ -372,9 +379,9 @@ export default function Transcript({
                 copyText={[m.text, m.detalhes, ...(m.itens ?? [])]
                   .filter(Boolean)
                   .join("\n\n")}
-                speakText={speakable(
-                  [m.text, m.detalhes, ...(m.itens ?? [])].filter(Boolean).join(". "),
-                )}
+                speakSource={[m.text, m.detalhes, ...(m.itens ?? [])]
+                  .filter(Boolean)
+                  .join(". ")}
                 ts={m.ts}
               />
             </>
@@ -413,6 +420,101 @@ export default function Transcript({
       )}
     </div>
   );
+});
+
+/** A tool call with its fused output. The output arrives as primitives
+ *  (not the `{content, error}` object the caller rebuilds every render)
+ *  so the memo can compare by value. */
+const ToolRow = memo(function ToolRow({
+  m,
+  decision,
+  resultContent,
+  resultError,
+  onOpenPath,
+}: {
+  m: Extract<Msg, { who: "tool" }>;
+  decision?: "allow" | "deny";
+  resultContent?: string;
+  resultError?: boolean;
+  onOpenPath: (path: string) => void;
+}) {
+  return (
+    <div className={`msg ${m.who}`}>
+      <ToolCall
+        name={m.name}
+        input={m.input}
+        onOpenPath={onOpenPath}
+        result={
+          resultContent != null ? { content: resultContent, error: !!resultError } : undefined
+        }
+        decision={decision}
+      />
+    </div>
+  );
+});
+
+/**
+ * The visible thread: one task at a time (or the general hark conversation).
+ * Pure rendering; all state lives in App.
+ */
+export default function Transcript({
+  messages,
+  directivesFor,
+  onAnswerPermission,
+  onOpenPath,
+  onRunCommand,
+  onLoadOlder,
+  onQueuedNow,
+  onQueuedDrop,
+}: {
+  messages: Msg[];
+  directivesFor: (taskLabel?: string) => Directives | undefined;
+  onAnswerPermission: (requestId: string, allow: boolean, always?: boolean) => void;
+  onOpenPath: (path: string) => void;
+  /** ▶ on shell blocks: send the command to the in-app terminal. */
+  onRunCommand?: (cmd: string, execute: boolean) => void;
+  /** Reach further back in this thread's log. Absent at the beginning of
+   *  the history, or with no thread focused. */
+  onLoadOlder?: () => void;
+  /** A waiting message jumps the queue: the running turn is cut and this
+   *  one runs next. */
+  onQueuedNow?: (msgId: string, taskLabel?: string) => void;
+  /** ...or never runs at all. */
+  onQueuedDrop?: (msgId: string, taskLabel?: string) => void;
+}) {
+  const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastRef = useRef<Msg | null>(null);
+  // Starts true: a thread that has just opened is AT its end, and the
+  // first append is what puts it there on screen.
+  const atBottomRef = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
+
+  const toEnd = (behavior: ScrollBehavior = "smooth") =>
+    endRef.current?.scrollIntoView({ behavior });
+
+  // Follow the conversation only when something was ADDED to the end.
+  // Loading older history prepends, and jumping to the bottom right after
+  // would throw away exactly what the click asked to see.
+  useEffect(() => {
+    const last = messages.at(-1) ?? null;
+    if (last === lastRef.current) return;
+    lastRef.current = last;
+    // Reading back through a long thread is work: an arriving reply must
+    // not yank the page out from under it. Your OWN message is different
+    // — you just sent it, you want to watch it land.
+    if (!atBottomRef.current && last?.who !== "user") return;
+    toEnd();
+  }, [messages]);
+
+  // App hands these down as inline lambdas and plain function declarations
+  // — a new identity every render, which would re-render every memoised
+  // row for nothing. Pinned here, once, for the whole thread.
+  const answer = useLatest(onAnswerPermission);
+  const open = useLatest(onOpenPath);
+  const runCmd = useLatest(onRunCommand);
+  const queueNow = useLatest(onQueuedNow);
+  const queueDrop = useLatest(onQueuedDrop);
 
   // A tool and its output are ONE unit: the output fuses into the tool's
   // fold (✓/✗ on the line, "resultado · N linhas" inside). Orphan outputs
@@ -476,17 +578,26 @@ export default function Transcript({
 
   const renderUnit = ({ m, i, result, decision }: Unit): ReactNode =>
     m.who === "tool" ? (
-      <div key={i} className={`msg ${m.who}`}>
-        <ToolCall
-          name={m.name}
-          input={m.input}
-          onOpenPath={onOpenPath}
-          result={result}
-          decision={decision}
-        />
-      </div>
+      <ToolRow
+        key={i}
+        m={m}
+        decision={decision}
+        resultContent={result?.content}
+        resultError={result?.error}
+        onOpenPath={open}
+      />
     ) : (
-      renderOne(m, i)
+      <Row
+        key={i}
+        m={m}
+        // Only a reply shows directives; every other row keeps its props still.
+        directives={m.who === "hark" ? directivesFor(m.task) : undefined}
+        onAnswerPermission={answer}
+        onOpenPath={open}
+        onRunCommand={runCmd}
+        onQueuedNow={queueNow}
+        onQueuedDrop={queueDrop}
+      />
     );
 
   // Consecutive tool units collapse into ONE bordered group — "executado

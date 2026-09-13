@@ -2700,7 +2700,12 @@ fn session_owners(
     type OwnersCache =
         std::sync::Mutex<Option<(std::time::Instant, Vec<hark_core::domain::owner::Owner>)>>;
     static CACHE: std::sync::OnceLock<OwnersCache> = std::sync::OnceLock::new();
-    const TTL: std::time::Duration = std::time::Duration::from_millis(1200);
+    // One period of the front's poll (App.tsx, 3s): every window asking
+    // within it gets the same listing, so a takeover on screen costs ONE
+    // `claude agents` spawn per period, not one per window per tick. At
+    // 1.2s against a 2.5s poll every single tick missed and spawned —
+    // 0.4s of wall clock each, forever, on an idle app.
+    const TTL: std::time::Duration = std::time::Duration::from_millis(3000);
 
     // Sessions Hark is driving itself are not takeovers.
     let ours: Vec<String> = live

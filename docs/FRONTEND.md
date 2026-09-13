@@ -60,3 +60,30 @@ that made several of them look like design decisions when they were not.
 2. Add a typed wrapper in `src/lib/ipc.ts`.
 3. Add/extend payload types in `src/types.ts` (keep field names snake_case
    as serialized by serde).
+
+## Rendering cost: polls and the transcript
+
+Measured 13/09 with the app idle and unfocused: WebContent CPU jumping
+`0.0 → 14.7 → 0.1 → 13.6` in a 2.5s cycle, and a long thread freezing for
+seconds on hover. Two causes, both structural:
+
+1. **A poll that says nothing new must not wake React.** `setOwners(list)`
+   with a fresh array from IPC is a state change every tick, and App is
+   the root of the window — the whole tree re-rendered every 2.5s. Every
+   poll sets state through `keepIfSame` (`lib/settle.ts`), which returns
+   the OLD reference when the payload is structurally equal, so React
+   bails out. A new poll follows the same rule, no exceptions.
+2. **The transcript re-renders rows, not the thread.** Each row is a
+   `memo` component keyed on the message's identity (`push` appends;
+   `setMessages(old.map(...))` keeps untouched messages `===`), and
+   `Markdown` is `memo` too — a parse plus a highlight per message per
+   render was the cost. App hands the transcript inline lambdas and plain
+   function declarations (a new identity per render), so Transcript wraps
+   them in `useLatest` before they reach a row. `Transcript.test.tsx`
+   pins both: a parent re-render with the same thread runs zero markdown;
+   appending a reply renders exactly one.
+
+The Rust side of the same bug: `session_owners` cached the `claude agents
+--json` listing for 1.2s against a 2.5s poll, so every tick missed and
+spawned a process (0.4s of wall clock each). The TTL now equals one poll
+period, and the poll is 3s.
