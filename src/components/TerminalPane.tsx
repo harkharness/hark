@@ -10,19 +10,12 @@ export function TerminalTabs({
   onActivate,
   onAddShell,
   onCloseShell,
-  onResumeSession,
-  resumeSpent,
 }: {
   shells: string[];
   active: string;
   onActivate: (id: string) => void;
   onAddShell: () => void;
   onCloseShell: (id: string) => void;
-  /** Paste the focused chat's resume command into the shell. Absent when
-   *  no chat is focused — there would be no session to name. */
-  onResumeSession?: () => void;
-  /** The session is already running here: the button has nothing to do. */
-  resumeSpent?: boolean;
 }) {
   return (
     <>
@@ -57,17 +50,36 @@ export function TerminalTabs({
           <Plus size={12} />
         </button>
       </span>
-      {onResumeSession && (
-        <button
-          className={`term-resume ${resumeSpent ? "spent" : ""}`}
-          title={`${t("term_resume")} — ${t("term_resume_hint")}`}
-          disabled={resumeSpent}
-          onClick={onResumeSession}
-        >
-          <SquareChevronRight size={13} />
-        </button>
-      )}
     </>
+  );
+}
+
+/**
+ * Paste the focused chat's resume command into the shell.
+ *
+ * It belongs to the frame's ACTION cluster, not to the tab strip: inside
+ * `tabs` it sat on the left beside "+", where it read as another tab and
+ * where the rule that keeps a panel action clear of the window controls
+ * never reached it. Absent when no chat is focused — there would be no
+ * session to name.
+ */
+export function TerminalResume({
+  onResumeSession,
+  spent,
+}: {
+  onResumeSession: () => void;
+  /** The session is already running here: the button has nothing to do. */
+  spent?: boolean;
+}) {
+  return (
+    <button
+      className={`term-resume ${spent ? "spent" : ""}`}
+      title={`${t("term_resume")} — ${t("term_resume_hint")}`}
+      disabled={spent}
+      onClick={onResumeSession}
+    >
+      <SquareChevronRight size={13} />
+    </button>
   );
 }
 

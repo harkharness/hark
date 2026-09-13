@@ -23,7 +23,7 @@ import ChatPalette from "./components/ChatPalette";
 import Reader from "./components/Reader";
 import SessionInfo from "./components/SessionInfo";
 import Sidebar from "./components/Sidebar";
-import TerminalPane, { TerminalTabs } from "./components/TerminalPane";
+import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
 import WorkerChips from "./components/WorkerChips";
@@ -2261,9 +2261,12 @@ export default function App({
           onActivate={setTermTab}
           onAddShell={addShell}
           onCloseShell={closeShell}
-          onResumeSession={focusedTask?.sessionId ? pasteResume : undefined}
-          resumeSpent={!!heldBy}
         />
+      }
+      actions={
+        focusedTask?.sessionId ? (
+          <TerminalResume onResumeSession={pasteResume} spent={!!heldBy} />
+        ) : undefined
       }
       expanded={expanded === "terminal"}
       collapsed={slot?.collapsed ?? false}
