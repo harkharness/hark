@@ -86,8 +86,17 @@ body {
 .workarea { flex: 1; min-height: 0; }
 .pane { min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
 .maincol { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-/* Invisible until you need it: panels separate by space, not by rails. */
-.rhandle { width: 6px; background: transparent; cursor: col-resize; flex-shrink: 0; }
+/* Invisible until you need it: panels separate by space, not by rails.
+   Same bargain as the rail's horizontal handle — the line costs 2px and
+   the GRAB AREA reaches past it on both sides, so the divider is a
+   hairline you can still catch over 14px. */
+.rhandle {
+  width: 2px; background: transparent; cursor: col-resize; flex-shrink: 0;
+  position: relative;
+}
+.rhandle::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -6px; right: -6px;
+}
 .rhandle:hover, .rhandle[data-resize-handle-active] { background: rgba(122,162,247,.35); }
 
 
@@ -1168,10 +1177,14 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0;
   flex: 0 0 42%; max-width: 42%;
 }
-/* Drag the tools column like a project rail: a slim grab strip. */
+/* Drag the tools column like a project rail: the same hairline with a
+   grab area wider than itself. */
 .split-resizer {
-  flex: 0 0 5px; cursor: col-resize; border-radius: 3px; margin: 12px 0;
-  background: transparent;
+  flex: 0 0 2px; cursor: col-resize; border-radius: 2px; margin: 12px 0;
+  background: transparent; position: relative;
+}
+.split-resizer::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -6px; right: -6px;
 }
 .split-resizer:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 
@@ -2161,8 +2174,21 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .rail-slot { display: flex; min-height: 0; flex: 1 1 0; }
 /* Drag between two expanded rail panels to trade height. */
+/* The gap between two stacked panels was paid twice: each frame's own
+   8px margin (16px between them) PLUS this handle's height and margins,
+   for 23px of nothing in a rail that is mostly content.
+   The panels nearly touch now and the handle stops occupying the gap —
+   it is a 2px line whose GRAB AREA reaches past it without taking any
+   height, so the divider costs 6px and still catches the pointer over
+   14px. A resize edge has to be easy to hit; it does not have to be
+   visible furniture. */
+.rail-slot .frame { margin: 2px 8px; }
 .rail-vhandle {
-  flex: 0 0 5px; cursor: row-resize; border-radius: 3px; margin: 1px 6px;
+  flex: 0 0 2px; cursor: row-resize; border-radius: 2px; margin: 0 8px;
+  position: relative;
+}
+.rail-vhandle::after {
+  content: ""; position: absolute; left: 0; right: 0; top: -6px; bottom: -6px;
 }
 .rail-vhandle:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .rail-slot.collapsed { flex: 0 0 auto; }
