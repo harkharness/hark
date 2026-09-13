@@ -123,17 +123,27 @@ ends at 8px.
 
 ## The window gutter is 6px, and it is the only one
 
-`.app` holds a `0 6px 6px` padding: every panel floats 6px off the
-window frame on the left, the right and the bottom. The top is 0 on
-purpose — that strip is the title bar and the OS paints the traffic
-lights in it at a fixed spot, so anything pushed down there stops
-lining up with them.
+`.app` holds a `6px` padding: every panel floats 6px off the window
+frame on all four sides.
+
+The top side has a constraint the others do not. macOS paints the
+traffic lights near the top of the window at a fixed spot we cannot
+move, and the chat's title bar shares that strip with them. So the
+strip's CENTRE LINE is fixed at 17px from the window's top, and the
+gutter is paid by making the bar shorter rather than by pushing it
+down: 22px tall (the app's small-control height) starting at 6, instead
+of 34 starting at 0. Every control in that bar is 22px for the same
+reason, and `.side-toggle-float` repeats the geometry exactly. Change
+the gutter and all three numbers move together — or the title drifts
+off the traffic lights.
 
 The gutter is the ONLY gap between the frame and the outermost painted
 surface, so nothing may add a second one on top of it:
 
-- the rail's frames carry `margin: 2px 0 2px 4px` — the 4px separates
-  them from the chat column, the right side is the gutter's job;
+- the rail's frames carry `margin: 0 0 4px 4px` — the 4px on the left
+  separates them from the chat column, the 4px below is the gap to the
+  next frame (paid once, by the frame above), and top/right/bottom of
+  the rail belong to the gutter;
 - `.inputbar` has no bottom padding, so the composer card's gap to the
   frame is the same 6px the sidebar has.
 

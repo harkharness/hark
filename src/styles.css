@@ -1540,11 +1540,11 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .chat-title-head {
   position: relative; z-index: 8;
   flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
-  min-height: 34px; box-sizing: border-box;
+  min-height: 22px; box-sizing: border-box;
   /* Chrome, not prose: the transcript's clamp() is a READING column and
      the title has no reason to obey it. Same 12/8 rhythm as the panel
      headers, so every bar in the app starts at the same place. */
-  padding: 5px 8px 5px 12px; min-width: 0;
+  padding: 0 8px 0 12px; min-width: 0;
   /* Same ground as the thread — no bar, no rule, nothing drawn. What
      separates them is BELOW, in ::after: the thread dissolves into the
      page as it scrolls up instead of being cut off by an edge. A lifted
@@ -1592,7 +1592,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 /* Window toggles that belong to the thread, not to the message. */
 .chat-head-btn {
   flex: 0 0 auto; background: none; border: none; border-radius: 7px;
-  width: 26px; height: 24px; color: var(--dim); cursor: pointer;
+  width: 26px; height: 22px; color: var(--dim); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
 }
 .chat-head-btn:hover { color: var(--text); background: rgba(255,255,255,.06); }
@@ -2241,7 +2241,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    height, so the divider costs 6px and still catches the pointer over
    14px. A resize edge has to be easy to hit; it does not have to be
    visible furniture. */
-.rail-slot .frame { margin: 2px 0 2px 4px; }
+.rail-slot .frame { margin: 0 0 4px 4px; }
 .rail-vhandle {
   flex: 0 0 2px; cursor: row-resize; border-radius: 2px; margin: 0 8px;
   position: relative;
@@ -2250,6 +2250,11 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   content: ""; position: absolute; left: 0; right: 0; top: -6px; bottom: -6px;
 }
 .rail-vhandle:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+/* The gap between stacked panels is paid ONCE, below each of them, so
+   the first frame starts on the window gutter and the last ends on it.
+   Splitting it 2px above + 2px below put 2px of nothing against the
+   frame. Same 4px (and 6px across a resize handle) as before. */
+.rail-slot:last-child .frame { margin-bottom: 0; }
 .rail-slot.collapsed { flex: 0 0 auto; }
 .rail-slot .frame { flex: 1; min-height: 0; }
 .rail-slot.collapsed .frame { min-height: 0; }
@@ -2273,9 +2278,9 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    top of the rail it belonged to nothing; here it reads as window
    chrome, which is what it is. */
 .side-toggle-float {
-  position: fixed; top: 4px; left: 78px; z-index: 9;
+  position: fixed; top: 6px; left: 78px; z-index: 9;
   display: flex; align-items: center; justify-content: center;
-  width: 26px; height: 24px; border-radius: 7px; cursor: pointer;
+  width: 26px; height: 22px; border-radius: 7px; cursor: pointer;
   background: transparent; color: var(--dim); border: none;
 }
 .side-toggle-float:hover { color: var(--text); background: rgba(255,255,255,.06); }
@@ -2288,8 +2293,14 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    layout starts at the very top and the chat's own title bar occupies it
    — the way a document window puts its document's name up there. Only
    the SIDEBAR sits under the traffic lights, so only it pays the offset. */
-.app { position: relative; padding: 0 6px 6px; }
-.sidebar { padding-top: 34px; }
+.app { position: relative; padding: 6px; }
+/* The traffic lights are drawn by macOS at a FIXED spot near the top of
+   the window and cannot move. So the strip they sit in has to hold still
+   too: with the 6px gutter above it, the title bar keeps the same centre
+   line it always had (17px from the window's top) by being 22px tall
+   instead of 34 — the same small-control height the panel headers use.
+   The sidebar's first row lands at the bar's baseline, 28px. */
+.sidebar { padding-top: 22px; }
 /* Sidebar collapsed, the chat column reaches the window edge — and its
    title bar runs straight into the traffic lights and the toggle that
    closed it. The title steps aside for the chrome that is already there. */
