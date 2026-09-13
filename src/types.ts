@@ -76,6 +76,10 @@ export type HarkEvent =
       reply?: { fala: string; detalhes?: string; itens?: string[]; cost_usd?: number; model?: string };
       work: boolean;
     }
+  /** A message the outbox was holding just went out as its own turn. */
+  | { kind: "queued_sent"; task_id: string; id: string }
+  /** ...or never will: the thread died holding it, or delivery failed. */
+  | { kind: "queued_failed"; task_id: string; id: string; why?: string }
   | { kind: "status"; text: string }
   | { kind: "error"; text: string };
 
@@ -92,7 +96,20 @@ export type PermissionAsk = {
 };
 
 export type Msg =
-  | { who: "user"; text: string; images?: string[]; task?: string; ts?: number }
+  | {
+      who: "user";
+      text: string;
+      images?: string[];
+      task?: string;
+      ts?: number;
+      /** Shared with the backend's outbox, so a bubble on screen and a
+       *  message waiting in the queue are the same thing. */
+      msgId?: string;
+      /** Typed while the agent was still working, so it has not run yet:
+       *  "waiting" can be pushed ahead of the running turn or taken back,
+       *  "failed" is a message the thread died holding. */
+      queued?: { state: "waiting" | "failed"; why?: string };
+    }
   | { who: "usage"; report: UsageReport; task?: string; ts?: number }
   | {
       who: "hark";

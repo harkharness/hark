@@ -895,6 +895,39 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   background: var(--panel-2); border: none; border-radius: 14px;
   padding: 9px 14px; color: var(--text-strong);
 }
+/* Typed behind a running turn, so it has NOT run yet. Drawn as a message
+   that has not committed — hollow instead of filled — because the worst
+   version of this is a bubble that looks exactly like a sent one while
+   the agent has never seen it. */
+.msg.user .bubble.queued-waiting {
+  /* --border is a hairline for panels sitting on the page; on a dashed
+     outline over near-black it is invisible, which is the one thing this
+     bubble cannot be. It borrows the dim text colour instead. */
+  background: none; color: var(--dim);
+  border: 1px dashed color-mix(in srgb, var(--dim) 55%, transparent);
+}
+.msg.user .bubble.queued-failed {
+  background: none; border: 1px dashed var(--err); opacity: .8;
+}
+.queued-row {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 7px; font-size: 11px; color: var(--dim);
+}
+.queued-tag { margin-right: auto; }
+.queued-row.failed { color: var(--err); }
+/* Scoped to the row, not to `.bubble button`: a broad rule here would
+   also catch the hover bar's icons and the permission card's buttons. */
+.queued-row button {
+  font: inherit; font-size: 11px; cursor: pointer; flex: 0 0 auto;
+  border: none; border-radius: 7px; padding: 3px 9px;
+  background: var(--panel-2); color: var(--text);
+}
+.queued-row .queued-now:hover { color: var(--accent); }
+.queued-row .queued-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 3px; background: none; color: var(--dim);
+}
+.queued-row .queued-x:hover { color: var(--err); background: rgba(255, 255, 255, .06); }
 /* The hover bar hangs under its own message, so on the right it has to
    hang from the right edge. */
 .msg.user .msg-actions { left: auto; right: 0; }
@@ -1771,19 +1804,15 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .inputbar-row > button.send:hover { background: color-mix(in srgb, var(--accent) 88%, #fff); color: #0b0e12; }
 .inputbar-row > button.send:disabled { opacity: .45; cursor: default; }
-/* Both exist only while a turn runs. Stop is the round twin of the mic;
-   "interromper" is spelled out, because cutting the turn to run what you
-   just typed is not something an icon can promise. */
+/* Exists only while a turn runs: the round twin of the mic. It used to
+   have a spelled-out "interromper" beside it; that act moved onto the
+   waiting message itself (.queued-row), where there is something to read
+   before you decide. */
 .inputbar-row > button.stop {
   width: 32px; height: 32px; padding: 0; border-radius: 50%;
   background: var(--panel-2); color: var(--text); flex: 0 0 auto;
 }
 .inputbar-row > button.stop:hover { background: rgba(247,118,142,.14); color: var(--err); }
-.inputbar-row > button.interrupt {
-  padding: 5px 12px; border-radius: 999px; font-size: 12px;
-  background: var(--panel-2); color: var(--dim); flex: 0 0 auto; white-space: nowrap;
-}
-.inputbar-row > button.interrupt:hover { background: var(--panel-2); color: var(--text-strong); }
 .thumb { position: relative; }
 .thumb img { height: 34px; border-radius: 4px; border: 1px solid var(--border); }
 .thumb button {

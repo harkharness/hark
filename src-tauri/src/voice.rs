@@ -298,6 +298,7 @@ pub fn voice_execute(
                         task_id.clone(),
                         "/compact".into(),
                         None,
+                        None,
                     )?;
                 }
                 super::worker_send(
@@ -305,6 +306,7 @@ pub fn voice_execute(
                     app.state(),
                     task_id.clone(),
                     instruction.clone(),
+                    None,
                     None,
                 )?;
                 serde_json::json!({ "status": "sent", "task_id": task_id })
@@ -333,6 +335,7 @@ pub fn voice_execute(
                             app.state(),
                             task_id.to_string(),
                             instruction.clone(),
+                            None,
                             None,
                         )?;
                     }

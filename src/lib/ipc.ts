@@ -87,11 +87,32 @@ export const workerStart = (
     fork: fork ?? null,
   });
 
+/** `queued` names the message the worker parked because it was busy — the
+ *  same id the window pushed, so the bubble and the queue entry are one
+ *  thing. Absent means it went out immediately. */
+export type WorkerSendOut = { directives: Directives; queued: string | null };
+
 export const workerSend = (
   taskId: string,
   text: string,
   images: [string, string][] = [],
-) => invoke<Directives>("worker_send", { taskId, text, images: images.length > 0 ? images : null });
+  msgId?: string,
+) =>
+  invoke<WorkerSendOut>("worker_send", {
+    taskId,
+    text,
+    images: images.length > 0 ? images : null,
+    msgId: msgId ?? null,
+  });
+
+/** Push a waiting message ahead of the running turn: it jumps the queue
+ *  and the turn is cut so it can run now. */
+export const workerQueuedNow = (taskId: string, id: string) =>
+  invoke<void>("worker_queued_now", { taskId, id });
+
+/** Take a waiting message back before it ever runs. */
+export const workerQueuedDrop = (taskId: string, id: string) =>
+  invoke<void>("worker_queued_drop", { taskId, id });
 
 export const workerStop = (taskId: string) => invoke("worker_stop", { taskId });
 
@@ -152,10 +173,15 @@ export const interpretFollowup = (utterance: string, label: string) =>
 /** Send to the mother's persistent work chat (full settings + MCP);
  *  spawns/resumes the chat worker as needed. Events arrive with
  *  task_id "hark-chat". */
-export const harkChatSend = (text: string, images: [string, string][] = []) =>
-  invoke<{ task_id: string; resumed: boolean }>("hark_chat_send", {
+export const harkChatSend = (
+  text: string,
+  images: [string, string][] = [],
+  msgId?: string,
+) =>
+  invoke<{ task_id: string; resumed: boolean; queued: string | null }>("hark_chat_send", {
     text,
     images: images.length > 0 ? images : null,
+    msgId: msgId ?? null,
   });
 
 export const harkChatStatus = () =>

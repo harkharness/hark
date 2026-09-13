@@ -914,14 +914,14 @@ fn start_worker_titled(
     // Which eco tools this spawn runs with — every turn's ledger row
     // carries it, so the costs panel can compare real per-tool averages.
     let eco_outcome = eco_fingerprint(&spec.envs);
-    // The opening instruction IS a turn in flight (batching bookkeeping).
-    app.state::<BatchState>()
+    // The opening instruction IS a turn in flight.
+    app.state::<Outboxes>()
         .0
         .lock()
         .unwrap()
         .entry(task_id.to_string())
         .or_default()
-        .in_flight = true;
+        .start();
     std::thread::spawn(move || {
         let config = Config::load();
         for event in rx.iter() {
@@ -1132,31 +1132,28 @@ fn start_worker_titled(
                             "context_pct": context_pct,
                             "context_window": context_window }),
                     );
-                    // Batching: everything queued during this turn goes out
-                    // now as ONE message; empty queue clears the flag.
-                    let queued = {
-                        let state = app2.state::<BatchState>();
+                    // The turn ended, so the queue moves: the message at
+                    // the front becomes the next turn (or all of them as
+                    // one, under `batch_messages`), and an empty queue is
+                    // what puts the worker back to idle.
+                    let next = {
+                        let state = app2.state::<Outboxes>();
                         let mut map = state.0.lock().unwrap();
-                        match map.get_mut(&task2) {
-                            Some(entry) if !entry.queue.is_empty() => {
-                                Some(std::mem::take(&mut entry.queue).join("\n\n"))
-                            }
-                            Some(entry) => {
-                                entry.in_flight = false;
-                                None
-                            }
-                            None => None,
-                        }
+                        map.get_mut(&task2).and_then(|o| o.finish(config.batch_messages))
                     };
-                    if let Some(joined) = queued {
-                        let handle = app2.state::<LiveWorkers>().0.lock().unwrap().get(&task2).cloned();
-                        if let Some(h) = handle {
-                            let _ = h.session.send_text(&joined, &[]);
-                            emit_event(
+                    if let Some(msg) = next {
+                        let id = msg.id.clone();
+                        match deliver(&app2, &task2, msg) {
+                            Ok(_) => emit_event(
                                 &app2,
-                                serde_json::json!({ "kind": "status",
-                                    "text": "fila entregue como uma mensagem" }),
-                            );
+                                serde_json::json!({ "kind": "queued_sent",
+                                    "task_id": task2, "id": id }),
+                            ),
+                            Err(why) => emit_event(
+                                &app2,
+                                serde_json::json!({ "kind": "queued_failed",
+                                    "task_id": task2, "id": id, "why": why }),
+                            ),
                         }
                     }
                 }
@@ -1207,7 +1204,24 @@ fn start_worker_titled(
                     "reason": (!reason.is_empty()).then_some(reason.as_str()) }),
             );
             app2.state::<LiveWorkers>().0.lock().unwrap().remove(&task2);
-            app2.state::<BatchState>().0.lock().unwrap().remove(&task2);
+            // Whatever was still waiting will never be sent by this
+            // worker. The window has to say so on the messages themselves
+            // — text you typed does not get to disappear quietly.
+            let orphaned = app2
+                .state::<Outboxes>()
+                .0
+                .lock()
+                .unwrap()
+                .remove(&task2)
+                .map(|o| o.held().iter().map(|h| h.id.clone()).collect::<Vec<_>>())
+                .unwrap_or_default();
+            for id in orphaned {
+                emit_event(
+                    &app2,
+                    serde_json::json!({ "kind": "queued_failed", "task_id": task2,
+                        "id": id, "why": "a thread encerrou antes de enviar" }),
+                );
+            }
         }
     });
 
@@ -1353,7 +1367,8 @@ fn worker_send(
     task_id: String,
     text: String,
     images: Option<Vec<(String, String)>>,
-) -> Result<hark_core::domain::directives::Directives, String> {
+    msg_id: Option<String>,
+) -> Result<WorkerSendOut, String> {
     let handle = live
         .0
         .lock()
@@ -1362,27 +1377,60 @@ fn worker_send(
         .cloned()
         .ok_or("worker não está mais ativo")?;
 
-    // Batching (opt-in): a turn is running → queue, deliver as ONE message
-    // when it ends. Queued text skips directive parsing by design.
-    if Config::load().batch_messages {
-        let state = app.state::<BatchState>();
+    let msg = hark_core::domain::outbox::Held {
+        // The window names its own bubble: the id it pushed and the id in
+        // the outbox have to be the SAME string, or "send now" would be
+        // pointing at a message nobody can find.
+        id: msg_id.unwrap_or_else(next_held_id),
+        text,
+        images: images.unwrap_or_default(),
+    };
+    let held_id = msg.id.clone();
+    let offer = {
+        let state = app.state::<Outboxes>();
         let mut map = state.0.lock().unwrap();
-        let entry = map.entry(task_id.clone()).or_default();
-        if entry.in_flight {
-            entry.queue.push(text.clone());
-            let n = entry.queue.len();
-            drop(map);
-            emit_event(
-                &app,
-                serde_json::json!({ "kind": "status",
-                    "text": format!("turno em andamento — mensagem na fila ({n} pendente(s))") }),
-            );
-            return Ok(handle.spec.directives.clone());
-        }
-        entry.in_flight = true;
+        map.entry(task_id.clone()).or_default().offer(msg)
+    };
+    match offer {
+        hark_core::domain::outbox::Offer::Held => Ok(WorkerSendOut {
+            directives: handle.spec.directives.clone(),
+            queued: Some(held_id),
+        }),
+        hark_core::domain::outbox::Offer::SendNow(msg) => Ok(WorkerSendOut {
+            directives: deliver(&app, &task_id, msg)?,
+            queued: None,
+        }),
     }
+}
 
-    let asked = hark_core::domain::directives::parse(&text);
+/// What the window needs back from a send: the directives now in force,
+/// and — when the worker was busy — the name of the message it is holding,
+/// so the chat can show that bubble as waiting and act on it later.
+#[derive(serde::Serialize)]
+pub(crate) struct WorkerSendOut {
+    directives: hark_core::domain::directives::Directives,
+    queued: Option<String>,
+}
+
+/// The one way a message reaches a worker, whether it was sent just now or
+/// waited its turn in the outbox. Spoken directives are read HERE, at
+/// delivery: "modo bypass" typed behind a running turn has to take effect
+/// when it actually runs, not when it was typed.
+fn deliver(
+    app: &AppHandle,
+    task_id: &str,
+    msg: hark_core::domain::outbox::Held,
+) -> Result<hark_core::domain::directives::Directives, String> {
+    let live = app.state::<LiveWorkers>();
+    let handle = live
+        .0
+        .lock()
+        .unwrap()
+        .get(task_id)
+        .cloned()
+        .ok_or("worker não está mais ativo")?;
+
+    let asked = hark_core::domain::directives::parse(&msg.text);
     let mut next = handle.spec.directives.clone();
     if asked.mode.is_some() {
         next.mode = asked.mode;
@@ -1395,27 +1443,24 @@ fn worker_send(
     }
 
     if next == handle.spec.directives {
-        handle
-            .session
-            .send_text(&text, &images.unwrap_or_default())
-            .map_err(|e| e.to_string())?;
+        handle.session.send_text(&msg.text, &msg.images).map_err(|e| e.to_string())?;
         return Ok(next);
     }
 
     // Directive changed: only a fresh process can carry new CLI flags.
     emit_event(
-        &app,
+        app,
         serde_json::json!({ "kind": "status",
             "text": format!("reabrindo a thread com {}", describe(&next)) }),
     );
     handle.session.shutdown();
     // Limits carry over from the original spec (`..clone()`).
     let spec = SessionSpec {
-        instruction: text,
+        instruction: msg.text,
         directives: next.clone(),
         ..handle.spec.clone()
     };
-    start_worker(&app, &live, &task_id, spec).map_err(|e| e.to_string())?;
+    start_worker(app, &live, task_id, spec).map_err(|e| e.to_string())?;
     Ok(next)
 }
 
@@ -1433,15 +1478,23 @@ const HARK_CHAT_TASK: &str = "hark-chat";
 #[derive(Default)]
 pub(crate) struct Interrupting(pub(crate) Mutex<std::collections::HashSet<String>>);
 
-/// Opt-in message batching (`batch_messages = true`): follow-ups sent
-/// while a turn is in flight queue up and land as ONE message when the
-/// turn ends — fewer, fatter turns re-read the cached context less often.
+/// What each worker is holding: the turn it is running, and the messages
+/// you typed while it ran (`domain::outbox`).
+///
+/// Writing to the CLI's stdin mid-turn also queues, but into a queue you
+/// cannot see, reorder or empty. Holding them here is what lets the chat
+/// show a message as WAITING, let you push one ahead of the running turn,
+/// and let you take one back.
+///
+/// `batch_messages = true` only changes how the queue drains: everything
+/// at once as a single turn, instead of one turn per message.
 #[derive(Default)]
-pub(crate) struct BatchState(pub(crate) Mutex<HashMap<String, BatchEntry>>);
-#[derive(Default)]
-pub(crate) struct BatchEntry {
-    pub(crate) in_flight: bool,
-    pub(crate) queue: Vec<String>,
+pub(crate) struct Outboxes(pub(crate) Mutex<HashMap<String, hark_core::domain::outbox::Outbox>>);
+
+/// Held messages need a name the window can point at later.
+static HELD_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+fn next_held_id() -> String {
+    format!("held-{}", HELD_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
 }
 
 /// Tick/untick one step of a task's plan checklist.
@@ -1869,6 +1922,8 @@ struct HarkChatOut {
     task_id: String,
     /// True when this message continues a stored session (live or resumed).
     resumed: bool,
+    /// The chat was busy and is holding this message (`worker_send`).
+    queued: Option<String>,
 }
 
 /// Send a message to the mother's work chat. Reuses the live worker when
@@ -1881,13 +1936,15 @@ fn hark_chat_send(
     live: State<'_, LiveWorkers>,
     text: String,
     images: Option<Vec<(String, String)>>,
+    msg_id: Option<String>,
 ) -> Result<HarkChatOut, String> {
     let alive = live.0.lock().unwrap().contains_key(HARK_CHAT_TASK);
     if alive {
-        worker_send(app, live, HARK_CHAT_TASK.into(), text, images)?;
+        let out = worker_send(app, live, HARK_CHAT_TASK.into(), text, images, msg_id)?;
         return Ok(HarkChatOut {
             task_id: HARK_CHAT_TASK.into(),
             resumed: true,
+            queued: out.queued,
         });
     }
 
@@ -1926,6 +1983,8 @@ fn hark_chat_send(
     Ok(HarkChatOut {
         task_id: HARK_CHAT_TASK.into(),
         resumed,
+        // The spawn IS this message's turn: nothing is holding it.
+        queued: None,
     })
 }
 
@@ -2049,12 +2108,12 @@ fn switch_directives(
         return Ok(SetModeOut { directives: next, restarted: false });
     }
     let in_flight = app
-        .state::<BatchState>()
+        .state::<Outboxes>()
         .0
         .lock()
         .unwrap()
         .get(task_id)
-        .is_some_and(|e| e.in_flight);
+        .is_some_and(|o| o.in_flight());
     if in_flight {
         emit_event(
             &app.clone(),
@@ -2183,6 +2242,47 @@ fn worker_interrupt(
     if let Err(err) = handle.session.interrupt() {
         app.state::<Interrupting>().0.lock().unwrap().remove(&task_id);
         return Err(err.to_string());
+    }
+    Ok(())
+}
+
+/// "Send this one now": the held message jumps to the front of the queue
+/// and the running turn is cut. Cutting produces a result like any other
+/// ending, and that result is what drains the queue — so the promoted
+/// message goes out through the same path as every other message, with no
+/// second turn racing it.
+#[tauri::command]
+fn worker_queued_now(
+    app: AppHandle,
+    live: State<'_, LiveWorkers>,
+    task_id: String,
+    id: String,
+) -> Result<(), String> {
+    let promoted = app
+        .state::<Outboxes>()
+        .0
+        .lock()
+        .unwrap()
+        .get_mut(&task_id)
+        .is_some_and(|o| o.promote(&id));
+    if !promoted {
+        return Err("essa mensagem não está mais na fila".into());
+    }
+    worker_interrupt(app, live, task_id)
+}
+
+/// Take a held message back before it ever runs.
+#[tauri::command]
+fn worker_queued_drop(app: AppHandle, task_id: String, id: String) -> Result<(), String> {
+    let dropped = app
+        .state::<Outboxes>()
+        .0
+        .lock()
+        .unwrap()
+        .get_mut(&task_id)
+        .is_some_and(|o| o.discard(&id));
+    if !dropped {
+        return Err("essa mensagem não está mais na fila".into());
     }
     Ok(())
 }
@@ -4165,7 +4265,7 @@ pub fn run() {
         .manage(SlashRegistry::default())
         .manage(Pending(Mutex::new(HashMap::new())))
         .manage(PermLog::default())
-        .manage(BatchState::default())
+        .manage(Outboxes::default())
         .manage(Interrupting::default())
         .manage(MicLease::default())
         .manage(LiveWorkers(Mutex::new(HashMap::new())))
@@ -4220,6 +4320,8 @@ pub fn run() {
             worker_set_model,
             worker_set_effort,
             worker_interrupt,
+            worker_queued_now,
+            worker_queued_drop,
             worker_stop,
             chat_start,
             project_add,

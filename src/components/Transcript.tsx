@@ -1,7 +1,7 @@
 import { useEffect, useId, useReducer, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Check, Copy, Lock, RefreshCw, Square, Volume2 } from "lucide-react";
+import { Check, Copy, Lock, RefreshCw, Square, Volume2, X } from "lucide-react";
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput, toolHint, toolLabel } from "./ToolCall";
 import UsageCard from "./UsageCard";
@@ -188,6 +188,8 @@ export default function Transcript({
   onOpenPath,
   onRunCommand,
   onLoadOlder,
+  onQueuedNow,
+  onQueuedDrop,
 }: {
   messages: Msg[];
   directivesFor: (taskLabel?: string) => Directives | undefined;
@@ -198,6 +200,11 @@ export default function Transcript({
   /** Reach further back in this thread's log. Absent at the beginning of
    *  the history, or with no thread focused. */
   onLoadOlder?: () => void;
+  /** A waiting message jumps the queue: the running turn is cut and this
+   *  one runs next. */
+  onQueuedNow?: (msgId: string, taskLabel?: string) => void;
+  /** ...or never runs at all. */
+  onQueuedDrop?: (msgId: string, taskLabel?: string) => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const lastRef = useRef<Msg | null>(null);
@@ -302,7 +309,11 @@ export default function Transcript({
           </div>
         )
       ) : (
-        <div className="bubble">
+        <div
+          className={`bubble${
+            m.who === "user" && m.queued ? ` queued-${m.queued.state}` : ""
+          }`}
+        >
           {/* No "você ·" / "hark ·" label: who spoke is the SHAPE now.
               Reopening a long history, two identical columns of prose with
               a small caption over each was unreadable — the eye has to
@@ -360,6 +371,28 @@ export default function Transcript({
               {m.images?.map((src, j) => (
                 <img key={j} className="paste" src={src} alt={`image `} />
               ))}
+              {/* Typed behind a running turn. The CLI would have queued it
+                  on stdin, out of sight and out of reach; held here, the
+                  bubble can say it is waiting and offer the two things you
+                  actually want — run it NOW, or take it back. */}
+              {m.queued?.state === "waiting" && m.msgId && (
+                <div className="queued-row">
+                  <span className="queued-tag">{t("queued_waiting")}</span>
+                  <button
+                    className="queued-x"
+                    title={t("queued_drop")}
+                    onClick={() => onQueuedDrop?.(m.msgId!, m.task)}
+                  >
+                    <X size={13} />
+                  </button>
+                  <button className="queued-now" onClick={() => onQueuedNow?.(m.msgId!, m.task)}>
+                    {t("queued_now")}
+                  </button>
+                </div>
+              )}
+              {m.queued?.state === "failed" && (
+                <div className="queued-row failed">{m.queued.why ?? t("queued_lost")}</div>
+              )}
               <MsgActions copyText={m.text} ts={m.ts} />
             </>
           )}

@@ -82,7 +82,6 @@ export default function Composer({
   onMic,
   running,
   onStop,
-  onInterrupt,
   onAnswerPermission,
   children,
   trailing,
@@ -103,7 +102,6 @@ export default function Composer({
   /** Stop that turn — the session stays. */
   onStop?: () => void;
   /** Cut the turn and make this text the thing that runs next. */
-  onInterrupt?: (text: string) => void;
   onAnswerPermission: (requestId: string, allow: boolean, always?: boolean) => void;
   children?: React.ReactNode;
   /** Window controls docked at the right of the control row (costs,
@@ -305,9 +303,7 @@ export default function Composer({
     return true;
   }
 
-  /** Empty the composer and hand back what was in it — shared by send
-   *  and by "interromper", which submits the same draft down another
-   *  path. Clearing in one place keeps the two from drifting. */
+  /** Empty the composer and hand back what was in it. */
   function takeDraft(): string {
     const t = text;
     histRef.current = pushHistory(histScope, t);
@@ -637,18 +633,12 @@ export default function Composer({
         <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title={t("speak_btn")}>
           <Mic size={15} />
         </button>
-        {/* Both only exist while a turn is running, and both sit on the
-            turn they act on — not as an ✕ on a nameless card somewhere.
-            They are different acts and get different controls: "parar"
-            cuts the turn and keeps the session; "interromper" cuts it and
-            makes what you just typed the thing that runs next. Sending
-            normally still queues, which is what you want when you are
-            adding to the work rather than redirecting it. */}
-        {running && onInterrupt && text.trim() && (
-          <button className="interrupt" onClick={() => onInterrupt(takeDraft())}>
-            {t("interrupt_btn")}
-          </button>
-        )}
+        {/* "parar" cuts the running turn and keeps the session. There is
+            no "interromper" beside it any more: sending while a turn runs
+            parks the message, and the act of jumping the queue now lives
+            ON that message ("Enviar agora"), where you can still read it,
+            change your mind and drop it. A button in the composer could
+            only ever act on the draft you had not sent yet. */}
         {running && onStop && (
           <button className="stop" onClick={onStop} title={t("stop_btn")}>
             <Square size={12} />

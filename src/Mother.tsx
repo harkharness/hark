@@ -267,6 +267,16 @@ export default function Mother() {
     [],
   );
 
+  /** Same contract as the project window: the bubble and the outbox
+   *  entry share an id, so a parked message can say so on screen. */
+  const markQueued = useCallback(
+    (msgId: string, queued?: { state: "waiting" | "failed"; why?: string }) =>
+      setMessages((old) =>
+        old.map((m) => (m.who === "user" && m.msgId === msgId ? { ...m, queued } : m)),
+      ),
+    [],
+  );
+
   // The unified thread: local turns (typed asks) + the persistent work
   // chat's events. Project workers' messages stay OUT — they belong to
   // their own windows; the mother only announces them in the feed.
@@ -405,6 +415,7 @@ export default function Mother() {
     labelFor: (id) => id,
     push,
     setMessages,
+    onQueued: markQueued,
     setLiveWorkers: () => {},
     pushRaw: () => {},
     addCost: () => {},
@@ -796,8 +807,9 @@ export default function Mother() {
     // goes to the PERSISTENT chat (full settings + MCP); questions stay
     // on the cheap bare ask. One visual thread either way.
     const lane = await ipc.askLane(text).catch(() => "lean");
+    const msgId = crypto.randomUUID();
     if (route === "dispatch") {
-      push({ who: "user", text, images: images.map((i) => i.dataUrl) });
+      push({ who: "user", text, images: images.map((i) => i.dataUrl), msgId });
       const plan = await ipc.planUtterance(text).catch(() => null);
       if (plan?.kind === "work") {
         const target = plan.task_title ?? plan.project_name ?? "novo chat";
@@ -821,7 +833,7 @@ export default function Mother() {
       // Work with NO project target: the 21/08 Slack case. That is the
       // mother's own work — it goes to the persistent chat, never dies.
       if (lane === "work") {
-        await sendToChat(text, images);
+        await sendToChat(text, images, msgId);
         return;
       }
       // Before giving up on a target, let the classifier look at the
@@ -832,9 +844,9 @@ export default function Mother() {
       say("Não achei o alvo pra esse trabalho.");
       return;
     }
-    push({ who: "user", text, images: images.map((i) => i.dataUrl) });
+    push({ who: "user", text, images: images.map((i) => i.dataUrl), msgId });
     if (lane === "work") {
-      await sendToChat(text, images);
+      await sendToChat(text, images, msgId);
       return;
     }
     // A sentence the grammar did not recognise is not automatically a
@@ -972,11 +984,13 @@ export default function Mother() {
     return false;
   }
 
-  async function sendToChat(text: string, images: Attachment[] = []) {
+  async function sendToChat(text: string, images: Attachment[] = [], msgId?: string) {
     try {
       chatInFlightRef.current = { text, retried: false };
-      await ipc.harkChatSend(text, images.map(toImagePair));
+      const out = await ipc.harkChatSend(text, images.map(toImagePair), msgId);
       setChatLive(true);
+      // Busy chat: the message is parked, and its bubble says so.
+      if (out.queued && msgId) markQueued(msgId, { state: "waiting" });
     } catch (err) {
       chatInFlightRef.current = null;
       push({ who: "sys", text: `chat hark: ${agentError(err)}` });
@@ -1360,6 +1374,21 @@ export default function Mother() {
               onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
               onOpenPath={openChatPath}
               onRunCommand={(cmd, execute) => motherTerminal(cmd, execute)}
+              onQueuedNow={(msgId) => {
+                void ipc.workerQueuedNow(HARK_CHAT, msgId).catch((err) =>
+                  push({ who: "sys", text: `fila: ${agentError(err)}` }),
+                );
+              }}
+              onQueuedDrop={(msgId) => {
+                void ipc
+                  .workerQueuedDrop(HARK_CHAT, msgId)
+                  .then(() =>
+                    setMessages((old) =>
+                      old.filter((m) => !(m.who === "user" && m.msgId === msgId)),
+                    ),
+                  )
+                  .catch((err) => push({ who: "sys", text: `fila: ${agentError(err)}` }));
+              }}
             />
             {/* THE composer — the same component as the project chats:
                 Shift+Enter, ``` fences, image paste, @files, /commands. */}
@@ -1379,14 +1408,6 @@ export default function Mother() {
               running={!!busy}
               onStop={
                 chatLive ? () => void ipc.workerInterrupt(HARK_CHAT).catch(() => {}) : undefined
-              }
-              onInterrupt={
-                chatLive
-                  ? (text) => {
-                      void submit(text, []);
-                      void ipc.workerInterrupt(HARK_CHAT).catch(() => {});
-                    }
-                  : undefined
               }
             >
               {/* Expanded, this IS a project chat: the same three pills on

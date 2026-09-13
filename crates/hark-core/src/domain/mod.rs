@@ -18,6 +18,7 @@ pub mod intent;
 pub mod lang;
 pub mod matching;
 pub mod memory;
+pub mod outbox;
 pub mod owner;
 pub mod persona;
 pub mod prodgate;

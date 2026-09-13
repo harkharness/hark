@@ -288,6 +288,75 @@ export default function App({
     },
     [currentThread],
   );
+  /** The bubble and the backend's outbox entry share an id, so a message
+   *  can say on screen that it has not run yet. `undefined` clears it:
+   *  the queue let it go and it is an ordinary message again. */
+  const markQueued = useCallback(
+    (msgId: string, queued?: { state: "waiting" | "failed"; why?: string }) => {
+      setMessages((old) =>
+        old.map((m) => (m.who === "user" && m.msgId === msgId ? { ...m, queued } : m)),
+      );
+    },
+    [],
+  );
+
+  /** Send to a live worker. Busy workers park the message instead of
+   *  queueing it invisibly on stdin — the bubble shows it waiting, and
+   *  `held` is how we learn that happened. */
+  const sendQueued = useCallback(
+    async (
+      taskId: string,
+      text: string,
+      msgId: string,
+      images: [string, string][] = [],
+    ) => {
+      const out = await ipc.workerSend(taskId, text, images, msgId);
+      if (out.queued) markQueued(msgId, { state: "waiting" });
+      setLiveWorkers((old) =>
+        old[taskId] ? { ...old, [taskId]: { ...old[taskId], directives: out.directives } } : old,
+      );
+    },
+    [markQueued],
+  );
+
+  /** The worker holding a message is the one whose label the bubble
+   *  carries; an untagged bubble belongs to the thread in view. */
+  const workerFor = useCallback(
+    (taskLabel?: string) => {
+      const want = taskLabel ?? currentThread();
+      return Object.entries(liveWorkers).find(([, w]) => w.label === want)?.[0];
+    },
+    [liveWorkers, currentThread],
+  );
+
+  const queuedNow = useCallback(
+    (msgId: string, taskLabel?: string) => {
+      const taskId = workerFor(taskLabel);
+      if (!taskId) return;
+      ipc.workerQueuedNow(taskId, msgId).catch((err) => {
+        push({ who: "sys", text: `fila: ${agentError(err)}` });
+      });
+    },
+    [workerFor, push],
+  );
+
+  const queuedDrop = useCallback(
+    (msgId: string, taskLabel?: string) => {
+      const taskId = workerFor(taskLabel);
+      if (!taskId) return;
+      ipc
+        .workerQueuedDrop(taskId, msgId)
+        // It never ran and never will: the bubble goes with it.
+        .then(() =>
+          setMessages((old) =>
+            old.filter((m) => !(m.who === "user" && m.msgId === msgId)),
+          ),
+        )
+        .catch((err) => push({ who: "sys", text: `fila: ${agentError(err)}` }));
+    },
+    [workerFor, push],
+  );
+
   /** Turn an agent reply that is really a compaction summary into the
    *  folded kind. Live, the only tell is that we asked for it; a session
    *  that compacted itself is caught by the CLI's fixed opening line. */
@@ -562,6 +631,7 @@ export default function App({
       set.add(tool);
       allowAlways.current.set(label, set);
     }, []),
+    onQueued: markQueued,
     speakRef,
     refresh,
     onWorkerExit: useCallback((taskId: string) => {
@@ -1266,32 +1336,34 @@ export default function App({
     }
 
     if (focused && !toHark) {
-      push({ who: "user", text, images: images.map((i) => i.dataUrl), task: focused && labelFor(focused) });
+      const msgId = crypto.randomUUID();
+      push({
+        who: "user",
+        text,
+        images: images.map((i) => i.dataUrl),
+        task: focused && labelFor(focused),
+        msgId,
+      });
       beginTurn();
       text = await withCrossref(text, labelFor(focused));
-      await ipc
-        .workerSend(focused, text, images.map(toImagePair))
-        .then((directives) =>
-          setLiveWorkers((old) =>
-            old[focused] ? { ...old, [focused]: { ...old[focused], directives } } : old,
-          ),
-        )
-        .catch((err) => {
-          endTurn(labelFor(focused));
-          nudgeRef.current(err);
-          push({ who: "sys", text: `worker: ${agentError(err)}` });
-        });
+      await sendQueued(focused, text, msgId, images.map(toImagePair)).catch((err) => {
+        endTurn(labelFor(focused));
+        nudgeRef.current(err);
+        push({ who: "sys", text: `worker: ${agentError(err)}` });
+      });
       return;
     }
     if (focusedTask && !toHark) {
       // Echo FIRST. Everything below can take a round trip, and a chat
       // that swallows what you typed until the backend answers reads as
       // broken — you cannot even tell whether Enter registered.
+      const typedId = crypto.randomUUID();
       push({
         who: "user",
         text,
         images: images.map((i) => i.dataUrl),
         task: focusedTask.title,
+        msgId: typedId,
       });
       // NO evaluator here any more. Its job is catching a dispatch that
       // landed in the wrong session — which only exists when the target
@@ -1326,7 +1398,14 @@ export default function App({
         });
         return;
       }
-      await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text, images, false);
+      await sendToFocusedTaskWith(
+        focusedTask.title,
+        focusedTask.sessionId,
+        text,
+        images,
+        false,
+        typedId,
+      );
       return;
     }
     const route = await ipc.routeText(text);
@@ -2099,6 +2178,9 @@ export default function App({
     images: Attachment[] = [],
     /** The submit path echoes before it starts, so it opts out here. */
     echo = true,
+    /** ...and hands over the id of the bubble it already pushed, so a
+     *  parked message still finds its own bubble. */
+    msgId = crypto.randomUUID(),
   ) {
     // Slash commands, spoken follow-ups and compact-then-send all land
     // here. "/compact" showed no clock at all because only the two typed
@@ -2106,22 +2188,15 @@ export default function App({
     beginTurn(title);
     await reactivateIfDone(title);
     const liveEntry = Object.entries(liveWorkers).find(([, w]) => w.label === title);
-    if (echo) push({ who: "user", text, images: images.map((i) => i.dataUrl), task: title });
+    if (echo)
+      push({ who: "user", text, images: images.map((i) => i.dataUrl), task: title, msgId });
     text = await withCrossref(text, title);
     if (liveEntry) {
-      await ipc
-        .workerSend(liveEntry[0], text, images.map(toImagePair))
-        .then((directives) =>
-          setLiveWorkers((old) => ({
-            ...old,
-            [liveEntry[0]]: { ...old[liveEntry[0]], directives },
-          })),
-        )
-        .catch((err) => {
-          endTurn(title);
-          nudgeRef.current(err);
-          push({ who: "sys", text: `worker: ${agentError(err)}` });
-        });
+      await sendQueued(liveEntry[0], text, msgId, images.map(toImagePair)).catch((err) => {
+        endTurn(title);
+        nudgeRef.current(err);
+        push({ who: "sys", text: `worker: ${agentError(err)}` });
+      });
       return;
     }
     await runDispatch(text, sessionId, true);
@@ -2586,6 +2661,8 @@ export default function App({
                       ? loadOlderHistory
                       : undefined
                   }
+                  onQueuedNow={queuedNow}
+                  onQueuedDrop={queuedDrop}
                 />
               )}
               {turns[focusedTask?.title ?? GENERAL] && (
@@ -2643,18 +2720,6 @@ export default function App({
                 onMic={onMic}
                 running={!!turns[focusedTask?.title ?? GENERAL]}
                 onStop={focused ? () => interruptWorker(focused) : undefined}
-                onInterrupt={
-                  focused
-                    ? (text) => {
-                        // Queue it the normal way, then cut the turn: the
-                        // drain that follows a finished turn is what sends
-                        // it, so the message runs next instead of waiting
-                        // out work the user no longer wants.
-                        void submit(text, []);
-                        interruptWorker(focused);
-                      }
-                    : undefined
-                }
                 onAnswerPermission={answerPermission}
                 trailing={trailingControls}
                 banner={focusedRepo ? <RepoRuler state={focusedRepo} /> : undefined}

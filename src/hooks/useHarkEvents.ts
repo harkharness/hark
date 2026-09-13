@@ -55,6 +55,9 @@ type Handlers = {
   ) => void;
   /** Spoken "sempre pode" — record the standing allow rule. */
   onAllowRule?: (label: string, tool: string) => void;
+  /** A held message changed state: `undefined` means it finally went out
+   *  and the bubble goes back to being an ordinary message. */
+  onQueued?: (msgId: string, queued?: { state: "waiting" | "failed"; why?: string }) => void;
   /** A worker finished a turn (the mother updates its feed row and, for
    *  the hark chat, its session cost/context header). */
   onWorkerTurn?: (
@@ -262,6 +265,10 @@ export function useHarkEvents(h: Handlers) {
           resets_at: ev.resets_at,
           limit_kind: ev.limit_kind,
         });
+      } else if (ev.kind === "queued_sent") {
+        h.onQueued?.(ev.id, undefined);
+      } else if (ev.kind === "queued_failed") {
+        h.onQueued?.(ev.id, { state: "failed", why: ev.why });
       } else if (ev.kind === "status") {
         h.push({ who: "sys", text: ev.text });
       }
