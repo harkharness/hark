@@ -169,7 +169,18 @@ Dragging the window is done by the elements that ARE the title bar, never
 by a strip laid over them. Tauri's `data-tauri-drag-region` only drags
 when the mousedown target is the element carrying it: a child covering
 the header — the title, the turn count, the flex gap — eats the click, so
-each of those carries the attribute too. There used to be a
+each of those carries the attribute too.
+
+And the attribute is not magic: on mousedown Tauri's injected script
+invokes `plugin:window|start_dragging`, an IPC command gated by the
+window's capability. `core:window:default` does NOT grant it (it grants
+the double-click `internal-toggle-maximize`, not the drag), so
+`src-tauri/capabilities/default.json` lists
+`core:window:allow-start-dragging` explicitly. Without it every drag
+region in the app is silently dead — which is exactly what happened the
+day the project window went Overlay: the mother kept dragging because it
+has a real title bar and macOS does that itself, so the missing
+permission hid behind "the mother works". There used to be a
 `position: fixed` full-width `.titlebar-drag` under the header as a
 catch-all. It sat ABOVE the rail's panel headers, so the terminal's ×
 went dead (hover lost, a click became a drag), while the header it was
