@@ -29,6 +29,11 @@ pub struct AgentEntry {
     pub login_hint: Option<String>,
     /// Model ids per tier, for the model pill and the router.
     pub models: BTreeMap<String, String>,
+    /// Base environment for every process of this agent: a gateway URL,
+    /// the token it wants. This is how the SAME claude plugin drives a
+    /// company LiteLLM (`ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`) as
+    /// a second entry. Values are the user's own config; never logged.
+    pub env: BTreeMap<String, String>,
 }
 
 impl Default for AgentEntry {
@@ -43,7 +48,15 @@ impl Default for AgentEntry {
             memory_file: None,
             login_hint: None,
             models: BTreeMap::new(),
+            env: BTreeMap::new(),
         }
+    }
+}
+
+impl AgentEntry {
+    /// The base env as the shape `Command::envs` and `SessionSpec` take.
+    pub fn env_pairs(&self) -> Vec<(String, String)> {
+        self.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 }
 
@@ -52,7 +65,8 @@ fn models(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 }
 
 /// The backends Hark ships knowing about. Claude is the native plugin;
-/// the other two speak ACP, so they cost a registry line, not a crate.
+/// everything else speaks ACP, so each costs a registry line, not a
+/// crate. Commands are the ones each project documents for its ACP mode.
 pub fn builtins() -> Vec<AgentEntry> {
     vec![
         AgentEntry {
@@ -98,6 +112,38 @@ pub fn builtins() -> Vec<AgentEntry> {
             login_hint: Some("claude /login".into()),
             ..Default::default()
         },
+        // OpenAI Codex through Zed's adapter (zed-industries/codex-acp):
+        // the user's ChatGPT login, or any OpenAI-compatible base URL the
+        // codex config points at — a LiteLLM, DeepSeek's API.
+        AgentEntry {
+            id: "codex".into(),
+            name: "Codex CLI".into(),
+            plugin: "acp".into(),
+            cmd: "codex-acp".into(),
+            memory_file: Some("AGENTS.md".into()),
+            login_hint: Some("codex login".into()),
+            ..Default::default()
+        },
+        // The DeepSeek harness ships an ACP profile (dsh --profile acp).
+        AgentEntry {
+            id: "deepseek".into(),
+            name: "DeepSeek Harness".into(),
+            plugin: "acp".into(),
+            cmd: "dsh".into(),
+            args: vec!["--profile".into(), "acp".into()],
+            login_hint: Some("dsh".into()),
+            ..Default::default()
+        },
+        // AWS Kiro's CLI speaks ACP natively (kiro.dev/docs/cli/acp).
+        AgentEntry {
+            id: "kiro".into(),
+            name: "Kiro CLI".into(),
+            plugin: "acp".into(),
+            cmd: "kiro-cli".into(),
+            args: vec!["acp".into()],
+            login_hint: Some("kiro-cli login".into()),
+            ..Default::default()
+        },
     ]
 }
 
@@ -131,6 +177,9 @@ pub fn merge(user: &BTreeMap<String, AgentEntry>) -> Vec<AgentEntry> {
                 }
                 for (tier, model) in over.models {
                     base.models.insert(tier, model);
+                }
+                for (key, value) in over.env {
+                    base.env.insert(key, value);
                 }
             }
             None => out.push(over),
@@ -213,9 +262,64 @@ mod tests {
     }
 
     #[test]
-    fn ships_knowing_claude_gemini_and_claude_over_acp() {
+    fn ships_knowing_claude_and_every_acp_agent_on_the_market() {
         let ids: Vec<String> = builtins().into_iter().map(|e| e.id).collect();
-        assert_eq!(ids, vec!["claude", "gemini", "claude-acp"]);
+        assert_eq!(ids, vec!["claude", "gemini", "claude-acp", "codex", "deepseek", "kiro"]);
+    }
+
+    /// The commands are the ones each project documents for ACP mode
+    /// (gemini docs/cli/acp-mode, zed-industries/codex-acp, dsh-acp,
+    /// kiro.dev/docs/cli/acp) — a registry line, not a crate, per agent.
+    #[test]
+    fn builtins_speak_acp_with_their_documented_commands() {
+        let all = builtins();
+        let cmdline = |id: &str| {
+            let e = resolve(&all, id).unwrap();
+            assert_eq!(e.plugin, "acp", "{id}");
+            std::iter::once(e.cmd.clone()).chain(e.args.iter().cloned()).collect::<Vec<_>>().join(" ")
+        };
+        assert_eq!(cmdline("gemini"), "gemini --acp");
+        assert_eq!(cmdline("codex"), "codex-acp");
+        assert_eq!(cmdline("deepseek"), "dsh --profile acp");
+        assert_eq!(cmdline("kiro"), "kiro-cli acp");
+    }
+
+    #[test]
+    fn env_merges_key_by_key_like_models() {
+        let mut env = BTreeMap::new();
+        env.insert("ANTHROPIC_BASE_URL".to_string(), "http://litellm:4000".to_string());
+        let table = user(&[("claude", AgentEntry { env, ..Default::default() })]);
+        let merged = merge(&table);
+        let claude = resolve(&merged, "claude").unwrap();
+        assert_eq!(claude.env.get("ANTHROPIC_BASE_URL").map(String::as_str), Some("http://litellm:4000"));
+        assert_eq!(claude.env_pairs(), vec![("ANTHROPIC_BASE_URL".to_string(), "http://litellm:4000".to_string())]);
+        // The rest of the builtin is untouched by an env-only override.
+        assert_eq!(claude.plugin, "claude");
+        assert_eq!(claude.cmd, "claude");
+    }
+
+    /// The LiteLLM recipe: a second entry that reuses the native claude
+    /// plugin with a gateway in its env, alongside the plain "claude".
+    #[test]
+    fn a_gateway_entry_reuses_the_claude_plugin_with_its_own_env() {
+        let mut env = BTreeMap::new();
+        env.insert("ANTHROPIC_BASE_URL".to_string(), "http://litellm:4000".to_string());
+        env.insert("ANTHROPIC_AUTH_TOKEN".to_string(), "sk-static".to_string());
+        let table = user(&[(
+            "claude-litellm",
+            AgentEntry {
+                plugin: "claude".into(),
+                cmd: "claude".into(),
+                name: "Claude via LiteLLM".into(),
+                env,
+                ..Default::default()
+            },
+        )]);
+        let merged = merge(&table);
+        let gw = resolve(&merged, "claude-litellm").unwrap();
+        assert_eq!(gw.plugin, "claude", "a user entry keeps the plugin it declares");
+        assert_eq!(gw.env.len(), 2);
+        assert!(resolve(&merged, "claude").unwrap().env.is_empty(), "the plain entry is not touched");
     }
 
     #[test]

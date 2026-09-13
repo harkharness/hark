@@ -537,7 +537,7 @@ name = "Codex"
     fn a_config_with_no_agents_table_still_knows_every_builtin() {
         let config: Config = toml::from_str("model = \"sonnet\"\n").expect("parses");
         assert!(config.agents.is_empty());
-        assert_eq!(crate::domain::agents::merge(&config.agents).len(), 3);
+        assert_eq!(crate::domain::agents::merge(&config.agents).len(), 6);
     }
 
     /// A config file written before a field existed must still get that

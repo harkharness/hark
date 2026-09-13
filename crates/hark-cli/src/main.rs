@@ -292,6 +292,14 @@ fn cmd_ask(question: &str) -> i32 {
             runner: &ClaudeCli {
                 claude_bin: config.claude_bin_resolved(),
                 work_dir: config.data_dir(),
+                // The CLI is pinned to claude (F9 plan); a gateway set on
+                // the claude entry still applies to it.
+                envs: hark_core::domain::agents::resolve(
+                    &hark_core::domain::agents::merge(&config.agents),
+                    "claude",
+                )
+                .map(|e| e.env_pairs())
+                .unwrap_or_default(),
             },
             config: &config,
             indexer: &hark_plugin_claude::history::ClaudeHistory,
@@ -918,6 +926,14 @@ fn cmd_ask_spoken(question: &str, tts: &impl hark_core::ports::Tts) -> i32 {
             runner: &ClaudeCli {
                 claude_bin: config.claude_bin_resolved(),
                 work_dir: config.data_dir(),
+                // The CLI is pinned to claude (F9 plan); a gateway set on
+                // the claude entry still applies to it.
+                envs: hark_core::domain::agents::resolve(
+                    &hark_core::domain::agents::merge(&config.agents),
+                    "claude",
+                )
+                .map(|e| e.env_pairs())
+                .unwrap_or_default(),
             },
             config: &config,
             indexer: &hark_plugin_claude::history::ClaudeHistory,

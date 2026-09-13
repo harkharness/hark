@@ -13,6 +13,12 @@ pub struct ClaudeBackend {
     pub bin: String,
     /// Neutral cwd for the one-shot runner (ask/gate) — the data dir.
     pub work_dir: std::path::PathBuf,
+    /// The registry entry's base env. This is how one plugin serves two
+    /// entries: the plain "claude" and a twin pointed at a company
+    /// gateway through ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN. Applied
+    /// to every process — workers AND the one-shot ask/gate — so nothing
+    /// slips past the gateway.
+    pub envs: Vec<(String, String)>,
 }
 
 impl ClaudeBackend {
@@ -24,7 +30,8 @@ impl ClaudeBackend {
             instruction: spec.instruction.clone(),
             directives: spec.directives.clone(),
             limits: spec.limits,
-            envs: spec.envs.clone(),
+            // Entry env first, per-session (eco) env on top.
+            envs: self.envs.iter().cloned().chain(spec.envs.iter().cloned()).collect(),
             fork: spec.fork,
         }
     }
@@ -50,6 +57,7 @@ impl AgentBackend for ClaudeBackend {
         Box::new(crate::cli::ClaudeCli {
             claude_bin: self.bin.clone(),
             work_dir: self.work_dir.clone(),
+            envs: self.envs.clone(),
         })
     }
 }

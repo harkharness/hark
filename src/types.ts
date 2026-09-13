@@ -27,6 +27,10 @@ export type HarkEvent =
       label?: string;
       /** The session this turn wrote to — the butler offer's target. */
       session_id?: string | null;
+      /** Registry id of the backend that ran the turn ("claude", "gemini"). */
+      agent?: string;
+      /** How one logs in to THAT agent — the auth card's runnable fix. */
+      login_hint?: string | null;
       text: string;
       cost_usd?: number;
       model?: string;

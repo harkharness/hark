@@ -129,8 +129,12 @@ export function useHarkEvents(h: Handlers) {
         const fence = "```";
         const authFail =
           ev.error_code === "agent_auth" || (ev.is_error && isAuthError(ev.text));
+        // The remedy is the AGENT's: the registry's login hint rides on
+        // the event (gemini → `gemini`, kiro → `kiro-cli login`); claude's
+        // is the historical default.
+        const loginFix = ev.login_hint ?? "claude /login";
         const turnText = authFail
-          ? `${ev.text}\n\n${t("auth_fix")}\n\n${fence}bash\nclaude /login\n${fence}`
+          ? `${ev.text}\n\n${t("auth_fix")}\n\n${fence}bash\n${loginFix}\n${fence}`
           : ev.text;
         h.pushRaw(
           label,
@@ -159,6 +163,9 @@ export function useHarkEvents(h: Handlers) {
                 : m,
             );
           }
+          // A turn with no prose (tools only, or stopped before a word):
+          // an empty bubble says nothing, so none is added.
+          if (!turnText.trim()) return old;
           return [
             ...old,
             {

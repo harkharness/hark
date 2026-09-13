@@ -72,3 +72,25 @@ qualquer usuário encontra, e prova que:
 
 Método: `HARK_ACP_TRACE=<arquivo>` no plugin grava tudo em jsonl e as
 fixtures nascem do tráfego, não da spec.
+
+## 13/09 — o runtime contra o gemini real: deprecação, não auth
+
+Com `hark-plugin-acp` completo (`cargo test -p hark-plugin-acp -- --ignored
+gemini --nocapture`), o mesmo gemini-cli 0.46.0 respondeu ao `session/new`:
+
+```
+agent_failed: session/new: This client is no longer supported for Gemini
+Code Assist for individuals. To continue using Gemini, please migrate to
+the Antigravity suite of products: https://antigravity.google
+```
+
+- O caminho inteiro funcionou: spawn do processo, `initialize` (mesma
+  resposta gravada em 07/09), `session/new`, erro devolvido como health
+  code, processo morto na saída.
+- NÃO é `-32000` de auth: é a conta individual do Gemini Code Assist sendo
+  desligada em favor do Antigravity. O classificador acertou em não chamar
+  de login (`agent_failed`), e o card mostra as palavras do agente.
+- O que resta pra pessoa física nessa versão: `gemini-api-key` (um dos 4
+  `authMethods` anunciados) — `[agents.gemini] env = { GEMINI_API_KEY = "…" }`
+  passa pelo mesmo `env` do registry. O `antigravity-cli` ainda NÃO fala
+  ACP (feature request aberto em google-antigravity/antigravity-cli#31).

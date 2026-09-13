@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 hark-core = { path = "../crates/hark-core" }
 hark-agent = { path = "../crates/hark-agent" }
 hark-plugin-claude = { path = "../crates/hark-plugin-claude" }
+hark-plugin-acp = { path = "../crates/hark-plugin-acp" }
 tauri = { version = "2", features = ["macos-private-api"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

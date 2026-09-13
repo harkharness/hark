@@ -32,13 +32,88 @@ struct Pending(Mutex<HashMap<String, mpsc::Sender<PermissionDecision>>>);
 #[derive(Default)]
 pub(crate) struct PermLog(pub(crate) Mutex<Vec<(String, String, String)>>);
 
-/// The active backend for one agent id. v1: always the native claude
-/// plugin — F9.1 turns this into the registry lookup.
-fn backend_for(config: &Config) -> std::sync::Arc<dyn AgentBackend> {
-    std::sync::Arc::new(ClaudeBackend {
-        bin: config.claude_bin_resolved(),
-        work_dir: config.data_dir(),
-    })
+/// The backend behind one registry id: the native claude plugin for the
+/// plain "claude" entry and for any entry that declares `plugin =
+/// "claude"` (a twin pointed at a gateway, say), the ACP plugin for
+/// everything else. An unknown id falls back to claude rather than
+/// failing a spawn on a typo in config.
+fn backend_for(config: &Config, agent: &str) -> std::sync::Arc<dyn AgentBackend> {
+    use hark_core::domain::agents;
+    let entries = agents::merge(&config.agents);
+    let entry = agents::resolve(&entries, agent)
+        .or_else(|| agents::resolve(&entries, "claude"))
+        .cloned()
+        .expect("claude is a builtin");
+    let env: Vec<(String, String)> = entry.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    if entry.plugin == "claude" {
+        // `claude` keeps Hark's own resolution of the binary (config path,
+        // nvm shadows); a twin naming another binary runs that one.
+        let bin = if entry.cmd == "claude" { config.claude_bin_resolved() } else { entry.cmd.clone() };
+        std::sync::Arc::new(ClaudeBackend { bin, work_dir: config.data_dir(), envs: env })
+    } else {
+        std::sync::Arc::new(hark_plugin_acp::AcpBackend::new(
+            entry.id,
+            entry.cmd,
+            entry.args,
+            env,
+            entry.memory_file,
+            entry.login_hint,
+        ))
+    }
+}
+
+/// The registry id a NEW session opens with: the user's pick when it is
+/// usable, else claude when it is here, else the first usable backend.
+fn selected_agent(config: &Config) -> String {
+    use hark_core::domain::agents;
+    let entries = agents::merge(&config.agents);
+    let detected = agents_detected(config, &entries);
+    agents::default_agent(&entries, &detected, &config.agent.plugin).unwrap_or_else(|| "claude".into())
+}
+
+/// Which plugin speaks for an id ("claude" or "acp").
+fn agent_plugin(config: &Config, agent: &str) -> String {
+    use hark_core::domain::agents;
+    agents::resolve(&agents::merge(&config.agents), agent)
+        .map(|e| e.plugin.clone())
+        .unwrap_or_else(|| "claude".into())
+}
+
+/// The agent for a spawn: a NEW session (empty id) opens with the
+/// selected backend; an existing one stays with the backend that created
+/// it. Every spawn path and every registry record goes through here.
+fn agent_for(config: &Config, session_id: &str) -> String {
+    if session_id.is_empty() {
+        selected_agent(config)
+    } else {
+        owner_of_session(config, session_id)
+    }
+}
+
+/// The plain claude entry's base env. A gateway the user configured on
+/// the builtin itself (`[agents.claude] env = {…}`) reaches the one-shot
+/// ask and gate too — nothing slips past it. (A gateway TWIN entry only
+/// covers the workers that select it; the ask/gate lane still runs the
+/// plain entry until F9.5 routes it per agent.)
+fn claude_env(config: &Config) -> Vec<(String, String)> {
+    use hark_core::domain::agents;
+    agents::resolve(&agents::merge(&config.agents), "claude")
+        .map(|e| e.env_pairs())
+        .unwrap_or_default()
+}
+
+/// The backend that OWNS an existing session. A session is resumed by
+/// whoever created it — switching the default to gemini must not hand a
+/// claude session to gemini. The worker registry remembers the agent;
+/// a session it never saw came from the claude history index.
+fn owner_of_session(config: &Config, session_id: &str) -> String {
+    state_file::load(&config.data_dir())
+        .workers
+        .iter()
+        .rev()
+        .find(|w| w.session_id == session_id && !w.agent.is_empty())
+        .map(|w| w.agent.clone())
+        .unwrap_or_else(|| "claude".into())
 }
 
 /// Restart identity: each spawned session gets a generation number; a
@@ -667,8 +742,8 @@ fn ask_text(
     };
     let runner = ClaudeCli {
         claude_bin: config.claude_bin_resolved(),
-
         work_dir: config.data_dir(),
+        envs: claude_env(&config),
     };
     // The UI's focused project scopes this question (click = context).
     let active_project = match (project_name, project_path) {
@@ -815,7 +890,7 @@ fn worker_start(
     let _ = memory_files::write_brief(&planned.workspace_root, &task_id, &brief);
     update_registry_and_board(
         &config,
-        "claude",
+        &agent_for(&config, &planned.session.session_id),
         &task_id,
         &planned.workspace_root,
         Some(&planned.session.session_id),
@@ -879,7 +954,7 @@ fn start_worker_titled(
     spec: SessionSpec,
     title: Option<String>,
 ) -> anyhow::Result<()> {
-    let backend = backend_for(&Config::load());
+    let backend = backend_for(&Config::load(), &spec.agent);
     let (session, rx) = backend.spawn(&spec)?;
     let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     live.0.lock().unwrap().insert(
@@ -893,6 +968,14 @@ fn start_worker_titled(
     let task2 = task_id.to_string();
     let workspace = spec.cwd.clone();
     let is_new_session = spec.session_id.is_empty();
+    // Which backend runs this session, and how one logs in to it: the
+    // auth card's runnable fix is the AGENT's, not always `claude /login`.
+    let agent_id = spec.agent.clone();
+    let login_hint = {
+        use hark_core::domain::agents;
+        let config = Config::load();
+        agents::resolve(&agents::merge(&config.agents), &agent_id).and_then(|e| e.login_hint.clone())
+    };
     // The human name of this work: the session's title for resumes, the
     // instruction for brand-new sessions. Travels inside events so any
     // window (the mother above all) can speak about it by name.
@@ -1124,6 +1207,8 @@ fn start_worker_titled(
                         serde_json::json!({ "kind": "worker_turn", "task_id": task2,
                             "label": board_title,
                             "session_id": (!current_session.is_empty()).then_some(current_session.as_str()),
+                            "agent": agent_id,
+                            "login_hint": login_hint,
                             "error_code": error_code,
                             "text": turn.raw, "cost_usd": turn.cost_usd, "model": turn.model,
                             "is_error": is_error, "stopped": stopped,
@@ -1307,7 +1392,7 @@ fn chat_start(
     let task_id = format!("n-{}", Utc::now().format("%m%d%H%M%S"));
     update_registry_and_board(
         &config,
-        "claude",
+        &agent_for(&config, ""),
         &task_id,
         &root,
         None,
@@ -1528,7 +1613,7 @@ fn fresh_spawn(
     directives: hark_core::domain::directives::Directives,
 ) -> SessionSpec {
     SessionSpec {
-        agent: "claude".into(),
+        agent: agent_for(config, &session_id),
         // The project's own ceiling when configured — the cap follows the
         // workspace the worker actually runs in (FASE 8.6).
         limits: config.spawn_limits_for(&cwd),
@@ -1588,14 +1673,14 @@ fn claude_detected(config: &Config) -> (bool, String) {
     (ok, bin)
 }
 
-/// Which registry ids have their binary on this machine. Claude keeps
-/// its own resolution (config can point at an absolute path); everything
-/// else is a plain `which`.
+/// Which registry ids have their binary on this machine. Entries that run
+/// `claude` keep its own resolution (config can point at an absolute path,
+/// nvm shadows are skipped); everything else is a plain `which`.
 fn agents_detected(config: &Config, entries: &[hark_core::domain::agents::AgentEntry]) -> Vec<String> {
     entries
         .iter()
         .filter(|e| {
-            if e.id == "claude" {
+            if e.plugin == "claude" && e.cmd == "claude" {
                 claude_detected(config).0
             } else {
                 std::process::Command::new("which")
@@ -1630,28 +1715,43 @@ fn agent_plugins() -> Result<serde_json::Value, String> {
                 "name": e.name,
                 "plugin": e.plugin,
                 "cmd": e.cmd,
-                "vendor": if e.id.starts_with("claude") { "Anthropic" } else if e.id == "gemini" { "Google" } else { "" },
+                "vendor": match e.id.as_str() {
+                    "gemini" => "Google",
+                    "codex" => "OpenAI",
+                    "deepseek" => "DeepSeek",
+                    "kiro" => "AWS",
+                    id if id.starts_with("claude") || e.plugin == "claude" => "Anthropic",
+                    _ => "",
+                },
                 // "available" means Hark can drive it; whether it is
                 // INSTALLED is `detected`, a different question.
                 "status": "available",
                 "detected": here,
                 "enabled": e.enabled,
-                "detail": if e.id == "claude" && here { claude_bin.clone() } else { String::new() },
+                "detail": if e.plugin == "claude" && e.cmd == "claude" && here { claude_bin.clone() } else { String::new() },
                 "install": match e.id.as_str() {
                     "claude" => "curl -fsSL https://claude.ai/install.sh | bash",
                     "gemini" => "npm install -g @google/gemini-cli",
                     "claude-acp" => "npm install -g @zed-industries/claude-code-acp",
+                    "codex" => "npm install -g @openai/codex @zed-industries/codex-acp",
+                    "deepseek" => "npm install -g @deepseek-ai/dsh",
+                    "kiro" => "https://kiro.dev/docs/cli/  (kiro-cli)",
                     _ => "",
                 },
                 "selected": selected.as_deref() == Some(e.id.as_str()),
                 "memory_file": e.memory_file,
                 "login_hint": e.login_hint,
-                // Only the native plugin can answer this today; an ACP
-                // backend negotiates its sheet at handshake (F9.2).
+                // The native plugin declares its sheet in code. An ACP
+                // agent negotiates its own at every handshake; before one
+                // has happened the catalog shows the pessimistic default
+                // (permissions, nothing else) rather than a guess.
                 "capabilities": if e.plugin == "claude" {
                     serde_json::to_value(hark_plugin_claude::capabilities()).unwrap_or(serde_json::Value::Null)
                 } else {
-                    serde_json::Value::Null
+                    serde_json::to_value(
+                        hark_plugin_acp::caps::negotiate(&serde_json::json!({}), e.memory_file.clone()).caps,
+                    )
+                    .unwrap_or(serde_json::Value::Null)
                 },
             })
         })
@@ -1676,12 +1776,6 @@ fn agent_plugin_select(id: String) -> Result<(), String> {
     }
     if !detected.contains(&id) {
         return Err(format!("{} não encontrado nesta máquina ({})", entry.name, entry.cmd));
-    }
-    // The registry knows these backends; the RUNTIME still only speaks the
-    // native plugin. Saying "selected" for one Hark cannot spawn would be
-    // a lie the user only discovers at the first turn.
-    if entry.plugin != "claude" {
-        return Err(format!("{} fala ACP — o runtime chega na próxima fase", entry.name));
     }
     let path = hark_core::config::config_path();
     if let Some(dir) = path.parent() {
@@ -2363,7 +2457,7 @@ fn dispatch_text(
 
     let mut gstate = state_file::load(&config.data_dir());
     gstate.workers.push(WorkerRecord {
-        agent: "claude".into(),
+        agent: agent_for(&config, &planned.session.session_id),
         task_id: task_id.clone(),
         context: String::new(),
         workspace: planned.workspace_root.display().to_string(),
@@ -2391,7 +2485,7 @@ fn dispatch_text(
     // One-shot on the same backend seam as persistent workers: consume the
     // event stream inline, block on permission clicks, stop at the result.
     let result: anyhow::Result<hark_agent::TurnResult> = (|| {
-        let backend = backend_for(&config);
+        let backend = backend_for(&config, &spawn.agent);
         let (session, events) = backend.spawn(&spawn)?;
         let mut outcome: Option<hark_agent::TurnResult> = None;
         for event in events.iter() {
@@ -3239,6 +3333,7 @@ fn classify_utterance(
     let runner = hark_plugin_claude::cli::ClaudeCli {
         claude_bin: config.claude_bin_resolved(),
         work_dir: data_dir.clone(),
+        envs: claude_env(&config),
     };
     let prompt = vi::build_prompt(&utterance, &catalog);
     let request = hark_core::ports::TurnRequest {
@@ -3502,6 +3597,7 @@ fn evaluate(
     let runner = hark_plugin_claude::cli::ClaudeCli {
         claude_bin: config.claude_bin_resolved(),
         work_dir: config.data_dir(),
+        envs: claude_env(&config),
     };
     let prompt = gate::build_prompt(&message, &ctx);
     let request = hark_core::ports::TurnRequest {
@@ -3557,7 +3653,11 @@ fn evaluate(
 #[derive(Default)]
 struct SlashRegistry(Mutex<HashMap<String, Vec<String>>>);
 
-/// Universal built-ins shown before any worker has run in this workspace.
+/// Claude Code's built-ins, shown before any worker has run in this
+/// workspace. They are CLAUDE's vocabulary: another agent announces its
+/// own commands at session start (`available_commands_update`) and has
+/// none to show before that — a palette offering /compact to an agent
+/// that does not know it is a palette that lies.
 const SLASH_FALLBACK: &[&str] =
     &["compact", "context", "usage", "model", "rename", "clear", "review", "init"];
 
@@ -3566,13 +3666,18 @@ fn slash_commands(
     state: State<'_, SlashRegistry>,
     workspace: Option<String>,
 ) -> Result<Vec<String>, String> {
-    let map = state.inner().0.lock().unwrap();
-    Ok(workspace
-        .as_deref()
-        .and_then(|w| map.get(w))
-        .or_else(|| map.get(""))
-        .cloned()
-        .unwrap_or_else(|| SLASH_FALLBACK.iter().map(|s| s.to_string()).collect()))
+    let announced = {
+        let map = state.inner().0.lock().unwrap();
+        workspace.as_deref().and_then(|w| map.get(w)).or_else(|| map.get("")).cloned()
+    };
+    Ok(announced.unwrap_or_else(|| {
+        let config = Config::load();
+        if agent_plugin(&config, &selected_agent(&config)) == "claude" {
+            SLASH_FALLBACK.iter().map(|s| s.to_string()).collect()
+        } else {
+            Vec::new()
+        }
+    }))
 }
 
 /// Local board command spoken by the user ("mostra o log da X"). Resolves the

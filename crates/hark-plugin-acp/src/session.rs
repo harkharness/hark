@@ -826,7 +826,7 @@ mod tests {
                 }
             }
         });
-        let err = connect(wire, None, None, &opening("", "oi")).err().expect("must fail");
+        let Err(err) = connect(wire, None, None, &opening("", "oi")) else { panic!("must fail") };
         let msg = err.to_string();
         assert!(msg.starts_with("agent_auth: "), "{msg}");
         assert!(msg.contains("API key is missing"), "the agent's own words survive: {msg}");
@@ -843,7 +843,8 @@ mod tests {
                 }
             }
         });
-        let msg = connect(wire, None, None, &opening("", "oi")).err().unwrap().to_string();
+        let Err(err) = connect(wire, None, None, &opening("", "oi")) else { panic!("must fail") };
+        let msg = err.to_string();
         assert!(msg.starts_with("agent_failed: "), "{msg}");
         assert!(msg.contains("disk on fire"), "{msg}");
     }
@@ -1085,7 +1086,7 @@ mod tests {
         // rest; the session refuses rather than corrupting the turn.
         let (wire, _seen) = fake_agent(gemini_like(|_id, _p, _say| { /* never answers */ }));
         let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
-        let err = c.session.send_text("mais", &[]).err().expect("refused");
+        let err = c.session.send_text("mais", &[]).expect_err("refused");
         assert!(err.to_string().contains("in flight"), "{err}");
     }
 

@@ -13,6 +13,9 @@ pub struct ClaudeCli {
     pub claude_bin: String,
     /// Neutral working directory for the spawned process.
     pub work_dir: std::path::PathBuf,
+    /// The registry entry's base env (a gateway URL and token, say):
+    /// the ask and the gate go through the same door as the workers.
+    pub envs: Vec<(String, String)>,
 }
 
 impl AgentRunner for ClaudeCli {
@@ -25,6 +28,7 @@ impl AgentRunner for ClaudeCli {
         // screenshots) exactly like the worker path.
         let mut child = std::process::Command::new(&self.claude_bin)
             .current_dir(&self.work_dir)
+            .envs(self.envs.iter().cloned())
             .args([
                 "-p",
                 "--input-format",

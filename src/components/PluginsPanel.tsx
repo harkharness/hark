@@ -66,9 +66,9 @@ export default function PluginsPanel({
       {error && <div className="ob-warn">{error}</div>}
 
       {plugins.map((p) => {
-        // Runnable TODAY: in the registry, installed, switched on, and
-        // spoken by a plugin whose runtime already exists.
-        const usable = p.detected && p.enabled && p.plugin === "claude";
+        // Runnable: in the registry, installed, switched on. Both plugins
+        // (native claude, ACP) have a runtime now.
+        const usable = p.detected && p.enabled;
         return (
           <div
             key={p.id}
@@ -125,10 +125,6 @@ export default function PluginsPanel({
                   </span>
                 ))}
               </div>
-            )}
-
-            {p.detected && p.enabled && p.plugin !== "claude" && (
-              <div className="plugin-soon">{t("pl_acp_soon")}</div>
             )}
           </div>
         );

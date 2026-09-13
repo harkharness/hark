@@ -150,7 +150,8 @@ mod tests {
     #[test]
     fn a_missing_binary_is_reported_as_missing_with_its_name() {
         let backend = AcpBackend::new("ghost", "hark-no-such-agent-xyz", vec![], vec![], None, None);
-        let err = backend.spawn(&spec()).err().expect("cannot spawn").to_string();
+        let Err(err) = backend.spawn(&spec()) else { panic!("cannot spawn") };
+        let err = err.to_string();
         assert!(err.starts_with("agent_missing: hark-no-such-agent-xyz"), "{err}");
     }
 
@@ -161,5 +162,57 @@ mod tests {
         assert!(caps.permissions);
         assert!(!caps.history && !caps.resume && !caps.fork);
         assert_eq!(caps.memory_file.as_deref(), Some("X.md"));
+    }
+
+    /// The real thing, on this machine: `cargo test -p hark-plugin-acp
+    /// -- --ignored gemini --nocapture`. Whatever the agent answers at
+    /// session/new must come back as one of Hark's health codes — logged
+    /// in, the opening prompt streams a real turn instead.
+    ///
+    /// OBSERVED 13/09/2026, gemini-cli 0.46.0, individual account:
+    /// `agent_failed: session/new: This client is no longer supported for
+    /// Gemini Code Assist for individuals. To continue using Gemini,
+    /// please migrate to the Antigravity suite of products` — a
+    /// deprecation, not an auth failure, and correctly not classified as
+    /// one. The API-key route (`GEMINI_API_KEY` in the entry's env) is
+    /// what remains for individuals on this version.
+    #[test]
+    #[ignore = "spawns the real gemini binary"]
+    fn gemini_on_this_machine_reports_auth_or_talks() {
+        let backend = AcpBackend::new(
+            "gemini",
+            "gemini",
+            vec!["--acp".into()],
+            vec![],
+            Some("GEMINI.md".into()),
+            Some("gemini".into()),
+        );
+        match backend.spawn(&spec()) {
+            Err(err) => {
+                let msg = err.to_string();
+                eprintln!("spawn refused: {msg}");
+                assert!(
+                    ["agent_auth: ", "agent_missing: ", "agent_failed: "].iter().any(|code| msg.starts_with(code)),
+                    "a refusal must carry a health code: {msg}"
+                );
+                if msg.starts_with("agent_auth: ") {
+                    assert!(msg.ends_with("— gemini"), "the registry's login hint rides along: {msg}");
+                }
+            }
+            Ok((session, events)) => {
+                let mut seen = Vec::new();
+                for ev in events.iter() {
+                    let done = matches!(ev, hark_agent::AgentEvent::Result(_));
+                    seen.push(ev);
+                    if done {
+                        break;
+                    }
+                }
+                session.shutdown();
+                eprintln!("{seen:#?}");
+                assert!(seen.iter().any(|e| matches!(e, hark_agent::AgentEvent::SessionStarted { .. })));
+                assert!(seen.iter().any(|e| matches!(e, hark_agent::AgentEvent::Result(_))));
+            }
+        }
     }
 }
