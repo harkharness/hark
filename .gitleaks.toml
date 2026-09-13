@@ -17,5 +17,14 @@ regex = '''(?i)(?:key|api[_-]?key|secret|token|password|passwd|pwd)(?:.|[\n]){0,
 keywords = ["key", "secret", "token", "password"]
 
 [rules.allowlist]
+description = "published checksums, and the uuids every recorded CLI event carries"
 paths = ['''crates/hark-core/src/adapters/model_fetch\.rs''']
-description = "sha256 of the public whisper model downloads"
+# Recorded stream-json is a fixture format here (spikes/, the parsers'
+# recordings), and every event in it reads `..._tokens":N,"uuid":"<uuid>"`
+# — the keyword `token` followed within 20 chars by a 36-char quoted
+# string. That is an event id, not a credential, and it tripped 15 times
+# on one 27-line recording (09/2026), turning every push red. A uuid is
+# never a secret, so the SHAPE is allowlisted rather than the file: a real
+# key pasted into a recording still fails the scan.
+regexTarget = "secret"
+regexes = ['''^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$''']
