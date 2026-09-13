@@ -40,7 +40,7 @@ component passed it through a different slot.
 |---|---|
 | `--bg` | the page the thread is written on |
 | `--bg-deep` | one step UNDER the page: the sidebar rail |
-| `--panel` | one step OVER it: cards, popovers, title bars |
+| `--panel` | one step OVER it: cards, popovers, panel headers |
 | `--panel-2` | chips, hover, active rows, filled small controls |
 | `--text-strong` | headings and emphasis, never a hue |
 | `--text` / `--dim` | body, and everything secondary |
@@ -53,13 +53,31 @@ border. Borders on everything was the strongest "terminal app" tell.
 Sans for the chrome, mono only for what the machine says: code, paths,
 hashes, numbers, terminals.
 
-## Separation on a dark UI is elevation, not shadow
+## Separate by what the content DOES, not by drawing a boundary
 
-A black shadow on near-black is invisible. Reaching for
-`box-shadow: 0 8px 18px -12px rgba(0,0,0,.95)` to separate the chat's
-title bar from the thread did nothing at all; the bar only read as its
-own layer once it took `--panel` against the transcript's `--bg`, with a
-soft drop to sell the lift.
+Two dead ends, in order, on one header:
+
+1. A black shadow on near-black is invisible. `box-shadow: 0 8px 18px
+   -12px rgba(0,0,0,.95)` under the chat's title bar did nothing at all.
+2. Lifting the bar onto `--panel` made it visible and made it a STRIP
+   BOLTED ON TOP — a second surface over a page that has only one.
+
+What works is neither: the header takes the same `--bg` as the thread
+(no bar, no rule, nothing drawn) and a gradient hangs BELOW it, over the
+transcript's first rows, so text dissolves into the page as it scrolls
+up instead of meeting an edge.
+
+```css
+.chat-title-head { background: var(--bg); }
+.chat-title-head::after {          /* takes no layout, eats no clicks */
+  content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 34px;
+  background: linear-gradient(to bottom, var(--bg) 30%, transparent);
+  pointer-events: none;
+}
+```
+
+`pointer-events: none` is not optional — the band sits over the first
+message.
 
 No rules across the window. Headers have no `border-bottom` here — three
 panels in a rail meant three lines of furniture.

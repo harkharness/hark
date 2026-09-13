@@ -1490,13 +1490,21 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
   min-height: 34px; box-sizing: border-box;
   padding: 5px clamp(22px, 7vw, 110px); min-width: 0;
-  /* The title used to sit flush against the first paragraph, so the
-     thread looked like it began at the name. Separation on a dark UI is
-     ELEVATION, not a black shadow on near-black: one step of ground above
-     the transcript, and a soft drop under it to sell the lift. No rule
-     across the window — the harmonised chrome has no header borders. */
-  background: var(--panel);
-  box-shadow: 0 10px 22px -14px rgba(0, 0, 0, .9);
+  /* Same ground as the thread — no bar, no rule, nothing drawn. What
+     separates them is BELOW, in ::after: the thread dissolves into the
+     page as it scrolls up instead of being cut off by an edge. A lifted
+     panel read as a strip bolted on top; this reads as the page
+     continuing under its own title. */
+  background: var(--bg);
+}
+/* The fade the thread scrolls into. It hangs BELOW the header, over the
+   transcript's first rows, and takes no layout: text rising past it
+   thins out into --bg instead of meeting a hard edge. pointer-events
+   none, or it would eat clicks on the first message. */
+.chat-title-head::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 34px;
+  background: linear-gradient(to bottom, var(--bg) 30%, transparent);
+  pointer-events: none;
 }
 /* Hanging from the top bar, the breakdown opens DOWNWARD. */
 .chat-title-head .scope-pop,
