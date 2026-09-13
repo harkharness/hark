@@ -2170,7 +2170,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 /* ---- the rail: typed windows stacked beside the chat ---- */
 .rail {
   display: flex; flex-direction: column; gap: 0;
-  height: 100%; min-height: 0; padding-right: 2px;
+  height: 100%; min-height: 0; padding-right: 0;
 }
 .rail-slot { display: flex; min-height: 0; flex: 1 1 0; }
 /* Drag between two expanded rail panels to trade height. */
@@ -2182,7 +2182,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    height, so the divider costs 6px and still catches the pointer over
    14px. A resize edge has to be easy to hit; it does not have to be
    visible furniture. */
-.rail-slot .frame { margin: 2px 8px; }
+.rail-slot .frame { margin: 2px 4px; }
 .rail-vhandle {
   flex: 0 0 2px; cursor: row-resize; border-radius: 2px; margin: 0 8px;
   position: relative;
