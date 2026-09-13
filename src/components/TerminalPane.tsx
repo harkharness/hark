@@ -26,7 +26,13 @@ export function TerminalTabs({
 }) {
   return (
     <>
-      {shells.map((id, i) => (
+      {/* One shell is not a choice — the tab said "zsh 1" beside a panel
+          already called Terminal, and in a 230px rail it was one of the
+          two things squeezing the header until "retomar sessão" truncated
+          to "resum". Tabs come back the moment there is something to
+          choose between. */}
+      {shells.length > 1 &&
+        shells.map((id, i) => (
         <span
           key={id}
           className={`filetab ${active === id ? "on" : ""}`}
@@ -45,7 +51,7 @@ export function TerminalTabs({
             ×
           </button>
         </span>
-      ))}
+        ))}
       <span className="filetab addtab">
         <button title={t("term_new_shell")} onClick={onAddShell}>
           <Plus size={12} />
@@ -54,11 +60,11 @@ export function TerminalTabs({
       {onResumeSession && (
         <button
           className={`term-resume ${resumeSpent ? "spent" : ""}`}
-          title={t("term_resume_hint")}
+          title={`${t("term_resume")} — ${t("term_resume_hint")}`}
           disabled={resumeSpent}
           onClick={onResumeSession}
         >
-          <SquareChevronRight size={12} /> {t("term_resume")}
+          <SquareChevronRight size={13} />
         </button>
       )}
     </>

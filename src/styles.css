@@ -580,9 +580,12 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 /* No rule under the header: the mockup reads cleaner because the body
    already separates itself by content, and one hairline per panel across
    a rail of three was three lines of furniture. */
+/* A title bar, not a toolbar: 36px, the height of its own controls plus
+   air. At 11/9 padding and 24px boxes it ate 44px of a rail panel that
+   is mostly terminal. */
 .frame-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 11px 10px 9px 14px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px 6px 12px;
 }
 .frame-title {
   color: var(--text-strong); font-size: 12.5px; font-weight: 600; flex: 0 0 auto;
@@ -597,7 +600,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    words ("retomar sessão") and a 26px box folded it onto two lines. */
 .frame-actions button.frame-ctl {
   background: none; border: none; color: var(--dim); cursor: pointer;
-  width: 26px; height: 24px; border-radius: 7px; font: inherit; flex: 0 0 auto;
+  width: 24px; height: 22px; border-radius: 7px; font: inherit; flex: 0 0 auto;
   display: inline-flex; align-items: center; justify-content: center;
 }
 .frame-actions button.frame-ctl:hover { color: var(--text); background: rgba(255,255,255,.06); }
@@ -621,7 +624,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .filetab {
   display: inline-flex; align-items: center; gap: 6px;
-  color: var(--dim); font-size: 11.5px; padding: 4px 11px; cursor: pointer;
+  color: var(--dim); font-size: 11.5px; padding: 3px 10px; cursor: pointer;
   border-radius: 7px; white-space: nowrap;
 }
 .filetab:hover { color: var(--text); }
@@ -634,8 +637,16 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .filetab:hover .filetab-close, .filetab.on .filetab-close { opacity: .6; }
 .filetab-close:hover { opacity: 1 !important; }
 .filetab-close:hover { color: var(--err); }
-.filetab.addtab { position: relative; }
-.filetab.addtab button { background: none; border: none; color: var(--dim); cursor: pointer; }
+/* The "+" was the tallest thing in the bar: a tab box with a button's own
+   padding inside it, 25px against 22px controls, setting the height of
+   every panel header in the rail. It is an icon control like the rest. */
+.filetab.addtab { position: relative; padding: 0; }
+.filetab.addtab button {
+  background: none; border: none; color: var(--dim); cursor: pointer;
+  width: 24px; height: 22px; padding: 0; border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.filetab.addtab button:hover { color: var(--text); background: rgba(255,255,255,.06); }
 .filetab.addtab .side-menu { top: 24px; left: 0; right: auto; }
 .fileseditor { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .filetab-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -1140,15 +1151,16 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .held-actions button:hover { color: var(--accent); }
 /* "resume session": pastes, never runs. Spent once the session is live. */
+/* Icon, not a word: in a 230px rail the label truncated to "resum" and
+   took the space the tab strip needed. The tooltip carries the name. */
 .term-resume {
-  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 22px; flex: 0 0 auto;
   background: none; border: none; border-radius: 7px;
-  color: var(--accent); font: inherit; font-size: 11.5px; padding: 3px 6px; cursor: pointer;
+  color: var(--accent); font: inherit; padding: 0; cursor: pointer; opacity: .75;
 }
-.term-resume:hover { background: rgba(122,162,247,.12); }
-.term-resume.spent {
-  background: var(--panel-2); color: var(--dim); opacity: .6; cursor: default;
-}
+.term-resume:hover { background: rgba(122,162,247,.12); opacity: 1; }
+.term-resume.spent { color: var(--dim); opacity: .35; cursor: default; }
 /* Mother tools: panels beside the chat; the terminal toggle lives in the
    chat header next to "recolher" and lights up while open. */
 .chat-head button.on { color: var(--accent); border-color: var(--accent); }
@@ -2137,7 +2149,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 
 /* Window tabs live in the frame header now — one bar per panel. */
 .frame-tabs {
-  display: flex; align-items: center; gap: 3px; flex: 0 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 3px; flex: 1 1 auto; min-width: 0;
   overflow-x: auto;
 }
 .frame-tabs .filetab { flex: 0 0 auto; }
