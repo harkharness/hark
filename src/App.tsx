@@ -2468,7 +2468,7 @@ export default function App({
               {/* The thread says what it is: a slim title over the prose,
                   like the Claude Code app — controls stay on the composer. */}
               {!reading && (
-                <div className="chat-title-head">
+                <div className="chat-title-head" data-tauri-drag-region>
                   {focusedTask && (
                     <>
                       <span className="chat-title">{focusedTask.title}</span>
