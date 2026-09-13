@@ -1528,7 +1528,9 @@ dependencies = [
 name = "hark-plugin-acp"
 version = "0.3.2"
 dependencies = [
+ "anyhow",
  "hark-agent",
+ "hark-core",
  "serde",
  "serde_json",
 ]

@@ -1,0 +1,1168 @@
+//! One live ACP session: the handshake, the prompt turns, the agent's
+//! questions back to us, and the event stream the driver consumes.
+//!
+//! Plain threads and std pipes, like the claude plugin — no async
+//! runtime. A reader thread turns every line from the agent into either
+//! an answer to something we asked or an `AgentEvent`; everything Hark
+//! sends is one line written under a mutex.
+//!
+//! Two ACP facts shape the design and are pinned by the tests below:
+//!
+//! - `agent_message_chunk` is a TOKEN-sized delta. Hark's transcript is
+//!   message-sized (the claude plugin emits whole assistant messages), so
+//!   chunks are coalesced into one `AssistantText` per segment — a segment
+//!   ends when a tool call, a thought, a permission ask or the end of the
+//!   turn arrives. `TurnResult.raw` is the LAST segment, which is what the
+//!   window compares against to avoid a duplicate bubble.
+//! - `usage_update` is per-session and CUMULATIVE for cost. `used` is the
+//!   size of this turn's prompt (the same "prompt = context" reading
+//!   `context_fill` makes of claude's input tokens), so it maps straight
+//!   to `input` + `context_window`; `cost.amount` is a running total, so a
+//!   turn's cost is the delta from the previous reading.
+
+use crate::caps::{negotiate, Negotiated};
+use crate::rpc::{self, Incoming};
+use crate::translate;
+use hark_agent::{AgentEvent, AgentPhase, ModelUsage, PermissionDecision, TokenUsage, TurnResult};
+use hark_core::ports::EventRx;
+use serde_json::{json, Value};
+use std::collections::{HashMap, VecDeque};
+use std::io::{BufRead, BufReader, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+/// ACP v1 — the version gemini 0.46.0 answered (spikes/acp).
+const PROTOCOL_VERSION: u64 = 1;
+/// A handshake that takes longer than this is a hung agent, not a slow one.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
+/// Stderr lines kept for the exit report.
+const STDERR_TAIL: usize = 20;
+
+/// The two ends of the agent's stdio, whatever they are attached to: a
+/// child process in the app, a pair of pipes in a test.
+pub struct Wire {
+    pub reader: Box<dyn std::io::Read + Send>,
+    pub writer: Box<dyn std::io::Write + Send>,
+}
+
+/// What a new session needs to know before its first turn.
+pub struct Opening<'a> {
+    /// Registry id ("gemini"): labels the usage rows.
+    pub agent: &'a str,
+    pub cwd: &'a std::path::Path,
+    /// Empty = a brand-new session; otherwise `session/load` this one.
+    pub session_id: &'a str,
+    pub instruction: &'a str,
+    pub memory_file: Option<String>,
+}
+
+/// A session that answered the handshake and took its opening prompt.
+pub struct Connected {
+    pub session: Arc<AcpSession>,
+    pub events: EventRx,
+    pub negotiated: Negotiated,
+}
+
+/// Handshake, create-or-load, opening prompt. Blocks until the agent has
+/// answered `session/new` (or `session/load`); the opening prompt itself
+/// streams through `events`.
+///
+/// Failures carry the health code the windows already know: an
+/// unauthenticated agent is `agent_auth: <its own words>`.
+pub fn connect(
+    wire: Wire,
+    child: Option<std::process::Child>,
+    stderr: Option<std::process::ChildStderr>,
+    opening: &Opening,
+) -> anyhow::Result<Connected> {
+    let (tx, rx) = mpsc::channel();
+    let session = Arc::new(AcpSession {
+        agent: opening.agent.to_string(),
+        writer: Mutex::new(Some(wire.writer)),
+        pid: child.as_ref().map(|c| c.id()),
+        child: Mutex::new(child),
+        session_id: Mutex::new(String::new()),
+        next_id: AtomicU64::new(1),
+        pending: Mutex::new(HashMap::new()),
+        asks: Mutex::new(HashMap::new()),
+        ask_seq: AtomicU64::new(1),
+        stderr_tail: Arc::new(Mutex::new(VecDeque::new())),
+        cost_before: Mutex::new(0.0),
+    });
+    if let Some(stderr) = stderr {
+        tail_stderr(stderr, session.stderr_tail.clone());
+    }
+    // `SessionStarted` goes out from here, before the reader owns the only
+    // long-lived sender; this clone dies with the function.
+    let started = tx.clone();
+    spawn_reader(wire.reader, session.clone(), tx);
+
+    match handshake(&session, opening, &started) {
+        Ok(negotiated) => Ok(Connected { session, events: rx, negotiated }),
+        Err(err) => {
+            // A refused handshake must not leave an agent running.
+            session.shutdown();
+            Err(err)
+        }
+    }
+}
+
+/// initialize → session/new | session/load → SessionStarted → the opening
+/// prompt. Separate so a failure anywhere can tear the process down.
+fn handshake(
+    session: &Arc<AcpSession>,
+    opening: &Opening,
+    started: &Sender<AgentEvent>,
+) -> anyhow::Result<Negotiated> {
+    let init = session
+        .call(
+            "initialize",
+            json!({
+                "protocolVersion": PROTOCOL_VERSION,
+                // Declined on purpose: the agent uses its OWN tools to read
+                // and write files and run commands. Hark serves neither
+                // fs/* nor terminal/*, and saying so here is what keeps the
+                // agent from asking (spikes/acp/FINDINGS.md).
+                "clientCapabilities": {
+                    "fs": { "readTextFile": false, "writeTextFile": false },
+                    "terminal": false
+                },
+                "clientInfo": { "name": "hark", "version": env!("CARGO_PKG_VERSION") }
+            }),
+        )
+        .map_err(|e| failure("initialize", e, session))?;
+    let negotiated = negotiate(&init, opening.memory_file.clone());
+
+    let resuming = !opening.session_id.is_empty();
+    let cwd = opening.cwd.display().to_string();
+    let (method, params) = if resuming {
+        ("session/load", json!({ "sessionId": opening.session_id, "cwd": cwd, "mcpServers": [] }))
+    } else {
+        ("session/new", json!({ "cwd": cwd, "mcpServers": [] }))
+    };
+    let answer = session.call(method, params).map_err(|e| failure(method, e, session))?;
+    let session_id = if resuming {
+        opening.session_id.to_string()
+    } else {
+        answer
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("agent_failed: session/new answered without a sessionId"))?
+            .to_string()
+    };
+    *session.session_id.lock().unwrap_or_else(|e| e.into_inner()) = session_id.clone();
+    let _ = started.send(AgentEvent::SessionStarted { session_id, slash_commands: Vec::new() });
+
+    session.prompt(opening.instruction, &[])?;
+    Ok(negotiated)
+}
+
+/// Why a handshake call did not get its answer.
+enum CallError {
+    /// The agent answered with a JSON-RPC error object.
+    Rpc(Value),
+    /// The stream closed (or was never writable) before an answer.
+    Closed,
+    Timeout,
+}
+
+/// One of our health codes, with the agent's own words attached. The
+/// windows render `agent_auth:` as a login card and the rest as prose.
+fn failure(method: &str, err: CallError, session: &AcpSession) -> anyhow::Error {
+    match err {
+        CallError::Rpc(err) => match translate::auth_error(&err) {
+            Some(msg) => anyhow::anyhow!("{}{msg}", translate::AUTH_PREFIX),
+            None => {
+                let msg = err.get("message").and_then(Value::as_str).unwrap_or("erro sem mensagem");
+                anyhow::anyhow!("agent_failed: {method}: {msg}")
+            }
+        },
+        CallError::Closed => {
+            let tail = session.stderr_tail.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect::<Vec<_>>().join(" ");
+            anyhow::anyhow!("agent_failed: {method}: o agente fechou a conexão ({})", tail.trim())
+        }
+        CallError::Timeout => anyhow::anyhow!(
+            "agent_failed: {method}: sem resposta em {}s",
+            HANDSHAKE_TIMEOUT.as_secs()
+        ),
+    }
+}
+
+/// What we are waiting for under a request id.
+enum Pending {
+    /// A handshake call blocked on its answer.
+    Reply(Sender<Result<Value, Value>>),
+    /// The turn in flight: its answer is the turn's result.
+    Prompt,
+}
+
+/// A `session/request_permission` the user has not answered yet.
+struct OpenAsk {
+    /// The agent's id for it, echoed back verbatim.
+    rpc_id: Value,
+    /// (optionId, kind) as offered.
+    options: Vec<(String, String)>,
+}
+
+/// The last `usage_update` of the turn.
+#[derive(Clone, Copy)]
+struct UsageReading {
+    used: u64,
+    size: u64,
+    /// The session's running total — the turn's share is a delta.
+    total_cost: Option<f64>,
+}
+
+/// Reader-thread state for the turn in flight.
+#[derive(Default)]
+struct Turn {
+    /// Chunks of the segment being written.
+    segment: String,
+    /// The last segment flushed — `TurnResult.raw`.
+    last_segment: String,
+    usage: Option<UsageReading>,
+}
+
+impl Turn {
+    /// Close the segment: one message for however many chunks it took.
+    fn flush(&mut self, tx: &Sender<AgentEvent>) {
+        if self.segment.is_empty() {
+            return;
+        }
+        self.last_segment = std::mem::take(&mut self.segment);
+        let _ = tx.send(AgentEvent::AssistantText(self.last_segment.clone()));
+    }
+}
+
+/// The live handle. Cheap to clone through the Arc the driver holds.
+pub struct AcpSession {
+    agent: String,
+    writer: Mutex<Option<Box<dyn Write + Send>>>,
+    child: Mutex<Option<std::process::Child>>,
+    pid: Option<u32>,
+    session_id: Mutex<String>,
+    next_id: AtomicU64,
+    pending: Mutex<HashMap<u64, Pending>>,
+    asks: Mutex<HashMap<String, OpenAsk>>,
+    ask_seq: AtomicU64,
+    stderr_tail: Arc<Mutex<VecDeque<String>>>,
+    cost_before: Mutex<f64>,
+}
+
+impl AcpSession {
+    /// The next user turn. One at a time: ACP allows a single prompt in
+    /// flight per session, and Hark's outbox already queues the rest.
+    pub fn send_text(&self, text: &str, images: &[(String, String)]) -> anyhow::Result<()> {
+        self.prompt(text, images)
+    }
+
+    /// Answer `session/request_permission`. Allow picks `allow_once` —
+    /// never `allow_always`: a standing rule is Hark's own to keep, per
+    /// window, and must not be planted in the agent behind the user.
+    pub fn respond_permission(&self, request_id: &str, decision: PermissionDecision) -> anyhow::Result<()> {
+        let ask = self
+            .asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(request_id)
+            .ok_or_else(|| anyhow::anyhow!("nenhuma permissão {request_id} em aberto"))?;
+        let pick = |kinds: &[&str]| {
+            kinds.iter().find_map(|wanted| {
+                ask.options.iter().find(|(_, kind)| kind == wanted).map(|(id, _)| id.clone())
+            })
+        };
+        let chosen = match decision {
+            // allow_always only when the agent offers nothing narrower —
+            // the user did say yes.
+            PermissionDecision::Allow => pick(&["allow_once", "allow_always"]),
+            PermissionDecision::Deny => pick(&["reject_once", "reject_always"]),
+        };
+        let outcome = match chosen {
+            Some(option_id) => json!({ "outcome": { "outcome": "selected", "optionId": option_id } }),
+            None => json!({ "outcome": { "outcome": "cancelled" } }),
+        };
+        self.write(&rpc::response(&ask.rpc_id, outcome))
+    }
+
+    /// `session/cancel`, plus the answer the spec REQUIRES for every
+    /// permission still open: `cancelled`.
+    pub fn interrupt(&self) -> anyhow::Result<()> {
+        let open: Vec<OpenAsk> = self
+            .asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain()
+            .map(|(_, ask)| ask)
+            .collect();
+        for ask in open {
+            let _ = self.write(&rpc::response(&ask.rpc_id, json!({ "outcome": { "outcome": "cancelled" } })));
+        }
+        let session_id = self.session_id.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        self.write(&rpc::notification("session/cancel", json!({ "sessionId": session_id })))
+    }
+
+    /// Hang up: EOF on the agent's stdin, then the process goes.
+    pub fn shutdown(&self) {
+        self.writer.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let mut child = self.child.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(child) = child.as_mut() {
+            // A moment to leave on its own, then the safety net.
+            std::thread::sleep(Duration::from_millis(300));
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    pub fn pid(&self) -> Option<u32> {
+        self.pid
+    }
+
+    /// Exit code and the agent's last words on stderr, once the stream
+    /// has closed. Pipes-only sessions (tests) have neither.
+    pub fn exit_report(&self) -> (Option<i32>, String) {
+        let code = self
+            .child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+            .and_then(|c| c.wait().ok())
+            .and_then(|status| status.code());
+        let tail = self
+            .stderr_tail
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
+        (code, tail)
+    }
+
+    fn write(&self, line: &str) -> anyhow::Result<()> {
+        trace(">>", line);
+        let mut guard = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+        let writer = guard.as_mut().ok_or_else(|| anyhow::anyhow!("sessão já encerrada"))?;
+        writeln!(writer, "{line}")?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    /// A request that blocks on its answer (handshake only).
+    fn call(&self, method: &str, params: Value) -> Result<Value, CallError> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, Pending::Reply(reply_tx));
+        if self.write(&rpc::request(id, method, params)).is_err() {
+            self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+            return Err(CallError::Closed);
+        }
+        match reply_rx.recv_timeout(HANDSHAKE_TIMEOUT) {
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(error)) => Err(CallError::Rpc(error)),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+                Err(CallError::Timeout)
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(CallError::Closed),
+        }
+    }
+
+    /// The turn: text first, then every pasted image as its own block.
+    fn prompt(&self, text: &str, images: &[(String, String)]) -> anyhow::Result<()> {
+        let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+        if pending.values().any(|p| matches!(p, Pending::Prompt)) {
+            anyhow::bail!("a turn is already in flight on this session");
+        }
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        pending.insert(id, Pending::Prompt);
+        drop(pending);
+        let mut blocks = vec![json!({ "type": "text", "text": text })];
+        for (mime, data) in images {
+            blocks.push(json!({ "type": "image", "data": data, "mimeType": mime }));
+        }
+        let session_id = self.session_id.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        self.write(&rpc::request(id, "session/prompt", json!({ "sessionId": session_id, "prompt": blocks })))
+    }
+
+    /// The agent asked whether a tool may run: remember its options under
+    /// an id of OURS, and ask the user.
+    fn on_permission(&self, rpc_id: Value, params: &Value, tx: &Sender<AgentEvent>) {
+        let tool = params.get("toolCall").cloned().unwrap_or(Value::Null);
+        let tool_name = tool
+            .get("title")
+            .or_else(|| tool.get("kind"))
+            .and_then(Value::as_str)
+            .unwrap_or("tool")
+            .to_string();
+        let input = tool.get("rawInput").map(|i| i.to_string()).unwrap_or_default();
+        let options = params
+            .get("options")
+            .and_then(Value::as_array)
+            .map(|list| {
+                list.iter()
+                    .filter_map(|o| {
+                        Some((
+                            o.get("optionId")?.as_str()?.to_string(),
+                            o.get("kind").and_then(Value::as_str).unwrap_or("").to_string(),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let request_id = format!("acp-{}", self.ask_seq.fetch_add(1, Ordering::Relaxed));
+        self.asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(request_id.clone(), OpenAsk { rpc_id, options });
+        let _ = tx.send(AgentEvent::PermissionRequest { request_id, tool_name, input });
+    }
+
+    /// `session/update`: prose chunks accumulate; anything else closes the
+    /// segment first, so the transcript keeps the order things happened.
+    fn on_update(&self, params: &Value, turn: &mut Turn, tx: &Sender<AgentEvent>) {
+        match translate::update(params) {
+            AgentEvent::AssistantText(text) => {
+                if turn.segment.is_empty() {
+                    let _ = tx.send(AgentEvent::Status(AgentPhase::Writing));
+                }
+                turn.segment.push_str(&text);
+            }
+            AgentEvent::Ignored => {
+                let update = params.get("update").unwrap_or(params);
+                match update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("") {
+                    // The agent's own slash commands: the same event the
+                    // claude plugin sends from its init line.
+                    "available_commands_update" => {
+                        let names: Vec<String> = update
+                            .get("availableCommands")
+                            .and_then(Value::as_array)
+                            .map(|cmds| {
+                                cmds.iter()
+                                    .filter_map(|c| c.get("name").and_then(Value::as_str).map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        let session_id = self.session_id.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                        let _ = tx.send(AgentEvent::SessionStarted { session_id, slash_commands: names });
+                    }
+                    "usage_update" => {
+                        turn.usage = Some(UsageReading {
+                            used: update.get("used").and_then(Value::as_u64).unwrap_or(0),
+                            size: update.get("size").and_then(Value::as_u64).unwrap_or(0),
+                            total_cost: update.get("cost").and_then(|c| c.get("amount")).and_then(Value::as_f64),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            other => {
+                turn.flush(tx);
+                let _ = tx.send(other);
+            }
+        }
+    }
+
+    /// The prompt's answer, as the turn's result.
+    fn finish_turn(&self, turn: &mut Turn, result: Option<Value>, error: Option<Value>) -> TurnResult {
+        let (is_error, raw) = match error {
+            Some(err) => {
+                let msg = err.get("message").and_then(Value::as_str).unwrap_or("erro sem mensagem").to_string();
+                let raw = match translate::auth_error(&err) {
+                    Some(_) => format!("{}{msg}", translate::AUTH_PREFIX),
+                    None => msg,
+                };
+                (true, raw)
+            }
+            None => {
+                let stop = result
+                    .as_ref()
+                    .and_then(|r| r.get("stopReason"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("end_turn")
+                    .to_string();
+                let text = std::mem::take(&mut turn.last_segment);
+                // A turn with no prose says why it stopped, unless it was
+                // the ordinary end or the stop the user asked for.
+                let raw = if text.is_empty() && stop != "end_turn" && stop != "cancelled" {
+                    format!("({stop})")
+                } else {
+                    text
+                };
+                (false, raw)
+            }
+        };
+        let (usage, cost_usd) = match turn.usage.take() {
+            Some(reading) => {
+                let cost = reading.total_cost.map(|total| {
+                    let mut before = self.cost_before.lock().unwrap_or_else(|e| e.into_inner());
+                    let share = (total - *before).max(0.0);
+                    *before = total;
+                    share
+                });
+                (
+                    vec![ModelUsage {
+                        model: self.agent.clone(),
+                        usage: TokenUsage { input: reading.used, ..Default::default() },
+                        cost_usd: cost,
+                        context_window: Some(reading.size),
+                    }],
+                    cost,
+                )
+            }
+            None => (Vec::new(), None),
+        };
+        turn.segment.clear();
+        TurnResult {
+            is_error,
+            reply: None,
+            raw,
+            cost_usd,
+            duration_ms: None,
+            model: Some(self.agent.clone()),
+            usage,
+        }
+    }
+}
+
+/// Every line from the agent, sorted and acted on. Owns the only
+/// long-lived event sender: when the agent's stdout closes, this thread
+/// ends, the sender drops, and the driver's `rx.iter()` ends with it.
+fn spawn_reader(reader: Box<dyn std::io::Read + Send>, session: Arc<AcpSession>, tx: Sender<AgentEvent>) {
+    std::thread::spawn(move || {
+        let debug = std::env::var_os("HARK_DEBUG").is_some();
+        let mut turn = Turn::default();
+        for line in BufReader::new(reader).lines().map_while(Result::ok) {
+            trace("<<", &line);
+            if debug {
+                eprintln!("[hark acp {}] {line}", session.agent);
+            }
+            let Some(msg) = rpc::parse(&line) else { continue };
+            match msg {
+                Incoming::Response { id, result, error } => {
+                    let pending = session.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+                    match pending {
+                        Some(Pending::Reply(reply)) => {
+                            let _ = reply.send(match (result, error) {
+                                (_, Some(err)) => Err(err),
+                                (Some(res), None) => Ok(res),
+                                (None, None) => Ok(Value::Null),
+                            });
+                        }
+                        Some(Pending::Prompt) => {
+                            turn.flush(&tx);
+                            let result = session.finish_turn(&mut turn, result, error);
+                            let _ = tx.send(AgentEvent::Result(result));
+                        }
+                        // An answer to nothing we asked (a timed-out call).
+                        None => {}
+                    }
+                }
+                Incoming::Notification { method, params } if method == "session/update" => {
+                    session.on_update(&params, &mut turn, &tx);
+                }
+                Incoming::Notification { .. } => {}
+                Incoming::Request { id, method, params } => match method.as_str() {
+                    "session/request_permission" => {
+                        turn.flush(&tx);
+                        session.on_permission(id, &params, &tx);
+                    }
+                    // fs/*, terminal/*, elicitation/*: declined at initialize,
+                    // refused here if asked anyway. The turn goes on.
+                    _ => {
+                        let _ = session.write(&rpc::error_response(
+                            &id,
+                            -32601,
+                            &format!("hark does not serve {method}"),
+                        ));
+                    }
+                },
+            }
+        }
+        // EOF: whoever is blocked on an answer learns the stream is gone.
+        turn.flush(&tx);
+        session.pending.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        session.asks.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    });
+}
+
+/// The agent's stderr, last lines only, for the exit report.
+fn tail_stderr(stderr: std::process::ChildStderr, tail: Arc<Mutex<VecDeque<String>>>) {
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            let mut tail = tail.lock().unwrap_or_else(|e| e.into_inner());
+            if tail.len() >= STDERR_TAIL {
+                tail.pop_front();
+            }
+            tail.push_back(line);
+        }
+    });
+}
+
+/// `HARK_ACP_TRACE=<file>` records the wire both ways — how fixtures are
+/// born (spikes/acp/FINDINGS.md: traffic, not the spec, is the source).
+fn trace(direction: &str, line: &str) {
+    let Some(path) = std::env::var_os("HARK_ACP_TRACE") else { return };
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{direction} {line}");
+    }
+}
+
+impl hark_core::ports::AgentSession for AcpSession {
+    fn send_text(&self, text: &str, images: &[(String, String)]) -> anyhow::Result<()> {
+        AcpSession::send_text(self, text, images)
+    }
+    fn respond_permission(&self, request_id: &str, decision: PermissionDecision) -> anyhow::Result<()> {
+        AcpSession::respond_permission(self, request_id, decision)
+    }
+    fn interrupt(&self) -> anyhow::Result<()> {
+        AcpSession::interrupt(self)
+    }
+    fn shutdown(&self) {
+        AcpSession::shutdown(self)
+    }
+    fn pid(&self) -> Option<u32> {
+        AcpSession::pid(self)
+    }
+    fn exit_report(&self) -> (Option<i32>, String) {
+        AcpSession::exit_report(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rpc::{self, Incoming};
+    use hark_agent::{AgentPhase, ModelUsage, TokenUsage};
+    use serde_json::{json, Value};
+    use std::io::{BufRead, BufReader, Write};
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    /// The real `initialize` answer from gemini-cli 0.46.0 on this machine.
+    const GEMINI_INIT: &str = include_str!("../fixtures/initialize.gemini-0.46.0.json");
+
+    /// Everything hark sent, in order — the assertions read it back.
+    type Seen = Arc<Mutex<Vec<Incoming>>>;
+
+    /// A scripted agent on the far end of two pipes. `script` sees every
+    /// message hark sends and gets a `say` to write one line back.
+    fn fake_agent(
+        script: impl FnMut(&Incoming, &mut dyn FnMut(String)) + Send + 'static,
+    ) -> (Wire, Seen) {
+        let (agent_reads, hark_writes) = std::io::pipe().expect("pipe");
+        let (hark_reads, agent_writes) = std::io::pipe().expect("pipe");
+        let seen: Seen = Arc::default();
+        let seen2 = seen.clone();
+        std::thread::spawn(move || {
+            let mut out = agent_writes;
+            let mut script = script;
+            for line in BufReader::new(agent_reads).lines().map_while(Result::ok) {
+                if let Some(msg) = rpc::parse(&line) {
+                    seen2.lock().unwrap().push(msg.clone());
+                    let mut say = |s: String| {
+                        let _ = writeln!(out, "{s}");
+                    };
+                    script(&msg, &mut say);
+                }
+            }
+            // hark hung up: dropping `out` closes hark's reader in turn.
+        });
+        (Wire { reader: Box::new(hark_reads), writer: Box::new(hark_writes) }, seen)
+    }
+
+    /// An agent that handshakes like gemini and hands every prompt to
+    /// `on_prompt(prompt request id, params, say)`.
+    fn gemini_like(
+        mut on_prompt: impl FnMut(u64, &Value, &mut dyn FnMut(String)) + Send + 'static,
+    ) -> impl FnMut(&Incoming, &mut dyn FnMut(String)) + Send + 'static {
+        move |msg, say| {
+            if let Incoming::Request { id, method, params } = msg {
+                match method.as_str() {
+                    "initialize" => say(rpc::response(id, serde_json::from_str(GEMINI_INIT).unwrap())),
+                    "session/new" => say(rpc::response(id, json!({ "sessionId": "s-1" }))),
+                    "session/load" => say(rpc::response(id, json!({}))),
+                    "session/prompt" => on_prompt(id.as_u64().unwrap(), params, say),
+                    _ => say(rpc::error_response(id, -32601, "not in this script")),
+                }
+            }
+        }
+    }
+
+    fn update(update: Value) -> String {
+        rpc::notification("session/update", json!({ "sessionId": "s-1", "update": update }))
+    }
+    fn chunk(text: &str) -> Value {
+        json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": text } })
+    }
+    fn end_turn(id: u64) -> String {
+        rpc::response(&json!(id), json!({ "stopReason": "end_turn" }))
+    }
+    fn opening<'a>(session_id: &'a str, instruction: &'a str) -> Opening<'a> {
+        Opening {
+            agent: "gemini",
+            cwd: std::path::Path::new("/tmp/proj"),
+            session_id,
+            instruction,
+            memory_file: Some("GEMINI.md".into()),
+        }
+    }
+
+    /// Events up to and including the first `Result`.
+    fn until_result(rx: &EventRx) -> Vec<AgentEvent> {
+        let mut out = Vec::new();
+        loop {
+            let ev = rx.recv_timeout(Duration::from_secs(3)).expect("an event before the timeout");
+            let done = matches!(ev, AgentEvent::Result(_));
+            out.push(ev);
+            if done {
+                return out;
+            }
+        }
+    }
+
+    fn methods(seen: &Seen) -> Vec<String> {
+        seen.lock()
+            .unwrap()
+            .iter()
+            .filter_map(|m| match m {
+                Incoming::Request { method, .. } | Incoming::Notification { method, .. } => Some(method.clone()),
+                Incoming::Response { .. } => None,
+            })
+            .collect()
+    }
+
+    fn wait_for(seen: &Seen, pred: impl Fn(&Incoming) -> bool) -> Incoming {
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Some(m) = seen.lock().unwrap().iter().find(|m| pred(m)) {
+                return m.clone();
+            }
+            assert!(std::time::Instant::now() < deadline, "hark never sent what the test waits for");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn turn(events: &[AgentEvent]) -> &hark_agent::TurnResult {
+        match events.last() {
+            Some(AgentEvent::Result(t)) => t,
+            other => panic!("expected the turn's result last, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_new_session_is_negotiated_created_and_given_its_opening_prompt() {
+        let (wire, seen) = fake_agent(gemini_like(|id, _params, say| {
+            say(update(chunk("olá")));
+            say(update(chunk(" mundo")));
+            say(end_turn(id));
+        }));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        assert_eq!(c.negotiated.info.name, "gemini-cli");
+        assert!(c.negotiated.images, "the sheet comes from the wire, not from a default");
+
+        let events = until_result(&c.events);
+        assert_eq!(
+            events[..3],
+            [
+                AgentEvent::SessionStarted { session_id: "s-1".into(), slash_commands: vec![] },
+                AgentEvent::Status(AgentPhase::Writing),
+                // Two chunks, ONE message: the transcript is message-sized.
+                AgentEvent::AssistantText("olá mundo".into()),
+            ]
+        );
+        let t = turn(&events);
+        assert!(!t.is_error);
+        assert_eq!(t.raw, "olá mundo", "raw is the last segment, so the window does not paste it twice");
+        assert!(t.usage.is_empty() && t.cost_usd.is_none(), "nothing reported, nothing invented");
+
+        assert_eq!(methods(&seen), ["initialize", "session/new", "session/prompt"]);
+        let sent = seen.lock().unwrap();
+        let new = sent.iter().find_map(|m| match m {
+            Incoming::Request { method, params, .. } if method == "session/new" => Some(params.clone()),
+            _ => None,
+        });
+        assert_eq!(new.as_ref().unwrap()["cwd"], "/tmp/proj");
+        assert_eq!(new.as_ref().unwrap()["mcpServers"], json!([]));
+        let prompt = sent.iter().find_map(|m| match m {
+            Incoming::Request { method, params, .. } if method == "session/prompt" => Some(params.clone()),
+            _ => None,
+        });
+        let prompt = prompt.unwrap();
+        assert_eq!(prompt["sessionId"], "s-1");
+        assert_eq!(prompt["prompt"], json!([{ "type": "text", "text": "oi" }]));
+    }
+
+    #[test]
+    fn the_handshake_declines_the_file_system_and_the_terminal() {
+        // Hark does not serve fs/* or terminal/*: the agent uses its own
+        // tools. Saying so at initialize is what keeps it from asking.
+        let (wire, seen) = fake_agent(gemini_like(|id, _p, say| say(end_turn(id))));
+        let _c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let init = wait_for(&seen, |m| matches!(m, Incoming::Request { method, .. } if method == "initialize"));
+        let Incoming::Request { params, .. } = init else { unreachable!() };
+        assert_eq!(params["protocolVersion"], 1);
+        assert_eq!(params["clientCapabilities"]["fs"]["readTextFile"], false);
+        assert_eq!(params["clientCapabilities"]["fs"]["writeTextFile"], false);
+        assert_eq!(params["clientCapabilities"]["terminal"], false);
+    }
+
+    #[test]
+    fn an_unauthenticated_agent_fails_the_connect_with_the_auth_code() {
+        // OBSERVED: gemini 0.46.0 answers session/new with -32000 when no
+        // one is logged in (spikes/acp/FINDINGS.md). The windows already
+        // render "agent_auth: …" as a login card.
+        let (wire, _seen) = fake_agent(|msg, say| {
+            if let Incoming::Request { id, method, .. } = msg {
+                match method.as_str() {
+                    "initialize" => say(rpc::response(id, serde_json::from_str(GEMINI_INIT).unwrap())),
+                    "session/new" => say(rpc::error_response(
+                        id,
+                        -32000,
+                        "Gemini API key is missing or not configured.",
+                    )),
+                    _ => {}
+                }
+            }
+        });
+        let err = connect(wire, None, None, &opening("", "oi")).err().expect("must fail");
+        let msg = err.to_string();
+        assert!(msg.starts_with("agent_auth: "), "{msg}");
+        assert!(msg.contains("API key is missing"), "the agent's own words survive: {msg}");
+    }
+
+    #[test]
+    fn any_other_refusal_is_a_plain_failure_with_the_agents_words() {
+        let (wire, _seen) = fake_agent(|msg, say| {
+            if let Incoming::Request { id, method, .. } = msg {
+                match method.as_str() {
+                    "initialize" => say(rpc::response(id, serde_json::from_str(GEMINI_INIT).unwrap())),
+                    "session/new" => say(rpc::error_response(id, -32603, "disk on fire")),
+                    _ => {}
+                }
+            }
+        });
+        let msg = connect(wire, None, None, &opening("", "oi")).err().unwrap().to_string();
+        assert!(msg.starts_with("agent_failed: "), "{msg}");
+        assert!(msg.contains("disk on fire"), "{msg}");
+    }
+
+    #[test]
+    fn a_resume_loads_the_session_instead_of_creating_one() {
+        let (wire, seen) = fake_agent(gemini_like(|id, _p, say| say(end_turn(id))));
+        let c = connect(wire, None, None, &opening("old-7", "continua")).expect("connects");
+        let events = until_result(&c.events);
+        assert_eq!(
+            events[0],
+            AgentEvent::SessionStarted { session_id: "old-7".into(), slash_commands: vec![] }
+        );
+        let m = methods(&seen);
+        assert!(m.contains(&"session/load".to_string()) && !m.contains(&"session/new".to_string()), "{m:?}");
+        let load = wait_for(&seen, |m| matches!(m, Incoming::Request { method, .. } if method == "session/load"));
+        let Incoming::Request { params, .. } = load else { unreachable!() };
+        assert_eq!(params["sessionId"], "old-7");
+        assert_eq!(params["cwd"], "/tmp/proj");
+    }
+
+    #[test]
+    fn text_around_a_tool_call_arrives_as_two_messages_with_the_tool_between() {
+        let (wire, _seen) = fake_agent(gemini_like(|id, _p, say| {
+            say(update(chunk("vou ler")));
+            say(update(json!({ "sessionUpdate": "tool_call", "toolCallId": "c1", "title": "Read",
+                "kind": "read", "status": "pending", "rawInput": { "path": "/tmp/x" } })));
+            say(update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "c1",
+                "status": "completed",
+                "content": [{ "type": "content", "content": { "type": "text", "text": "12 linhas" } }] })));
+            say(update(chunk("pronto")));
+            say(end_turn(id));
+        }));
+        let c = connect(wire, None, None, &opening("", "lê o arquivo")).expect("connects");
+        let events = until_result(&c.events);
+        assert_eq!(events[1], AgentEvent::Status(AgentPhase::Writing));
+        assert_eq!(events[2], AgentEvent::AssistantText("vou ler".into()));
+        match &events[3] {
+            AgentEvent::ToolUse { name, input } => {
+                assert_eq!(name, "Read");
+                assert!(input.contains("/tmp/x"));
+            }
+            other => panic!("expected the tool call, got {other:?}"),
+        }
+        assert_eq!(events[4], AgentEvent::ToolResult { content: "12 linhas".into(), is_error: false });
+        assert_eq!(events[5], AgentEvent::Status(AgentPhase::Writing));
+        assert_eq!(events[6], AgentEvent::AssistantText("pronto".into()));
+        assert_eq!(turn(&events).raw, "pronto");
+    }
+
+    #[test]
+    fn a_thought_ends_the_segment_and_is_a_phase_not_text() {
+        let (wire, _seen) = fake_agent(gemini_like(|id, _p, say| {
+            say(update(json!({ "sessionUpdate": "agent_thought_chunk",
+                "content": { "type": "text", "text": "hmm" } })));
+            say(update(chunk("resposta")));
+            say(end_turn(id));
+        }));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let events = until_result(&c.events);
+        assert_eq!(events[1], AgentEvent::Status(AgentPhase::Thinking));
+        assert_eq!(events[2], AgentEvent::Status(AgentPhase::Writing));
+        assert_eq!(events[3], AgentEvent::AssistantText("resposta".into()));
+        assert!(!events.iter().any(|e| matches!(e, AgentEvent::AssistantText(t) if t.contains("hmm"))),
+            "a model's scratchpad never lands in the transcript");
+    }
+
+    /// The permission dance, scripted: the agent asks (request 7) inside
+    /// the turn and only finishes the turn once hark has answered.
+    fn permission_agent() -> impl FnMut(&Incoming, &mut dyn FnMut(String)) + Send + 'static {
+        let prompt_id: Arc<Mutex<Option<u64>>> = Arc::default();
+        move |msg, say| match msg {
+            Incoming::Request { id, method, .. } => match method.as_str() {
+                "initialize" => say(rpc::response(id, serde_json::from_str(GEMINI_INIT).unwrap())),
+                "session/new" => say(rpc::response(id, json!({ "sessionId": "s-1" }))),
+                "session/prompt" => {
+                    *prompt_id.lock().unwrap() = id.as_u64();
+                    say(rpc::request(7, "session/request_permission", json!({
+                        "sessionId": "s-1",
+                        "toolCall": { "toolCallId": "c1", "title": "Bash", "kind": "execute",
+                                      "rawInput": { "command": "ls -la" } },
+                        "options": [
+                            { "optionId": "a", "name": "Allow always", "kind": "allow_always" },
+                            { "optionId": "o", "name": "Allow once", "kind": "allow_once" },
+                            { "optionId": "r", "name": "Reject", "kind": "reject_once" }
+                        ]
+                    })));
+                }
+                _ => {}
+            },
+            // Hark answered our permission request: the turn can end.
+            Incoming::Response { id: 7, .. } => {
+                if let Some(pid) = *prompt_id.lock().unwrap() {
+                    say(end_turn(pid));
+                }
+            }
+            Incoming::Notification { method, .. } if method == "session/cancel" => {
+                if let Some(pid) = *prompt_id.lock().unwrap() {
+                    say(rpc::response(&json!(pid), json!({ "stopReason": "cancelled" })));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn permission_event(rx: &EventRx) -> String {
+        loop {
+            match rx.recv_timeout(Duration::from_secs(3)).expect("an event") {
+                AgentEvent::PermissionRequest { request_id, tool_name, input } => {
+                    assert_eq!(tool_name, "Bash");
+                    assert!(input.contains("ls -la"), "the payload is the agent's rawInput: {input}");
+                    return request_id;
+                }
+                AgentEvent::Result(t) => panic!("the turn ended before asking: {t:?}"),
+                _ => {}
+            }
+        }
+    }
+
+    fn answer_to(seen: &Seen, id: u64) -> Value {
+        let m = wait_for(seen, |m| matches!(m, Incoming::Response { id: got, .. } if *got == id));
+        let Incoming::Response { result, .. } = m else { unreachable!() };
+        result.expect("a result, not an error")
+    }
+
+    #[test]
+    fn a_permission_request_becomes_an_event_and_allow_picks_allow_once_never_always() {
+        let (wire, seen) = fake_agent(permission_agent());
+        let c = connect(wire, None, None, &opening("", "lista")).expect("connects");
+        let request_id = permission_event(&c.events);
+        assert!(request_id.starts_with("acp-"), "hark's own id, not the agent's: {request_id}");
+
+        c.session.respond_permission(&request_id, PermissionDecision::Allow).expect("answers");
+        let outcome = answer_to(&seen, 7);
+        assert_eq!(outcome["outcome"]["outcome"], "selected");
+        assert_eq!(outcome["outcome"]["optionId"], "o", "allow_once, never the standing rule");
+        assert!(!turn(&until_result(&c.events)).is_error);
+    }
+
+    #[test]
+    fn deny_picks_reject_once() {
+        let (wire, seen) = fake_agent(permission_agent());
+        let c = connect(wire, None, None, &opening("", "lista")).expect("connects");
+        let request_id = permission_event(&c.events);
+        c.session.respond_permission(&request_id, PermissionDecision::Deny).expect("answers");
+        assert_eq!(answer_to(&seen, 7)["outcome"]["optionId"], "r");
+    }
+
+    #[test]
+    fn answering_an_ask_nobody_made_is_an_error_not_a_write() {
+        let (wire, seen) = fake_agent(gemini_like(|id, _p, say| say(end_turn(id))));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        assert!(c.session.respond_permission("acp-99", PermissionDecision::Allow).is_err());
+        let _ = until_result(&c.events);
+        assert!(!seen.lock().unwrap().iter().any(|m| matches!(m, Incoming::Response { .. })));
+    }
+
+    #[test]
+    fn interrupt_cancels_the_turn_and_answers_open_permissions_as_cancelled() {
+        let (wire, seen) = fake_agent(permission_agent());
+        let c = connect(wire, None, None, &opening("", "lista")).expect("connects");
+        let _request_id = permission_event(&c.events);
+
+        c.session.interrupt().expect("cancels");
+        // The spec: a client that cancels MUST answer every pending
+        // permission with `cancelled`, then the agent stops with `cancelled`.
+        let cancelled = answer_to(&seen, 7);
+        assert_eq!(cancelled["outcome"]["outcome"], "cancelled");
+        let cancel = wait_for(&seen, |m| matches!(m, Incoming::Notification { method, .. } if method == "session/cancel"));
+        let Incoming::Notification { params, .. } = cancel else { unreachable!() };
+        assert_eq!(params["sessionId"], "s-1");
+        let t = turn(&until_result(&c.events)).clone();
+        assert!(!t.is_error, "a stop the user asked for is not a failure");
+        assert_eq!(t.raw, "", "no prose was written, none is reported");
+    }
+
+    #[test]
+    fn available_commands_become_the_sessions_slash_list() {
+        let (wire, _seen) = fake_agent(gemini_like(|id, _p, say| {
+            say(update(json!({ "sessionUpdate": "available_commands_update",
+                "availableCommands": [
+                    { "name": "compact", "description": "Compress the context" },
+                    { "name": "help", "description": "Help" }
+                ] })));
+            say(end_turn(id));
+        }));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let events = until_result(&c.events);
+        assert!(events.contains(&AgentEvent::SessionStarted {
+            session_id: "s-1".into(),
+            slash_commands: vec!["compact".into(), "help".into()],
+        }), "{events:?}");
+    }
+
+    #[test]
+    fn an_agent_request_hark_does_not_serve_gets_method_not_found_and_the_turn_goes_on() {
+        let (wire, seen) = fake_agent(gemini_like(|id, _p, say| {
+            say(rpc::request(9, "fs/read_text_file", json!({ "sessionId": "s-1", "path": "/etc/hosts" })));
+            say(update(chunk("segui")));
+            say(end_turn(id));
+        }));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let events = until_result(&c.events);
+        assert_eq!(turn(&events).raw, "segui");
+        let refusal = wait_for(&seen, |m| matches!(m, Incoming::Response { id: 9, .. }));
+        let Incoming::Response { error, .. } = refusal else { unreachable!() };
+        assert_eq!(error.expect("an error")["code"], -32601);
+    }
+
+    #[test]
+    fn images_travel_as_image_blocks_after_the_text() {
+        let (wire, seen) = fake_agent(gemini_like(|id, _p, say| say(end_turn(id))));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let _ = until_result(&c.events);
+        c.session
+            .send_text("veja", &[("image/png".into(), "AAAA".into())])
+            .expect("sends");
+        let _ = until_result(&c.events);
+        let prompts: Vec<Value> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|m| match m {
+                Incoming::Request { method, params, .. } if method == "session/prompt" => Some(params["prompt"].clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(prompts.len(), 2);
+        assert_eq!(
+            prompts[1],
+            json!([{ "type": "text", "text": "veja" },
+                   { "type": "image", "data": "AAAA", "mimeType": "image/png" }])
+        );
+    }
+
+    #[test]
+    fn a_second_prompt_while_one_is_in_flight_is_refused() {
+        // ACP: one prompt per session at a time. The outbox queues the
+        // rest; the session refuses rather than corrupting the turn.
+        let (wire, _seen) = fake_agent(gemini_like(|_id, _p, _say| { /* never answers */ }));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let err = c.session.send_text("mais", &[]).err().expect("refused");
+        assert!(err.to_string().contains("in flight"), "{err}");
+    }
+
+    #[test]
+    fn junk_on_stdout_is_ignored() {
+        let (wire, _seen) = fake_agent(|msg, say| {
+            if let Incoming::Request { id, method, .. } = msg {
+                match method.as_str() {
+                    "initialize" => {
+                        say("Loading extensions...".into());
+                        say(rpc::response(id, serde_json::from_str(GEMINI_INIT).unwrap()));
+                    }
+                    "session/new" => say(rpc::response(id, json!({ "sessionId": "s-1" }))),
+                    "session/prompt" => {
+                        say("[debug] prompt received".into());
+                        say(rpc::response(id, json!({ "stopReason": "end_turn" })));
+                    }
+                    _ => {}
+                }
+            }
+        });
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects despite the noise");
+        assert!(!turn(&until_result(&c.events)).is_error);
+    }
+
+    #[test]
+    fn context_usage_rides_on_the_turn_and_cost_is_the_delta_of_a_running_total() {
+        let calls = Arc::new(Mutex::new(0u32));
+        let (wire, _seen) = fake_agent(gemini_like(move |id, _p, say| {
+            let n = { let mut c = calls.lock().unwrap(); *c += 1; *c };
+            let amount = if n == 1 { 0.01 } else { 0.03 };
+            say(update(json!({ "sessionUpdate": "usage_update", "used": 1200 * n as u64, "size": 32000,
+                "cost": { "amount": amount, "currency": "USD" } })));
+            say(end_turn(id));
+        }));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let first = turn(&until_result(&c.events)).clone();
+        assert_eq!(
+            first.usage,
+            vec![ModelUsage {
+                model: "gemini".into(),
+                usage: TokenUsage { input: 1200, ..Default::default() },
+                cost_usd: Some(0.01),
+                context_window: Some(32000),
+            }]
+        );
+        assert_eq!(first.cost_usd, Some(0.01));
+
+        c.session.send_text("de novo", &[]).expect("sends");
+        let second = turn(&until_result(&c.events)).clone();
+        assert_eq!(second.usage[0].usage.input, 2400, "used is this turn's prompt size");
+        assert!((second.cost_usd.unwrap() - 0.02).abs() < 1e-9, "0.03 total − 0.01 before = this turn");
+    }
+
+    #[test]
+    fn a_turn_that_ends_in_error_says_so() {
+        let (wire, _seen) = fake_agent(gemini_like(|id, _p, say| {
+            say(rpc::error_response(&json!(id), -32603, "model exploded"));
+        }));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let t = turn(&until_result(&c.events)).clone();
+        assert!(t.is_error);
+        assert!(t.raw.contains("model exploded"), "{}", t.raw);
+    }
+
+    #[test]
+    fn the_event_stream_closes_when_hark_hangs_up() {
+        let (wire, _seen) = fake_agent(gemini_like(|id, _p, say| say(end_turn(id))));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let _ = until_result(&c.events);
+        c.session.shutdown();
+        // The fake sees EOF, exits, and its side of the pipe closes ours.
+        assert!(
+            matches!(c.events.recv_timeout(Duration::from_secs(3)), Err(std::sync::mpsc::RecvTimeoutError::Disconnected)),
+            "the driver learns the session ended from the stream closing"
+        );
+        assert_eq!(c.session.exit_report(), (None, String::new()));
+        assert_eq!(c.session.pid(), None);
+    }
+}

@@ -4,8 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Hark agent plugin for every CLI that speaks the Agent Client Protocol (jsonrpc 2.0 over stdio): gemini, codex, deepseek harness, kiro, copilot."
 
 [dependencies]
 hark-agent = { path = "../hark-agent" }
+hark-core = { path = "../hark-core" }
+anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
