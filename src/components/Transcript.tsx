@@ -1,7 +1,7 @@
 import { useEffect, useId, useReducer, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Check, Copy, Lock, RefreshCw, Square, Volume2, X } from "lucide-react";
+import { Check, ChevronDown, Copy, Lock, RefreshCw, Square, Volume2, X } from "lucide-react";
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput, toolHint, toolLabel } from "./ToolCall";
 import UsageCard from "./UsageCard";
@@ -207,7 +207,16 @@ export default function Transcript({
   onQueuedDrop?: (msgId: string, taskLabel?: string) => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const lastRef = useRef<Msg | null>(null);
+  // Starts true: a thread that has just opened is AT its end, and the
+  // first append is what puts it there on screen.
+  const atBottomRef = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
+
+  const toEnd = (behavior: ScrollBehavior = "smooth") =>
+    endRef.current?.scrollIntoView({ behavior });
+
   // Follow the conversation only when something was ADDED to the end.
   // Loading older history prepends, and jumping to the bottom right after
   // would throw away exactly what the click asked to see.
@@ -215,7 +224,11 @@ export default function Transcript({
     const last = messages.at(-1) ?? null;
     if (last === lastRef.current) return;
     lastRef.current = last;
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Reading back through a long thread is work: an arriving reply must
+    // not yank the page out from under it. Your OWN message is different
+    // — you just sent it, you want to watch it land.
+    if (!atBottomRef.current && last?.who !== "user") return;
+    toEnd();
   }, [messages]);
 
   const renderOne = (m: Msg, i: number): ReactNode => (
@@ -516,14 +529,34 @@ export default function Transcript({
   flush();
 
   return (
-    <div className="transcript">
-      {onLoadOlder && (
-        <button className="load-older" onClick={onLoadOlder}>
-          {t("history_older")}
+    <div className="transcript-wrap">
+      <div
+        className="transcript"
+        ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          // 80px of slack: "close enough to the end" has to survive the
+          // last line still being laid out.
+          const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          atBottomRef.current = near;
+          setAtBottom(near);
+        }}
+      >
+        {onLoadOlder && (
+          <button className="load-older" onClick={onLoadOlder}>
+            {t("history_older")}
+          </button>
+        )}
+        {nodes}
+        <div ref={endRef} />
+      </div>
+      {/* Only while there is somewhere to go: scrolled to the end it would
+          be a button that does nothing. */}
+      {!atBottom && (
+        <button className="jump-latest" title={t("jump_latest")} onClick={() => toEnd()}>
+          <ChevronDown size={16} />
         </button>
       )}
-      {nodes}
-      <div ref={endRef} />
     </div>
   );
 }

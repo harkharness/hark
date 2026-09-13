@@ -869,6 +869,23 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   color: var(--text); font: inherit; padding: 5px 8px; margin: 1px; outline: none;
 }
 
+/* Holds the scroller and the one control that must stay put while it
+   scrolls. The wrapper takes the flex slot; the transcript fills it. */
+.transcript-wrap {
+  position: relative; flex: 1; min-height: 0; min-width: 0;
+  display: flex; flex-direction: column;
+}
+/* Appears only when the end is off screen. Centred over the column, not
+   pinned to a corner: it is a way back to the conversation, not a tool. */
+.jump-latest {
+  position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .45);
+}
+.jump-latest:hover { color: var(--accent); }
 .transcript {
   background: var(--bg);
   overflow-y: auto;

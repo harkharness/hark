@@ -2042,8 +2042,12 @@ export default function App({
   /** A log entry as a chat message. The two loaders share it so a paged
    *  page looks exactly like the first one. */
   function entryToMsg(e: TranscriptEntry, title: string): Msg | null {
-    if (e.role === "user") return { who: "user", text: e.text, task: title };
-    if (e.role === "assistant") return { who: "hark", text: e.text, task: title };
+    // The log's OWN time, not the moment we read the file. Without it
+    // push() stamps now, and a thread reopened after a week came back as
+    // a wall of "agora" — every message claiming to have just happened.
+    const ts = Date.parse(e.ts) || undefined;
+    if (e.role === "user") return { who: "user", text: e.text, task: title, ts };
+    if (e.role === "assistant") return { who: "hark", text: e.text, task: title, ts };
     if (e.role === "tool_use")
       return { who: "tool", name: e.tool ?? "tool", input: e.text, task: title };
     if (e.role === "tool_result")
