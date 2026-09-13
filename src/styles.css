@@ -1489,7 +1489,10 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   position: relative; z-index: 8;
   flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
   min-height: 34px; box-sizing: border-box;
-  padding: 5px clamp(22px, 7vw, 110px); min-width: 0;
+  /* Chrome, not prose: the transcript's clamp() is a READING column and
+     the title has no reason to obey it. Same 12/8 rhythm as the panel
+     headers, so every bar in the app starts at the same place. */
+  padding: 5px 8px 5px 12px; min-width: 0;
   /* Same ground as the thread — no bar, no rule, nothing drawn. What
      separates them is BELOW, in ::after: the thread dissolves into the
      page as it scrolls up instead of being cut off by an edge. A lifted

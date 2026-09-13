@@ -34,6 +34,10 @@ have — the terminal header matched its mockup in a harness while the
 shipped one put the action button on the wrong side, because the real
 component passed it through a different slot.
 
+And a harness INLINES the stylesheet, so it goes stale the moment you
+edit `styles.css`. Re-inline before measuring: a reading taken from a
+stale harness is a confident number about the previous version.
+
 ## Tokens
 
 | token | what it is for |
@@ -111,6 +115,11 @@ warning about.
 
 The transcript itself is wider on purpose — `clamp(22px, 7vw, 110px)` —
 because prose is the product and gets a reading column.
+
+That clamp is for PROSE ONLY. The chat's title bar once inherited it and
+sat indented like a paragraph; it is chrome, and chrome uses the edges.
+Every bar in the app — chat title, panel headers — starts at 12px and
+ends at 8px.
 
 ## The overlay title bar is ours to use
 
