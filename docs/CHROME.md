@@ -157,16 +157,25 @@ The project window is built with `TitleBarStyle::Overlay` and
 `hidden_title(true)`, which reserves ~34px at the top. That strip is not
 empty space to leave alone:
 
-- the chat column starts at y=0 and its header IS the window's title bar,
-  level with the traffic lights and the sidebar toggle;
+- the chat column starts at the gutter and its header IS the window's
+  title bar, level with the traffic lights and the sidebar toggle;
 - only the SIDEBAR pays a top offset, because only it sits under the
-  lights;
-- the header carries `data-tauri-drag-region` (a drag region only drags
-  when the click lands on itself, so buttons inside still click);
-- its `z-index` must clear `.titlebar-drag`, which spans the whole strip
-  and will otherwise sit on top and swallow every click in the header;
+  lights — and that offset is an element (`.side-drag`), not padding, so
+  it can carry the drag attribute;
 - with the sidebar collapsed the chat column reaches the window edge, so
   the header takes a left offset in that state only (`.app.side-closed`).
+
+Dragging the window is done by the elements that ARE the title bar, never
+by a strip laid over them. Tauri's `data-tauri-drag-region` only drags
+when the mousedown target is the element carrying it: a child covering
+the header — the title, the turn count, the flex gap — eats the click, so
+each of those carries the attribute too. There used to be a
+`position: fixed` full-width `.titlebar-drag` under the header as a
+catch-all. It sat ABOVE the rail's panel headers, so the terminal's ×
+went dead (hover lost, a click became a drag), while the header it was
+meant to back up could not drag at all because its children covered it.
+A strip that spans the window covers whatever moves into the strip. Rail
+headers drag PANELS (reorder), not the window.
 
 ## Panel headers
 

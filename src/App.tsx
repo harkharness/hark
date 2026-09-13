@@ -2468,9 +2468,10 @@ export default function App({
 
   return (
     <div className={`app ${sidebarOpen ? "" : "side-closed"}`}>
-      {/* The title bar is an Overlay: this strip drags the window, and the
-          sidebar toggle sits in it beside the traffic lights. */}
-      <div className="titlebar-drag" data-tauri-drag-region />
+      {/* The title bar is an Overlay: the chat header and the sidebar's top
+          slot drag the window (docs/CHROME.md — a full-width strip here
+          covered the rail's headers and killed their ×); the toggle sits
+          beside the traffic lights. */}
       <button
         className={`side-toggle-float ${sidebarOpen ? "" : "closed"}`}
         title={sidebarOpen ? t("side_hide") : t("side_show")}
@@ -2567,15 +2568,21 @@ export default function App({
                 <div className="chat-title-head" data-tauri-drag-region>
                   {focusedTask && (
                     <>
-                      <span className="chat-title">{focusedTask.title}</span>
-                      <span className="chat-turns">
+                      {/* Tauri drags only when the mousedown lands ON an
+                          element carrying the attribute: the children that
+                          cover the header must carry it too, or the title
+                          bar cannot move the window. */}
+                      <span className="chat-title" data-tauri-drag-region>
+                        {focusedTask.title}
+                      </span>
+                      <span className="chat-turns" data-tauri-drag-region>
                         {t("n_turns_of", {
                           n: visibleMessages.filter((m) => m.who === "user").length,
                         })}
                       </span>
                     </>
                   )}
-                  <span className="chat-head-gap" />
+                  <span className="chat-head-gap" data-tauri-drag-region />
                   {/* This bar owns the thread's STATE and its WINDOWS; the
                       composer row owns the message and the voice. The cost
                       used to be a pill here AND a wallet button down there —

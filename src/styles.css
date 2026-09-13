@@ -1533,10 +1533,10 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 /* The focused thread's name over the prose — reads like a document title. */
 /* THE window's title bar, for the chat column: it sits in the overlay
    strip itself, level with the traffic lights and the sidebar toggle,
-   and drags the window like a title bar must (the buttons inside still
-   click — a drag region only drags when the click lands on itself).
-   z-index clears .titlebar-drag, which would otherwise cover it and eat
-   the pill. */
+   and drags the window like a title bar must — the header AND the text
+   children that cover it carry the drag attribute (a drag region only
+   drags when the click lands on itself, so buttons inside still click).
+   The z-index keeps its ::after fade above the transcript that follows. */
 .chat-title-head {
   position: relative; z-index: 8;
   flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
@@ -2284,10 +2284,13 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   background: transparent; color: var(--dim); border: none;
 }
 .side-toggle-float:hover { color: var(--text); background: rgba(255,255,255,.06); }
-/* The rest of that strip drags the window, as a title bar must. */
-.titlebar-drag {
-  position: fixed; top: 0; left: 0; right: 0; height: 30px; z-index: 7;
-}
+/* The sidebar's slot under the traffic lights, and the one place besides
+   the chat header that drags the window. An element, not padding: only
+   an element can carry data-tauri-drag-region. There is deliberately NO
+   full-width fixed strip here — one used to sit above the rail's panel
+   headers, so the terminal's × lost its hover and a click on it dragged
+   the window instead (docs/CHROME.md). */
+.side-drag { height: 22px; flex: 0 0 auto; }
 /* Only the project window renders .app, and that window is built with an
    Overlay title bar: the strip is OURS to use, not to leave empty. The
    layout starts at the very top and the chat's own title bar occupies it
@@ -2299,8 +2302,9 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    too: with the 6px gutter above it, the title bar keeps the same centre
    line it always had (17px from the window's top) by being 22px tall
    instead of 34 — the same small-control height the panel headers use.
-   The sidebar's first row lands at the bar's baseline, 28px. */
-.sidebar { padding-top: 22px; }
+   The sidebar's first row lands at the bar's baseline, 28px: .side-drag
+   is those 22px, so the sidebar's own top padding must be zero. */
+.sidebar { padding-top: 0; }
 /* Sidebar collapsed, the chat column reaches the window edge — and its
    title bar runs straight into the traffic lights and the toggle that
    closed it. The title steps aside for the chrome that is already there. */
