@@ -545,7 +545,7 @@ name = "Codex"
         let merged = crate::domain::agents::merge(&config.agents);
         let acp = crate::domain::agents::resolve(&merged, "claude-acp").expect("claude-acp");
         assert!(acp.enabled, "the switch turned it on:\n{on}");
-        assert_eq!(acp.cmd, "claude-code-acp", "the built-in's other fields survive");
+        assert_eq!(acp.cmd, "claude-agent-acp", "the built-in's other fields survive");
 
         let off = patch_toml(&on, &serde_json::json!({ "agents.claude-acp.enabled": false }))
             .expect("patch off");
@@ -562,7 +562,8 @@ name = "Codex"
     fn a_config_with_no_agents_table_still_knows_every_builtin() {
         let config: Config = toml::from_str("model = \"sonnet\"\n").expect("parses");
         assert!(config.agents.is_empty());
-        assert_eq!(crate::domain::agents::merge(&config.agents).len(), 6);
+        // claude, gemini, claude-acp, codex, deepseek, kiro, antigravity.
+        assert_eq!(crate::domain::agents::merge(&config.agents).len(), 7);
     }
 
     /// A config file written before a field existed must still get that

@@ -100,11 +100,15 @@ pub fn builtins() -> Vec<AgentEntry> {
             ]),
             ..Default::default()
         },
+        // The ACP org's adapter over the Claude Agent SDK
+        // (agentclientprotocol/claude-agent-acp). Zed's claude-code-acp was
+        // its first home; that package is deprecated and never priced a
+        // turn, this one reports usage and cumulative cost.
         AgentEntry {
             id: "claude-acp".into(),
             name: "Claude Code (ACP)".into(),
             plugin: "acp".into(),
-            cmd: "claude-code-acp".into(),
+            cmd: "claude-agent-acp".into(),
             // Off by default: it drives the same subscription as the native
             // plugin, which is richer. It exists to prove the contract.
             enabled: false,
@@ -142,6 +146,16 @@ pub fn builtins() -> Vec<AgentEntry> {
             cmd: "kiro-cli".into(),
             args: vec!["acp".into()],
             login_hint: Some("kiro-cli login".into()),
+            ..Default::default()
+        },
+        // Google Antigravity's ACP server, the path Google points
+        // individual Gemini CLI accounts at. The registry ships it as a
+        // .par archive with no installer: unzip, put it on PATH.
+        AgentEntry {
+            id: "antigravity".into(),
+            name: "Google Antigravity".into(),
+            plugin: "acp".into(),
+            cmd: "agy_acp_server.par".into(),
             ..Default::default()
         },
     ]
@@ -264,7 +278,7 @@ mod tests {
     #[test]
     fn ships_knowing_claude_and_every_acp_agent_on_the_market() {
         let ids: Vec<String> = builtins().into_iter().map(|e| e.id).collect();
-        assert_eq!(ids, vec!["claude", "gemini", "claude-acp", "codex", "deepseek", "kiro"]);
+        assert_eq!(ids, vec!["claude", "gemini", "claude-acp", "codex", "deepseek", "kiro", "antigravity"]);
     }
 
     /// The commands are the ones each project documents for ACP mode
@@ -282,6 +296,12 @@ mod tests {
         assert_eq!(cmdline("codex"), "codex-acp");
         assert_eq!(cmdline("deepseek"), "dsh --profile acp");
         assert_eq!(cmdline("kiro"), "kiro-cli acp");
+        // The ACP org took the Claude adapter over from Zed and renamed the
+        // binary; the old one is deprecated and never reported cost.
+        assert_eq!(cmdline("claude-acp"), "claude-agent-acp");
+        // Google's successor to individual-account Gemini, as the ACP
+        // registry distributes it (a .par archive, run from PATH).
+        assert_eq!(cmdline("antigravity"), "agy_acp_server.par");
     }
 
     #[test]

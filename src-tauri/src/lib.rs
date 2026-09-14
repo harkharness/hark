@@ -1719,7 +1719,7 @@ fn agent_plugins() -> Result<serde_json::Value, String> {
                 "plugin": e.plugin,
                 "cmd": e.cmd,
                 "vendor": match e.id.as_str() {
-                    "gemini" => "Google",
+                    "gemini" | "antigravity" => "Google",
                     "codex" => "OpenAI",
                     "deepseek" => "DeepSeek",
                     "kiro" => "AWS",
@@ -1735,8 +1735,11 @@ fn agent_plugins() -> Result<serde_json::Value, String> {
                 "install": match e.id.as_str() {
                     "claude" => "curl -fsSL https://claude.ai/install.sh | bash",
                     "gemini" => "npm install -g @google/gemini-cli",
-                    "claude-acp" => "npm install -g @zed-industries/claude-code-acp",
-                    "codex" => "npm install -g @openai/codex @zed-industries/codex-acp",
+                    // The ACP org's packages; Zed's originals are deprecated.
+                    "claude-acp" => "npm install -g @agentclientprotocol/claude-agent-acp",
+                    "codex" => "npm install -g @agentclientprotocol/codex-acp",
+                    // Distributed by the ACP registry as an archive, not a package.
+                    "antigravity" => "curl -fsSL https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-agy_acp_server_1.1.1-darwin-arm64.zip -o /tmp/agy-acp.zip && unzip -o /tmp/agy-acp.zip -d ~/.local/bin",
                     "deepseek" => "npm install -g @deepseek-ai/dsh",
                     "kiro" => "https://kiro.dev/docs/cli/  (kiro-cli)",
                     _ => "",

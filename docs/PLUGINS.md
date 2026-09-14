@@ -78,9 +78,31 @@ ACP one for everything that speaks the Agent Client Protocol:
 | `codex` | acp | `codex-acp` | `codex login` |
 | `deepseek` | acp | `dsh --profile acp` | `dsh` |
 | `kiro` | acp | `kiro-cli acp` | `kiro-cli login` |
-| `claude-acp` | acp (off by default) | `claude-code-acp` | `claude /login` |
+| `claude-acp` | acp (off by default) | `claude-agent-acp` | `claude /login` |
+| `antigravity` | acp | `agy_acp_server.par` | the agent's own flow |
 
 Detected = the binary answers `which`; usable = detected and enabled.
+
+### Which package is current
+
+The [ACP agent registry](https://github.com/agentclientprotocol/registry)
+is the source of truth for how each agent is distributed and invoked —
+one folder per agent, published as
+`https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`.
+Hark's built-ins follow it; a package that moves gets its entry changed
+here, never patched around in config. Checked 13/09/2026:
+
+| agent | package | note |
+|---|---|---|
+| claude-acp | `@agentclientprotocol/claude-agent-acp` 0.76 | ex `@zed-industries/claude-code-acp` (deprecated, archived); the old one never reported cost |
+| codex | `@agentclientprotocol/codex-acp` 1.11 | ex `@zed-industries/codex-acp` (deprecated); bundles `@openai/codex`, same `codex-acp` binary |
+| gemini | `@google/gemini-cli` 0.59, `--acp` | `--experimental-acp` is the deprecated spelling |
+| deepseek | `@deepseek-ai/dsh` 0.1.5-rc | the `acp` profile is the shipped stdio server |
+| kiro | kiro.dev installer | not in the registry; `kiro-cli acp` per the docs |
+| antigravity | registry `antigravity-acp` 1.1.1 | a zip per platform (arm64 mac only), no installer |
+
+A deprecated Zed package still runs, so "detected" is no proof the
+adapter is current: the catalog's install line is the migration command.
 Settings › Plugins is the catalog: it selects the default, and switches
 entries on and off (`[agents.<id>] enabled`) — built-ins that ship off,
 like claude over ACP, are one click away rather than a config edit. The
@@ -137,7 +159,17 @@ fixtures come from the wire, not from the spec). Per capability:
   agent that does not announce it never shows it.
 - **usage** — `usage_update.used/size` is this turn's prompt over the
   window (the context ring); cost is the delta of the session's running
-  total.
+  total. Agents send SEVERAL updates per turn and price it on one of
+  them, so the turn keeps the last cost anyone stated while used/size
+  follow the latest reading. What each agent actually puts on the wire
+  (13/09/2026): claude-agent-acp reports used/size and cumulative USD
+  (and rate limits in `_meta["_claude/rateLimit"]`); codex-acp reports
+  tokens, no money; gemini reports nothing at all; dsh reports context
+  usage. **A turn nobody priced is written down as "custo não
+  informado", never as $0.0000** — the subscription paid, the wire just
+  did not carry the number — and it still lands in the ledger as one
+  row under the agent that ran it, tokens zero, cost NULL, so the turn
+  count and the session link survive.
 - **resume** — `session/load`, when the agent announces `loadSession`.
 - **structured ask** (voice ask, intent router, dispatch gate) — no
   schema mode, so the schema goes INTO the prompt and the answer is read
@@ -150,6 +182,22 @@ fixtures come from the wire, not from the spec). Per capability:
   back.
 - `fs/*` and `terminal/*` are declined at initialize: the agent uses its
   own tools; Hark answers `-32601` if asked anyway.
+
+### Claude over ACP: what the adapter would let us cross
+
+`claude-agent-acp` forwards Claude Agent SDK options given in
+`session/new` `_meta.claudeCode.options` (everything but cwd,
+permissionMode, canUseTool, includePartialMessages, executable — those
+are ACP's), and a string `_meta.systemPrompt` REPLACES Claude Code's
+system prompt. That is `model`, `effort`, `maxTurns`, `maxBudgetUsd`,
+`settingSources`, `disallowedTools`, `outputFormat` (json_schema): the
+lean voice ask, the budget ceiling and native structured output are all
+reachable for this one agent. It also exposes ACP session config options
+(`effort`, model) that `session/set_config_option` can set — the
+standard mechanism, which other adapters (dsh, codex) expose too. Neither
+is wired yet: the ACP plugin still zeroes `directives` and `limits` at
+spawn. The generic path is config options; the `_meta` dialect is the
+claude-specific extra.
 
 Failures carry the same health codes as the claude plugin
 (`agent_missing`, `agent_blocked`, `agent_auth`, `agent_failed`), and an
