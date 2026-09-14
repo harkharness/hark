@@ -172,6 +172,9 @@ pub struct SpendAgg {
     pub cost_usd: f64,
     pub usage: hark_agent::TokenUsage,
     pub turns: u64,
+    /// Turns that carry a USD cost. Fewer than `turns` when an agent
+    /// reported no price: the sum is then a floor, not the bill.
+    pub priced_turns: u64,
     pub errors: u64,
 }
 

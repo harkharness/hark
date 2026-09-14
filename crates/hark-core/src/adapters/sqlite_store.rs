@@ -164,6 +164,7 @@ impl SqliteStore {
             },
             turns: row.get::<_, i64>(6)? as u64,
             errors: row.get::<_, i64>(7)? as u64,
+            priced_turns: row.get::<_, i64>(8)? as u64,
         })
     }
 
@@ -243,7 +244,8 @@ impl crate::ports::SpendLedger for SqliteStore {
                     COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
                     COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_created_tokens), 0),
                     COUNT(DISTINCT ts),
-                    COUNT(DISTINCT CASE WHEN is_error = 1 THEN ts END)
+                    COUNT(DISTINCT CASE WHEN is_error = 1 THEN ts END),
+                    COUNT(DISTINCT CASE WHEN cost_usd IS NOT NULL THEN ts END)
              FROM spend
              WHERE source = ?1 AND (?2 IS NULL OR ts >= ?2)
                AND (?3 IS NULL OR workspace = ?3 OR workspace LIKE ?3 || '/%')
@@ -271,7 +273,8 @@ impl crate::ports::SpendLedger for SqliteStore {
                     COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
                     COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_created_tokens), 0),
                     COUNT(DISTINCT ts),
-                    COUNT(DISTINCT CASE WHEN is_error = 1 THEN ts END)
+                    COUNT(DISTINCT CASE WHEN is_error = 1 THEN ts END),
+                    COUNT(DISTINCT CASE WHEN cost_usd IS NOT NULL THEN ts END)
              FROM spend
              WHERE source = 'live' AND ts >= ?1 AND session_id IS NOT NULL
              GROUP BY k ORDER BY 2 DESC LIMIT ?2",
@@ -780,6 +783,59 @@ mod tests {
             .unwrap();
         let chat = by_task.iter().find(|a| a.key == "hark-chat").expect("chat line");
         assert!((chat.cost_usd - 0.30).abs() < 1e-9);
+    }
+
+    #[test]
+    fn an_unpriced_turn_counts_as_a_turn_but_not_as_a_priced_one() {
+        // An ACP agent that reports no cost leaves rows with cost NULL. The
+        // panel summed them as $0.00 next to a turn count, which read as
+        // "12 turns, free". The aggregate has to know how many of its
+        // turns actually carry a price.
+        use hark_agent::TokenUsage;
+        use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
+        use crate::ports::{SpendGroup, SpendLedger, SpendQuery};
+
+        let mut store = SqliteStore::in_memory().unwrap();
+        let row = |ts: &str, model: &str, cost: Option<f64>| SpendRow {
+            ts: ts.into(),
+            kind: SpendKind::Worker,
+            source: SpendSource::Live,
+            task_id: None,
+            label: Some("chat".into()),
+            session_id: Some("s-2".into()),
+            workspace: None,
+            model: model.into(),
+            usage: TokenUsage::default(),
+            cost_usd: cost,
+            duration_ms: None,
+            is_error: false,
+            is_sidechain: false,
+            context_window: None,
+            request_id: None,
+            outcome: None,
+        };
+        store
+            .record_spend(&[
+                row("2026-09-13T10:00:00Z", "gemini", None),
+                row("2026-09-13T10:01:00Z", "gemini", None),
+                row("2026-09-13T10:02:00Z", "claude-sonnet-5", Some(0.02)),
+            ])
+            .unwrap();
+
+        let by_model = store
+            .spend_summary(&SpendQuery {
+                since: None,
+                group: SpendGroup::Model,
+                source: SpendSource::Live,
+                workspace: None,
+            })
+            .unwrap();
+        let gemini = by_model.iter().find(|a| a.key == "gemini").expect("gemini bucket");
+        assert_eq!(gemini.turns, 2, "the turns happened");
+        assert_eq!(gemini.priced_turns, 0, "none of them carries a price");
+        assert_eq!(gemini.cost_usd, 0.0, "the sum stays a number; the caller reads priced_turns");
+        let claude = by_model.iter().find(|a| a.key == "claude-sonnet-5").expect("claude bucket");
+        assert_eq!((claude.turns, claude.priced_turns), (1, 1));
     }
 
     #[test]
