@@ -14,7 +14,8 @@ import { Check, ChevronDown, Copy, Lock, RefreshCw, Square, Volume2, X } from "l
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput, toolHint, toolLabel } from "./ToolCall";
 import UsageCard from "./UsageCard";
-import { costLabel, directiveLabels, shortModel } from "../lib/format";
+import { directiveLabels, shortModel } from "../lib/format";
+import { costFooter, type Catalog } from "../lib/support";
 import type { Directives, Msg } from "../types";
 import { t } from "../lib/i18n";
 import * as ipc from "../lib/ipc";
@@ -215,6 +216,8 @@ type RowProps = {
   m: Msg;
   /** The task's CURRENT directives, for the cost line under a reply. */
   directives?: Directives;
+  /** Agent sheets, so a missing price is explained by plugin. */
+  catalog?: Catalog;
   onAnswerPermission: (requestId: string, allow: boolean, always?: boolean) => void;
   onOpenPath: (path: string) => void;
   onRunCommand?: (cmd: string, execute: boolean) => void;
@@ -232,6 +235,7 @@ type RowProps = {
 const Row = memo(function Row({
   m,
   directives,
+  catalog,
   onAnswerPermission,
   onOpenPath,
   onRunCommand,
@@ -356,25 +360,26 @@ const Row = memo(function Row({
                   ))}
                 </ul>
               )}
-              {(m.cost != null || m.model) && (
-                <span
-                  className="cost"
-                  title={
-                    m.usage
-                      ? `in ${m.usage.input} · out ${m.usage.output} · cache lido ${m.usage.cache_read} · cache novo ${m.usage.cache_created}` +
-                        (m.usage.input + m.usage.cache_read + m.usage.cache_created > 0
-                          ? ` · cache ${Math.round((m.usage.cache_read / (m.usage.input + m.usage.cache_read + m.usage.cache_created)) * 100)}%`
-                          : "")
-                      : undefined
-                  }
-                >
-                  {[
-                    shortModel(m.model),
-                    ...directiveLabels(directives),
-                    costLabel(m.cost),
-                  ].join(" · ")}
-                </span>
-              )}
+              {(m.cost != null || m.model) &&
+                (() => {
+                  // The price slot: dollars, or a held dash whose hover says
+                  // whether the plugin cannot price or this turn just did not.
+                  const price = costFooter(catalog, m);
+                  const tokens = m.usage
+                    ? `in ${m.usage.input} · out ${m.usage.output} · cache lido ${m.usage.cache_read} · cache novo ${m.usage.cache_created}` +
+                      (m.usage.input + m.usage.cache_read + m.usage.cache_created > 0
+                        ? ` · cache ${Math.round((m.usage.cache_read / (m.usage.input + m.usage.cache_read + m.usage.cache_created)) * 100)}%`
+                        : "")
+                    : undefined;
+                  return (
+                    <span
+                      className="cost"
+                      title={[tokens, price.title].filter(Boolean).join("\n") || undefined}
+                    >
+                      {[shortModel(m.model), ...directiveLabels(directives), price.label].join(" · ")}
+                    </span>
+                  );
+                })()}
               <MsgActions
                 copyText={[m.text, m.detalhes, ...(m.itens ?? [])]
                   .filter(Boolean)
@@ -460,6 +465,7 @@ const ToolRow = memo(function ToolRow({
 export default function Transcript({
   messages,
   directivesFor,
+  catalog,
   onAnswerPermission,
   onOpenPath,
   onRunCommand,
@@ -469,6 +475,8 @@ export default function Transcript({
 }: {
   messages: Msg[];
   directivesFor: (taskLabel?: string) => Directives | undefined;
+  /** Agent sheets: the footer explains a missing price by plugin. */
+  catalog?: Catalog;
   onAnswerPermission: (requestId: string, allow: boolean, always?: boolean) => void;
   onOpenPath: (path: string) => void;
   /** ▶ on shell blocks: send the command to the in-app terminal. */
@@ -590,6 +598,7 @@ export default function Transcript({
       <Row
         key={i}
         m={m}
+        catalog={catalog}
         // Only a reply shows directives; every other row keeps its props still.
         directives={m.who === "hark" ? directivesFor(m.task) : undefined}
         onAnswerPermission={answer}

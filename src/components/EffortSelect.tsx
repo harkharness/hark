@@ -27,12 +27,16 @@ export default function EffortSelect({
   value,
   appliesTo,
   onSelect,
+  disabled,
 }: {
   /** Current level, or "" when no --effort is passed at all. */
   value: string;
   /** Focused live task name, when the change applies to it. */
   appliesTo?: string;
   onSelect: (effort: string) => void;
+  /** The reason the pill is off for the agent in this chat (its plugin
+   *  carries no directives); the pill stays, disabled, with this hover. */
+  disabled?: string;
 }) {
   const at = LEVELS.indexOf(value as (typeof LEVELS)[number]);
   const set = at >= 0;
@@ -41,6 +45,7 @@ export default function EffortSelect({
     <PillPopover
       label={set ? t(NAME[LEVELS[at]]) : t("effort_label")}
       title={appliesTo ? t("effort_pill_task", { name: appliesTo }) : t("effort_pill_window")}
+      disabled={disabled}
       dim={!set}
     >
       {(close) => (

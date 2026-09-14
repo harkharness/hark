@@ -159,7 +159,7 @@ export function useHarkEvents(h: Handlers) {
             if (lastHark.who === "compact") return old;
             return old.map((m) =>
               m === lastHark
-                ? { ...m, cost: ev.cost_usd, model: ev.model, usage: ev.usage }
+                ? { ...m, cost: ev.cost_usd, model: ev.model, agent: ev.agent, usage: ev.usage }
                 : m,
             );
           }
@@ -173,6 +173,7 @@ export function useHarkEvents(h: Handlers) {
               text: turnText,
               cost: ev.cost_usd,
               model: ev.model,
+              agent: ev.agent,
               usage: ev.usage,
               task: label,
             },
@@ -188,6 +189,7 @@ export function useHarkEvents(h: Handlers) {
                   context_pct: ev.context_pct ?? old[ev.task_id].context_pct,
                   context_window: ev.context_window ?? old[ev.task_id].context_window,
                   model: ev.model ?? old[ev.task_id].model,
+                  agent: ev.agent ?? old[ev.task_id].agent,
                 },
               }
             : old,

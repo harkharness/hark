@@ -6,6 +6,16 @@ import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
 import type { BridgeStatus, SpendAgg, StatusLine } from "../types";
 
+/** A bucket's price, or a held slot when none of its turns carried one:
+ *  an agent that reports no cost is not free, it is unpriced. */
+function priceOf(a: SpendAgg): string {
+  return a.turns > 0 && a.priced_turns === 0 ? "$ –" : fmtUsd(a.cost_usd);
+}
+function unpricedNote(a: SpendAgg): string {
+  const n = a.turns - a.priced_turns;
+  return n > 0 ? ` · ${n} ${t("n_unpriced")}` : "";
+}
+
 /** A jsonl aggregate as a table line (tokens only — no USD in the logs). */
 function aggToLine(a: SpendAgg) {
   return {
@@ -82,6 +92,7 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
   const [limits, setLimits] = useState<StatusLine | null>(null);
   const [bridge, setBridge] = useState<BridgeStatus | null>(null);
   const [method, setMethod] = useState(false);
+  const [plugins, setPlugins] = useState<ipc.AgentPlugin[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [savings, setSavings] = useState<import("../lib/ipc").SavingsOut | null>(null);
   const [eco, setEco] = useState<import("../lib/ipc").EcoOut | null>(null);
@@ -111,11 +122,21 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
     ipc.statuslineBridgeStatus().then(setBridge).catch(() => setBridge(null));
     ipc.savingsSummary(since).then(setSavings).catch(() => setSavings(null));
     ipc.ecoStatus().then(setEco).catch(() => setEco(null));
+    ipc.agentPlugins().then(setPlugins).catch(() => setPlugins([]));
   }, [window, group, workspace]);
   useEffect(load, [load]);
 
+  // The statusline bridge reads Claude Code's own hook: without that
+  // plugin on the machine there is nothing for it to read.
+  const claudeOff =
+    plugins.length > 0 && !plugins.some((p) => p.plugin === "claude" && p.detected)
+      ? t("cap_needs_claude")
+      : undefined;
+
   const total = live.reduce((a, b) => a + b.cost_usd, 0);
   const turns = live.reduce((a, b) => a + b.turns, 0);
+  // Turns an agent never priced: the total is a floor, and says so.
+  const unpriced = turns - live.reduce((a, b) => a + b.priced_turns, 0);
   const errors = live.reduce((a, b) => a + b.errors, 0);
   const io = live.reduce(
     (acc, a) => ({
@@ -164,9 +185,15 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
             {t("costs_measured")} {workspace ? t("costs_in_project") : ""} ·{" "}
             {window === "day" ? "24h" : t("win_7d")}
           </span>
-          <b className="costs-money">{fmtUsd(total)}</b>
+          <b
+            className="costs-money"
+            title={unpriced > 0 ? t("costs_unpriced_note", { n: unpriced }) : undefined}
+          >
+            {turns > 0 && unpriced === turns ? "$ –" : fmtUsd(total)}
+          </b>
           <span className="costs-sub">
             {turns} {turns === 1 ? t("n_turn") : t("n_turns")}
+            {unpriced > 0 && <span className="warn"> · {unpriced} {t("n_unpriced")}</span>}
             {errors > 0 && <span className="warn"> · {errors} {t("n_with_error")}</span>}
             {hit != null && (
               <span className="ok"> · {t("costs_cache_absorbed", { p: Math.round(hit * 100) })}</span>
@@ -210,9 +237,9 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
                     name={KIND_KEY[a.key] ? kindLabel(a.key) : a.key.replace(/^claude-/, "")}
                     value={a.cost_usd}
                     max={live[0].cost_usd}
-                    detail={fmtUsd(a.cost_usd)}
+                    detail={priceOf(a)}
                     color={PALETTE[i % PALETTE.length]}
-                    note={`${a.turns} ${t("n_turns")} · in ${fmtTok(a.input)} · out ${fmtTok(a.output)} · cache ${fmtTok(a.cache_read)}${a.errors > 0 ? ` · ${a.errors} ✗` : ""}`}
+                    note={`${a.turns} ${t("n_turns")}${unpricedNote(a)} · in ${fmtTok(a.input)} · out ${fmtTok(a.output)} · cache ${fmtTok(a.cache_read)}${a.errors > 0 ? ` · ${a.errors} ✗` : ""}`}
                   />
                 ))}
               </div>
@@ -331,7 +358,12 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
                 {t("br_hint_pre")}<code>~/.claude/settings.json</code>{t("br_hint_post")}
               </p>
               <div className="bridge-actions">
-                <button className="primary" onClick={installBridge}>
+                <button
+                  className="primary"
+                  onClick={installBridge}
+                  disabled={!!claudeOff}
+                  title={claudeOff}
+                >
                   {t("br_install")}
                 </button>
                 {busy && <span className="hint">{busy}</span>}
@@ -365,8 +397,8 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
                   name={a.key}
                   value={a.cost_usd}
                   max={top[0].cost_usd}
-                  detail={fmtUsd(a.cost_usd)}
-                  note={`${a.turns} ${t("n_turns")} · cache ${fmtTok(a.cache_read)}`}
+                  detail={priceOf(a)}
+                  note={`${a.turns} ${t("n_turns")}${unpricedNote(a)} · cache ${fmtTok(a.cache_read)}`}
                 />
               ))}
             </div>
@@ -428,6 +460,9 @@ export default function CostsPanel({ workspace }: { workspace?: string }) {
           </p>
           <p>
             <b>{t("meth4_term")}</b> {t("meth4")}
+          </p>
+          <p>
+            <b>{t("meth5_term")}</b> {t("meth5")}
           </p>
         </div>
       )}

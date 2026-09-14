@@ -1818,6 +1818,15 @@ fn agent_plugin_enable(id: String, enabled: bool) -> Result<(), String> {
     std::fs::write(&path, out).map_err(|e| e.to_string())
 }
 
+/// Which agent runs (or would run) a session: the owner of an existing
+/// one, the selected default for a new one. The window asks before it
+/// offers a control, so a pill for a directive the agent's plugin cannot
+/// carry shows as unsupported instead of taking the click.
+#[tauri::command]
+fn agent_for_session(session_id: String) -> String {
+    agent_for(&Config::load(), &session_id)
+}
+
 /// Everything the first-run wizard needs to decide what to show: which
 /// pieces exist (config, whisper model, claude binary, history) and the
 /// current values to pre-fill.
@@ -4468,6 +4477,7 @@ pub fn run() {
             agent_plugins,
             agent_plugin_select,
             agent_plugin_enable,
+            agent_for_session,
             setup_download_model,
             setup_mark_done,
             board_subtask_toggle,

@@ -30,6 +30,8 @@ import EmptyProject from "./components/EmptyProject";
 import WorkerChips from "./components/WorkerChips";
 import TurnStatus, { type TurnState } from "./components/TurnStatus";
 import { useWorkerDefaults } from "./hooks/useWorkerDefaults";
+import { useAgentCatalog } from "./hooks/useAgentCatalog";
+import { unsupported } from "./lib/support";
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import { useRepoStates } from "./hooks/useRepoStates";
 import RepoRuler from "./components/RepoRuler";
@@ -116,6 +118,34 @@ export default function App({
   const [draftChat, setDraftChat] = useState<Project | null>(null);
   const [liveWorkers, setLiveWorkers] = useState<Record<string, LiveWorker>>({});
   const [focused, setFocused] = useState<string | null>(null);
+  // Which agent answers the focused task: the owner of its session, or the
+  // selected default for a chat that has no session yet. Asked of the
+  // driver on focus change, corrected by the turn stream once the worker
+  // speaks. Every control that needs a capability asks the sheet first,
+  // so a feature this plugin lacks shows as disabled-with-a-reason.
+  const { catalog, selected: selectedAgent } = useAgentCatalog();
+  const [agentBySession, setAgentBySession] = useState<Record<string, string>>({});
+  const focusedSession = focusedTask?.sessionId ?? "";
+  useEffect(() => {
+    let live = true;
+    ipc
+      .agentForSession(focusedSession)
+      .then((id) => {
+        if (!live) return;
+        setAgentBySession((old) => (old[focusedSession] === id ? old : { ...old, [focusedSession]: id }));
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [focusedSession]);
+  const focusedAgent =
+    (focused ? liveWorkers[focused]?.agent ?? undefined : undefined) ??
+    agentBySession[focusedSession] ??
+    selectedAgent;
+  const pillsOff = unsupported(catalog, focusedAgent, "directives", t("cap_directives"));
+  const forkOff = unsupported(catalog, focusedAgent, "fork", t("held_fork"));
+  const ringOff = unsupported(catalog, focusedAgent, "cost_reporting", t("cap_context"));
   const [speak, setSpeak] = useState(true);
   // "Arquivo" window: up to 5 tabs, LRU-evicted, dirty tabs protected.
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
@@ -2607,6 +2637,7 @@ export default function App({
                           window={shownContext?.window}
                           tokens={shownContext?.tokens}
                           model={liveModel ?? currentModel ?? undefined}
+                          unsupported={ringOff}
                         />
                       )}
                     </button>
@@ -2616,6 +2647,8 @@ export default function App({
                         sessionId={focusedTask?.sessionId || undefined}
                         projectName={activeProject?.name}
                         workspace={forcedProject?.path}
+                        agent={focusedAgent}
+                        catalog={catalog}
                         costs={costs}
                         onClose={() => setScopeInfo(false)}
                         onDetail={() => {
@@ -2675,6 +2708,7 @@ export default function App({
               ) : (
                 <Transcript
                   messages={visibleMessages}
+                  catalog={catalog}
                   directivesFor={directivesFor}
                   onAnswerPermission={answerPermission}
                   onOpenPath={openAbsolutePath}
@@ -2722,6 +2756,8 @@ export default function App({
                       {t("held_goto")}
                     </button>
                     <button
+                      disabled={!!forkOff}
+                      title={forkOff}
                       onClick={() => {
                         setForkDraft({ title: focusedTask?.title ?? "", sessionId: heldBy.session_id });
                         push({ who: "sys", text: t("fork_armed"), task: focusedTask?.title });
@@ -2753,6 +2789,7 @@ export default function App({
                   value={currentMode}
                   appliesTo={focused ? labelFor(focused) : undefined}
                   windowDefault={defaults.modeInForce}
+                  disabled={pillsOff}
                   onSelect={selectMode}
                 />
                 <ModelSelect
@@ -2761,11 +2798,13 @@ export default function App({
                   tiers={defaults.tiers}
                   appliesTo={focused ? labelFor(focused) : undefined}
                   windowDefault={modelDefault}
+                  disabled={pillsOff}
                   onSelect={selectModel}
                 />
                 <EffortSelect
                   value={currentEffort ?? ""}
                   appliesTo={focused ? labelFor(focused) : undefined}
+                  disabled={pillsOff}
                   onSelect={selectEffort}
                 />
                 <WorkerChips

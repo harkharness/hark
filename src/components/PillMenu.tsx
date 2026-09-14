@@ -14,6 +14,7 @@ export function PillPopover({
   label,
   title,
   dim,
+  disabled,
   children,
 }: {
   /** Pill text — the current value, spelled the way the menu spells it. */
@@ -22,6 +23,11 @@ export function PillPopover({
   title: string;
   /** True when nothing was chosen and the CLI's own default is in force. */
   dim?: boolean;
+  /** The reason this pill cannot work for the agent in the chat (the
+   *  plugin lacks the feature). The pill stays in place, disabled, and
+   *  the reason is its hover — never hidden, never a click that does
+   *  nothing. */
+  disabled?: string;
   children: (close: () => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -42,13 +48,14 @@ export function PillPopover({
   return (
     <span className="mode-anchor" ref={anchor}>
       <button
-        className={`mode-pill${dim ? " unset" : ""}`}
-        title={title}
+        className={`mode-pill${dim ? " unset" : ""}${disabled ? " unsupported" : ""}`}
+        title={disabled ?? title}
+        disabled={!!disabled}
         onClick={() => setOpen((o) => !o)}
       >
         {label} <ChevronUp size={11} />
       </button>
-      {open && children(() => setOpen(false))}
+      {open && !disabled && children(() => setOpen(false))}
     </span>
   );
 }
@@ -164,6 +171,7 @@ export default function PillMenu({
   value,
   onPick,
   dim,
+  disabled,
 }: {
   label: string;
   title: string;
@@ -172,9 +180,11 @@ export default function PillMenu({
   value: string;
   onPick: (value: string) => void;
   dim?: boolean;
+  /** See PillPopover: the reason the pill is off for this agent. */
+  disabled?: string;
 }): ReactNode {
   return (
-    <PillPopover label={label} title={title} dim={dim}>
+    <PillPopover label={label} title={title} dim={dim} disabled={disabled}>
       {(close) => (
         <PillMenuBody head={head} items={items} value={value} onPick={onPick} close={close} />
       )}

@@ -14,10 +14,11 @@ describe("the footer of a reply", () => {
 
   it("never prints a price nobody reported", () => {
     // The same answer read "$0.0000". The subscription paid for 27k tokens
-    // of opus; the agent just did not say so. Absence is not zero.
+    // of opus; the agent just did not say so. Absence is not zero: the
+    // slot is held with a dash and the words go on the hover.
     expect(costLabel(0.0123)).toBe("$0.0123");
     expect(costLabel(0)).toBe("$0.0000");
-    expect(costLabel(undefined)).not.toContain("$");
-    expect(costLabel(undefined).length).toBeGreaterThan(0);
+    expect(costLabel(undefined)).toBe("$ –");
+    expect(costLabel(undefined)).not.toMatch(/\d/);
   });
 });

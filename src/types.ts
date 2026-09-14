@@ -122,6 +122,9 @@ export type Msg =
       itens?: string[];
       cost?: number;
       model?: string;
+      /** Registry id of the agent that answered; the footer signs and
+       *  explains a missing price with it. */
+      agent?: string;
       usage?: TurnUsage;
       task?: string;
       /** Epoch ms, stamped by push() — feeds the hover "há N min". */
@@ -166,6 +169,8 @@ export type LiveWorker = {
   context_window?: number | null;
   /** Model that produced the last turn (the pill shows the truth). */
   model?: string | null;
+  /** Registry id of the agent running it ("claude", "gemini", …). */
+  agent?: string | null;
 };
 
 export type DispatchOutcome =
@@ -316,7 +321,10 @@ export type Overview = {
 /** One aggregated bucket of the persistent spend ledger. */
 export type SpendAgg = {
   key: string;
+  /** Sum over the turns that carry a price — a floor when `priced_turns < turns`. */
   cost_usd: number;
+  /** How many of `turns` reported USD at all. */
+  priced_turns: number;
   input: number;
   output: number;
   cache_read: number;

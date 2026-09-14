@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Gauge, Legend, MeterRow, StackedBar, fmtTok, fmtUsd, type Segment } from "./Meter";
+import { unsupported, type Catalog } from "../lib/support";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
 import type { ContextWeight, SpendAgg, StatusLine } from "../types";
@@ -37,6 +38,8 @@ export default function SessionInfo({
   costs,
   onClose,
   onDetail,
+  agent,
+  catalog,
 }: {
   taskTitle?: string;
   sessionId?: string;
@@ -44,11 +47,17 @@ export default function SessionInfo({
   /** Project root: scopes the ledger to this project (and below). */
   workspace?: string;
   costs: Record<string, number>;
+  /** The agent behind the focused session and the catalog of sheets: a
+   *  session with no file on disk says which plugin keeps no history. */
+  agent?: string;
+  catalog?: Catalog;
   onClose: () => void;
   /** "Ver detalhamento" → the /usage card lands in the thread. */
   onDetail?: () => void;
 }) {
   const [stats, setStats] = useState<Stats | null>(null);
+  // No session file on disk is a fact about the plugin, not a glitch.
+  const historyOff = unsupported(catalog, agent, "history", t("pl_cap_hist"));
   const [weight, setWeight] = useState<ContextWeight | null>(null);
   const [ledger, setLedger] = useState<{ day: number; week: number } | null>(null);
   const [byTask, setByTask] = useState<SpendAgg[]>([]);
@@ -183,6 +192,15 @@ export default function SessionInfo({
               <b>{stats.last_ts.slice(0, 16).replace("T", " ")}</b>
             </div>
           )}
+        </section>
+      )}
+
+      {!stats && historyOff && (
+        <section className="scope-block">
+          <div className="scope-block-head">
+            <span>{t("si_focused")}</span>
+          </div>
+          <p className="hint">{historyOff}</p>
         </section>
       )}
 

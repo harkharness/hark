@@ -19,6 +19,7 @@ export default function ModeSelect({
   appliesTo,
   windowDefault,
   onSelect,
+  disabled,
 }: {
   /** Current mode flag ("manual" | "acceptEdits" | "plan" | "auto" | "bypass"). */
   value: string;
@@ -27,6 +28,9 @@ export default function ModeSelect({
   /** This window's default — badged while the menu is aimed at a task. */
   windowDefault?: string;
   onSelect: (flag: string) => void;
+  /** The reason the pill is off for the agent in this chat (its plugin
+   *  carries no directives); the pill stays, disabled, with this hover. */
+  disabled?: string;
 }) {
   const current = MODES.find((m) => m.flag === value) ?? MODES[0];
   const items: PillItem[] = MODES.map((m) => ({
@@ -42,6 +46,7 @@ export default function ModeSelect({
     <PillMenu
       label={t(current.name)}
       title={appliesTo ? t("mode_pill_task", { name: appliesTo }) : t("mode_pill_window")}
+      disabled={disabled}
       head={appliesTo ? t("mode_menu_task", { name: appliesTo.slice(0, 26) }) : t("mode_menu_new")}
       items={items}
       value={value}

@@ -1320,6 +1320,11 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 /* Nothing was chosen here: the CLI's own default is what runs. */
 .mode-pill.unset { color: var(--dim); }
+/* A feature the agent's plugin lacks: the pill keeps its place and its
+   hover says why. Hidden would read as "Hark cannot"; this reads as
+   "this plugin cannot". */
+.mode-pill.unsupported,
+.mode-pill.unsupported:hover { opacity: .45; cursor: not-allowed; }
 .mode-pill:hover {
   color: var(--text-strong);
   background: color-mix(in srgb, var(--panel-2) 80%, #fff 6%);

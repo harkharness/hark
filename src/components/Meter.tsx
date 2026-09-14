@@ -178,6 +178,7 @@ export function ContextRing({
   window,
   tokens,
   model,
+  unsupported,
 }: {
   /** null when nothing has reported yet — drawn empty, never as 0%. */
   used: number | null;
@@ -186,6 +187,10 @@ export function ContextRing({
   tokens?: number | null;
   /** Which model that turn ran on; the window is a property of it. */
   model?: string | null;
+  /** Why no reading will ever come: the agent's plugin reports no usage.
+   *  Said on the hover, so the empty ring reads as "this plugin cannot"
+   *  rather than "not measured yet". */
+  unsupported?: string;
 }) {
   // No reading yet is its own state. Vanishing made the control look like
   // it had nothing to say; "0%" would have been a claim we cannot make.
@@ -208,7 +213,8 @@ export function ContextRing({
       className="ctx-ring"
       title={
         unknown
-          ? "janela de contexto — sem leitura ainda; a primeira resposta desta sessão traz o número"
+          ? unsupported ??
+            "janela de contexto — sem leitura ainda; a primeira resposta desta sessão traz o número"
           : trusted
           ? `janela de contexto · ${Math.round(used * 100)}% de ${win}${on}`
           : `prompt de ${tokens ? k(tokens) : "?"} tokens${on} — não bate com a janela informada (${win}), então a janela real é outra e a porcentagem seria inventada`

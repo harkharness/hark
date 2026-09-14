@@ -62,9 +62,10 @@ export function shortModel(model?: string): string {
 
 /** The price of a turn, for a footer. `undefined` means the agent never
  *  said — which is NOT $0.0000: the subscription paid, the wire just did
- *  not carry the number. Absence reads as absence. */
+ *  not carry the number. The slot is held with a dash; the words belong
+ *  on the hover (see `support.costFooter`). */
 export function costLabel(cost?: number): string {
-  return cost === undefined ? t("cost_unknown") : `$${cost.toFixed(4)}`;
+  return cost === undefined ? "$ –" : `$${cost.toFixed(4)}`;
 }
 
 /**

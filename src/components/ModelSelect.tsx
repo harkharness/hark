@@ -30,6 +30,7 @@ export default function ModelSelect({
   appliesTo,
   windowDefault,
   onSelect,
+  disabled,
 }: {
   /** Selected model ("" = auto/router). */
   value: string;
@@ -39,6 +40,9 @@ export default function ModelSelect({
   appliesTo?: string;
   windowDefault?: string;
   onSelect: (model: string) => void;
+  /** The reason the pill is off for the agent in this chat (its plugin
+   *  carries no directives); the pill stays, disabled, with this hover. */
+  disabled?: string;
 }) {
   const shown =
     shortModel(liveModel ?? (value || undefined)) === "?"
@@ -56,6 +60,7 @@ export default function ModelSelect({
     <PillMenu
       label={shown}
       title={appliesTo ? t("model_pill_task", { name: appliesTo }) : t("model_pill_window")}
+      disabled={disabled}
       head={
         appliesTo ? t("model_menu_task", { name: appliesTo.slice(0, 26) }) : t("model_menu_new")
       }

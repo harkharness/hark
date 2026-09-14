@@ -37,6 +37,23 @@ Types every plugin speaks:
   `CLAUDE.md`); Hark writes the assistant's persona there
 - `shell_tools` — tool names whose input is a shell command; feeds the
   production gate (kubectl/terraform/etc. never auto-approve)
+- `fork` — the held-session banner's "open in parallel"
+- `directives` — the mode, model and effort pills reach the agent
+
+### Unsupported is shown, never hidden
+
+Every surface that offers a feature asks the sheet first
+(`src/lib/support.ts`: `unsupported(catalog, agent, cap, feature)`), and
+a feature the agent's plugin lacks stays ON SCREEN, disabled, with the
+reason as its hover: "sem suporte no plugin Gemini CLI: modo, modelo e
+esforço". Hidden would read as "Hark cannot"; a control that takes the
+click and changes nothing (what the pills did in an ACP chat) is worse
+than either. Numbers follow the same rule: a price the plugin never
+reported is `$ –` with the reason on hover, in the footer and in the
+costs panel, and the ledger keeps the turn with cost NULL. The agent
+behind a chat comes from the driver (`agent_for_session`: the session's
+owner, else the selected default) and from the turn stream; an agent
+with no negotiated sheet is never accused of lacking anything.
 
 Seams the core exposes (in `hark-core::ports` today):
 

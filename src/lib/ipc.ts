@@ -480,6 +480,9 @@ export type AgentCapabilities = {
   slash_commands: boolean;
   memory_file: string | null;
   shell_tools: string[];
+  fork: boolean;
+  /** Mode, model tier and effort reach the agent (the pills work). */
+  directives: boolean;
 };
 export type AgentPlugin = {
   id: string;
@@ -508,3 +511,6 @@ export const agentPluginSelect = (id: string) => invoke("agent_plugin_select", {
 /** `[agents.<id>] enabled` — the catalog's on/off switch, persisted in config. */
 export const agentPluginEnable = (id: string, enabled: boolean) =>
   invoke("agent_plugin_enable", { id, enabled });
+/** The agent that runs (or would run) a session — "" for a new chat. */
+export const agentForSession = (sessionId: string) =>
+  invoke<string>("agent_for_session", { sessionId });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Gauge, MeterRow, fmtTok, fmtUsd } from "./Meter";
 import * as ipc from "../lib/ipc";
 import { shortModel } from "../lib/format";
@@ -84,6 +84,21 @@ export default function UsageCard({ report }: { report: UsageReport }) {
   const [limits, setLimits] = useState<StatusLine | null>(report.limits);
   const [bridgeBusy, setBridgeBusy] = useState(false);
   const [bridgeNote, setBridgeNote] = useState<string | null>(null);
+  // The bridge reads Claude Code's own statusline hook: no Claude Code
+  // plugin on the machine, nothing to read. Said on the button, not hidden.
+  const [claudeOff, setClaudeOff] = useState<string | undefined>();
+  useEffect(() => {
+    ipc
+      .agentPlugins()
+      .then((ps) =>
+        setClaudeOff(
+          ps.length > 0 && !ps.some((p) => p.plugin === "claude" && p.detected)
+            ? t("cap_needs_claude")
+            : undefined,
+        ),
+      )
+      .catch(() => {});
+  }, []);
 
   async function installBridge() {
     setBridgeBusy(true);
@@ -122,7 +137,12 @@ export default function UsageCard({ report }: { report: UsageReport }) {
           </div>
           <p className="hint">{bridgeNote ?? t("u_no_bridge")}</p>
           {!bridgeNote && (
-            <button className="scope-detail" onClick={installBridge} disabled={bridgeBusy}>
+            <button
+              className="scope-detail"
+              onClick={installBridge}
+              disabled={bridgeBusy || !!claudeOff}
+              title={claudeOff}
+            >
               {bridgeBusy ? "…" : t("u_bridge_btn")}
             </button>
           )}

@@ -17,6 +17,8 @@ import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { Settings as SettingsIcon } from "lucide-react";
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import { useWorkerDefaults } from "./hooks/useWorkerDefaults";
+import { useAgentCatalog } from "./hooks/useAgentCatalog";
+import { unsupported } from "./lib/support";
 import ModeSelect from "./components/ModeSelect";
 import ModelSelect from "./components/ModelSelect";
 import EffortSelect from "./components/EffortSelect";
@@ -144,6 +146,10 @@ export default function Mother() {
   // the same config keys: expanded, this IS a project chat, so its pills
   // must not remember something different.
   const defaults = useWorkerDefaults(overview);
+  // The mother's pills set the window default for NEW chats, which the
+  // selected agent opens; its sheet decides whether they can work at all.
+  const { catalog, selected: selectedAgent } = useAgentCatalog();
+  const pillsOff = unsupported(catalog, selectedAgent, "directives", t("cap_directives"));
 
   /** A pill on the mother: records the window default always, and applies
    *  to the hark-chat worker while it is live. The project window's mode
@@ -1138,6 +1144,8 @@ export default function Mother() {
           <SessionInfo
             taskTitle={t("mo_chat_scope")}
             sessionId={chatSession ?? undefined}
+            agent={selectedAgent}
+            catalog={catalog}
             costs={{ [HARK_CHAT]: chatCost }}
             onClose={() => setScopeInfo(false)}
             onDetail={() => void pushUsage()}
@@ -1370,6 +1378,7 @@ export default function Mother() {
             {chatHead(true)}
             <Transcript
               messages={chatMsgs}
+              catalog={catalog}
               directivesFor={() => undefined}
               onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
               onOpenPath={openChatPath}
@@ -1415,15 +1424,18 @@ export default function Mother() {
                   default is a preference, a live task's is a directive. */}
               <ModeSelect
                 value={defaults.modeInForce}
+                disabled={pillsOff}
                 onSelect={pillPick(ipc.workerSetMode, defaults.setModeDefault)}
               />
               <ModelSelect
                 value={defaults.model}
                 tiers={defaults.tiers}
+                disabled={pillsOff}
                 onSelect={pillPick(ipc.workerSetModel, defaults.setModelDefault)}
               />
               <EffortSelect
                 value={defaults.effort}
+                disabled={pillsOff}
                 onSelect={pillPick(ipc.workerSetEffort, defaults.setEffortDefault)}
               />
             </Composer>
