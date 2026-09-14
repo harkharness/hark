@@ -1221,6 +1221,12 @@ fn start_worker_titled(
                             "context_pct": context_pct,
                             "context_window": context_window }),
                     );
+                    // ACP has no capability flag for cost: the sheet says
+                    // "no" until an agent prices a turn, and this is where
+                    // that is learned — once, then the catalog knows.
+                    if turn.cost_usd.is_some() {
+                        remember_agent_prices(&app2, &agent_id);
+                    }
                     // The turn ended, so the queue moves: the message at
                     // the front becomes the next turn (or all of them as
                     // one, under `batch_messages`), and an empty queue is
@@ -1836,6 +1842,25 @@ fn remember_agent_sheet(app: &AppHandle, agent: &str, caps: hark_agent::Capabili
         return;
     }
     state.agent_sheets.insert(agent.to_string(), caps);
+    let _ = state_file::save(&config.data_dir(), &state);
+    let _ = app.emit("hark-plugins", ());
+}
+
+/// An ACP agent priced a turn: its stored sheet learns `cost_reporting`
+/// (nothing at initialize could say so) and the windows are told, so the
+/// price slot stops calling a missing number "unsupported" for an agent
+/// that does report one.
+fn remember_agent_prices(app: &AppHandle, agent: &str) {
+    let config = Config::load();
+    if agent_plugin(&config, agent) == "claude" {
+        return;
+    }
+    let mut state = state_file::load(&config.data_dir());
+    let Some(sheet) = state.agent_sheets.get_mut(agent) else { return };
+    if sheet.cost_reporting {
+        return;
+    }
+    sheet.cost_reporting = true;
     let _ = state_file::save(&config.data_dir(), &state);
     let _ = app.emit("hark-plugins", ());
 }

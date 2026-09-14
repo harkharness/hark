@@ -205,6 +205,25 @@ fixtures come from the wire, not from the spec). Per capability:
   so the catalog — which never spawns — shows the truth and the pills
   come back on. A knob the agent does not offer is skipped and the pill
   says so; a model name not on its list is refused by name.
+
+  Recorded from claude-agent-acp 0.76.0 (14/09/2026, one real turn —
+  `fixtures/session-new.claude-agent-acp-0.76.0.json` and
+  `prompt-response.claude-agent-acp-0.76.0.json`; the ignored test in
+  `backend.rs` replays it against the binary): modes `default,
+  acceptEdits, plan, auto, bypassPermissions` (the CLI's own, so `auto`
+  is auto); config options `mode`, `model` (values `default`, `opus[1m]`,
+  `claude-fable-5-1[1m]`, `sonnet`, `haiku` — aliases with a context
+  hint, which is why the matcher compares families), `effort` (`default,
+  low, medium, high, xhigh, max`), `fast` (on/off), `agent` (subagents).
+  The prompt ANSWER carries the turn's own token breakdown
+  (`usage.inputTokens/outputTokens/cachedReadTokens/cachedWriteTokens`)
+  and, in `_meta.quota.model_usage`, the model that actually ran: the
+  ledger row takes both, so a 10-in/72-out turn is not written down as
+  28k of input, and the footer signs the real model. The agent also
+  sends `_auth/status_update` extension notifications (plan, org,
+  account) — read nowhere yet. One word on haiku at low effort cost
+  $0.057: 28.5k tokens of Claude Code system prompt written to cache.
+  The lean-ask `_meta` options are what would cut that.
 - **structured ask** (voice ask, intent router, dispatch gate) — no
   schema mode, so the schema goes INTO the prompt and the answer is read
   leniently (`reply::extract_lenient`: the object, a fenced block, prose
