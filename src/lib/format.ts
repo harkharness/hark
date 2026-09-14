@@ -54,7 +54,17 @@ export function directiveLabels(d?: Directives): string[] {
 /** Format the model id for the footer: "claude-sonnet-5" -> "sonnet-5". */
 export function shortModel(model?: string): string {
   if (!model) return "?";
-  return model.replace(/^claude-/, "");
+  // Only a MODEL loses its vendor prefix ("claude-fable-5-1" → "fable-5-1").
+  // An ACP turn is signed by its agent id, and "claude-acp" cut down to
+  // "acp" told the user nothing about who answered.
+  return model.replace(/^claude-(?=\d|opus|sonnet|haiku|fable)/, "");
+}
+
+/** The price of a turn, for a footer. `undefined` means the agent never
+ *  said — which is NOT $0.0000: the subscription paid, the wire just did
+ *  not carry the number. Absence reads as absence. */
+export function costLabel(cost?: number): string {
+  return cost === undefined ? t("cost_unknown") : `$${cost.toFixed(4)}`;
 }
 
 /**

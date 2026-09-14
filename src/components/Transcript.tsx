@@ -14,7 +14,7 @@ import { Check, ChevronDown, Copy, Lock, RefreshCw, Square, Volume2, X } from "l
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput, toolHint, toolLabel } from "./ToolCall";
 import UsageCard from "./UsageCard";
-import { directiveLabels, shortModel } from "../lib/format";
+import { costLabel, directiveLabels, shortModel } from "../lib/format";
 import type { Directives, Msg } from "../types";
 import { t } from "../lib/i18n";
 import * as ipc from "../lib/ipc";
@@ -371,7 +371,7 @@ const Row = memo(function Row({
                   {[
                     shortModel(m.model),
                     ...directiveLabels(directives),
-                    `$${(m.cost ?? 0).toFixed(4)}`,
+                    costLabel(m.cost),
                   ].join(" · ")}
                 </span>
               )}

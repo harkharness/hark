@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import * as ipc from "../lib/ipc";
 import { st, t } from "../lib/i18n";
-import { isAuthError } from "../lib/format";
+import { costLabel, isAuthError } from "../lib/format";
 import type { LiveWorker, Msg, PermissionAsk, HarkEvent } from "../types";
 
 type Handlers = {
@@ -138,7 +138,7 @@ export function useHarkEvents(h: Handlers) {
           : ev.text;
         h.pushRaw(
           label,
-          `${ts()} ── turno ${ev.is_error ? "FALHOU " : ""}${ev.model ?? ""} $${(ev.cost_usd ?? 0).toFixed(4)}`,
+          `${ts()} ── turno ${ev.is_error ? "FALHOU " : ""}${ev.model ?? ""} ${costLabel(ev.cost_usd)}`,
         );
         // The CLI reports an interrupted turn as an error (measured —
         // spikes/FINDINGS.md). The shell already strips is_error for it;

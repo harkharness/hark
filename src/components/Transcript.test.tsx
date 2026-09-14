@@ -18,6 +18,7 @@ vi.mock("./Markdown", () => ({
 }));
 
 import Transcript from "./Transcript";
+import { t } from "../lib/i18n";
 
 // jsdom lays nothing out, so it has no scrollIntoView to offer.
 Element.prototype.scrollIntoView = vi.fn();
@@ -61,5 +62,38 @@ describe("Transcript re-renders only what changed", () => {
       <Parent messages={[...thread, { who: "hark", text: "terceira", ts: 4_000 }]} />,
     );
     expect(probe.renders).toBe(3);
+  });
+});
+
+describe("the footer of a reply tells the truth about its price", () => {
+  it("an unpriced turn says so, signed by its agent, never $0.0000", () => {
+    // Observed with claude-code-acp: the footer read "acp · $0.0000" for a
+    // turn that burned 27k tokens of opus on the user's subscription.
+    const { container } = render(
+      <Parent
+        messages={[
+          { who: "user", text: "oi", ts: 1_000 },
+          { who: "hark", text: "resposta", ts: 2_000, model: "claude-acp" },
+        ]}
+      />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("$0.0000");
+    expect(text).toContain(t("cost_unknown"));
+    expect(text).toContain("claude-acp · ");
+    // The bare "acp" was the id with its prefix cut off as if it were a model.
+    expect(text).not.toMatch(/(?<!claude-)acp · /);
+  });
+
+  it("a priced turn still shows its dollars", () => {
+    const { container } = render(
+      <Parent
+        messages={[
+          { who: "user", text: "oi", ts: 1_000 },
+          { who: "hark", text: "resposta", ts: 2_000, model: "claude-haiku-4-5", cost: 0.0123 },
+        ]}
+      />,
+    );
+    expect(container.textContent).toContain("$0.0123");
   });
 });
