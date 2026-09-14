@@ -63,8 +63,10 @@ impl AgentBackend for AcpBackend {
     }
 
     fn spawn(&self, spec: &SessionSpec) -> anyhow::Result<(Arc<dyn AgentSession>, EventRx)> {
-        // Directives (mode, effort, model) have no ACP translation in v1
-        // and are dropped, as the seam allows; fork is gated by caps.fork.
+        // Directives ride the opening: said in the agent's own ids for
+        // whatever its session/new offers (modes, config options), and
+        // dropped — with the sheet saying so — for what it does not. Fork
+        // is gated by caps.fork.
         let mut child = std::process::Command::new(&self.cmd)
             .args(&self.args)
             .current_dir(&spec.cwd)
@@ -85,6 +87,7 @@ impl AgentBackend for AcpBackend {
             instruction: &spec.instruction,
             images: &[],
             memory_file: self.memory_file.clone(),
+            directives: &spec.directives,
         };
         let connected = crate::session::connect(
             crate::session::Wire { reader: Box::new(stdout), writer: Box::new(stdin) },

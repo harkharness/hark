@@ -10,6 +10,7 @@
 pub mod ask;
 pub mod backend;
 pub mod caps;
+pub mod directives;
 pub mod rpc;
 pub mod session;
 pub mod translate;

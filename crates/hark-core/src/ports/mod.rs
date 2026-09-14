@@ -38,9 +38,38 @@ pub type EventRx = std::sync::mpsc::Receiver<AgentEvent>;
 
 /// One live conversational session, whatever the backend. Shaped 1:1 on
 /// the claude PersistentWorker so that impl is a rename, not a rewrite.
+/// Which knobs a live directive change actually moved.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DirectivesApplied {
+    pub mode: bool,
+    pub model: bool,
+    pub effort: bool,
+}
+
+/// A backend's answer to "apply these directives to the running session".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveDirectives {
+    /// No live path at all (the CLI takes flags at spawn): the driver
+    /// reopens the session with the new flags, as it always did.
+    Unsupported,
+    /// The backend can change knobs live; here is what it moved. A knob
+    /// the agent does not offer stays false, and the driver says so —
+    /// reopening would not help, the spawn drops it too.
+    Applied(DirectivesApplied),
+}
+
 pub trait AgentSession: Send + Sync {
     /// Follow-up user message (text + pasted (media_type, base64) images).
     fn send_text(&self, text: &str, images: &[(String, String)]) -> anyhow::Result<()>;
+    /// Change mode/model/effort on the LIVE session, no restart. The
+    /// default is "no such path"; ACP agents override with
+    /// `session/set_mode` and `session/set_config_option`.
+    fn set_directives(
+        &self,
+        _directives: &crate::domain::directives::Directives,
+    ) -> anyhow::Result<LiveDirectives> {
+        Ok(LiveDirectives::Unsupported)
+    }
     /// Answer a pending permission request.
     fn respond_permission(
         &self,

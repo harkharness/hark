@@ -161,7 +161,7 @@ pub enum SessionEvent {
 /// What a backend can actually do. The UI degrades feature by feature:
 /// no `cost_reporting` hides USD, no `permissions` hides approval cards,
 /// no `history` blanks the session browser — nothing else breaks.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Capabilities {
     /// Resuming an existing session by id.
     pub resume: bool,
@@ -187,9 +187,18 @@ pub struct Capabilities {
     /// leaving the original untouched (claude --fork-session).
     #[serde(default)]
     pub fork: bool,
-    /// Per-session directives — permission mode, model tier, effort —
-    /// reach the agent. Without it a pill takes the click and changes
-    /// nothing, which is worse than a pill that says it cannot.
+    /// The permission-mode directive reaches the agent (a CLI flag, or ACP
+    /// `session/set_mode` when the agent offers modes). Without it a pill
+    /// takes the click and changes nothing, which is worse than a pill
+    /// that says it cannot.
     #[serde(default)]
-    pub directives: bool,
+    pub directive_mode: bool,
+    /// The model directive reaches the agent (a flag, or an ACP config
+    /// option categorised `model`).
+    #[serde(default)]
+    pub directive_model: bool,
+    /// The effort directive reaches the agent (a flag, or an ACP config
+    /// option categorised `thought_level`).
+    #[serde(default)]
+    pub directive_effort: bool,
 }

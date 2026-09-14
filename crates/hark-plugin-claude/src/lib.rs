@@ -31,7 +31,9 @@ pub fn capabilities() -> hark_agent::Capabilities {
         shell_tools: vec!["Bash".into()],
         fork: true,
         // --permission-mode, --model, --effort: every directive is a flag.
-        directives: true,
+        directive_mode: true,
+        directive_model: true,
+        directive_effort: true,
     }
 }
 
@@ -43,7 +45,7 @@ mod capability_sheet {
         // CLI takes --permission-mode, --model and --effort, and forks a
         // session; an ACP agent, today, takes none of those from Hark.
         let caps = super::capabilities();
-        assert!(caps.directives, "mode/model/effort reach the CLI");
+        assert!(caps.directive_mode && caps.directive_model && caps.directive_effort, "mode/model/effort reach the CLI");
         assert!(caps.fork);
     }
 }

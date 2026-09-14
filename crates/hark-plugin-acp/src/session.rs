@@ -21,10 +21,12 @@
 //!   turn's cost is the delta from the previous reading.
 
 use crate::caps::{negotiate, Negotiated};
+use crate::directives::{self as dirs, Offer};
 use crate::rpc::{self, Incoming};
 use crate::translate;
 use hark_agent::{AgentEvent, AgentPhase, ModelUsage, PermissionDecision, TokenUsage, TurnResult};
-use hark_core::ports::EventRx;
+use hark_core::domain::directives::Directives;
+use hark_core::ports::{DirectivesApplied, EventRx, LiveDirectives};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
@@ -58,6 +60,10 @@ pub struct Opening<'a> {
     /// Pasted screenshots riding on the opening prompt: (media type, base64).
     pub images: &'a [(String, String)],
     pub memory_file: Option<String>,
+    /// Mode, model and effort the chat opens with — said to the agent in
+    /// its own ids (`session/set_mode`, `session/set_config_option`)
+    /// between session/new and the first word, for whatever it offers.
+    pub directives: &'a Directives,
 }
 
 /// A session that answered the handshake and took its opening prompt.
@@ -92,6 +98,7 @@ pub fn connect(
         ask_seq: AtomicU64::new(1),
         stderr_tail: Arc::new(Mutex::new(VecDeque::new())),
         cost_before: Mutex::new(0.0),
+        offer: Mutex::new(Offer::default()),
     });
     if let Some(stderr) = stderr {
         tail_stderr(stderr, session.stderr_tail.clone());
@@ -135,7 +142,7 @@ fn handshake(
             }),
         )
         .map_err(|e| failure("initialize", e, session))?;
-    let negotiated = negotiate(&init, opening.memory_file.clone());
+    let mut negotiated = negotiate(&init, opening.memory_file.clone());
 
     let resuming = !opening.session_id.is_empty();
     let cwd = opening.cwd.display().to_string();
@@ -156,6 +163,24 @@ fn handshake(
     };
     *session.session_id.lock().unwrap_or_else(|e| e.into_inner()) = session_id.clone();
     let _ = started.send(AgentEvent::SessionStarted { session_id, slash_commands: Vec::new() });
+
+    // What the agent can be told: its modes and config options. The sheet
+    // learns it here — nothing before session/new could know — and the
+    // opening directives go on the wire before the first word, so a chat
+    // opened in plan mode STARTS in plan mode.
+    let offer = Offer::from_answer(&answer);
+    let (mode, model, effort) = offer.directive_caps();
+    negotiated.caps.directive_mode = mode;
+    negotiated.caps.directive_model = model;
+    negotiated.caps.directive_effort = effort;
+    *session.offer.lock().unwrap_or_else(|e| e.into_inner()) = offer;
+    if let Err(err) = session.apply_directives(opening.directives) {
+        // A knob the agent refused is not a reason to lose the chat: the
+        // pill shows the truth on the next reading, the turn goes on.
+        if std::env::var_os("HARK_DEBUG").is_some() {
+            eprintln!("[hark acp {}] opening directives: {err}", session.agent);
+        }
+    }
 
     session.prompt(opening.instruction, opening.images)?;
     Ok(negotiated)
@@ -251,9 +276,81 @@ pub struct AcpSession {
     ask_seq: AtomicU64,
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
     cost_before: Mutex<f64>,
+    /// Modes and config options the agent offered at session/new, with
+    /// their current values as the agent last reported them.
+    offer: Mutex<Offer>,
 }
 
 impl AcpSession {
+    /// Say Hark's directives in the agent's ids, for whatever it offers:
+    /// `session/set_mode` for the permission mode, `session/set_config_option`
+    /// for model and effort. A knob the agent does not offer is skipped and
+    /// reported as not applied; a knob it offers but whose requested VALUE
+    /// is not on the list (a model name) is an error naming the list —
+    /// the one case where silence would hide a real mismatch. Nothing is
+    /// sent for a value already in force.
+    pub fn apply_directives(&self, d: &Directives) -> anyhow::Result<LiveDirectives> {
+        let offer = self.offer.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let session_id = self.session_id.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut applied = DirectivesApplied::default();
+
+        if let (Some(mode), Some(modes)) = (d.mode, offer.modes.as_ref()) {
+            if let Some(id) = dirs::mode_id(mode, modes) {
+                if modes.current != id {
+                    self.call("session/set_mode", json!({ "sessionId": session_id, "modeId": id }))
+                        .map_err(|e| failure("session/set_mode", e, self))?;
+                    let mut held = self.offer.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(m) = held.modes.as_mut() {
+                        m.current = id;
+                    }
+                }
+                applied.mode = true;
+            }
+        }
+
+        let set_option = |option: &dirs::ConfigOption, value: String| -> anyhow::Result<()> {
+            if option.current.as_deref() == Some(value.as_str()) {
+                return Ok(());
+            }
+            let answer = self
+                .call(
+                    "session/set_config_option",
+                    json!({ "sessionId": session_id, "configId": option.id, "value": value }),
+                )
+                .map_err(|e| failure("session/set_config_option", e, self))?;
+            if let Some(list) = answer.get("configOptions") {
+                self.offer.lock().unwrap_or_else(|e| e.into_inner()).refresh_options(list);
+            }
+            Ok(())
+        };
+
+        if let (Some(effort), Some(option)) = (d.effort, offer.effort_option()) {
+            if let Some(value) = dirs::effort_value(effort, option) {
+                set_option(option, value)?;
+                applied.effort = true;
+            }
+        }
+
+        if let (Some(model), Some(option)) = (d.model.as_deref(), offer.model_option()) {
+            match dirs::model_value(model, option) {
+                Some(value) => {
+                    set_option(option, value)?;
+                    applied.model = true;
+                }
+                None => {
+                    let offered: Vec<&str> = option.values.iter().map(|v| v.id.as_str()).collect();
+                    anyhow::bail!(
+                        "o agente {} não oferece o modelo {model}; oferece: {}",
+                        self.agent,
+                        offered.join(", ")
+                    );
+                }
+            }
+        }
+
+        Ok(LiveDirectives::Applied(applied))
+    }
+
     /// The next user turn. One at a time: ACP allows a single prompt in
     /// flight per session, and Hark's outbox already queues the rest.
     pub fn send_text(&self, text: &str, images: &[(String, String)]) -> anyhow::Result<()> {
@@ -461,6 +558,22 @@ impl AcpSession {
                             total_cost: stated.or(turn.usage.and_then(|u| u.total_cost)),
                         });
                     }
+                    // The agent moved a knob itself (or confirmed ours):
+                    // the offer keeps the values in force, so a later
+                    // request for the same value costs no call.
+                    "current_mode_update" => {
+                        if let Some(id) = update.get("currentModeId").and_then(Value::as_str) {
+                            let mut held = self.offer.lock().unwrap_or_else(|e| e.into_inner());
+                            if let Some(m) = held.modes.as_mut() {
+                                m.current = id.to_string();
+                            }
+                        }
+                    }
+                    "config_option_update" => {
+                        if let Some(list) = update.get("configOptions") {
+                            self.offer.lock().unwrap_or_else(|e| e.into_inner()).refresh_options(list);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -620,6 +733,9 @@ impl hark_core::ports::AgentSession for AcpSession {
     fn send_text(&self, text: &str, images: &[(String, String)]) -> anyhow::Result<()> {
         AcpSession::send_text(self, text, images)
     }
+    fn set_directives(&self, directives: &Directives) -> anyhow::Result<LiveDirectives> {
+        AcpSession::apply_directives(self, directives)
+    }
     fn respond_permission(&self, request_id: &str, decision: PermissionDecision) -> anyhow::Result<()> {
         AcpSession::respond_permission(self, request_id, decision)
     }
@@ -696,6 +812,30 @@ pub(crate) mod fake {
         }
     }
 
+    /// An agent whose session/new answers with `offer` (modes, config
+    /// options) and takes `session/set_mode` / `session/set_config_option`,
+    /// answering the latter with the list it was given back.
+    pub fn offering(
+        offer: Value,
+        mut on_prompt: impl FnMut(u64, &Value, &mut dyn FnMut(String)) + Send + 'static,
+    ) -> impl FnMut(&Incoming, &mut dyn FnMut(String)) + Send + 'static {
+        move |msg, say| {
+            if let Incoming::Request { id, method, params } = msg {
+                match method.as_str() {
+                    "initialize" => say(rpc::response(id, serde_json::from_str(GEMINI_INIT).unwrap())),
+                    "session/new" => say(rpc::response(id, offer.clone())),
+                    "session/set_mode" => say(rpc::response(id, json!({}))),
+                    "session/set_config_option" => say(rpc::response(
+                        id,
+                        json!({ "configOptions": offer.get("configOptions").cloned().unwrap_or(json!([])) }),
+                    )),
+                    "session/prompt" => on_prompt(id.as_u64().unwrap(), params, say),
+                    _ => say(rpc::error_response(id, -32601, "not in this script")),
+                }
+            }
+        }
+    }
+
     pub fn update(update: Value) -> String {
         rpc::notification("session/update", json!({ "sessionId": "s-1", "update": update }))
     }
@@ -709,9 +849,11 @@ pub(crate) mod fake {
 
 #[cfg(test)]
 mod tests {
+    use super::fake::offering;
     use super::*;
     use crate::rpc::{self, Incoming};
     use hark_agent::{AgentPhase, ModelUsage, TokenUsage};
+    use hark_core::domain::directives::{Effort, Mode};
     use serde_json::{json, Value};
     use std::io::{BufRead, BufReader, Write};
     use std::sync::Mutex;
@@ -776,7 +918,13 @@ mod tests {
     fn end_turn(id: u64) -> String {
         rpc::response(&json!(id), json!({ "stopReason": "end_turn" }))
     }
+    static NO_DIRECTIVES: Directives = Directives { mode: None, effort: None, model: None };
+
     fn opening<'a>(session_id: &'a str, instruction: &'a str) -> Opening<'a> {
+        opening_with(session_id, instruction, &NO_DIRECTIVES)
+    }
+
+    fn opening_with<'a>(session_id: &'a str, instruction: &'a str, directives: &'a Directives) -> Opening<'a> {
         Opening {
             agent: "gemini",
             cwd: std::path::Path::new("/tmp/proj"),
@@ -784,7 +932,136 @@ mod tests {
             instruction,
             images: &[],
             memory_file: Some("GEMINI.md".into()),
+            directives,
         }
+    }
+
+    /// What claude-agent-acp answers to session/new, per its source —
+    /// synthetic (the adapter was not installed when this was written).
+    fn claude_offer() -> Value {
+        json!({
+            "sessionId": "s-1",
+            "modes": { "currentModeId": "default", "availableModes": [
+                { "id": "default", "name": "Always Ask" }, { "id": "acceptEdits", "name": "Accept Edits" },
+                { "id": "plan", "name": "Plan Mode" }, { "id": "bypassPermissions", "name": "Bypass" } ] },
+            "configOptions": [
+                { "id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "default",
+                  "options": [ { "value": "default", "name": "Default" }, { "value": "claude-haiku-4-5", "name": "Haiku 4.5" },
+                               { "value": "claude-opus-4-6", "name": "Opus 4.6" } ] },
+                { "id": "effort", "name": "Effort", "category": "thought_level", "type": "select", "currentValue": "default",
+                  "options": [ { "value": "default", "name": "Default" }, { "value": "low", "name": "low" },
+                               { "value": "high", "name": "high" }, { "value": "max", "name": "max" } ] }
+            ]
+        })
+    }
+
+    /// Requests hark sent with this method, in order, with their params.
+    fn requests(seen: &Seen, method: &str) -> Vec<Value> {
+        seen.lock()
+            .unwrap()
+            .iter()
+            .filter_map(|m| match m {
+                Incoming::Request { method: got, params, .. } if got == method => Some(params.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn opening_directives_reach_the_agent_before_the_first_word() {
+        // A chat opened in plan mode, low effort, on the light model must
+        // START that way: the knobs go on the wire between session/new and
+        // the opening prompt, each in the agent's own vocabulary.
+        let (wire, seen) = fake_agent(offering(claude_offer(), |id, _p, say| say(end_turn(id))));
+        let wanted = Directives { mode: Some(Mode::Plan), effort: Some(Effort::Low), model: Some("haiku".into()) };
+        let c = connect(wire, None, None, &opening_with("", "oi", &wanted)).expect("connects");
+        let _ = until_result(&c.events);
+
+        let order = methods(&seen);
+        let prompt_at = order.iter().position(|m| m == "session/prompt").expect("prompt sent");
+        let mode_at = order.iter().position(|m| m == "session/set_mode").expect("set_mode sent");
+        let cfg_at = order.iter().position(|m| m == "session/set_config_option").expect("config sent");
+        assert!(mode_at < prompt_at && cfg_at < prompt_at, "{order:?}");
+
+        assert_eq!(requests(&seen, "session/set_mode")[0]["modeId"], "plan");
+        let cfgs = requests(&seen, "session/set_config_option");
+        let by_id: std::collections::BTreeMap<String, String> = cfgs
+            .iter()
+            .map(|p| (p["configId"].as_str().unwrap().to_string(), p["value"].as_str().unwrap().to_string()))
+            .collect();
+        assert_eq!(by_id.get("effort").map(String::as_str), Some("low"));
+        assert_eq!(by_id.get("model").map(String::as_str), Some("claude-haiku-4-5"));
+        for p in &cfgs {
+            assert_eq!(p["sessionId"], "s-1");
+        }
+    }
+
+    #[test]
+    fn the_offer_fills_the_directive_sheet() {
+        let (wire, _seen) = fake_agent(offering(claude_offer(), |id, _p, say| say(end_turn(id))));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let caps = &c.negotiated.caps;
+        assert!(caps.directive_mode && caps.directive_model && caps.directive_effort);
+
+        let (wire, _seen) = fake_agent(gemini_like(|id, _p, say| say(end_turn(id))));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let caps = &c.negotiated.caps;
+        assert!(!caps.directive_mode && !caps.directive_model && !caps.directive_effort);
+    }
+
+    #[test]
+    fn a_live_mode_change_is_one_set_mode_call_not_a_reopen() {
+        let (wire, seen) = fake_agent(offering(claude_offer(), |id, _p, say| say(end_turn(id))));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let _ = until_result(&c.events);
+        assert!(requests(&seen, "session/set_mode").is_empty(), "no directive, no call");
+
+        let applied = c
+            .session
+            .apply_directives(&Directives { mode: Some(Mode::AcceptEdits), effort: None, model: None })
+            .expect("applies");
+        assert_eq!(applied, LiveDirectives::Applied(DirectivesApplied { mode: true, model: false, effort: false }));
+        wait_for(&seen, |m| {
+            matches!(m, Incoming::Request { method, params, .. }
+                if method == "session/set_mode" && params["modeId"] == "acceptEdits")
+        });
+        assert_eq!(methods(&seen).iter().filter(|m| *m == "session/new").count(), 1, "the session was not reopened");
+
+        // Asking for the mode already in force is not another call.
+        let again = c
+            .session
+            .apply_directives(&Directives { mode: Some(Mode::AcceptEdits), effort: None, model: None })
+            .expect("applies");
+        assert_eq!(again, LiveDirectives::Applied(DirectivesApplied { mode: true, model: false, effort: false }));
+        assert_eq!(requests(&seen, "session/set_mode").len(), 1);
+    }
+
+    #[test]
+    fn an_agent_offering_no_knobs_is_asked_for_none() {
+        // gemini_like answers session/new with a bare sessionId: no modes,
+        // no config options. Nothing is sent, nothing is claimed.
+        let (wire, seen) = fake_agent(gemini_like(|id, _p, say| say(end_turn(id))));
+        let wanted = Directives { mode: Some(Mode::Plan), effort: Some(Effort::Low), model: Some("x".into()) };
+        let c = connect(wire, None, None, &opening_with("", "oi", &wanted)).expect("connects");
+        let _ = until_result(&c.events);
+        assert!(!methods(&seen).iter().any(|m| m.starts_with("session/set_")), "{:?}", methods(&seen));
+        assert_eq!(
+            c.session.apply_directives(&wanted).expect("no error, just nothing applied"),
+            LiveDirectives::Applied(DirectivesApplied::default())
+        );
+    }
+
+    #[test]
+    fn a_model_nobody_offers_is_refused_by_name() {
+        let (wire, _seen) = fake_agent(offering(claude_offer(), |id, _p, say| say(end_turn(id))));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let _ = until_result(&c.events);
+        let err = c
+            .session
+            .apply_directives(&Directives { mode: None, effort: None, model: Some("gpt-5".into()) })
+            .expect_err("gpt-5 is not on the list");
+        let err = err.to_string();
+        assert!(err.contains("gpt-5") && err.contains("claude-opus-4-6"), "{err}");
     }
 
     /// Events up to and including the first `Result`.

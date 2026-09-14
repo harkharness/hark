@@ -53,6 +53,13 @@ pub fn ask_over(
     on_event: &mut dyn FnMut(&AgentEvent),
 ) -> anyhow::Result<TurnResult> {
     let composed = compose(request);
+    // The cheap lane's knobs, for an agent that offers them: the light
+    // model and low effort make a one-shot question cheap over ACP too.
+    let knobs = hark_core::domain::directives::Directives {
+        mode: None,
+        effort: hark_core::domain::directives::Effort::from_flag(request.effort),
+        model: (!request.model.is_empty()).then(|| request.model.to_string()),
+    };
     let opening = Opening {
         agent,
         cwd,
@@ -60,6 +67,7 @@ pub fn ask_over(
         instruction: &composed,
         images: request.images,
         memory_file: None,
+        directives: &knobs,
     };
     let connected = connect(wire, child, stderr, &opening)?;
     let mut prose: Vec<String> = Vec::new();

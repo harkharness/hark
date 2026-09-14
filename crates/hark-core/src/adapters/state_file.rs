@@ -20,6 +20,12 @@ pub struct GlobalState {
     /// Which backend owns that chat session; a resume goes to it, not to
     /// whatever the default is today.
     pub hark_chat_agent: Option<String>,
+    /// What each ACP agent turned out to offer (modes, config options,
+    /// cost…), learned in a real session and kept so the catalog — which
+    /// never spawns anything — can show the truth instead of the
+    /// pessimistic default. Keyed by registry id.
+    #[serde(default)]
+    pub agent_sheets: std::collections::BTreeMap<String, hark_agent::Capabilities>,
     /// First-run wizard completed (or explicitly skipped) on this machine.
     pub onboarded: bool,
 }
@@ -71,6 +77,27 @@ mod tests {
         let old = load(dir.path());
         assert_eq!(old.active_context.as_deref(), Some("nu"));
         assert_eq!(old.hark_chat_session, None);
+    }
+
+    #[test]
+    fn a_negotiated_sheet_survives_a_restart() {
+        // The catalog only ever spawns nothing: what an ACP agent CAN do is
+        // learned in a real session and must outlive the process, or the
+        // pills stay off for an agent that takes every directive.
+        let dir = tempfile::tempdir().unwrap();
+        let mut sheet = hark_agent::Capabilities::default();
+        sheet.directive_mode = true;
+        sheet.cost_reporting = true;
+        let state = GlobalState {
+            agent_sheets: std::iter::once(("claude-acp".to_string(), sheet.clone())).collect(),
+            ..GlobalState::default()
+        };
+        save(dir.path(), &state).unwrap();
+        let back = load(dir.path());
+        assert_eq!(back.agent_sheets.get("claude-acp"), Some(&sheet));
+        // A state file written before the field existed still loads.
+        std::fs::write(dir.path().join("state.json"), r#"{"workers":[]}"#).unwrap();
+        assert!(load(dir.path()).agent_sheets.is_empty());
     }
 
     #[test]
