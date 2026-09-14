@@ -38,7 +38,9 @@ Types every plugin speaks:
 - `shell_tools` — tool names whose input is a shell command; feeds the
   production gate (kubectl/terraform/etc. never auto-approve)
 - `fork` — the held-session banner's "open in parallel"
-- `directives` — the mode, model and effort pills reach the agent
+- `directive_mode` / `directive_model` / `directive_effort` — each pill
+  reaches the agent: a CLI flag for claude, or an ACP mode / config
+  option the agent offered at `session/new`
 
 ### Unsupported is shown, never hidden
 
@@ -188,6 +190,21 @@ fixtures come from the wire, not from the spec). Per capability:
   row under the agent that ran it, tokens zero, cost NULL, so the turn
   count and the session link survive.
 - **resume** — `session/load`, when the agent announces `loadSession`.
+- **directives** — said in the agent's own ids, for whatever its
+  `session/new` answer OFFERS (`directives.rs`): the permission mode
+  through `session/set_mode` (exact ids first — the Claude adapter uses
+  the CLI's spellings — then aliases: gemini's `autoEdit`/`yolo`; "auto"
+  falls back to accepting edits, never to bypass), model and effort
+  through `session/set_config_option` (the options categorised `model`
+  and `thought_level`; an effort level the agent lacks becomes the
+  nearest LOWER one; a model is found by id, label or family — "haiku"
+  finds "claude-haiku-4-5"). The opening directives go on the wire
+  between `session/new` and the first word; a live change is one call on
+  the running session, no reopen. The sheet learns `directive_*` from the
+  offer, the driver keeps it per agent (`state.json` → `agent_sheets`)
+  so the catalog — which never spawns — shows the truth and the pills
+  come back on. A knob the agent does not offer is skipped and the pill
+  says so; a model name not on its list is refused by name.
 - **structured ask** (voice ask, intent router, dispatch gate) — no
   schema mode, so the schema goes INTO the prompt and the answer is read
   leniently (`reply::extract_lenient`: the object, a fenced block, prose
@@ -209,12 +226,11 @@ are ACP's), and a string `_meta.systemPrompt` REPLACES Claude Code's
 system prompt. That is `model`, `effort`, `maxTurns`, `maxBudgetUsd`,
 `settingSources`, `disallowedTools`, `outputFormat` (json_schema): the
 lean voice ask, the budget ceiling and native structured output are all
-reachable for this one agent. It also exposes ACP session config options
-(`effort`, model) that `session/set_config_option` can set — the
-standard mechanism, which other adapters (dsh, codex) expose too. Neither
-is wired yet: the ACP plugin still zeroes `directives` and `limits` at
-spawn. The generic path is config options; the `_meta` dialect is the
-claude-specific extra.
+reachable for this one agent. Its session config options (`effort`,
+`model`) and its modes are what the generic directive path above already
+drives, for this adapter as for dsh or gemini. Not wired yet: the `_meta`
+options (lean ask, budget ceiling, native schema) — the claude-specific
+extra — and `limits`, still zeroed at spawn.
 
 Failures carry the same health codes as the claude plugin
 (`agent_missing`, `agent_blocked`, `agent_auth`, `agent_failed`), and an

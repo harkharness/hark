@@ -481,8 +481,11 @@ export type AgentCapabilities = {
   memory_file: string | null;
   shell_tools: string[];
   fork: boolean;
-  /** Mode, model tier and effort reach the agent (the pills work). */
-  directives: boolean;
+  /** Each directive pill works for this agent: a CLI flag, or an ACP
+   *  mode / config option the agent offered at session/new. */
+  directive_mode: boolean;
+  directive_model: boolean;
+  directive_effort: boolean;
 };
 export type AgentPlugin = {
   id: string;

@@ -47,7 +47,9 @@ const catalog: Catalog = {
       memory_file: "GEMINI.md",
       shell_tools: [],
       fork: false,
-      directives: false,
+      directive_mode: true,
+      directive_model: false,
+      directive_effort: false,
     },
   },
 };

@@ -143,7 +143,9 @@ export default function App({
     (focused ? liveWorkers[focused]?.agent ?? undefined : undefined) ??
     agentBySession[focusedSession] ??
     selectedAgent;
-  const pillsOff = unsupported(catalog, focusedAgent, "directives", t("cap_directives"));
+  const modeOff = unsupported(catalog, focusedAgent, "directive_mode", t("cap_mode"));
+  const modelOff = unsupported(catalog, focusedAgent, "directive_model", t("cap_model"));
+  const effortOff = unsupported(catalog, focusedAgent, "directive_effort", t("cap_effort"));
   const forkOff = unsupported(catalog, focusedAgent, "fork", t("held_fork"));
   const ringOff = unsupported(catalog, focusedAgent, "cost_reporting", t("cap_context"));
   const [speak, setSpeak] = useState(true);
@@ -2789,7 +2791,7 @@ export default function App({
                   value={currentMode}
                   appliesTo={focused ? labelFor(focused) : undefined}
                   windowDefault={defaults.modeInForce}
-                  disabled={pillsOff}
+                  disabled={modeOff}
                   onSelect={selectMode}
                 />
                 <ModelSelect
@@ -2798,13 +2800,13 @@ export default function App({
                   tiers={defaults.tiers}
                   appliesTo={focused ? labelFor(focused) : undefined}
                   windowDefault={modelDefault}
-                  disabled={pillsOff}
+                  disabled={modelOff}
                   onSelect={selectModel}
                 />
                 <EffortSelect
                   value={currentEffort ?? ""}
                   appliesTo={focused ? labelFor(focused) : undefined}
-                  disabled={pillsOff}
+                  disabled={effortOff}
                   onSelect={selectEffort}
                 />
                 <WorkerChips

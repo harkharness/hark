@@ -13,7 +13,9 @@ const caps = (over: Partial<Catalog[string]["capabilities"] & object>) => ({
   memory_file: null,
   shell_tools: [],
   fork: true,
-  directives: true,
+  directive_mode: true,
+  directive_model: true,
+  directive_effort: true,
   ...over,
 });
 
@@ -22,19 +24,29 @@ const catalog: Catalog = {
   gemini: {
     id: "gemini",
     name: "Gemini CLI",
-    capabilities: caps({ cost_reporting: false, directives: false, fork: false, history: false }),
+    // Gemini over ACP offers permission modes but no model or effort knob.
+    capabilities: caps({
+      cost_reporting: false,
+      directive_model: false,
+      directive_effort: false,
+      fork: false,
+      history: false,
+    }),
   },
   mystery: { id: "mystery", name: "Mystery", capabilities: null },
 };
 
 describe("a feature the plugin lacks says so, in the plugin's name", () => {
   it("names the plugin and the feature when the sheet says no", () => {
-    const why = unsupported(catalog, "gemini", "directives", "modo, modelo e esforço");
-    expect(why).toBe(t("cap_unsupported", { name: "Gemini CLI", feature: "modo, modelo e esforço" }));
+    const why = unsupported(catalog, "gemini", "directive_effort", "esforço");
+    expect(why).toBe(t("cap_unsupported", { name: "Gemini CLI", feature: "esforço" }));
   });
 
-  it("stays silent when the sheet says yes", () => {
-    expect(unsupported(catalog, "claude", "directives", "x")).toBeUndefined();
+  it("stays silent when the sheet says yes, knob by knob", () => {
+    expect(unsupported(catalog, "claude", "directive_model", "x")).toBeUndefined();
+    // The same agent can take one directive and not another.
+    expect(unsupported(catalog, "gemini", "directive_mode", "x")).toBeUndefined();
+    expect(unsupported(catalog, "gemini", "directive_model", "x")).toBeDefined();
   });
 
   it("never accuses an agent it knows nothing about", () => {

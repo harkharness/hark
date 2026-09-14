@@ -149,7 +149,9 @@ export default function Mother() {
   // The mother's pills set the window default for NEW chats, which the
   // selected agent opens; its sheet decides whether they can work at all.
   const { catalog, selected: selectedAgent } = useAgentCatalog();
-  const pillsOff = unsupported(catalog, selectedAgent, "directives", t("cap_directives"));
+  const modeOff = unsupported(catalog, selectedAgent, "directive_mode", t("cap_mode"));
+  const modelOff = unsupported(catalog, selectedAgent, "directive_model", t("cap_model"));
+  const effortOff = unsupported(catalog, selectedAgent, "directive_effort", t("cap_effort"));
 
   /** A pill on the mother: records the window default always, and applies
    *  to the hark-chat worker while it is live. The project window's mode
@@ -1424,18 +1426,18 @@ export default function Mother() {
                   default is a preference, a live task's is a directive. */}
               <ModeSelect
                 value={defaults.modeInForce}
-                disabled={pillsOff}
+                disabled={modeOff}
                 onSelect={pillPick(ipc.workerSetMode, defaults.setModeDefault)}
               />
               <ModelSelect
                 value={defaults.model}
                 tiers={defaults.tiers}
-                disabled={pillsOff}
+                disabled={modelOff}
                 onSelect={pillPick(ipc.workerSetModel, defaults.setModelDefault)}
               />
               <EffortSelect
                 value={defaults.effort}
-                disabled={pillsOff}
+                disabled={effortOff}
                 onSelect={pillPick(ipc.workerSetEffort, defaults.setEffortDefault)}
               />
             </Composer>

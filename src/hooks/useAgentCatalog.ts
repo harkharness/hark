@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import * as ipc from "../lib/ipc";
 import { keepIfSame } from "../lib/settle";
 import { toCatalog, type Catalog } from "../lib/support";
@@ -21,7 +22,13 @@ export function useAgentCatalog(): { catalog: Catalog; selected?: string; refres
   useEffect(() => {
     refresh();
     const id = setInterval(refresh, 30_000);
-    return () => clearInterval(id);
+    // The driver learns what an ACP agent offers in its first real session
+    // and says so; the pills come back on without waiting for the poll.
+    const unlisten = listen("hark-plugins", () => refresh());
+    return () => {
+      clearInterval(id);
+      unlisten.then((off) => off()).catch(() => {});
+    };
   }, [refresh]);
   const [catalog, setCatalog] = useState<Catalog>({});
   useEffect(() => setCatalog(toCatalog(plugins)), [plugins]);

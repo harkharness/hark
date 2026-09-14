@@ -954,6 +954,7 @@ fn start_worker_titled(
 ) -> anyhow::Result<()> {
     let backend = backend_for(&Config::load(), &spec.agent);
     let (session, rx) = backend.spawn(&spec)?;
+    remember_agent_sheet(app, &spec.agent, backend.capabilities());
     let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     live.0.lock().unwrap().insert(
         task_id.to_string(),
@@ -1708,6 +1709,9 @@ fn agent_plugins() -> Result<serde_json::Value, String> {
     let detected = agents_detected(&config, &entries);
     let selected = agents::default_agent(&entries, &detected, &config.agent.plugin);
     let (_, claude_bin) = claude_detected(&config);
+    // Sheets learned in real sessions (remember_agent_sheet): the truth
+    // about an ACP agent, where the default below is only a floor.
+    let sheets = state_file::load(&config.data_dir()).agent_sheets;
 
     let out: Vec<serde_json::Value> = entries
         .iter()
@@ -1754,9 +1758,9 @@ fn agent_plugins() -> Result<serde_json::Value, String> {
                 "capabilities": if e.plugin == "claude" {
                     serde_json::to_value(hark_plugin_claude::capabilities()).unwrap_or(serde_json::Value::Null)
                 } else {
-                    serde_json::to_value(
-                        hark_plugin_acp::caps::negotiate(&serde_json::json!({}), e.memory_file.clone()).caps,
-                    )
+                    serde_json::to_value(sheets.get(&e.id).cloned().unwrap_or_else(|| {
+                        hark_plugin_acp::caps::negotiate(&serde_json::json!({}), e.memory_file.clone()).caps
+                    }))
                     .unwrap_or(serde_json::Value::Null)
                 },
             })
@@ -1816,6 +1820,24 @@ fn agent_plugin_enable(id: String, enabled: bool) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
     std::fs::write(&path, out).map_err(|e| e.to_string())
+}
+
+/// What an ACP agent turned out to offer, kept for the catalog — which
+/// never spawns anything and would otherwise show the pessimistic default
+/// forever — and announced so open windows re-read it and the pills come
+/// back on. The native plugin's sheet is static; nothing to remember.
+fn remember_agent_sheet(app: &AppHandle, agent: &str, caps: hark_agent::Capabilities) {
+    let config = Config::load();
+    if agent_plugin(&config, agent) == "claude" {
+        return;
+    }
+    let mut state = state_file::load(&config.data_dir());
+    if state.agent_sheets.get(agent) == Some(&caps) {
+        return;
+    }
+    state.agent_sheets.insert(agent.to_string(), caps);
+    let _ = state_file::save(&config.data_dir(), &state);
+    let _ = app.emit("hark-plugins", ());
 }
 
 /// Which agent runs (or would run) a session: the owner of an existing
@@ -2253,6 +2275,43 @@ fn switch_directives(
     let mut next = handle.spec.directives.clone();
     if !change(&mut next) {
         return Ok(SetModeOut { directives: next, restarted: false });
+    }
+    // A backend with a live path (ACP: session/set_mode, config options)
+    // takes the change on the running session — no reopen, no turn lost.
+    // A knob it does not offer is said out loud; reopening would drop it
+    // just the same.
+    let before = &handle.spec.directives;
+    match handle.session.set_directives(&next) {
+        Ok(hark_core::ports::LiveDirectives::Applied(applied)) => {
+            let mut missing = Vec::new();
+            if next.mode != before.mode && !applied.mode {
+                missing.push("modo");
+            }
+            if next.model != before.model && !applied.model {
+                missing.push("modelo");
+            }
+            if next.effort != before.effort && !applied.effort {
+                missing.push("esforço");
+            }
+            if !missing.is_empty() {
+                return Err(format!("o agente {} não oferece: {}", handle.spec.agent, missing.join(", ")));
+            }
+            live.0.lock().unwrap().insert(
+                task_id.to_string(),
+                std::sync::Arc::new(WorkerHandle {
+                    session: handle.session.clone(),
+                    spec: SessionSpec { directives: next.clone(), ..handle.spec.clone() },
+                    generation: handle.generation,
+                }),
+            );
+            emit_event(
+                app,
+                serde_json::json!({ "kind": "status", "text": format!("{} — aplicado na sessão, sem reabrir", describe(&next)) }),
+            );
+            return Ok(SetModeOut { directives: next, restarted: false });
+        }
+        Ok(hark_core::ports::LiveDirectives::Unsupported) => {}
+        Err(err) => return Err(err.to_string()),
     }
     let in_flight = app
         .state::<Outboxes>()
