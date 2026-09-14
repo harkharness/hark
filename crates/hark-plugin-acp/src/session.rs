@@ -613,25 +613,45 @@ impl AcpSession {
                 (false, raw)
             }
         };
-        let (usage, cost_usd) = match turn.usage.take() {
-            Some(reading) => {
-                let cost = reading.total_cost.map(|total| {
-                    let mut before = self.cost_before.lock().unwrap_or_else(|e| e.into_inner());
-                    let share = (total - *before).max(0.0);
-                    *before = total;
-                    share
-                });
-                (
-                    vec![ModelUsage {
-                        model: self.agent.clone(),
-                        usage: TokenUsage { input: reading.used, ..Default::default() },
-                        cost_usd: cost,
-                        context_window: Some(reading.size),
-                    }],
-                    cost,
-                )
+        // The turn's own tokens ride the prompt answer when the adapter
+        // sends them (claude-agent-acp: inputTokens / outputTokens /
+        // cachedReadTokens / cachedWriteTokens — recorded); without them the
+        // context reading stands in as "input". The model that actually ran
+        // is in the answer's _meta when the adapter says (quota.model_usage);
+        // else the turn is signed by the agent id.
+        let answer_usage = result.as_ref().and_then(|r| r.get("usage")).map(|u| {
+            let n = |key: &str| u.get(key).and_then(Value::as_u64).unwrap_or(0);
+            TokenUsage {
+                input: n("inputTokens"),
+                output: n("outputTokens"),
+                cache_read: n("cachedReadTokens"),
+                cache_created: n("cachedWriteTokens"),
             }
-            None => (Vec::new(), None),
+        });
+        let model = result
+            .as_ref()
+            .and_then(|r| r.pointer("/_meta/quota/model_usage/0/model"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| self.agent.clone());
+        let reading = turn.usage.take();
+        let cost_usd = reading.and_then(|r| r.total_cost).map(|total| {
+            let mut before = self.cost_before.lock().unwrap_or_else(|e| e.into_inner());
+            let share = (total - *before).max(0.0);
+            *before = total;
+            share
+        });
+        let usage = match (reading, answer_usage) {
+            (None, None) => Vec::new(),
+            (reading, answer) => vec![ModelUsage {
+                model: model.clone(),
+                usage: answer.unwrap_or_else(|| TokenUsage {
+                    input: reading.map(|r| r.used).unwrap_or(0),
+                    ..Default::default()
+                }),
+                cost_usd,
+                context_window: reading.map(|r| r.size),
+            }],
         };
         turn.segment.clear();
         TurnResult {
@@ -640,7 +660,7 @@ impl AcpSession {
             raw,
             cost_usd,
             duration_ms: None,
-            model: Some(self.agent.clone()),
+            model: Some(model),
             usage,
         }
     }
@@ -845,11 +865,18 @@ pub(crate) mod fake {
     pub fn end_turn(id: u64) -> String {
         rpc::response(&json!(id), json!({ "stopReason": "end_turn" }))
     }
+    /// The prompt answer as claude-agent-acp 0.76 sends it: the turn's own
+    /// token breakdown rides the response (recorded 14/09/2026).
+    pub const CLAUDE_PROMPT_RESPONSE: &str =
+        include_str!("../fixtures/prompt-response.claude-agent-acp-0.76.0.json");
+    pub fn end_turn_with_usage(id: u64) -> String {
+        rpc::response(&json!(id), serde_json::from_str(CLAUDE_PROMPT_RESPONSE).unwrap())
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::fake::offering;
+    use super::fake::{end_turn_with_usage, offering};
     use super::*;
     use crate::rpc::{self, Incoming};
     use hark_agent::{AgentPhase, ModelUsage, TokenUsage};
@@ -1513,6 +1540,42 @@ mod tests {
         assert_eq!(t.cost_usd, Some(0.28), "the priced reading survives the unpriced one");
         assert_eq!(t.usage[0].usage.input, 27_400, "context still follows the latest reading");
         assert_eq!(t.usage[0].cost_usd, Some(0.28));
+    }
+
+    #[test]
+    fn the_prompt_answers_token_breakdown_beats_the_context_reading() {
+        // Recorded: usage_update says used=28586 (the context), and the
+        // prompt response says what the turn itself cost in tokens —
+        // 10 in, 72 out, 28504 written to cache. The ledger wants the
+        // latter; the ring wants the former.
+        let (wire, _seen) = fake_agent(gemini_like(|id, _p, say| {
+            say(update(json!({ "sessionUpdate": "usage_update", "used": 28586, "size": 200000,
+                "cost": { "amount": 0.057378, "currency": "USD" } })));
+            say(end_turn_with_usage(id));
+        }));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let t = turn(&until_result(&c.events)).clone();
+        assert_eq!(
+            t.usage[0].usage,
+            TokenUsage { input: 10, output: 72, cache_read: 0, cache_created: 28504 }
+        );
+        assert_eq!(t.usage[0].context_window, Some(200000));
+        assert!((t.cost_usd.unwrap() - 0.057378).abs() < 1e-9);
+        // The response's _meta.quota names the model that actually ran:
+        // the footer signs "haiku-4-5-20251001", not the agent id.
+        assert_eq!(t.model.as_deref(), Some("claude-haiku-4-5-20251001"));
+        assert_eq!(t.usage[0].model, "claude-haiku-4-5-20251001");
+    }
+
+    #[test]
+    fn a_breakdown_with_no_usage_update_still_makes_a_row() {
+        let (wire, _seen) = fake_agent(gemini_like(|id, _p, say| say(end_turn_with_usage(id))));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let t = turn(&until_result(&c.events)).clone();
+        assert_eq!(t.usage.len(), 1);
+        assert_eq!(t.usage[0].usage.output, 72);
+        assert_eq!(t.usage[0].context_window, None, "nobody said how big the window is");
+        assert_eq!(t.cost_usd, None, "nobody priced it");
     }
 
     #[test]

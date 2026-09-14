@@ -186,18 +186,32 @@ pub fn effort_value(effort: Effort, option: &ConfigOption) -> Option<String> {
     best.map(|(_, v)| v.id.clone())
 }
 
-/// The offered value for a model the user or the router named: the exact
-/// id, the exact label, or the one whose id or label contains it (so
-/// "haiku" finds "claude-haiku-4-5", and a tier alias finds its family).
+/// "opus[1m]" → "opus": the Claude adapter suffixes a context-window hint
+/// onto its model values; it is not part of the name.
+fn family(id: &str) -> String {
+    let lower = id.trim().to_ascii_lowercase();
+    match lower.find('[') {
+        Some(at) => lower[..at].to_string(),
+        None => lower,
+    }
+}
+
+/// The offered value for a model the user or the router named. Recorded
+/// from the real adapter: values are aliases and ids with context hints
+/// ("haiku", "sonnet", "opus[1m]", "claude-fable-5-1[1m]") while Hark's
+/// tiers are spelled like the CLI's ids ("claude-opus-5"). So: the same
+/// name once hints are stripped, else the one whose family is inside the
+/// asked name or the other way round ("opus" ⊂ "claude-opus-5"), else a
+/// label match. "default" is never picked by containment.
 pub fn model_value(model: &str, option: &ConfigOption) -> Option<String> {
-    let want = model.trim().to_ascii_lowercase();
+    let want = family(model);
     if want.is_empty() {
         return None;
     }
     let exact = option
         .values
         .iter()
-        .find(|v| v.id.eq_ignore_ascii_case(&want) || v.name.eq_ignore_ascii_case(&want));
+        .find(|v| family(&v.id) == want || v.name.eq_ignore_ascii_case(want.as_str()));
     if let Some(v) = exact {
         return Some(v.id.clone());
     }
@@ -205,9 +219,11 @@ pub fn model_value(model: &str, option: &ConfigOption) -> Option<String> {
         .values
         .iter()
         .find(|v| {
-            let id = v.id.to_ascii_lowercase();
-            let name = v.name.to_ascii_lowercase();
-            id.contains(&want) || want.contains(&id) && id != "default" || name.contains(&want)
+            let id = family(&v.id);
+            if id == "default" || id.is_empty() {
+                return false;
+            }
+            id.contains(&want) || want.contains(&id) || v.name.to_ascii_lowercase().contains(&want)
         })
         .map(|v| v.id.clone())
 }
@@ -341,6 +357,33 @@ mod tests {
         assert_eq!(model_value("haiku", model).as_deref(), Some("claude-haiku-4-5"));
         assert_eq!(model_value("gpt-5", model), None);
         assert_eq!(model_value("", model), None);
+    }
+
+    /// Recorded from claude-agent-acp 0.76.0 on 14/09/2026 (HARK_ACP_TRACE):
+    /// the real answer, auth notifications left out.
+    const CLAUDE_NEW: &str = include_str!("../fixtures/session-new.claude-agent-acp-0.76.0.json");
+
+    #[test]
+    fn the_real_claude_adapter_offer_maps_harks_tiers_and_levels() {
+        let offer = Offer::from_answer(&serde_json::from_str(CLAUDE_NEW).unwrap());
+        assert_eq!(offer.directive_caps(), (true, true, true));
+        let modes = offer.modes.as_ref().unwrap();
+        // This adapter has a real "auto" mode (the CLI's), so auto is auto.
+        assert_eq!(mode_id(Mode::Auto, modes).as_deref(), Some("auto"));
+        assert_eq!(mode_id(Mode::Manual, modes).as_deref(), Some("default"));
+
+        // Model values are aliases and ids WITH context hints: "opus[1m]",
+        // "claude-fable-5-1[1m]", "sonnet", "haiku". Hark's tiers are
+        // spelled like the CLI's model ids; the family has to carry.
+        let model = offer.model_option().unwrap();
+        assert_eq!(model_value("haiku", model).as_deref(), Some("haiku"));
+        assert_eq!(model_value("claude-haiku-4-5", model).as_deref(), Some("haiku"));
+        assert_eq!(model_value("claude-opus-5", model).as_deref(), Some("opus[1m]"));
+        assert_eq!(model_value("claude-fable-5-1", model).as_deref(), Some("claude-fable-5-1[1m]"));
+        assert_eq!(model_value("claude-sonnet-4-5[1m]", model).as_deref(), Some("sonnet"));
+
+        let effort = offer.effort_option().unwrap();
+        assert_eq!(effort_value(Effort::XHigh, effort).as_deref(), Some("xhigh"), "offered, so taken as is");
     }
 
     #[test]
