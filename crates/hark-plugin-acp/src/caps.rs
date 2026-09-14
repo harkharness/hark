@@ -34,6 +34,11 @@ pub struct Negotiated {
     pub protocol: u32,
     /// The agent takes images in a prompt (pasted screenshots).
     pub images: bool,
+    /// The agent is the Claude adapter (claude-agent-acp), which signs its
+    /// initialize with `agentCapabilities._meta.claudeCode`. Only it
+    /// understands the `_meta` hark may put on session/new — a replacement
+    /// system prompt, SDK options such as the budget ceiling.
+    pub claude_code: bool,
 }
 
 fn s(v: &serde_json::Value, key: &str) -> String {
@@ -83,6 +88,7 @@ pub fn negotiate(result: &serde_json::Value, memory_file: Option<String>) -> Neg
 
     Negotiated {
         caps,
+        claude_code: agent_caps.and_then(|c| c.pointer("/_meta/claudeCode")).is_some_and(|v| v.is_object()),
         info: result
             .get("agentInfo")
             .map(|i| AgentInfo { name: s(i, "name"), title: s(i, "title"), version: s(i, "version") })
@@ -172,5 +178,19 @@ mod tests {
         assert_eq!(n.info.version, "");
         // …except permissions, which ACP always has.
         assert!(n.caps.permissions);
+    }
+
+    /// Recorded from claude-agent-acp 0.76.0 on 14/09/2026.
+    const CLAUDE_INIT: &str = include_str!("../fixtures/initialize.claude-agent-acp-0.76.0.json");
+
+    #[test]
+    fn the_claude_adapter_announces_itself_at_initialize() {
+        // agentCapabilities._meta.claudeCode is the adapter's signature. It
+        // is what licenses the `_meta` it understands on session/new — the
+        // lean ask, the budget ceiling — and nothing else does.
+        let claude = negotiate(&serde_json::from_str(CLAUDE_INIT).unwrap(), Some("CLAUDE.md".into()));
+        assert!(claude.claude_code);
+        assert!(claude.caps.resume, "loadSession is announced");
+        assert!(!gemini().claude_code, "gemini is not the Claude adapter");
     }
 }

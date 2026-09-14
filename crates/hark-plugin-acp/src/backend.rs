@@ -88,6 +88,8 @@ impl AgentBackend for AcpBackend {
             images: &[],
             memory_file: self.memory_file.clone(),
             directives: &spec.directives,
+            limits: &spec.limits,
+            lean: None,
         };
         let connected = crate::session::connect(
             crate::session::Wire { reader: Box::new(stdout), writer: Box::new(stdin) },
@@ -239,6 +241,40 @@ mod tests {
             .expect("set_mode on the live session");
         assert!(matches!(live, LiveDirectives::Applied(a) if a.mode), "{live:?}");
         session.shutdown();
+    }
+
+    /// The cheap lane on the real adapter: our persona as the system
+    /// prompt, no settings, no tools, one turn, haiku at low effort. The
+    /// chat opening above cost $0.057 for one word; this is what the lean
+    /// `_meta` buys. Run by hand:
+    ///
+    ///   HARK_ACP_TRACE=/tmp/claude-acp-ask.trace \
+    ///   cargo test -p hark-plugin-acp -- --ignored lean_ask --nocapture
+    #[test]
+    #[ignore = "spawns the real claude-agent-acp binary and spends a turn"]
+    fn claude_agent_acp_answers_a_lean_ask_for_cents() {
+        use hark_core::ports::{AgentRunner as _, TurnRequest};
+        let runner = crate::ask::AcpRunner {
+            id: "claude-acp".into(),
+            cmd: "claude-agent-acp".into(),
+            args: vec![],
+            env: vec![],
+            work_dir: std::env::temp_dir(),
+        };
+        let request = TurnRequest {
+            prompt: "Quantas letras tem a palavra 'hark'? Responda em uma frase curta.",
+            images: &[],
+            model: "haiku",
+            system_prompt: "Você é o Hark, assistente de voz. Responda em português, em uma frase.",
+            schema: r#"{"type":"object","properties":{"fala":{"type":"string"}},"required":["fala"]}"#,
+            effort: "low",
+        };
+        let turn = runner.ask(&request, &mut |ev| eprintln!("event: {ev:?}")).expect("answers");
+        eprintln!("turn: {turn:?}");
+        assert!(!turn.is_error, "{}", turn.raw);
+        assert!(turn.reply.as_ref().and_then(|r| r.get("fala")).is_some(), "structured reply: {turn:?}");
+        let cost = turn.cost_usd.expect("priced");
+        assert!(cost < 0.02, "a lean ask costs cents, not {cost}");
     }
 
     #[test]

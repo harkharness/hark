@@ -32,10 +32,11 @@ pub struct AcpRunner {
 /// System prompt, the question, then the schema as an instruction the
 /// model can follow without a schema mode.
 pub fn compose(request: &TurnRequest) -> String {
+    // The persona is NOT here: it travels as `Opening::lean`, a real system
+    // prompt for the agent that takes one and a prefix for the rest.
     format!(
-        "{system}\n\n{prompt}\n\nResponda SOMENTE com um objeto JSON válido que siga este schema, \
+        "{prompt}\n\nResponda SOMENTE com um objeto JSON válido que siga este schema, \
          sem nenhum texto antes ou depois do JSON:\n{schema}",
-        system = request.system_prompt.trim(),
         prompt = request.prompt.trim(),
         schema = request.schema.trim(),
     )
@@ -55,11 +56,18 @@ pub fn ask_over(
     let composed = compose(request);
     // The cheap lane's knobs, for an agent that offers them: the light
     // model and low effort make a one-shot question cheap over ACP too.
+    // Manual mode on purpose: a one-shot question runs no tools, and the
+    // Claude adapter otherwise inherits the user's mode — recorded: with
+    // "auto" in force and haiku picked, it opened the answer with an
+    // "Auto mode unavailable" notice.
     let knobs = hark_core::domain::directives::Directives {
-        mode: None,
+        mode: Some(hark_core::domain::directives::Mode::Manual),
         effort: hark_core::domain::directives::Effort::from_flag(request.effort),
         model: (!request.model.is_empty()).then(|| request.model.to_string()),
     };
+    // One question has no budget of its own beyond its single turn; the
+    // lean opening is what keeps it cheap.
+    let no_limits = hark_agent::SpawnLimits::default();
     let opening = Opening {
         agent,
         cwd,
@@ -68,6 +76,8 @@ pub fn ask_over(
         images: request.images,
         memory_file: None,
         directives: &knobs,
+        limits: &no_limits,
+        lean: Some(crate::session::LeanAsk { system_prompt: request.system_prompt }),
     };
     let connected = connect(wire, child, stderr, &opening)?;
     let mut prose: Vec<String> = Vec::new();
@@ -178,12 +188,15 @@ mod tests {
     }
 
     #[test]
-    fn compose_puts_the_system_prompt_the_question_and_the_schema_in_one_text() {
+    fn compose_carries_the_question_and_the_schema_and_leaves_the_persona_to_the_opening() {
+        // The system prompt travels separately (Opening.lean): the Claude
+        // adapter takes it as a real system prompt, everyone else gets it
+        // prepended by the handshake. compose() itself never repeats it.
         let text = compose(&request(&[]));
-        let system = text.find("Você é o Hark").expect("system prompt first");
-        let question = text.find("quais as pendências").expect("then the question");
+        assert!(!text.contains("Você é o Hark"), "{text}");
+        let question = text.find("quais as pendências").expect("the question first");
         let schema = text.find(r#""required":["fala"]"#).expect("then the schema, verbatim");
-        assert!(system < question && question < schema, "{text}");
+        assert!(question < schema, "{text}");
         assert!(text.contains("JSON"), "the model must be told the shape is JSON: {text}");
     }
 

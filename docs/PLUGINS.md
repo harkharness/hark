@@ -247,9 +247,33 @@ system prompt. That is `model`, `effort`, `maxTurns`, `maxBudgetUsd`,
 lean voice ask, the budget ceiling and native structured output are all
 reachable for this one agent. Its session config options (`effort`,
 `model`) and its modes are what the generic directive path above already
-drives, for this adapter as for dsh or gemini. Not wired yet: the `_meta`
-options (lean ask, budget ceiling, native schema) — the claude-specific
-extra — and `limits`, still zeroed at spawn.
+drives, for this adapter as for dsh or gemini.
+
+The adapter signs its `initialize` with `agentCapabilities._meta.claudeCode`
+(`Negotiated.claude_code`), and only that signature licenses the `_meta`
+Hark puts on `session/new` (`session::claude_meta`):
+
+- **the lean ask** — the cheap lane opens with `Opening::lean`: our
+  persona as `_meta.systemPrompt` (a REAL system prompt, replacing Claude
+  Code's), `disableBuiltInTools`, and SDK options `settingSources: []`,
+  `tools: []`, `maxTurns: 1`; the ask also asks for manual mode (no tools
+  to approve, and the adapter otherwise inherits the user's "auto" and
+  announces a fallback). Measured on 14/09/2026, haiku at low effort: a
+  chat-style opening cost **$0.057** for one word (28.5k tokens of Claude
+  Code system prompt written to cache); the lean ask cost **$0.0019** for
+  a sentence (875 tokens in, 198 out). Thirty times less. For any other
+  agent the persona is prepended to the prompt, as before. Native
+  structured output (`outputFormat`) is deliberately NOT used: the schema
+  stays in the prompt and the answer is read leniently, which works
+  everywhere.
+- **the ceiling** — `Opening::limits` (the worker's `SpawnLimits`) rides
+  the same `_meta` as `maxBudgetUsd` / `maxTurns`, so the SDK enforces it
+  as the CLI's flags would. And for EVERY ACP agent the session is its
+  own ceiling: the running cost from `usage_update` past `max_budget_usd`,
+  or more tool calls in one turn than `max_turns`, cancels the turn
+  (`session/cancel`) and ends it as an error naming both numbers —
+  "teto de US$ 2.00 atingido — a sessão já gastou US$ 2.03". Never a
+  quiet spend. The money spent stays on the ledger row.
 
 Failures carry the same health codes as the claude plugin
 (`agent_missing`, `agent_blocked`, `agent_auth`, `agent_failed`), and an

@@ -64,6 +64,23 @@ pub struct Opening<'a> {
     /// its own ids (`session/set_mode`, `session/set_config_option`)
     /// between session/new and the first word, for whatever it offers.
     pub directives: &'a Directives,
+    /// The ceiling. ACP has no flag for it, so the session is the
+    /// ceiling: past the budget or the round count hark cancels the turn
+    /// and reports it as such. The Claude adapter also takes both as SDK
+    /// options in `_meta`, so it enforces them itself as well.
+    pub limits: &'a hark_agent::SpawnLimits,
+    /// A one-shot structured question rather than a chat: the persona
+    /// goes as the REAL system prompt where the agent takes one (the
+    /// Claude adapter, via `_meta`), with settings and tools stripped —
+    /// what makes the cheap lane cheap. Elsewhere the persona is prepended
+    /// to the prompt, as before.
+    pub lean: Option<LeanAsk<'a>>,
+}
+
+/// The cheap lane's opening: see `Opening::lean`.
+#[derive(Debug, Clone, Copy)]
+pub struct LeanAsk<'a> {
+    pub system_prompt: &'a str,
 }
 
 /// A session that answered the handshake and took its opening prompt.
@@ -99,6 +116,7 @@ pub fn connect(
         stderr_tail: Arc::new(Mutex::new(VecDeque::new())),
         cost_before: Mutex::new(0.0),
         offer: Mutex::new(Offer::default()),
+        limits: *opening.limits,
     });
     if let Some(stderr) = stderr {
         tail_stderr(stderr, session.stderr_tail.clone());
@@ -149,7 +167,11 @@ fn handshake(
     let (method, params) = if resuming {
         ("session/load", json!({ "sessionId": opening.session_id, "cwd": cwd, "mcpServers": [] }))
     } else {
-        ("session/new", json!({ "cwd": cwd, "mcpServers": [] }))
+        let mut params = json!({ "cwd": cwd, "mcpServers": [] });
+        if let Some(meta) = claude_meta(opening, negotiated.claude_code) {
+            params["_meta"] = meta;
+        }
+        ("session/new", params)
     };
     let answer = session.call(method, params).map_err(|e| failure(method, e, session))?;
     let session_id = if resuming {
@@ -182,8 +204,46 @@ fn handshake(
         }
     }
 
-    session.prompt(opening.instruction, opening.images)?;
+    // The persona: a real system prompt where the agent took one in
+    // `_meta`, else the first thing the model reads.
+    let first = match (&opening.lean, negotiated.claude_code) {
+        (Some(lean), false) => format!("{}\n\n{}", lean.system_prompt.trim(), opening.instruction),
+        _ => opening.instruction.to_string(),
+    };
+    session.prompt(&first, opening.images)?;
     Ok(negotiated)
+}
+
+/// What only the Claude adapter understands on `session/new`, and only
+/// when its initialize said it is that adapter: a replacement system
+/// prompt and Claude Agent SDK options. For a lean ask: our persona as
+/// the system prompt, no settings, no tools, one turn — recorded: the
+/// adapter's own prompt was 28.5k tokens of cache write for one word.
+/// For any opening: the ceiling, so the SDK enforces it as the CLI's
+/// `--max-budget-usd` / `--max-turns` would. None when nothing applies.
+fn claude_meta(opening: &Opening, claude_code: bool) -> Option<Value> {
+    if !claude_code {
+        return None;
+    }
+    let mut meta = serde_json::Map::new();
+    let mut options = serde_json::Map::new();
+    if let Some(lean) = &opening.lean {
+        meta.insert("systemPrompt".into(), json!(lean.system_prompt));
+        meta.insert("disableBuiltInTools".into(), json!(true));
+        options.insert("settingSources".into(), json!([]));
+        options.insert("tools".into(), json!([]));
+        options.insert("maxTurns".into(), json!(1));
+    }
+    if let Some(budget) = opening.limits.max_budget_usd.filter(|b| *b > 0.0) {
+        options.insert("maxBudgetUsd".into(), json!(budget));
+    }
+    if let Some(turns) = opening.limits.max_turns.filter(|t| *t > 0) {
+        options.entry("maxTurns".to_string()).or_insert(json!(turns));
+    }
+    if !options.is_empty() {
+        meta.insert("claudeCode".into(), json!({ "options": options }));
+    }
+    (!meta.is_empty()).then_some(Value::Object(meta))
 }
 
 /// Why a handshake call did not get its answer.
@@ -250,6 +310,12 @@ struct Turn {
     /// The last segment flushed — `TurnResult.raw`.
     last_segment: String,
     usage: Option<UsageReading>,
+    /// Tool calls this turn asked for — the round count the ceiling
+    /// measures, ACP having no turn counter of its own.
+    tool_calls: u32,
+    /// Why hark cancelled the turn, when it did: the result reports it
+    /// as an error naming the numbers, never as a quiet stop.
+    ceiling: Option<String>,
 }
 
 impl Turn {
@@ -279,6 +345,8 @@ pub struct AcpSession {
     /// Modes and config options the agent offered at session/new, with
     /// their current values as the agent last reported them.
     offer: Mutex<Offer>,
+    /// The ceiling this session runs under (see `Opening::limits`).
+    limits: hark_agent::SpawnLimits,
 }
 
 impl AcpSession {
@@ -557,6 +625,9 @@ impl AcpSession {
                             size: update.get("size").and_then(Value::as_u64).unwrap_or(0),
                             total_cost: stated.or(turn.usage.and_then(|u| u.total_cost)),
                         });
+                        if let Some(total) = stated {
+                            self.hold_the_budget(total, turn);
+                        }
                     }
                     // The agent moved a knob itself (or confirmed ours):
                     // the offer keeps the values in force, so a later
@@ -578,14 +649,49 @@ impl AcpSession {
                 }
             }
             other => {
+                if matches!(other, AgentEvent::ToolUse { .. }) {
+                    turn.tool_calls += 1;
+                    self.hold_the_rounds(turn);
+                }
                 turn.flush(tx);
                 let _ = tx.send(other);
             }
         }
     }
 
+    /// Past the budget: cancel the turn, and remember why for its result.
+    /// The CLI's `--max-budget-usd` has no ACP equivalent, so the client
+    /// is the ceiling; the number compared is the session's running total,
+    /// which is what the flag caps too.
+    fn hold_the_budget(&self, total: f64, turn: &mut Turn) {
+        let Some(cap) = self.limits.max_budget_usd.filter(|b| *b > 0.0) else { return };
+        if total > cap && turn.ceiling.is_none() {
+            turn.ceiling = Some(format!(
+                "teto de US$ {cap:.2} atingido — a sessão já gastou US$ {total:.2}. \
+                 Reabra a thread com um teto maior, ou \"sem teto\" na config."
+            ));
+            let _ = self.interrupt();
+        }
+    }
+
+    /// Past the round count: same cut. Tool calls stand in for the CLI's
+    /// agentic turns — each is one round trip the model asked for.
+    fn hold_the_rounds(&self, turn: &mut Turn) {
+        let Some(cap) = self.limits.max_turns.filter(|t| *t > 0) else { return };
+        if turn.tool_calls > cap && turn.ceiling.is_none() {
+            turn.ceiling = Some(format!(
+                "teto de {cap} rodadas de ferramenta atingido neste turno ({} chamadas). \
+                 Reabra a thread com um teto maior, ou \"sem teto\" na config.",
+                turn.tool_calls
+            ));
+            let _ = self.interrupt();
+        }
+    }
+
     /// The prompt's answer, as the turn's result.
     fn finish_turn(&self, turn: &mut Turn, result: Option<Value>, error: Option<Value>) -> TurnResult {
+        let cut = turn.ceiling.take();
+        turn.tool_calls = 0;
         let (is_error, raw) = match error {
             Some(err) => {
                 let msg = err.get("message").and_then(Value::as_str).unwrap_or("erro sem mensagem").to_string();
@@ -612,6 +718,12 @@ impl AcpSession {
                 };
                 (false, raw)
             }
+        };
+        // A turn hark cut for its ceiling is an error that names the
+        // numbers, whatever the agent said about why it stopped.
+        let (is_error, raw) = match cut {
+            Some(reason) => (true, reason),
+            None => (is_error, raw),
         };
         // The turn's own tokens ride the prompt answer when the adapter
         // sends them (claude-agent-acp: inputTokens / outputTokens /
@@ -832,6 +944,30 @@ pub(crate) mod fake {
         }
     }
 
+    /// The real answers of claude-agent-acp 0.76.0 (recorded 14/09/2026).
+    pub const CLAUDE_INIT: &str = include_str!("../fixtures/initialize.claude-agent-acp-0.76.0.json");
+    pub const CLAUDE_NEW: &str = include_str!("../fixtures/session-new.claude-agent-acp-0.76.0.json");
+
+    /// An agent that handshakes exactly like claude-agent-acp — its
+    /// initialize (with the `_meta.claudeCode` signature) and its
+    /// session/new offer — takes set_mode / set_config_option, and hands
+    /// prompts to `on_prompt`. Both `session/new` params and the prompt
+    /// land in `Seen` for the tests to inspect.
+    pub fn claude_like(
+        on_prompt: impl FnMut(u64, &Value, &mut dyn FnMut(String)) + Send + 'static,
+    ) -> impl FnMut(&Incoming, &mut dyn FnMut(String)) + Send + 'static {
+        let mut inner = offering(serde_json::from_str(CLAUDE_NEW).unwrap(), on_prompt);
+        move |msg, say| {
+            if let Incoming::Request { id, method, .. } = msg {
+                if method == "initialize" {
+                    say(rpc::response(id, serde_json::from_str(CLAUDE_INIT).unwrap()));
+                    return;
+                }
+            }
+            inner(msg, say)
+        }
+    }
+
     /// An agent whose session/new answers with `offer` (modes, config
     /// options) and takes `session/set_mode` / `session/set_config_option`,
     /// answering the latter with the list it was given back.
@@ -876,7 +1012,7 @@ pub(crate) mod fake {
 
 #[cfg(test)]
 mod tests {
-    use super::fake::{end_turn_with_usage, offering};
+    use super::fake::{claude_like, end_turn_with_usage, offering};
     use super::*;
     use crate::rpc::{self, Incoming};
     use hark_agent::{AgentPhase, ModelUsage, TokenUsage};
@@ -960,6 +1096,8 @@ mod tests {
             images: &[],
             memory_file: Some("GEMINI.md".into()),
             directives,
+            limits: &NO_LIMITS,
+            lean: None,
         }
     }
 
@@ -1540,6 +1678,142 @@ mod tests {
         assert_eq!(t.cost_usd, Some(0.28), "the priced reading survives the unpriced one");
         assert_eq!(t.usage[0].usage.input, 27_400, "context still follows the latest reading");
         assert_eq!(t.usage[0].cost_usd, Some(0.28));
+    }
+
+    static NO_LIMITS: hark_agent::SpawnLimits = hark_agent::SpawnLimits { max_budget_usd: None, max_turns: None };
+
+    /// A lean one-shot question, the way the ask lane opens one.
+    fn lean_opening<'a>(instruction: &'a str, system: &'a str) -> Opening<'a> {
+        Opening { lean: Some(LeanAsk { system_prompt: system }), ..opening("", instruction) }
+    }
+
+    fn session_new_params(seen: &Seen) -> Value {
+        requests(seen, "session/new").into_iter().next().expect("session/new was sent")
+    }
+
+    fn first_prompt_text(seen: &Seen) -> String {
+        let p = requests(seen, "session/prompt").into_iter().next().expect("prompt was sent");
+        p["prompt"][0]["text"].as_str().unwrap_or_default().to_string()
+    }
+
+    #[test]
+    fn a_lean_ask_on_the_claude_adapter_replaces_the_system_prompt_and_strips_settings() {
+        // Recorded: one word cost 28.5k tokens of Claude Code system prompt
+        // written to cache. The adapter takes a replacement system prompt
+        // and SDK options in session/new _meta; with them a one-shot ask
+        // carries our persona and nothing else.
+        let (wire, seen) = fake_agent(claude_like(|id, _p, say| say(end_turn(id))));
+        let c = connect(wire, None, None, &lean_opening("qual é a pendência?", "Você é o Hark."))
+            .expect("connects");
+        let _ = until_result(&c.events);
+
+        let meta = &session_new_params(&seen)["_meta"];
+        assert_eq!(meta["systemPrompt"], "Você é o Hark.");
+        assert_eq!(meta["disableBuiltInTools"], true);
+        let options = &meta["claudeCode"]["options"];
+        assert_eq!(options["settingSources"], json!([]));
+        assert_eq!(options["tools"], json!([]));
+        assert_eq!(options["maxTurns"], 1);
+        // The persona went in _meta, so it is not repeated in the prompt.
+        assert_eq!(first_prompt_text(&seen), "qual é a pendência?");
+    }
+
+    #[test]
+    fn a_lean_ask_on_another_agent_keeps_the_system_prompt_in_the_prompt() {
+        // gemini knows no such _meta: nothing it would not understand goes
+        // on the wire, and the persona rides the prompt as before.
+        let (wire, seen) = fake_agent(gemini_like(|id, _p, say| say(end_turn(id))));
+        let c = connect(wire, None, None, &lean_opening("qual é a pendência?", "Você é o Hark."))
+            .expect("connects");
+        let _ = until_result(&c.events);
+        assert!(session_new_params(&seen).get("_meta").is_none());
+        let text = first_prompt_text(&seen);
+        assert!(text.starts_with("Você é o Hark."), "{text}");
+        assert!(text.ends_with("qual é a pendência?"), "{text}");
+    }
+
+    #[test]
+    fn a_chat_on_the_claude_adapter_hands_it_the_ceiling_too() {
+        // Not lean: a real chat keeps Claude Code's own prompt and tools,
+        // and only the limits ride _meta — the SDK enforces them as the
+        // CLI's --max-budget-usd / --max-turns would.
+        let (wire, seen) = fake_agent(claude_like(|id, _p, say| say(end_turn(id))));
+        let limits = hark_agent::SpawnLimits { max_budget_usd: Some(2.0), max_turns: Some(30) };
+        let c = connect(wire, None, None, &Opening { limits: &limits, ..opening("", "oi") }).expect("connects");
+        let _ = until_result(&c.events);
+        let meta = &session_new_params(&seen)["_meta"];
+        assert_eq!(meta["claudeCode"]["options"]["maxBudgetUsd"], 2.0);
+        assert_eq!(meta["claudeCode"]["options"]["maxTurns"], 30);
+        assert!(meta.get("systemPrompt").is_none(), "a chat keeps the agent's own prompt");
+        assert!(meta["claudeCode"]["options"].get("tools").is_none(), "and its tools");
+    }
+
+    /// An agent that reports a running cost of `total` on every prompt and
+    /// only ends the prompt once hark cancels it — the shape of a turn that
+    /// would keep spending if nobody stopped it.
+    fn spender(total: f64, tool_calls: usize) -> impl FnMut(&Incoming, &mut dyn FnMut(String)) + Send + 'static {
+        let mut in_flight: Option<u64> = None;
+        move |msg, say| match msg {
+            Incoming::Request { id, method, .. } => match method.as_str() {
+                "initialize" => say(rpc::response(id, serde_json::from_str(GEMINI_INIT).unwrap())),
+                "session/new" => say(rpc::response(id, json!({ "sessionId": "s-1" }))),
+                "session/prompt" => {
+                    in_flight = id.as_u64();
+                    for n in 0..tool_calls {
+                        say(update(json!({ "sessionUpdate": "tool_call", "toolCallId": format!("c{n}"),
+                            "title": "Bash", "kind": "execute", "status": "pending" })));
+                    }
+                    say(update(json!({ "sessionUpdate": "usage_update", "used": 1000, "size": 200000,
+                        "cost": { "amount": total, "currency": "USD" } })));
+                }
+                _ => say(rpc::error_response(id, -32601, "not in this script")),
+            },
+            Incoming::Notification { method, .. } if method == "session/cancel" => {
+                if let Some(id) = in_flight.take() {
+                    say(rpc::response(&json!(id), json!({ "stopReason": "cancelled" })));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn the_budget_ceiling_cancels_the_turn_and_says_so() {
+        // The CLI's --max-budget-usd has no ACP equivalent: the client is
+        // the ceiling. Past the budget, hark cancels and the turn ends as
+        // an error that names both numbers — never a silent spend.
+        let (wire, seen) = fake_agent(spender(2.5, 0));
+        let limits = hark_agent::SpawnLimits { max_budget_usd: Some(2.0), max_turns: None };
+        let c = connect(wire, None, None, &Opening { limits: &limits, ..opening("", "oi") }).expect("connects");
+        let t = turn(&until_result(&c.events)).clone();
+        assert!(methods(&seen).iter().any(|m| m == "session/cancel"), "{:?}", methods(&seen));
+        assert!(t.is_error);
+        assert!(t.raw.contains("teto") && t.raw.contains("2.00") && t.raw.contains("2.50"), "{}", t.raw);
+        assert_eq!(t.cost_usd, Some(2.5), "the money spent is still on the record");
+    }
+
+    #[test]
+    fn the_tool_call_ceiling_cancels_after_the_limit() {
+        let (wire, seen) = fake_agent(spender(0.01, 3));
+        let limits = hark_agent::SpawnLimits { max_budget_usd: None, max_turns: Some(2) };
+        let c = connect(wire, None, None, &Opening { limits: &limits, ..opening("", "oi") }).expect("connects");
+        let t = turn(&until_result(&c.events)).clone();
+        assert!(methods(&seen).iter().any(|m| m == "session/cancel"));
+        assert!(t.is_error && t.raw.contains("teto"), "{}", t.raw);
+    }
+
+    #[test]
+    fn under_the_ceiling_nothing_is_cancelled() {
+        let (wire, seen) = fake_agent(gemini_like(|id, _p, say| {
+            say(update(json!({ "sessionUpdate": "usage_update", "used": 100, "size": 200000,
+                "cost": { "amount": 0.5, "currency": "USD" } })));
+            say(end_turn(id));
+        }));
+        let limits = hark_agent::SpawnLimits { max_budget_usd: Some(2.0), max_turns: Some(30) };
+        let c = connect(wire, None, None, &Opening { limits: &limits, ..opening("", "oi") }).expect("connects");
+        let t = turn(&until_result(&c.events)).clone();
+        assert!(!t.is_error);
+        assert!(!methods(&seen).iter().any(|m| m == "session/cancel"));
     }
 
     #[test]
