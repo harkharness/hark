@@ -132,10 +132,12 @@ pub fn rows_from_turn(
         outcome: meta.outcome.map(String::from),
     };
     if turn.usage.is_empty() {
-        if turn.cost_usd.is_none() {
-            return Vec::new();
-        }
-        return vec![base("unknown".into(), TokenUsage::default(), turn.cost_usd, None)];
+        // The backend named no model and counted no tokens. The turn still
+        // happened — an ACP agent that reports nothing burned tokens all
+        // the same — so it goes on the record under whoever ran it, with
+        // the price left unknown rather than written down as zero.
+        let model = turn.model.clone().unwrap_or_else(|| "unknown".into());
+        return vec![base(model, TokenUsage::default(), turn.cost_usd, None)];
     }
     turn.usage
         .iter()
@@ -301,9 +303,24 @@ mod tests {
     }
 
     #[test]
-    fn costless_empty_turns_produce_nothing_but_costed_ones_fall_back() {
-        let silent = turn(vec![], None, false);
-        assert!(rows_from_turn("ts", SpendKind::Ask, &SpendMeta::default(), &silent).is_empty());
+    fn a_turn_the_agent_did_not_price_still_counts_under_the_agent_that_ran_it() {
+        // Observed with an ACP adapter that reported no usage at all: the
+        // turn burned 27k tokens of opus and left NO row — the ledger said
+        // the question never happened. A turn is a turn; the price is
+        // simply unknown, and the row says whose it was.
+        let mut silent = turn(vec![], None, false);
+        silent.model = Some("claude-acp".into());
+        let rows = rows_from_turn("ts", SpendKind::Ask, &SpendMeta::default(), &silent);
+        assert_eq!(rows.len(), 1, "the turn is on the record");
+        assert_eq!(rows[0].model, "claude-acp");
+        assert_eq!(rows[0].cost_usd, None, "unknown is not zero");
+        assert_eq!(rows[0].usage, hark_agent::TokenUsage::default());
+
+        // Nothing at all known about the model: still one row, still honest.
+        let anonymous = turn(vec![], None, false);
+        let rows = rows_from_turn("ts", SpendKind::Ask, &SpendMeta::default(), &anonymous);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].model, "unknown");
 
         let costed = turn(vec![], Some(0.01), false);
         let rows = rows_from_turn("ts", SpendKind::Ask, &SpendMeta::default(), &costed);
