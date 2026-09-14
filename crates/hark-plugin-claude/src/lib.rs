@@ -30,5 +30,20 @@ pub fn capabilities() -> hark_agent::Capabilities {
         memory_file: Some("CLAUDE.md".into()),
         shell_tools: vec!["Bash".into()],
         fork: true,
+        // --permission-mode, --model, --effort: every directive is a flag.
+        directives: true,
+    }
+}
+
+#[cfg(test)]
+mod capability_sheet {
+    #[test]
+    fn the_native_plugin_carries_every_directive_and_forks() {
+        // The sheet is what the UI consults before offering a control. The
+        // CLI takes --permission-mode, --model and --effort, and forks a
+        // session; an ACP agent, today, takes none of those from Hark.
+        let caps = super::capabilities();
+        assert!(caps.directives, "mode/model/effort reach the CLI");
+        assert!(caps.fork);
     }
 }

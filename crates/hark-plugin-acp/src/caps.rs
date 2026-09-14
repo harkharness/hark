@@ -73,6 +73,10 @@ pub fn negotiate(result: &serde_json::Value, memory_file: Option<String>) -> Neg
         shell_tools: Vec::new(),
         // Nothing in ACP forks a session into a new id.
         fork: false,
+        // The plugin translates no directive yet: the spec's mode, model
+        // tier and effort are dropped at spawn. Session config options
+        // (effort, model) and session/set_mode are the way in (F9.7).
+        directives: false,
     };
 
     Negotiated {
@@ -142,6 +146,9 @@ mod tests {
     #[test]
     fn cost_starts_off_and_is_earned_by_a_turn_that_reports_it() {
         assert!(!gemini().caps.cost_reporting);
+        // Nothing in the plugin translates mode/model/effort yet: the pills
+        // must know, or they take the click and do nothing.
+        assert!(!gemini().caps.directives);
     }
 
     #[test]

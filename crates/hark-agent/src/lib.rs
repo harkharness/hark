@@ -187,4 +187,9 @@ pub struct Capabilities {
     /// leaving the original untouched (claude --fork-session).
     #[serde(default)]
     pub fork: bool,
+    /// Per-session directives — permission mode, model tier, effort —
+    /// reach the agent. Without it a pill takes the click and changes
+    /// nothing, which is worse than a pill that says it cannot.
+    #[serde(default)]
+    pub directives: bool,
 }
