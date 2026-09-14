@@ -450,10 +450,15 @@ impl AcpSession {
                         let _ = tx.send(AgentEvent::SessionStarted { session_id, slash_commands: names });
                     }
                     "usage_update" => {
+                        // Agents price the turn on ONE update (the SDK
+                        // result) and keep reporting context on others,
+                        // with no cost field. The latest reading wins for
+                        // used/size; the cost is the last one stated.
+                        let stated = update.get("cost").and_then(|c| c.get("amount")).and_then(Value::as_f64);
                         turn.usage = Some(UsageReading {
                             used: update.get("used").and_then(Value::as_u64).unwrap_or(0),
                             size: update.get("size").and_then(Value::as_u64).unwrap_or(0),
-                            total_cost: update.get("cost").and_then(|c| c.get("amount")).and_then(Value::as_f64),
+                            total_cost: stated.or(turn.usage.and_then(|u| u.total_cost)),
                         });
                     }
                     _ => {}
@@ -1212,6 +1217,25 @@ mod tests {
         let second = turn(&until_result(&c.events)).clone();
         assert_eq!(second.usage[0].usage.input, 2400, "used is this turn's prompt size");
         assert!((second.cost_usd.unwrap() - 0.02).abs() < 1e-9, "0.03 total − 0.01 before = this turn");
+    }
+
+    #[test]
+    fn a_later_usage_update_without_cost_does_not_erase_the_turns_cost() {
+        // claude-agent-acp prices the turn on the SDK result, then keeps
+        // sending usage_update for context (and on rate-limit events) with
+        // no cost at all. The last reading wins for used/size; the cost is
+        // the last one anyone stated.
+        let (wire, _seen) = fake_agent(gemini_like(|id, _p, say| {
+            say(update(json!({ "sessionUpdate": "usage_update", "used": 27_000, "size": 200_000,
+                "cost": { "amount": 0.28, "currency": "USD" } })));
+            say(update(json!({ "sessionUpdate": "usage_update", "used": 27_400, "size": 200_000 })));
+            say(end_turn(id));
+        }));
+        let c = connect(wire, None, None, &opening("", "oi")).expect("connects");
+        let t = turn(&until_result(&c.events)).clone();
+        assert_eq!(t.cost_usd, Some(0.28), "the priced reading survives the unpriced one");
+        assert_eq!(t.usage[0].usage.input, 27_400, "context still follows the latest reading");
+        assert_eq!(t.usage[0].cost_usd, Some(0.28));
     }
 
     #[test]
