@@ -85,9 +85,11 @@ mod tests {
         // learned in a real session and must outlive the process, or the
         // pills stay off for an agent that takes every directive.
         let dir = tempfile::tempdir().unwrap();
-        let mut sheet = hark_agent::Capabilities::default();
-        sheet.directive_mode = true;
-        sheet.cost_reporting = true;
+        let sheet = hark_agent::Capabilities {
+            directive_mode: true,
+            cost_reporting: true,
+            ..Default::default()
+        };
         let state = GlobalState {
             agent_sheets: std::iter::once(("claude-acp".to_string(), sheet.clone())).collect(),
             ..GlobalState::default()
