@@ -177,6 +177,70 @@ mod tests {
     /// deprecation, not an auth failure, and correctly not classified as
     /// one. The API-key route (`GEMINI_API_KEY` in the entry's env) is
     /// what remains for individuals on this version.
+    /// The real adapter, the user's own subscription, ONE short turn on
+    /// the light model at low effort. Run by hand, recording the wire:
+    ///
+    ///   HARK_ACP_TRACE=/tmp/claude-acp.trace \
+    ///   cargo test -p hark-plugin-acp -- --ignored claude_agent_acp --nocapture
+    ///
+    /// What it proves that no fake can: the adapter prices the turn, its
+    /// session/new offers modes and the model/effort selectors, and a live
+    /// set_mode is taken without a reopen.
+    #[test]
+    #[ignore = "spawns the real claude-agent-acp binary and spends a turn"]
+    fn claude_agent_acp_on_this_machine_prices_a_turn_and_takes_directives() {
+        use hark_core::domain::directives::{Directives, Effort, Mode};
+        use hark_core::ports::LiveDirectives;
+
+        let backend = AcpBackend::new(
+            "claude-acp",
+            "claude-agent-acp",
+            vec![],
+            vec![],
+            Some("CLAUDE.md".into()),
+            Some("claude /login".into()),
+            std::env::temp_dir(),
+        );
+        let spec = SessionSpec {
+            agent: "claude-acp".into(),
+            cwd: std::env::temp_dir(),
+            session_id: String::new(),
+            instruction: "Responda apenas com a palavra: ok".into(),
+            directives: Directives { mode: Some(Mode::Manual), effort: Some(Effort::Low), model: Some("haiku".into()) },
+            limits: Default::default(),
+            envs: Vec::new(),
+            fork: false,
+        };
+        let (session, events) = backend.spawn(&spec).expect("spawns and handshakes");
+        let caps = backend.capabilities();
+        eprintln!("negotiated sheet: {caps:?}");
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+        let mut result = None;
+        while std::time::Instant::now() < deadline {
+            match events.recv_timeout(std::time::Duration::from_secs(5)) {
+                Ok(hark_agent::AgentEvent::Result(t)) => {
+                    result = Some(t);
+                    break;
+                }
+                Ok(ev) => eprintln!("event: {ev:?}"),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(_) => break,
+            }
+        }
+        let turn = result.expect("a result within three minutes");
+        eprintln!("turn: {turn:?}");
+        assert!(!turn.is_error, "{}", turn.raw);
+        assert!(turn.cost_usd.is_some_and(|c| c > 0.0), "the adapter prices the turn: {turn:?}");
+        assert!(caps.directive_mode && caps.directive_model && caps.directive_effort, "{caps:?}");
+
+        let live = session
+            .set_directives(&Directives { mode: Some(Mode::AcceptEdits), effort: None, model: None })
+            .expect("set_mode on the live session");
+        assert!(matches!(live, LiveDirectives::Applied(a) if a.mode), "{live:?}");
+        session.shutdown();
+    }
+
     #[test]
     #[ignore = "spawns the real gemini binary"]
     fn gemini_on_this_machine_reports_auth_or_talks() {

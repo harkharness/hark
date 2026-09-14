@@ -1,0 +1,35 @@
+{
+ "stopReason": "end_turn",
+ "usage": {
+  "inputTokens": 10,
+  "outputTokens": 72,
+  "cachedReadTokens": 0,
+  "cachedWriteTokens": 28504,
+  "totalTokens": 28586
+ },
+ "_meta": {
+  "quota": {
+   "token_count": {
+    "totalTokens": 28586,
+    "inputTokens": 10,
+    "cachedInputTokens": 0,
+    "cachedWriteTokens": 28504,
+    "outputTokens": 72,
+    "reasoningOutputTokens": 0
+   },
+   "model_usage": [
+    {
+     "model": "claude-haiku-4-5-20251001",
+     "token_count": {
+      "totalTokens": 28586,
+      "inputTokens": 10,
+      "cachedInputTokens": 0,
+      "cachedWriteTokens": 28504,
+      "outputTokens": 72,
+      "reasoningOutputTokens": 0
+     }
+    }
+   ]
+  }
+ }
+}
