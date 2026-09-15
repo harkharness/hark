@@ -6,7 +6,9 @@ import CostsPanel from "./components/CostsPanel";
 import Settings from "./components/Settings";
 import Onboarding from "./components/Onboarding";
 import Transcript from "./components/Transcript";
-import FilesEditor, { FileTabs } from "./components/FilesEditor";
+import { FileTabs } from "./components/FilesEditor";
+import FilesWindow, { TreeToggle } from "./components/FilesWindow";
+import { useFilesTree } from "./hooks/useFilesTree";
 import ShellTerminal, { disposeShell } from "./components/ShellTerminal";
 import { TerminalTabs } from "./components/TerminalPane";
 import PanelFrame from "./components/PanelFrame";
@@ -213,6 +215,7 @@ export default function Mother() {
   const [dirtyPaths, setDirtyPaths] = useState<Set<string>>(new Set());
   const [termOpen, setTermOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  const filesTree = useFilesTree();
   /** Where mother shells are born: the app's own data dir — the hark chat
    *  already runs there, so `claude` already trusts it. A shell in $HOME
    *  made `claude /login` scan the user's world and macOS asked for
@@ -248,19 +251,28 @@ export default function Mother() {
     };
     setTimeout(() => write(0), shells[0] ? 60 : 900);
   }
-  function openMotherFile(path: string) {
-    const rel = path.split("/").filter(Boolean).pop() ?? path;
+  /** A tab in the mother's files window: the chat's paths and the tree's picks. */
+  function openMotherTab(file: OpenFile) {
     setChatExpanded(true);
     setFilesOpen(true);
     setOpenFiles((old) => {
-      const at = old.findIndex((f) => f.abs === path);
+      const at = old.findIndex((f) => f.abs === file.abs);
       if (at >= 0) {
         setActiveFile(at);
         return old;
       }
       setActiveFile(old.length);
-      return [...old, { abs: path, rel, project: { name: "", path: "" } }];
+      return [...old, file];
     });
+  }
+
+  function openMotherFile(path: string) {
+    // A registered project gives the tab its name and its place in the tree.
+    const project = (overview?.projects ?? []).find((p) => path.startsWith(`${p.path}/`));
+    const rel = project
+      ? path.slice(project.path.length + 1)
+      : (path.split("/").filter(Boolean).pop() ?? path);
+    openMotherTab({ abs: path, rel, project: project ?? { name: "", path: "" } });
   }
 
   const push = useCallback(
@@ -1498,7 +1510,8 @@ export default function Mother() {
               )}
               {filesOpen && (
                 <PanelFrame
-                  title=""
+                  title={t("frame_files")}
+                  lead={<TreeToggle open={filesTree.open} onToggle={filesTree.toggle} />}
                   expanded={false}
                   onToggleExpand={() => {}}
                   tabs={
@@ -1515,9 +1528,13 @@ export default function Mother() {
                   }
                   onClose={() => setFilesOpen(false)}
                 >
-                  <FilesEditor
+                  <FilesWindow
+                    projects={overview?.projects ?? []}
                     files={openFiles}
                     active={activeFile}
+                    treeOpen={filesTree.open}
+                    onOpen={openMotherTab}
+                    onWidth={filesTree.onWidth}
                     onDirty={(abs, d) =>
                       setDirtyPaths((old) => {
                         const next = new Set(old);

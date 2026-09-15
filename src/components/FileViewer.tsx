@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { Eye, Pencil, Save } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { highlightFile } from "../lib/highlight";
@@ -94,10 +94,24 @@ function CsvTable({ text, rel }: { text: string; rel: string }) {
   );
 }
 
+const lineHeightOf = (el: HTMLElement) => parseFloat(getComputedStyle(el).lineHeight) || 18.6;
+const lineCount = (text: string) => text.split("\n").length;
+
+/** Line numbers with the code's own metrics, so the rows line up. */
+function Gutter({ count, gutterRef }: { count: number; gutterRef?: RefObject<HTMLPreElement> }) {
+  const numbers = useMemo(() => Array.from({ length: count }, (_, i) => i + 1).join("\n"), [count]);
+  return (
+    <pre className="viewer-gutter" aria-hidden ref={gutterRef}>
+      {numbers}
+    </pre>
+  );
+}
+
 /**
  * Local file panel, zero tokens both ways. Markdown opens RENDERED (edit
  * unlocks the source); code opens straight in edit mode. Cmd+S saves; the
- * amber dot marks unsaved manual edits, VSCode-style.
+ * amber dot marks unsaved manual edits, VSCode-style. Source views carry a
+ * gutter of line numbers, and the line a chat path pointed at is tinted.
  */
 export default function FileViewer({
   file,
@@ -113,16 +127,29 @@ export default function FileViewer({
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const underRef = useRef<HTMLPreElement>(null);
-  const codeRef = useRef<HTMLPreElement>(null);
+  const gutterRef = useRef<HTMLPreElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  const markRef = useRef<HTMLSpanElement>(null);
+
+  /** The tinted bar over the line the chat pointed at, while EDITING: the
+   * textarea scrolls and the bar is its sibling, so it moves by hand. */
+  function placeMark(scrollTop: number) {
+    const mark = markRef.current;
+    const box = textRef.current;
+    if (!mark || !box || !file.line) return;
+    mark.style.top = `${12 + (file.line - 1) * lineHeightOf(box) - scrollTop}px`;
+  }
 
   // "foo.rs:38" clicked in the chat: land ON the line, a third of the way
   // down the view, once the content is actually there to scroll through.
   useEffect(() => {
-    const pre = codeRef.current;
-    if (!pre || !file.line || !content) return;
-    const lh = parseFloat(getComputedStyle(pre).lineHeight) || 18;
-    pre.scrollTop = Math.max(0, (file.line - 1) * lh - pre.clientHeight / 3);
-  }, [file.line, content]);
+    const box: HTMLElement | null = editing ? textRef.current : scrollRef.current;
+    if (!box || !file.line || !content) return;
+    box.scrollTop = Math.max(0, (file.line - 1) * lineHeightOf(box) - box.clientHeight / 3);
+    placeMark(box.scrollTop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file.line, content, editing]);
 
   const dirty = editing && draft !== content;
   const liveHighlight = draft.length < HIGHLIGHT_EDIT_MAX;
@@ -203,34 +230,49 @@ export default function FileViewer({
       </div>
       {editing ? (
         <div className="viewer-editwrap">
-          {liveHighlight && (
-            <pre className="viewer-code under" aria-hidden ref={underRef}>
-              <code
-                dangerouslySetInnerHTML={{ __html: `${highlightFile(file.rel, draft)}\n` }}
-              />
-            </pre>
-          )}
-          <textarea
-            className={`viewer-edit ${liveHighlight ? "ghost" : ""}`}
-            value={draft}
-            wrap="off"
-            onChange={(e) => setDraft(e.target.value)}
-            onScroll={(e) => {
-              const under = underRef.current;
-              if (under) {
-                under.scrollTop = e.currentTarget.scrollTop;
-                under.scrollLeft = e.currentTarget.scrollLeft;
-              }
-            }}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-                e.preventDefault();
-                save();
-              }
-              if (e.key === "Escape") e.stopPropagation();
-            }}
-            spellCheck={false}
-          />
+          <Gutter count={lineCount(draft)} gutterRef={gutterRef} />
+          <div className="viewer-editstack">
+            {liveHighlight && (
+              <pre className="viewer-code under" aria-hidden ref={underRef}>
+                <code
+                  dangerouslySetInnerHTML={{ __html: `${highlightFile(file.rel, draft)}\n` }}
+                />
+              </pre>
+            )}
+            <textarea
+              ref={textRef}
+              className={`viewer-edit ${liveHighlight ? "ghost" : ""}`}
+              value={draft}
+              wrap="off"
+              onChange={(e) => setDraft(e.target.value)}
+              onScroll={(e) => {
+                const { scrollTop, scrollLeft } = e.currentTarget;
+                const under = underRef.current;
+                if (under) {
+                  under.scrollTop = scrollTop;
+                  under.scrollLeft = scrollLeft;
+                }
+                if (gutterRef.current) gutterRef.current.scrollTop = scrollTop;
+                placeMark(scrollTop);
+              }}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+                  e.preventDefault();
+                  save();
+                }
+                if (e.key === "Escape") e.stopPropagation();
+              }}
+              spellCheck={false}
+            />
+          </div>
+          {file.line ? (
+            <span
+              className="viewer-line-mark"
+              data-line={file.line}
+              ref={markRef}
+              style={{ top: 12 + (file.line - 1) * 18.6 }}
+            />
+          ) : null}
         </div>
       ) : isMarkdown(file.rel) ? (
         <div className="viewer-md">
@@ -239,9 +281,19 @@ export default function FileViewer({
       ) : isCsv(file.rel) ? (
         <CsvTable text={content} rel={file.rel} />
       ) : (
-        <pre className="viewer-code" ref={codeRef}>
-          <code dangerouslySetInnerHTML={{ __html: highlightFile(file.rel, content) }} />
-        </pre>
+        <div className="viewer-scroll" ref={scrollRef}>
+          <Gutter count={lineCount(content)} />
+          <pre className="viewer-code">
+            <code dangerouslySetInnerHTML={{ __html: highlightFile(file.rel, content) }} />
+          </pre>
+          {file.line ? (
+            <span
+              className="viewer-line-mark"
+              data-line={file.line}
+              style={{ "--line": file.line } as CSSProperties}
+            />
+          ) : null}
+        </div>
       )}
     </div>
   );

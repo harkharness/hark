@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as ipc from "../lib/ipc";
 import type { OpenFile, Project } from "../types";
 
@@ -38,19 +38,32 @@ function buildTree(paths: string[]): Node[] {
   return root;
 }
 
+/** Every folder above a relative path: "a/b/c.rs" → ["a", "a/b"]. */
+function ancestors(rel: string): string[] {
+  const parts = rel.split("/");
+  const out: string[] = [];
+  for (let i = 1; i < parts.length; i++) out.push(parts.slice(0, i).join("/"));
+  return out;
+}
+
 /**
- * Clickable file tree of one project (sidebar). Fully local: one listing
- * call, folders expand client-side, clicking a file opens the viewer.
+ * Clickable file tree of one project. Fully local: one listing call,
+ * folders expand client-side, clicking a file opens a tab. The tab in
+ * front is revealed (its folders come open) and marked, like an editor.
  */
 export default function FileTree({
   project,
+  activeRel,
   onOpen,
 }: {
   project: Project;
+  /** The open file, relative to this project, when it lives here. */
+  activeRel?: string;
   onOpen: (file: OpenFile) => void;
 }) {
   const [paths, setPaths] = useState<string[] | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const activeRowRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     ipc
@@ -58,6 +71,24 @@ export default function FileTree({
       .then(setPaths)
       .catch(() => setPaths([]));
   }, [project.path]);
+
+  // Reveal: the folders above the open file come open...
+  useEffect(() => {
+    if (!activeRel) return;
+    const above = ancestors(activeRel);
+    if (above.length === 0) return;
+    setOpen((old) => {
+      if (above.every((dir) => old.has(dir))) return old;
+      const next = new Set(old);
+      above.forEach((dir) => next.add(dir));
+      return next;
+    });
+  }, [activeRel]);
+
+  // ...and its row is brought into view once it exists.
+  useEffect(() => {
+    activeRowRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [activeRel, open, paths]);
 
   const tree = useMemo(() => buildTree(paths ?? []), [paths]);
 
@@ -87,7 +118,8 @@ export default function FileTree({
       ) : (
         <button
           key={node.path}
-          className="tree-row tree-file"
+          ref={node.path === activeRel ? activeRowRef : undefined}
+          className={`tree-row tree-file ${node.path === activeRel ? "on" : ""}`}
           style={{ paddingLeft: 8 + depth * 12 }}
           onClick={() =>
             onOpen({ abs: `${project.path}/${node.path}`, rel: node.path, project })

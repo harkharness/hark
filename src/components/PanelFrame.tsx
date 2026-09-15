@@ -10,6 +10,7 @@ import { t } from "../lib/i18n";
  */
 export default function PanelFrame({
   title,
+  lead,
   tabs,
   actions,
   expanded,
@@ -21,6 +22,8 @@ export default function PanelFrame({
   children,
 }: {
   title: string;
+  /** A control BEFORE the title (the files window's tree toggle). */
+  lead?: React.ReactNode;
   /** Tab strip rendered inside the header (no second bar). */
   tabs?: React.ReactNode;
   actions?: React.ReactNode;
@@ -44,6 +47,11 @@ export default function PanelFrame({
         title={onToggleCollapse ? (collapsed ? t("frame_expand") : t("frame_collapse")) : undefined}
       >
         {dragProps && <GripVertical size={13} className="frame-grip" />}
+        {!collapsed && lead && (
+          <span className="frame-lead" onClick={(e) => e.stopPropagation()}>
+            {lead}
+          </span>
+        )}
         <span className="frame-title">{title}</span>
         {!collapsed && tabs && (
           <div className="frame-tabs" onClick={(e) => e.stopPropagation()}>

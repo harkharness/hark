@@ -682,6 +682,74 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .filespanel-proj:hover { color: var(--accent); }
 .filespanel .filetree { max-height: none; }
 .filespanel .quickopen-list { padding: 6px; overflow-y: auto; }
+/* ---- Arquivos: ONE window — the tree column beside the tabs' viewer ---- */
+.fileswin { flex: 1; min-height: 0; display: flex; }
+.fileswin-tree { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--border); }
+.fileswin-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.fileswin .fileseditor { flex: 1; }
+.fileswin .viewer { border-left: none; }
+/* The tree toggle sits BEFORE the title: same quiet control as the frame's
+   own cluster, full strength while the tree is open (it is a state). */
+.frame-lead { display: inline-flex; align-items: center; flex: 0 0 auto; margin-left: -6px; }
+.frame-lead button.frame-ctl {
+  background: none; border: none; color: var(--dim); cursor: pointer;
+  width: 24px; height: 22px; border-radius: 7px; font: inherit;
+  display: inline-flex; align-items: center; justify-content: center;
+  opacity: .45; transition: opacity .12s ease;
+}
+.frame-lead button.frame-ctl:hover,
+.frame-head:hover .frame-lead button.frame-ctl { opacity: 1; color: var(--text); background: rgba(255,255,255,.06); }
+.frame-lead button.frame-ctl.on { opacity: 1; color: var(--text); }
+/* No tab open: the right side says what to do. */
+.files-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 6px; padding: 24px; text-align: center;
+}
+.files-empty svg { color: var(--dim); opacity: .7; margin-bottom: 6px; }
+.files-empty-title { color: var(--text); font-size: 12.5px; }
+.files-empty-hint { color: var(--dim); font-size: 11.5px; max-width: 260px; line-height: 1.45; }
+/* The open file wears the active tab's tint in the tree. */
+.tree-row.on, .tree-row.on:hover { background: var(--panel-2); color: var(--text-strong); }
+/* The filter in a narrow column: a × to clear, hits as name + dim folder. */
+.filespanel-field { position: relative; flex: 1; display: flex; min-width: 0; }
+.filespanel-field input { padding-right: 26px; min-width: 0; }
+.filespanel-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: var(--dim); cursor: pointer;
+  display: inline-flex; padding: 2px; border-radius: 4px;
+}
+.filespanel-clear:hover { color: var(--text); }
+.filespanel .quickopen-list button { display: flex; align-items: baseline; gap: 8px; }
+.hit-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hit-dir {
+  color: var(--dim); font-size: 11px; flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+
+}
+/* Line numbers: the code's own metrics (12px, 1.55, 12px top padding), so
+   the rows line up in both the read view and the editor. */
+.viewer-scroll {
+  flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start;
+  position: relative; background: var(--code-bg); font-size: 12px; line-height: 1.55;
+}
+.viewer-scroll .viewer-code { flex: 1 1 auto; min-width: 0; overflow: visible; }
+.viewer-gutter {
+  flex: 0 0 auto; position: sticky; left: 0; z-index: 1; margin: 0;
+  padding: 12px 10px 12px 12px; font-family: var(--font-mono); font-size: 12px;
+  line-height: 1.55; color: var(--dim); text-align: right; user-select: none;
+  background: var(--code-bg); min-width: 3ch; white-space: pre;
+}
+.viewer-editwrap { overflow: hidden; }
+.viewer-editwrap .viewer-gutter { overflow: hidden; height: 100%; box-sizing: border-box; }
+.viewer-editstack { position: relative; flex: 1; min-width: 0; }
+/* The line the chat pointed at ("foo.rs:38"): a tint across the row. In
+   the read view it scrolls with the content (CSS var); while editing the
+   viewer moves it by hand on every scroll (inline top). */
+.viewer-line-mark {
+  position: absolute; left: 0; width: 100%; height: 1.55em; font-size: 12px;
+  background: rgba(122,162,247,.10); pointer-events: none;
+  top: calc(12px + (var(--line, 1) - 1) * 1.55em);
+}
 
 /* per-task terminal pane */
 .termpane {

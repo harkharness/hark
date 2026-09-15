@@ -12,8 +12,9 @@ import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import Board from "./components/Board";
 import Composer from "./components/Composer";
 import { toImagePair, type Attachment } from "./lib/composerText";
-import FilesEditor, { FileTabs } from "./components/FilesEditor";
-import FilesPanel from "./components/FilesPanel";
+import { FileTabs } from "./components/FilesEditor";
+import FilesWindow, { TreeToggle } from "./components/FilesWindow";
+import { useFilesTree } from "./hooks/useFilesTree";
 import Modals, { type Pending } from "./components/Modals";
 import ModeSelect from "./components/ModeSelect";
 import ModelSelect from "./components/ModelSelect";
@@ -51,7 +52,7 @@ import type {
   TranscriptEntry,
 } from "./types";
 
-type RailItem = "arquivo" | "terminal" | "arquivos" | "board";
+type RailItem = "terminal" | "arquivos" | "board";
 
 export default function App({
   forcedProject,
@@ -163,13 +164,14 @@ export default function App({
   const forkOff = unsupported(catalog, focusedAgent, "fork", t("held_fork"));
   const ringOff = unsupported(catalog, focusedAgent, "cost_reporting", t("cap_context"));
   const [speak, setSpeak] = useState(true);
-  // "Arquivo" window: up to 5 tabs, LRU-evicted, dirty tabs protected.
+  // "Arquivos" window: up to 5 tabs, LRU-evicted, dirty tabs protected.
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
   const [activeFile, setActiveFile] = useState(0);
   const [dirtyPaths, setDirtyPaths] = useState<Set<string>>(new Set());
   const lastFocus = useRef(new Map<string, number>());
-  // "Arquivos" window (project trees + filter).
+  // ...and its tree column (project trees + filter), open or folded.
   const [filesInitialProject, setFilesInitialProject] = useState<string | undefined>();
+  const filesTree = useFilesTree();
   /** Typed window taking the whole work area (menu stays). */
   const [expanded, setExpanded] = useState<RailItem | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -992,7 +994,7 @@ export default function App({
    * and NEVER touches a tab with unsaved edits.
    */
   function openFile(file: OpenFile) {
-    ensureRail("arquivo");
+    ensureRail("arquivos");
     lastFocus.current.set(file.abs, Date.now());
     setOpenFiles((old) => {
       const existing = old.findIndex((f) => f.abs === file.abs);
@@ -1042,7 +1044,6 @@ export default function App({
       }
       const next = old.filter((_, i) => i !== index);
       setActiveFile((a) => Math.max(0, a > index ? a - 1 : Math.min(a, next.length - 1)));
-      if (next.length === 0) removeRail("arquivo");
       return next;
     });
   }
@@ -2385,36 +2386,6 @@ export default function App({
     onDrop: () => dropRail(id),
   });
 
-  const frameArquivo = (slot?: { collapsed: boolean }) => (
-    <PanelFrame
-      title={t("frame_file")}
-      tabs={
-        <FileTabs
-          files={openFiles}
-          active={activeFile}
-          dirty={dirtyPaths}
-          onActivate={(i) => {
-            setActiveFile(i);
-            const f = openFiles[i];
-            if (f) lastFocus.current.set(f.abs, Date.now());
-          }}
-          onCloseTab={closeFileTab}
-        />
-      }
-      expanded={expanded === "arquivo"}
-      collapsed={slot?.collapsed ?? false}
-      onToggleExpand={() => setExpanded((e) => (e === "arquivo" ? null : "arquivo"))}
-      onToggleCollapse={slot ? () => toggleRailCollapse("arquivo") : undefined}
-      dragProps={slot ? railDragProps("arquivo") : undefined}
-      onClose={() => {
-        setOpenFiles([]);
-        setDirtyPaths(new Set());
-        removeRail("arquivo");
-      }}
-    >
-      <FilesEditor files={openFiles} active={activeFile} onDirty={onFileDirty} />
-    </PanelFrame>
-  );
   const frameTerminal = (slot?: { collapsed: boolean }) => (
     <PanelFrame
       title={t("frame_terminal")}
@@ -2471,20 +2442,44 @@ export default function App({
       />
     </PanelFrame>
   );
+  /** The files window: the tree column, the tabs in the header, the viewer. */
   const frameArquivos = (slot?: { collapsed: boolean }) => (
     <PanelFrame
       title={t("frame_files")}
+      lead={<TreeToggle open={filesTree.open} onToggle={filesTree.toggle} />}
+      tabs={
+        <FileTabs
+          files={openFiles}
+          active={activeFile}
+          dirty={dirtyPaths}
+          onActivate={(i) => {
+            setActiveFile(i);
+            const f = openFiles[i];
+            if (f) lastFocus.current.set(f.abs, Date.now());
+          }}
+          onCloseTab={closeFileTab}
+        />
+      }
       expanded={expanded === "arquivos"}
       collapsed={slot?.collapsed ?? false}
       onToggleExpand={() => setExpanded((e) => (e === "arquivos" ? null : "arquivos"))}
       onToggleCollapse={slot ? () => toggleRailCollapse("arquivos") : undefined}
       dragProps={slot ? railDragProps("arquivos") : undefined}
-      onClose={() => removeRail("arquivos")}
+      onClose={() => {
+        setOpenFiles([]);
+        setDirtyPaths(new Set());
+        removeRail("arquivos");
+      }}
     >
-      <FilesPanel
+      <FilesWindow
         projects={projects}
+        files={openFiles}
+        active={activeFile}
         initialProject={filesInitialProject}
+        treeOpen={filesTree.open}
         onOpen={openFile}
+        onDirty={onFileDirty}
+        onWidth={filesTree.onWidth}
       />
     </PanelFrame>
   );
@@ -2560,13 +2555,11 @@ export default function App({
 
       {expanded ? (
         <div className="workarea expanded-area">
-          {expanded === "arquivo"
-            ? frameArquivo()
-            : expanded === "terminal"
-              ? frameTerminal()
-              : expanded === "board"
-                ? frameBoard()
-                : frameArquivos()}
+          {expanded === "terminal"
+            ? frameTerminal()
+            : expanded === "board"
+              ? frameBoard()
+              : frameArquivos()}
         </div>
       ) : (
         <PanelGroup direction="horizontal" autoSaveId="hark-code" className="workarea">
@@ -2629,7 +2622,9 @@ export default function App({
                 })
               }
               onOpenFiles={(p) => {
+                // The folder icon asks for the tree: open it even in the rail.
                 setFilesInitialProject(p.path);
+                filesTree.set(true);
                 ensureRail("arquivos");
               }}
             />
@@ -2918,13 +2913,11 @@ export default function App({
                               : { flexGrow: railFlex[slot.id] ?? 1 }
                           }
                         >
-                          {slot.id === "arquivo"
-                            ? frameArquivo(slot)
-                            : slot.id === "terminal"
-                              ? frameTerminal(slot)
-                              : slot.id === "board"
-                                ? frameBoard(slot)
-                                : frameArquivos(slot)}
+                          {slot.id === "terminal"
+                            ? frameTerminal(slot)
+                            : slot.id === "board"
+                              ? frameBoard(slot)
+                              : frameArquivos(slot)}
                         </div>
                       </Fragment>
                     );
