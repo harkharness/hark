@@ -18,7 +18,7 @@ import { Settings as SettingsIcon } from "lucide-react";
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import { useWorkerDefaults } from "./hooks/useWorkerDefaults";
 import { useAgentCatalog } from "./hooks/useAgentCatalog";
-import { unsupported } from "./lib/support";
+import { modelPillFor, unsupported } from "./lib/support";
 import ModeSelect from "./components/ModeSelect";
 import ModelSelect from "./components/ModelSelect";
 import EffortSelect from "./components/EffortSelect";
@@ -151,6 +151,7 @@ export default function Mother() {
   const { catalog, selected: selectedAgent } = useAgentCatalog();
   const modeOff = unsupported(catalog, selectedAgent, "directive_mode", t("cap_mode"));
   const modelOff = unsupported(catalog, selectedAgent, "directive_model", t("cap_model"));
+  const modelPill = modelPillFor(catalog, selectedAgent, defaults.tiers);
   const effortOff = unsupported(catalog, selectedAgent, "directive_effort", t("cap_effort"));
 
   /** A pill on the mother: records the window default always, and applies
@@ -1431,8 +1432,9 @@ export default function Mother() {
               />
               <ModelSelect
                 value={defaults.model}
-                tiers={defaults.tiers}
-                disabled={modelOff}
+                tiers={modelPill.tiers}
+                global={defaults.tiers}
+                disabled={modelOff ?? modelPill.disabled}
                 onSelect={pillPick(ipc.workerSetModel, defaults.setModelDefault)}
               />
               <EffortSelect

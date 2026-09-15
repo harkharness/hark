@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { costFooter, unsupported, type Catalog } from "./support";
+import { costFooter, modelPillFor, tierOf, unsupported, type Catalog } from "./support";
+import { DEFAULT_TIERS } from "../components/ModelSelect";
 import { t } from "./i18n";
 
 const caps = (over: Partial<Catalog[string]["capabilities"] & object>) => ({
@@ -80,5 +81,55 @@ describe("the price slot of a reply", () => {
     const slot = costFooter(catalog, { cost: undefined });
     expect(slot.label).toBe("$ –");
     expect(slot.title).toBe(t("cost_unknown_turn"));
+  });
+});
+
+describe("the model pill speaks in tiers, each agent in its own names", () => {
+  const withTables: Catalog = {
+    claude: { ...catalog.claude, plugin: "claude", models: { light: "haiku", standard: "sonnet", heavy: "opus", max: "fable" } },
+    gemini: {
+      ...catalog.gemini,
+      plugin: "acp",
+      models: { light: "gemini-2.5-flash-lite", standard: "gemini-2.5-flash", heavy: "gemini-2.5-pro", max: "gemini-2.5-pro" },
+      capabilities: caps({ directive_model: true }),
+    },
+    codex: { id: "codex", name: "Codex CLI", plugin: "acp", models: {}, capabilities: caps({ directive_model: true }) },
+    twin: { id: "twin", name: "Claude via gateway", plugin: "claude", models: {}, capabilities: caps({}) },
+    mystery: catalog.mystery,
+  };
+
+  it("reads a pick as a tier: its key, or the global table's name for it", () => {
+    expect(tierOf("light", DEFAULT_TIERS)).toBe("light");
+    expect(tierOf("haiku", DEFAULT_TIERS)).toBe("light");
+    expect(tierOf("fable", DEFAULT_TIERS)).toBe("max");
+    // An explicit id belongs to no tier; nothing picked is no tier either.
+    expect(tierOf("gemini-2.5-pro", DEFAULT_TIERS)).toBeUndefined();
+    expect(tierOf("", DEFAULT_TIERS)).toBeUndefined();
+    expect(tierOf(undefined, DEFAULT_TIERS)).toBeUndefined();
+  });
+
+  it("offers gemini's own names in a gemini chat", () => {
+    const pill = modelPillFor(withTables, "gemini", DEFAULT_TIERS);
+    expect(pill.tiers.light).toBe("gemini-2.5-flash-lite");
+    expect(pill.tiers.max).toBe("gemini-2.5-pro");
+    expect(pill.disabled).toBeUndefined();
+  });
+
+  it("offers the global table to claude, and to a claude twin without a table", () => {
+    expect(modelPillFor(withTables, "claude", DEFAULT_TIERS).tiers).toEqual(DEFAULT_TIERS);
+    expect(modelPillFor(withTables, "twin", DEFAULT_TIERS).tiers).toEqual(DEFAULT_TIERS);
+  });
+
+  it("disables the pill for an ACP agent with no table, naming the config knob", () => {
+    // Claude's names would be refused or ignored by codex; the pill says
+    // so rather than offering them. The driver sends no model either.
+    const pill = modelPillFor(withTables, "codex", DEFAULT_TIERS);
+    expect(pill.disabled).toBe(t("cap_no_model_table", { name: "Codex CLI", id: "codex" }));
+  });
+
+  it("never disables the pill for an agent it knows nothing about", () => {
+    expect(modelPillFor(withTables, "mystery", DEFAULT_TIERS)).toEqual({ tiers: DEFAULT_TIERS });
+    expect(modelPillFor(withTables, "nobody", DEFAULT_TIERS)).toEqual({ tiers: DEFAULT_TIERS });
+    expect(modelPillFor(undefined, "gemini", DEFAULT_TIERS)).toEqual({ tiers: DEFAULT_TIERS });
   });
 });

@@ -505,6 +505,10 @@ export type AgentPlugin = {
   selected: boolean;
   memory_file: string | null;
   login_hint: string | null;
+  /** What this agent calls each tier (light/standard/heavy/max) — the
+   *  registry line with the user's overrides merged. Empty = no table:
+   *  the model pill says so rather than offering claude's names. */
+  models: Record<string, string>;
   /** Only the native plugin declares one today; ACP negotiates at
    *  handshake, so its sheet is null until the runtime lands. */
   capabilities: AgentCapabilities | null;

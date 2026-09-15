@@ -1,6 +1,7 @@
 import type { AgentCapabilities, AgentPlugin } from "./ipc";
 import { t } from "./i18n";
 import { costLabel } from "./format";
+import type { ModelTiers } from "../components/ModelSelect";
 
 /**
  * What the UI knows about each agent: its name and capability sheet.
@@ -8,13 +9,61 @@ import { costLabel } from "./format";
  * plugin lacks shows as DISABLED WITH A REASON — never hidden (the user
  * would think Hark lacks it), never a control that silently does nothing.
  */
-export type AgentSheet = { id: string; name: string; capabilities: AgentCapabilities | null };
+export type AgentSheet = {
+  id: string;
+  name: string;
+  capabilities: AgentCapabilities | null;
+  /** "claude" (native) or "acp". */
+  plugin?: string;
+  /** What this agent calls each tier; empty when its registry line has no table. */
+  models?: Record<string, string>;
+};
 export type Catalog = Record<string, AgentSheet>;
 
 export function toCatalog(plugins: AgentPlugin[]): Catalog {
   return Object.fromEntries(
-    plugins.map((p) => [p.id, { id: p.id, name: p.name, capabilities: p.capabilities }]),
+    plugins.map((p) => [
+      p.id,
+      { id: p.id, name: p.name, capabilities: p.capabilities, plugin: p.plugin, models: p.models ?? {} },
+    ]),
   );
+}
+
+export const TIER_KEYS = ["light", "standard", "heavy", "max"] as const;
+export type TierKey = (typeof TIER_KEYS)[number];
+
+/**
+ * Which tier a pill value stands for: the tier's own key, or the GLOBAL
+ * table's name for it ("haiku" is claude's light). An explicit model id
+ * belongs to no tier; so does nothing at all.
+ */
+export function tierOf(value: string | undefined, global: ModelTiers): TierKey | undefined {
+  if (!value) return undefined;
+  if ((TIER_KEYS as readonly string[]).includes(value)) return value as TierKey;
+  return TIER_KEYS.find((k) => global[k] === value);
+}
+
+/**
+ * What the model pill offers in a chat on this agent: its own tier table
+ * when the registry line has one; the global table for the native claude
+ * plugin (that table IS claude's vocabulary) and for any agent nothing is
+ * known about; and for an ACP agent with no table, the pill disabled with
+ * the config knob as its reason — offering claude's names to a codex is a
+ * control that lies. Mirrors `agents::model_id` in the core.
+ */
+export function modelPillFor(
+  catalog: Catalog | undefined,
+  agent: string | undefined,
+  global: ModelTiers,
+): { tiers: ModelTiers; disabled?: string } {
+  const sheet = catalog && agent ? catalog[agent] : undefined;
+  if (!sheet || !sheet.capabilities) return { tiers: global };
+  const table = sheet.models ?? {};
+  if (TIER_KEYS.every((k) => table[k])) {
+    return { tiers: { light: table.light, standard: table.standard, heavy: table.heavy, max: table.max } };
+  }
+  if (sheet.plugin === "claude") return { tiers: global };
+  return { tiers: global, disabled: t("cap_no_model_table", { name: sheet.name, id: sheet.id }) };
 }
 
 /**

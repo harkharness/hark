@@ -114,6 +114,16 @@ pub fn builtins() -> Vec<AgentEntry> {
             enabled: false,
             memory_file: Some("CLAUDE.md".into()),
             login_hint: Some("claude /login".into()),
+            // Claude's own names: the adapter offers `haiku`, `sonnet`,
+            // `opus[1m]`… and the ACP plugin matches them by family. An
+            // ACP entry WITHOUT a table gets no model at all (see
+            // `model_id`), which would lose this one its cheap lane.
+            models: models(&[
+                ("light", "haiku"),
+                ("standard", "sonnet"),
+                ("heavy", "opus"),
+                ("max", "fable"),
+            ]),
             ..Default::default()
         },
         // OpenAI Codex through Zed's adapter (zed-industries/codex-acp):
@@ -265,6 +275,62 @@ pub fn spoken_agent(utterance: &str, entries: &[AgentEntry]) -> Option<String> {
             words.contains(&e.id.as_str()) || (!first.is_empty() && words.contains(&first.as_str()))
         })
         .map(|e| e.id.clone())
+}
+
+/// The four tiers every pill and router speak in.
+pub const TIERS: [&str; 4] = ["light", "standard", "heavy", "max"];
+
+/// Which tier a requested model stands for: the tier's own key, or the
+/// GLOBAL table's name for it ("haiku" is claude's light). Anything else
+/// is an explicit model id and belongs to no tier.
+pub fn tier_of(requested: &str, tiers: &crate::domain::intent::Models) -> Option<&'static str> {
+    if requested.is_empty() {
+        return None;
+    }
+    if let Some(key) = TIERS.iter().find(|t| **t == requested) {
+        return Some(key);
+    }
+    tier_names(tiers)
+        .into_iter()
+        .find(|(_, name)| *name == requested)
+        .map(|(key, _)| key)
+}
+
+fn tier_names(tiers: &crate::domain::intent::Models) -> [(&'static str, &str); 4] {
+    [("light", &tiers.light), ("standard", &tiers.standard), ("heavy", &tiers.heavy), ("max", &tiers.max)]
+}
+
+/// The model id to ask THIS agent for.
+///
+/// One pill drives every agent, so what it says is a tier — its key, or
+/// the global table's name for it — and each registry line says what that
+/// tier is called on its own agent. An explicit id passes through
+/// untouched. An agent with a table but not this tier, or an ACP agent
+/// with no table at all, gets NO model and runs its own default: a claude
+/// name sent to codex is refused or ignored, and either way the pill would
+/// be lying. The global table is claude's vocabulary, so a claude entry
+/// without a table of its own (a gateway twin) speaks it as is.
+pub fn model_id(
+    entry: &AgentEntry,
+    requested: &str,
+    tiers: &crate::domain::intent::Models,
+) -> Option<String> {
+    if requested.is_empty() {
+        return None;
+    }
+    let Some(tier) = tier_of(requested, tiers) else {
+        return Some(requested.to_string());
+    };
+    if !entry.models.is_empty() {
+        return entry.models.get(tier).cloned();
+    }
+    (entry.plugin == "claude").then(|| {
+        tier_names(tiers)
+            .into_iter()
+            .find(|(key, _)| *key == tier)
+            .map(|(_, name)| name.to_string())
+            .unwrap_or_default()
+    })
 }
 
 #[cfg(test)]
@@ -449,5 +515,94 @@ mod tests {
         // "geminis" is not "gemini"; whole words only.
         assert_eq!(spoken_agent("abre o chat dos geminis do time", &builtins()), None);
         assert_eq!(spoken_agent("continua a migração", &builtins()), None);
+    }
+}
+
+#[cfg(test)]
+mod model_ids {
+    //! The tier table is how one pill drives every agent: "light" (or the
+    //! global table's name for it, "haiku") becomes THIS agent's own id.
+    use super::*;
+    use crate::domain::intent::Models;
+
+    fn tiers() -> Models {
+        Models::default()
+    }
+
+    fn builtin(id: &str) -> AgentEntry {
+        resolve(&builtins(), id).unwrap().clone()
+    }
+
+    #[test]
+    fn a_tier_key_resolves_to_the_agents_own_model() {
+        assert_eq!(model_id(&builtin("gemini"), "light", &tiers()).as_deref(), Some("gemini-2.5-flash-lite"));
+        assert_eq!(model_id(&builtin("gemini"), "max", &tiers()).as_deref(), Some("gemini-2.5-pro"));
+        assert_eq!(model_id(&builtin("claude"), "heavy", &tiers()).as_deref(), Some("opus"));
+    }
+
+    #[test]
+    fn a_global_tier_name_resolves_through_its_tier() {
+        // The window default says "haiku" — claude's light. In a gemini
+        // chat that is flash-lite, never a claude name sent to gemini.
+        assert_eq!(model_id(&builtin("gemini"), "haiku", &tiers()).as_deref(), Some("gemini-2.5-flash-lite"));
+        assert_eq!(model_id(&builtin("gemini"), "fable", &tiers()).as_deref(), Some("gemini-2.5-pro"));
+        assert_eq!(model_id(&builtin("claude"), "haiku", &tiers()).as_deref(), Some("haiku"));
+    }
+
+    #[test]
+    fn an_explicit_model_id_passes_through_untouched() {
+        assert_eq!(model_id(&builtin("gemini"), "gemini-2.5-pro", &tiers()).as_deref(), Some("gemini-2.5-pro"));
+        assert_eq!(model_id(&builtin("codex"), "gpt-5-codex", &tiers()).as_deref(), Some("gpt-5-codex"));
+        assert_eq!(model_id(&builtin("claude"), "claude-fable-5-1", &tiers()).as_deref(), Some("claude-fable-5-1"));
+    }
+
+    #[test]
+    fn an_acp_agent_without_a_table_gets_no_model_rather_than_a_claude_name() {
+        // Codex has no table yet: "haiku" must not reach it (it would be
+        // refused, or silently ignored, either way a lie on the pill).
+        // No model = the agent's own default.
+        assert_eq!(model_id(&builtin("codex"), "haiku", &tiers()), None);
+        assert_eq!(model_id(&builtin("codex"), "light", &tiers()), None);
+    }
+
+    #[test]
+    fn a_claude_twin_without_a_table_speaks_the_global_names() {
+        // The global table IS claude's vocabulary: a second claude entry
+        // (a LiteLLM twin) with no table of its own takes it as is.
+        let twin = AgentEntry { id: "claude-litellm".into(), plugin: "claude".into(), cmd: "claude".into(), ..Default::default() };
+        assert_eq!(model_id(&twin, "light", &tiers()).as_deref(), Some("haiku"));
+        assert_eq!(model_id(&twin, "opus", &tiers()).as_deref(), Some("opus"));
+    }
+
+    #[test]
+    fn a_table_missing_the_tier_yields_no_model() {
+        let partial = AgentEntry { id: "x".into(), models: models(&[("light", "mini")]), ..Default::default() };
+        assert_eq!(model_id(&partial, "light", &tiers()).as_deref(), Some("mini"));
+        assert_eq!(model_id(&partial, "sonnet", &tiers()), None);
+    }
+
+    #[test]
+    fn nothing_requested_is_nothing_resolved() {
+        // An empty pick means "the agent's default", whatever the tables say.
+        assert_eq!(model_id(&builtin("gemini"), "", &tiers()), None);
+        assert_eq!(tier_of("", &tiers()), None);
+    }
+
+    #[test]
+    fn the_claude_adapter_over_acp_carries_claudes_own_table() {
+        // claude-agent-acp offers `haiku`, `sonnet`, `opus[1m]`… — claude's
+        // names, matched by family in the ACP plugin. Without a table the
+        // ACP rule above would send it NO model and lose the cheap lane.
+        let acp = builtin("claude-acp");
+        assert_eq!(acp.models.get("light").map(String::as_str), Some("haiku"));
+        assert_eq!(acp.models.len(), 4);
+        assert_eq!(model_id(&acp, "haiku", &tiers()).as_deref(), Some("haiku"));
+    }
+
+    #[test]
+    fn a_tier_is_known_by_its_key_or_by_the_global_tables_name() {
+        assert_eq!(tier_of("light", &tiers()), Some("light"));
+        assert_eq!(tier_of("sonnet", &tiers()), Some("standard"));
+        assert_eq!(tier_of("gemini-2.5-pro", &tiers()), None);
     }
 }

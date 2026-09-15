@@ -148,6 +148,21 @@ export default function PluginsPanel({
               </div>
             )}
 
+            {Object.keys(p.models ?? {}).length > 0 && (
+              // What this agent calls each tier: the model pill's rows in
+              // a chat on it, and the `[agents.<id>.models]` knob made
+              // visible.
+              <div className="plugin-caps" title={t("pl_models")}>
+                {(["light", "standard", "heavy", "max"] as const)
+                  .filter((k) => p.models[k])
+                  .map((k) => (
+                    <span key={k} className="plugin-cap">
+                      {k} · {p.models[k]}
+                    </span>
+                  ))}
+              </div>
+            )}
+
             {p.capabilities && (
               <div className="plugin-caps">
                 {CAP_ROWS.filter(([key]) => p.capabilities![key]).map(([key, label]) => (

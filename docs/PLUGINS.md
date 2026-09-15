@@ -102,6 +102,28 @@ ACP one for everything that speaks the Agent Client Protocol:
 
 Detected = the binary answers `which`; usable = detected and enabled.
 
+### Tiers: one pill, every agent's own names
+
+The model pill and the router speak in **tiers** — `light`, `standard`,
+`heavy`, `max` — never in one agent's model names. Each registry line
+carries a `models` table saying what THIS agent calls each tier
+(`gemini`: `light = "gemini-2.5-flash-lite"` … ; `claude` and
+`claude-acp`: `haiku`, `sonnet`, `opus`, `fable`), and the user's config
+overrides it tier by tier (`[agents.gemini.models] heavy = "gemini-3-pro"`).
+The translation happens once, at the spawn boundary
+(`agents::model_id`, applied by the driver to every spawn, every live
+switch and the cheap lane): a pick travels as its tier (or the global
+table's name for it — "haiku" stored as a window default long ago still
+means light), the agent hears its own id, an explicit id passes through
+untouched. An ACP agent whose line has NO table gets no model at all and
+runs its own default — a claude name sent to codex is refused or silently
+ignored, and either way the pill would be lying — and in a chat on it the
+pill is disabled with the config knob as the reason. The catalog shows
+each agent's table. Before this (14/09/2026) the cheap lane asked every
+agent for "haiku" and the pill offered claude's names in a gemini chat;
+the mismatch was swallowed at the handshake and the agent ran its
+default while the pill said otherwise.
+
 ### Which package is current
 
 The [ACP agent registry](https://github.com/agentclientprotocol/registry)

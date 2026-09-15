@@ -73,7 +73,53 @@ fn ask_runner(config: &Config) -> Box<dyn AgentRunner + Send + Sync> {
     let detected = agents_detected(config, &entries);
     let preference = if config.agent.ask.is_empty() { &config.agent.plugin } else { &config.agent.ask };
     let id = agents::default_agent(&entries, &detected, preference).unwrap_or_else(|| "claude".into());
-    backend_for(config, &id).runner()
+    let entry = agents::resolve(&entries, &id)
+        .or_else(|| agents::resolve(&entries, "claude"))
+        .cloned()
+        .expect("claude is a builtin");
+    Box::new(TieredRunner { inner: backend_for(config, &id).runner(), entry, tiers: config.models() })
+}
+
+/// The cheap lane asks for a TIER ("haiku" is the global table's light);
+/// each agent calls that tier something else. Translated here, once, so
+/// the three ask sites (voice, intent router, gate) never learn agent
+/// vocabularies. No id for the tier = the agent's own default model.
+struct TieredRunner {
+    inner: Box<dyn AgentRunner + Send + Sync>,
+    entry: hark_core::domain::agents::AgentEntry,
+    tiers: hark_core::domain::intent::Models,
+}
+
+impl AgentRunner for TieredRunner {
+    fn ask(
+        &self,
+        request: &hark_core::ports::TurnRequest,
+        on_event: &mut dyn FnMut(&hark_agent::AgentEvent),
+    ) -> anyhow::Result<hark_agent::TurnResult> {
+        let model = hark_core::domain::agents::model_id(&self.entry, request.model, &self.tiers).unwrap_or_default();
+        self.inner.ask(&hark_core::ports::TurnRequest { model: &model, ..*request }, on_event)
+    }
+}
+
+/// Directives said in the agent's own vocabulary: the model pill and the
+/// router speak in tiers (or the global table's names for them), and the
+/// registry line says what THIS agent calls each tier. Applied at the
+/// spawn boundary — the handle keeps what the user said, so a restart
+/// re-translates and a switch of agent re-translates differently.
+fn directives_for(
+    config: &Config,
+    agent: &str,
+    mut directives: hark_core::domain::directives::Directives,
+) -> hark_core::domain::directives::Directives {
+    use hark_core::domain::agents;
+    let entries = agents::merge(&config.agents);
+    if let Some(entry) = agents::resolve(&entries, agent) {
+        directives.model = directives
+            .model
+            .as_deref()
+            .and_then(|m| agents::model_id(entry, m, &config.models()));
+    }
+    directives
 }
 
 /// The registry id a NEW session opens with: the user's pick when it is
@@ -952,8 +998,13 @@ fn start_worker_titled(
     spec: SessionSpec,
     title: Option<String>,
 ) -> anyhow::Result<()> {
-    let backend = backend_for(&Config::load(), &spec.agent);
-    let (session, rx) = backend.spawn(&spec)?;
+    let config_now = Config::load();
+    let backend = backend_for(&config_now, &spec.agent);
+    let wired = SessionSpec {
+        directives: directives_for(&config_now, &spec.agent, spec.directives.clone()),
+        ..spec.clone()
+    };
+    let (session, rx) = backend.spawn(&wired)?;
     remember_agent_sheet(app, &spec.agent, backend.capabilities());
     let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     live.0.lock().unwrap().insert(
@@ -1757,6 +1808,10 @@ fn agent_plugins() -> Result<serde_json::Value, String> {
                 "selected": selected.as_deref() == Some(e.id.as_str()),
                 "memory_file": e.memory_file,
                 "login_hint": e.login_hint,
+                // What this agent calls each tier (registry line, user
+                // overrides merged). Empty = no table: the model pill says
+                // so instead of offering claude's names to a codex.
+                "models": e.models,
                 // The native plugin declares its sheet in code. An ACP
                 // agent negotiates its own at every handshake; before one
                 // has happened the catalog shows the pessimistic default
@@ -2306,7 +2361,8 @@ fn switch_directives(
     // A knob it does not offer is said out loud; reopening would drop it
     // just the same.
     let before = &handle.spec.directives;
-    match handle.session.set_directives(&next) {
+    let wired = directives_for(&Config::load(), &handle.spec.agent, next.clone());
+    match handle.session.set_directives(&wired) {
         Ok(hark_core::ports::LiveDirectives::Applied(applied)) => {
             let mut missing = Vec::new();
             if next.mode != before.mode && !applied.mode {
@@ -2623,7 +2679,11 @@ fn dispatch_text(
     // event stream inline, block on permission clicks, stop at the result.
     let result: anyhow::Result<hark_agent::TurnResult> = (|| {
         let backend = backend_for(&config, &spawn.agent);
-        let (session, events) = backend.spawn(&spawn)?;
+        let wired = SessionSpec {
+            directives: directives_for(&config, &spawn.agent, spawn.directives.clone()),
+            ..spawn.clone()
+        };
+        let (session, events) = backend.spawn(&wired)?;
         let mut outcome: Option<hark_agent::TurnResult> = None;
         for event in events.iter() {
             match event {

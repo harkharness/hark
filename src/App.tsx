@@ -31,7 +31,7 @@ import WorkerChips from "./components/WorkerChips";
 import TurnStatus, { type TurnState } from "./components/TurnStatus";
 import { useWorkerDefaults } from "./hooks/useWorkerDefaults";
 import { useAgentCatalog } from "./hooks/useAgentCatalog";
-import { unsupported } from "./lib/support";
+import { modelPillFor, unsupported } from "./lib/support";
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import { useRepoStates } from "./hooks/useRepoStates";
 import RepoRuler from "./components/RepoRuler";
@@ -145,6 +145,10 @@ export default function App({
     selectedAgent;
   const modeOff = unsupported(catalog, focusedAgent, "directive_mode", t("cap_mode"));
   const modelOff = unsupported(catalog, focusedAgent, "directive_model", t("cap_model"));
+  // What THIS chat's agent calls each tier; the pill speaks tiers, the
+  // driver translates. An ACP agent with no table gets the pill disabled
+  // with the config knob as the reason, never claude's names.
+  const modelPill = modelPillFor(catalog, focusedAgent, defaults.tiers);
   const effortOff = unsupported(catalog, focusedAgent, "directive_effort", t("cap_effort"));
   const forkOff = unsupported(catalog, focusedAgent, "fork", t("held_fork"));
   const ringOff = unsupported(catalog, focusedAgent, "cost_reporting", t("cap_context"));
@@ -2797,10 +2801,11 @@ export default function App({
                 <ModelSelect
                   value={currentModel ?? ""}
                   liveModel={liveModel}
-                  tiers={defaults.tiers}
+                  tiers={modelPill.tiers}
+                  global={defaults.tiers}
                   appliesTo={focused ? labelFor(focused) : undefined}
                   windowDefault={modelDefault}
-                  disabled={modelOff}
+                  disabled={modelOff ?? modelPill.disabled}
                   onSelect={selectModel}
                 />
                 <EffortSelect
