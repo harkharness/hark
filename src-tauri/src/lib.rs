@@ -171,6 +171,13 @@ struct WorkerHandle {
 /// Conversational workers still alive, keyed by task_id.
 struct LiveWorkers(Mutex<HashMap<String, std::sync::Arc<WorkerHandle>>>);
 
+/// The subscription meter as the last live turn reported it (the Claude
+/// ACP adapter rides it on usage_update): what `subscription_limits`
+/// answers when no bridge file is there. Stamped, so a stale reading is
+/// treated like a stale bridge file — ten minutes, then nothing.
+#[derive(Default)]
+struct LiveLimits(Mutex<Option<(std::time::Instant, hark_plugin_claude::statusline::StatusLine)>>);
+
 /// Permission requests raised by live workers: request_id -> task_id.
 struct WorkerPermissions(Mutex<HashMap<String, String>>);
 
@@ -1359,11 +1366,28 @@ fn start_worker_titled(
                         }
                     }
                 }
-                ClaudeEvent::RateLimit(info) => emit_event(
-                    &app2,
-                    serde_json::json!({ "kind": "rate_limit", "status": info.status,
-                        "resets_at": info.resets_at, "limit_kind": info.kind }),
-                ),
+                ClaudeEvent::RateLimit(info) => {
+                    if !info.windows.is_empty() {
+                        let line = hark_plugin_claude::statusline::StatusLine {
+                            limits: info
+                                .windows
+                                .iter()
+                                .map(|w| hark_plugin_claude::statusline::LimitWindow {
+                                    key: w.kind.clone(),
+                                    used: w.utilization,
+                                    resets_at: w.resets_at.map(|t| t.to_string()),
+                                })
+                                .collect(),
+                            ..Default::default()
+                        };
+                        *app2.state::<LiveLimits>().0.lock().unwrap() = Some((std::time::Instant::now(), line));
+                    }
+                    emit_event(
+                        &app2,
+                        serde_json::json!({ "kind": "rate_limit", "status": info.status,
+                            "resets_at": info.resets_at, "limit_kind": info.kind, "windows": info.windows }),
+                    )
+                }
                 // What the agent is doing while it is quiet. A turn spends
                 // most of a minute here — reasoning, or waiting on the API
                 // — and the window used to show nothing at all until the
@@ -4534,14 +4558,20 @@ fn bridge_paths(config: &Config) -> hark_plugin_claude::bridge::BridgePaths {
 /// CLI keeps to itself — they exist solely in the statusLine payload, so
 /// this returns None until the user installs the bridge.
 #[tauri::command(async)]
-fn subscription_limits() -> Result<Option<hark_plugin_claude::statusline::StatusLine>, String> {
+fn subscription_limits(live: State<'_, LiveLimits>) -> Result<Option<hark_plugin_claude::statusline::StatusLine>, String> {
     let config = Config::load();
     // 10 minutes: a status line renders on every turn, so anything older
     // means the user stopped working — showing it as current would lie.
-    Ok(hark_plugin_claude::bridge::read(
-        &bridge_paths(&config),
-        600,
-    ))
+    // The bridge file first (context and per-model windows too); else the
+    // meter the Claude ACP adapter reported on the last live turn.
+    Ok(hark_plugin_claude::bridge::read(&bridge_paths(&config), 600).or_else(|| {
+        live.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(at, _)| at.elapsed() < std::time::Duration::from_secs(600))
+            .map(|(_, line)| line.clone())
+    }))
 }
 
 /// The /usage card, local and zero tokens: this session's per-model
@@ -4842,6 +4872,7 @@ pub fn run() {
         .manage(Interrupting::default())
         .manage(MicLease::default())
         .manage(LiveWorkers(Mutex::new(HashMap::new())))
+        .manage(LiveLimits::default())
         .manage(WorkerPermissions(Mutex::new(HashMap::new())))
         .setup(|app| {
             // Move data written under the old product name (vox) into the

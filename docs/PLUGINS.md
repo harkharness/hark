@@ -286,11 +286,26 @@ fixtures come from the wire, not from the spec). Per capability:
   (`usage.inputTokens/outputTokens/cachedReadTokens/cachedWriteTokens`)
   and, in `_meta.quota.model_usage`, the model that actually ran: the
   ledger row takes both, so a 10-in/72-out turn is not written down as
-  28k of input, and the footer signs the real model. The agent also
-  sends `_auth/status_update` extension notifications (plan, org,
-  account) — read nowhere yet. One word on haiku at low effort cost
-  $0.057: 28.5k tokens of Claude Code system prompt written to cache.
-  The lean-ask `_meta` options are what would cut that.
+  28k of input, and the footer signs the real model. One word on haiku
+  at low effort cost $0.057: 28.5k tokens of Claude Code system prompt
+  written to cache; the lean ask (below) is what cut that.
+
+  **The subscription meter without the bridge** (15/09/2026): the
+  adapter puts Claude's rate-limit object on `usage_update` as
+  `_meta["_claude/rateLimit"]` — `status`, `resetsAt`, `rateLimitType`,
+  `isUsingOverage`, and `unifiedWindows{five_hour, seven_day}{utilization,
+  resetsAt}`, the fill of each window. It is the same object the CLI puts
+  in `rate_limit_event`, so the contract parses it once
+  (`RateLimitInfo::from_claude`, `windows` added to `RateLimitInfo`), the
+  ACP plugin emits the `RateLimit` event from it, and the driver keeps the
+  last reading ten minutes to answer `subscription_limits` when no bridge
+  file is there: the topbar's 5h/7d shows for a claude-acp user who never
+  installed the bridge. The bridge file still wins when present (context
+  occupancy and per-model windows too). The adapter also sends
+  `_auth/status_update` (`authStatus{kind: "account", label, account{plan,
+  email, organization}}`) — the account behind the session. Not consumed:
+  it names the person, Hark has no surface that needs it, and a fixture of
+  it would carry the user's email.
 - **structured ask** (voice ask, intent router, dispatch gate) — no
   schema mode, so the schema goes INTO the prompt and the answer is read
   leniently (`reply::extract_lenient`: the object, a fenced block, prose

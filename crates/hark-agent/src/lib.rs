@@ -53,7 +53,7 @@ pub struct TurnResult {
 }
 
 /// Subscription/quota window signal, when the backend has one.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct RateLimitInfo {
     /// allowed | allowed_warning | rejected
     pub status: String,
@@ -62,6 +62,55 @@ pub struct RateLimitInfo {
     /// Window kind (e.g. five_hour, seven_day).
     pub kind: Option<String>,
     pub overage: bool,
+    /// How full each window is, when the backend says (Claude's
+    /// `unifiedWindows`): the subscription meter without a bridge.
+    #[serde(default)]
+    pub windows: Vec<RateWindow>,
+}
+
+/// One subscription window's fill.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RateWindow {
+    /// five_hour | seven_day | …
+    pub kind: String,
+    /// 0.0-1.0.
+    pub utilization: f64,
+    /// Epoch seconds.
+    pub resets_at: Option<u64>,
+}
+
+impl RateLimitInfo {
+    /// Claude's rate-limit object, as the CLI puts it in `rate_limit_event.
+    /// rate_limit_info` and the Claude ACP adapter in `usage_update._meta
+    /// ["_claude/rateLimit"]` — one shape, two wires: `status`, `resetsAt`,
+    /// `rateLimitType`, `isUsingOverage`, and `unifiedWindows{kind:
+    /// {utilization, resetsAt}}` when the account reports it.
+    pub fn from_claude(info: &serde_json::Value) -> Option<Self> {
+        let status = info.get("status")?.as_str()?.to_string();
+        let mut windows: Vec<RateWindow> = info
+            .get("unifiedWindows")
+            .and_then(|w| w.as_object())
+            .map(|w| {
+                w.iter()
+                    .filter_map(|(kind, v)| {
+                        Some(RateWindow {
+                            kind: kind.clone(),
+                            utilization: v.get("utilization")?.as_f64()?.clamp(0.0, 1.0),
+                            resets_at: v.get("resetsAt").and_then(serde_json::Value::as_u64),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        windows.sort_by(|a, b| a.kind.cmp(&b.kind));
+        Some(Self {
+            status,
+            resets_at: info.get("resetsAt").and_then(serde_json::Value::as_u64),
+            kind: info.get("rateLimitType").and_then(serde_json::Value::as_str).map(String::from),
+            overage: info.get("isUsingOverage").and_then(serde_json::Value::as_bool).unwrap_or(false),
+            windows,
+        })
+    }
 }
 
 /// One event from a running agent session, reduced to what Hark reacts to.
@@ -201,4 +250,50 @@ pub struct Capabilities {
     /// option categorised `thought_level`).
     #[serde(default)]
     pub directive_effort: bool,
+}
+
+#[cfg(test)]
+mod rate_limit_tests {
+    use super::*;
+
+    /// OBSERVED 15/09/2026 in claude-agent-acp 0.76's usage_update
+    /// `_meta["_claude/rateLimit"]` (numbers as sent; nothing personal in it).
+    const CLAUDE_META: &str = r#"{"status":"allowed","resetsAt":1789450200,"rateLimitType":"five_hour",
+        "overageStatus":"rejected","overageDisabledReason":"org_level_disabled","isUsingOverage":false,
+        "unifiedWindows":{"five_hour":{"utilization":0.66,"resetsAt":1789450200},"seven_day":{"utilization":0.68,"resetsAt":1789502400}}}"#;
+
+    #[test]
+    fn claudes_rate_limit_object_carries_the_windows_fill() {
+        let info = RateLimitInfo::from_claude(&serde_json::from_str(CLAUDE_META).unwrap()).expect("parses");
+        assert_eq!(info.status, "allowed");
+        assert_eq!(info.kind.as_deref(), Some("five_hour"));
+        assert_eq!(info.resets_at, Some(1789450200));
+        assert!(!info.overage);
+        assert_eq!(
+            info.windows,
+            vec![
+                RateWindow { kind: "five_hour".into(), utilization: 0.66, resets_at: Some(1789450200) },
+                RateWindow { kind: "seven_day".into(), utilization: 0.68, resets_at: Some(1789502400) },
+            ]
+        );
+    }
+
+    #[test]
+    fn the_cli_shape_without_windows_still_reads() {
+        // The CLI's rate_limit_event as recorded before unifiedWindows existed.
+        let cli = r#"{"status":"allowed_warning","resetsAt":1786728000,"rateLimitType":"seven_day","isUsingOverage":true}"#;
+        let info = RateLimitInfo::from_claude(&serde_json::from_str(cli).unwrap()).unwrap();
+        assert_eq!(info.status, "allowed_warning");
+        assert!(info.overage);
+        assert!(info.windows.is_empty());
+        // No status, no signal.
+        assert_eq!(RateLimitInfo::from_claude(&serde_json::json!({"resetsAt": 1})), None);
+    }
+
+    #[test]
+    fn an_event_written_without_windows_still_deserialises() {
+        let old = r#"{"status":"allowed","resets_at":null,"kind":null,"overage":false}"#;
+        let info: RateLimitInfo = serde_json::from_str(old).unwrap();
+        assert!(info.windows.is_empty());
+    }
 }

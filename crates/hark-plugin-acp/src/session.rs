@@ -650,6 +650,17 @@ impl AcpSession {
                         if let Some(total) = stated {
                             self.hold_the_budget(total, turn);
                         }
+                        // The Claude adapter rides the subscription meter on
+                        // the same update (`_meta["_claude/rateLimit"]`,
+                        // OBSERVED 15/09/2026: status, the window it speaks
+                        // of, and `unifiedWindows` with each window's fill):
+                        // the topbar's 5h/7d without the bridge.
+                        if let Some(info) = update
+                            .pointer("/_meta/_claude~1rateLimit")
+                            .and_then(hark_agent::RateLimitInfo::from_claude)
+                        {
+                            let _ = tx.send(AgentEvent::RateLimit(info));
+                        }
                     }
                     // The agent moved a knob itself (or confirmed ours):
                     // the offer keeps the values in force, so a later
@@ -2001,5 +2012,67 @@ mod forking {
         };
         assert!(err.contains("fork"), "{err}");
         assert!(sent(&seen, "session/load").is_empty() && sent(&seen, "session/fork").is_empty(), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod subscription_meter {
+    //! claude-agent-acp puts Claude's rate-limit object on usage_update;
+    //! Hark turns it into the RateLimit event the topbar already draws,
+    //! window fills included — the meter without the statusline bridge.
+    use super::fake::{chunk, end_turn, fake_agent, gemini_like, update};
+    use super::{connect, Opening};
+    use hark_agent::{AgentEvent, RateWindow};
+    use hark_core::domain::directives::Directives;
+    use serde_json::json;
+
+    static NONE: Directives = Directives { mode: None, effort: None, model: None };
+    static NO_LIMITS: hark_agent::SpawnLimits = hark_agent::SpawnLimits { max_budget_usd: None, max_turns: None };
+
+    #[test]
+    fn the_adapters_rate_limit_meta_becomes_the_rate_limit_event_with_its_windows() {
+        // The real shape, 15/09/2026 (numbers as sent; nothing personal).
+        let (wire, _seen) = fake_agent(gemini_like(|id, _p, say| {
+            say(update(json!({ "sessionUpdate": "usage_update", "used": 1042, "size": 200000,
+                "_meta": { "_claude/rateLimit": {
+                    "status": "allowed", "resetsAt": 1789450200, "rateLimitType": "five_hour",
+                    "overageStatus": "rejected", "isUsingOverage": false,
+                    "unifiedWindows": { "five_hour": { "utilization": 0.66, "resetsAt": 1789450200 },
+                                        "seven_day": { "utilization": 0.68, "resetsAt": 1789502400 } } } } })));
+            say(update(chunk("ok")));
+            say(end_turn(id));
+        }));
+        let opening = Opening {
+            agent: "claude-acp",
+            cwd: std::path::Path::new("/tmp/proj"),
+            session_id: "",
+            instruction: "oi",
+            images: &[],
+            memory_file: None,
+            directives: &NONE,
+            limits: &NO_LIMITS,
+            lean: None,
+            fork: false,
+        };
+        let c = connect(wire, None, None, &opening).expect("connects");
+        let mut limit = None;
+        for ev in c.events.iter() {
+            match ev {
+                AgentEvent::RateLimit(info) => limit = Some(info),
+                AgentEvent::Result(_) => break,
+                _ => {}
+            }
+        }
+        let info = limit.expect("a RateLimit event rode the usage update");
+        assert_eq!(info.status, "allowed");
+        assert_eq!(info.kind.as_deref(), Some("five_hour"));
+        assert_eq!(
+            info.windows,
+            vec![
+                RateWindow { kind: "five_hour".into(), utilization: 0.66, resets_at: Some(1789450200) },
+                RateWindow { kind: "seven_day".into(), utilization: 0.68, resets_at: Some(1789502400) },
+            ]
+        );
+        c.session.shutdown();
     }
 }

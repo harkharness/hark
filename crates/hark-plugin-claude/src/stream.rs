@@ -228,19 +228,9 @@ fn parse_usage(v: &Value) -> Vec<ModelUsage> {
 }
 
 fn parse_rate_limit(v: &Value) -> Option<ClaudeEvent> {
-    let info = v.get("rate_limit_info")?;
-    Some(ClaudeEvent::RateLimit(RateLimitInfo {
-        status: info.get("status")?.as_str()?.to_string(),
-        resets_at: info.get("resetsAt").and_then(Value::as_u64),
-        kind: info
-            .get("rateLimitType")
-            .and_then(Value::as_str)
-            .map(String::from),
-        overage: info
-            .get("isUsingOverage")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-    }))
+    // The same object the Claude ACP adapter puts in usage_update's
+    // _meta: one parser (the contract's), windows included when present.
+    Some(ClaudeEvent::RateLimit(RateLimitInfo::from_claude(v.get("rate_limit_info")?)?))
 }
 
 /// The model that did the real work: highest-cost entry in modelUsage
@@ -481,6 +471,7 @@ mod tests {
                 status: "allowed".into(),
                 resets_at: Some(1786728000),
                 kind: Some("five_hour".into()),
+                windows: Vec::new(),
                 overage: false,
             })
         );
@@ -492,6 +483,7 @@ mod tests {
                 resets_at: None,
                 kind: None,
                 overage: false,
+                windows: Vec::new(),
             })
         );
     }
