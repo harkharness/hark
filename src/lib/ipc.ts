@@ -455,6 +455,8 @@ export type SetupStatus = {
   whisper_path: string;
   claude_bin: string;
   claude_ok: boolean;
+  /** Some enabled, detected backend can drive Hark — claude or any ACP agent. */
+  agent_ok: boolean;
   projects_dir_ok: boolean;
   models: { key: string; filename: string; size_label: string; recommended: boolean }[];
   /** Why the recommended model is the small one, when it is ("no_metal_cpu"). */

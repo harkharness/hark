@@ -55,7 +55,11 @@ reported is `$ –` with the reason on hover, in the footer and in the
 costs panel, and the ledger keeps the turn with cost NULL. The agent
 behind a chat comes from the driver (`agent_for_session`: the session's
 owner, else the selected default) and from the turn stream; an agent
-with no negotiated sheet is never accused of lacking anything.
+with no negotiated sheet is never accused of lacking anything. The
+first-run wizard follows the same rule: its gate is "some enabled,
+detected backend can drive Hark" (`setup_status.agent_ok`), so a machine
+with only gemini or codex is a working machine, not one sent to a wizard
+asking for claude.
 
 Seams the core exposes (in `hark-core::ports` today):
 

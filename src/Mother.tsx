@@ -301,7 +301,9 @@ export default function Mother() {
     ipc
       .setupStatus()
       .then((s) => {
-        if (!s.onboarded && (!s.config_exists || !s.whisper_ok || !s.claude_ok)) setSetup(s);
+        // Any usable backend counts (agent_ok): a machine with only gemini
+        // or codex must not be sent to a wizard asking for claude.
+        if (!s.onboarded && (!s.config_exists || !s.whisper_ok || !s.agent_ok)) setSetup(s);
       })
       .catch(() => {});
   }, []);

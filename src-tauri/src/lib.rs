@@ -1998,6 +1998,14 @@ fn setup_status() -> Result<serde_json::Value, String> {
     let config = Config::load();
     let whisper = config.whisper_model_path();
     let (claude_ok, claude) = claude_detected(&config);
+    // The wizard's gate is "SOME backend can drive Hark", not "claude is
+    // here": a machine with only gemini or codex is a working machine.
+    let agent_ok = {
+        use hark_core::domain::agents;
+        let entries = agents::merge(&config.agents);
+        let detected = agents_detected(&config, &entries);
+        agents::default_agent(&entries, &detected, &config.agent.plugin).is_some()
+    };
     let state = hark_core::adapters::state_file::load(&config.data_dir());
     // "Recommended" depends on the machine, not on the catalog: without
     // Metal (Intel) the strong model transcribes at ~3x real time and the
@@ -2024,6 +2032,7 @@ fn setup_status() -> Result<serde_json::Value, String> {
         "whisper_path": whisper.display().to_string(),
         "claude_bin": claude,
         "claude_ok": claude_ok,
+        "agent_ok": agent_ok,
         "projects_dir_ok": config.projects_dir.exists(),
         "models": models,
         // Non-null only when the recommendation is a downgrade the wizard
