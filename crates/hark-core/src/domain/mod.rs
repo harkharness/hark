@@ -24,6 +24,7 @@ pub mod persona;
 pub mod prodgate;
 pub mod reply;
 pub mod prompt;
+pub mod recorded;
 pub mod registry;
 pub mod repo;
 pub mod savings;

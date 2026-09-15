@@ -57,7 +57,10 @@ export default function SessionInfo({
 }) {
   const [stats, setStats] = useState<Stats | null>(null);
   // No session file on disk is a fact about the plugin, not a glitch.
-  const historyOff = unsupported(catalog, agent, "history", t("pl_cap_hist"));
+  // An agent that keeps no history of its own: Hark records the sessions
+  // it opens. A session with no stats here is one opened elsewhere (or
+  // before the recorder existed) — say that, not "unsupported".
+  const historyOff = unsupported(catalog, agent, "history", t("pl_cap_hist")) && t("hist_recorded_only");
   const [weight, setWeight] = useState<ContextWeight | null>(null);
   const [ledger, setLedger] = useState<{ day: number; week: number } | null>(null);
   const [byTask, setByTask] = useState<SpendAgg[]>([]);

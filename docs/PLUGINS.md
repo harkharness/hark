@@ -287,8 +287,29 @@ fixtures come from the wire, not from the spec). Per capability:
   offer included, and the window follows the new id. On an agent that
   does not announce it the plugin REFUSES by name rather than load the
   old session and call it a fork; the sheet keeps the banner off there.
-- **history, live list** — absent. The session browser and the terminal
-  mirror degrade until F9.4 (a hark-side recorder) gives them back.
+- **history** — RECORDED by Hark (F9.4, 14/09/2026). An ACP agent leaves
+  no session file, so the driver writes one: `<data_dir>/sessions/<agent>/
+  <session_id>.jsonl`, opened at `SessionStarted` (new, resumed or forked
+  alike; a header with agent, cwd and time only when the file is new), the
+  user's words written at send time, the agent's prose, tool calls and
+  results from the reader loop, and one usage line per model per turn.
+  The format is `domain/recorded.rs`: conversation lines are
+  `transcript::Entry` written verbatim, so the viewer, the mirror, the
+  brief (restart-light) and the crossref read a record with the reader
+  they already have (`parse_entry` tells the two dialects apart per line —
+  a top-level `role` is ours, claude's lines have none). The index is
+  fed by `adapters/recorder.rs::refresh`, the same incremental fold
+  claude's files get (offset + mtime, size too), wherever the index is
+  refreshed (`BothHistories` in the app and in `hark ask`; `hark index`
+  sums both): search, funnel, candidates, session stats, titles, and the
+  machine-wide token table (usage lines become `source = jsonl` rows with
+  a synthetic request id; the dollars stay on the live row, and the two
+  sources are never summed). The sheet's `history` stays false: it means
+  "the agent's own files", and the honest limit stands — a session opened
+  OUTSIDE Hark is invisible; the popover says so for a session with no
+  record rather than "unsupported".
+- **live list** — absent: no equivalent of `claude agents --json`, so a
+  terminal cannot hold an ACP session and the mirror never engages there.
 - `fs/*` and `terminal/*` are declined at initialize: the agent uses its
   own tools; Hark answers `-32601` if asked anyway.
 

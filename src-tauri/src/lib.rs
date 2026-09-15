@@ -158,6 +158,11 @@ struct WorkerHandle {
     session: std::sync::Arc<dyn AgentSession>,
     spec: SessionSpec,
     generation: u64,
+    /// Hark's own record of the session, for an agent that keeps none on
+    /// disk (`caps.history == false`): the user's words go in here at
+    /// send time, the agent's in the reader loop. None for claude, whose
+    /// files Hark indexes as they are.
+    recorder: Option<std::sync::Arc<hark_core::adapters::recorder::Recorder>>,
 }
 
 /// Conversational workers still alive, keyed by task_id.
@@ -283,8 +288,29 @@ fn build_deps<'a>(
         repos: &GitCli,
         runner,
         config,
-        indexer: &hark_plugin_claude::history::ClaudeHistory,
+        indexer: &BothHistories,
     }
+}
+
+/// Claude's files on disk AND Hark's own records of the agents that leave
+/// none: one index, refreshed together wherever a session is looked up.
+struct BothHistories;
+
+impl hark_core::ports::HistoryIndexer for BothHistories {
+    fn refresh(
+        &self,
+        projects_dir: &std::path::Path,
+        store: &mut dyn hark_core::ports::SessionStore,
+    ) -> anyhow::Result<usize> {
+        let files = hark_plugin_claude::history::refresh_index(projects_dir, store)?;
+        let records = hark_core::adapters::recorder::refresh(&Config::load().data_dir(), store)?;
+        Ok(files + records)
+    }
+}
+
+fn refresh_histories(config: &Config, store: &mut (impl hark_core::ports::SessionStore + ?Sized)) {
+    let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, store);
+    let _ = hark_core::adapters::recorder::refresh(&config.data_dir(), store);
 }
 
 struct NoopRunner;
@@ -989,11 +1015,21 @@ fn start_worker_titled(
         ..spec.clone()
     };
     let (session, rx) = backend.spawn(&wired)?;
-    remember_agent_sheet(app, &spec.agent, backend.capabilities());
+    let caps = backend.capabilities();
+    remember_agent_sheet(app, &spec.agent, caps.clone());
+    // An agent that leaves no file gets Hark's record: the search, the
+    // viewer, the mirror and the brief then work for this session too.
+    // The opening prompt is written now; the file opens at SessionStarted,
+    // when the id is known (new, resumed or forked alike).
+    let recorder = (!caps.history).then(|| {
+        let rec = hark_core::adapters::recorder::Recorder::new(&config_now.data_dir(), &spec.agent, &spec.cwd);
+        rec.user(&spec.instruction);
+        std::sync::Arc::new(rec)
+    });
     let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     live.0.lock().unwrap().insert(
         task_id.to_string(),
-        std::sync::Arc::new(WorkerHandle { session, spec: spec.clone(), generation }),
+        std::sync::Arc::new(WorkerHandle { session, spec: spec.clone(), generation, recorder: recorder.clone() }),
     );
 
     // Reader loop: consume the backend's event stream, forward rich events
@@ -1040,11 +1076,16 @@ fn start_worker_titled(
         .or_default()
         .start();
     std::thread::spawn(move || {
+        use hark_core::adapters::recorder::now_iso as record_ts;
+        use hark_core::domain::transcript::{Entry, Role};
         let config = Config::load();
         for event in rx.iter() {
             match event {
                 ClaudeEvent::SessionStarted { session_id, slash_commands } => {
                     current_session = session_id.clone();
+                    if let Some(rec) = &recorder {
+                        rec.started(&current_session);
+                    }
                     // The init event names the session's slash commands:
                     // remember them per workspace for the "/" palette.
                     if !slash_commands.is_empty() {
@@ -1108,11 +1149,19 @@ fn start_worker_titled(
                             "task_id": task2, "session_id": session_id }),
                     );
                 }
-                ClaudeEvent::AssistantText(text) => emit_event(
-                    &app2,
-                    serde_json::json!({ "kind": "assistant_text", "task_id": task2, "text": text }),
-                ),
+                ClaudeEvent::AssistantText(text) => {
+                    if let Some(rec) = &recorder {
+                        rec.entry(Entry { ts: record_ts(), role: Role::Assistant, text: text.clone(), tool: None, is_error: false });
+                    }
+                    emit_event(
+                        &app2,
+                        serde_json::json!({ "kind": "assistant_text", "task_id": task2, "text": text }),
+                    )
+                }
                 ClaudeEvent::ToolUse { name, input } => {
+                    if let Some(rec) = &recorder {
+                        rec.entry(Entry { ts: record_ts(), role: Role::ToolUse, text: input.clone(), tool: Some(name.clone()), is_error: false });
+                    }
                     // An APPROVED plan becomes the task's visible checklist.
                     if name == "ExitPlanMode" {
                         let plan = serde_json::from_str::<serde_json::Value>(&input)
@@ -1143,11 +1192,16 @@ fn start_worker_titled(
                         serde_json::json!({ "kind": "worker", "task_id": task2, "name": name, "input": input }),
                     )
                 }
-                ClaudeEvent::ToolResult { content, is_error } => emit_event(
-                    &app2,
-                    serde_json::json!({ "kind": "tool_result", "task_id": task2,
-                        "content": content.chars().take(4000).collect::<String>(), "is_error": is_error }),
-                ),
+                ClaudeEvent::ToolResult { content, is_error } => {
+                    if let Some(rec) = &recorder {
+                        rec.entry(Entry { ts: record_ts(), role: Role::ToolResult, text: content.clone(), tool: None, is_error });
+                    }
+                    emit_event(
+                        &app2,
+                        serde_json::json!({ "kind": "tool_result", "task_id": task2,
+                            "content": content.chars().take(4000).collect::<String>(), "is_error": is_error }),
+                    )
+                }
                 ClaudeEvent::PermissionRequest {
                     request_id,
                     tool_name,
@@ -1182,6 +1236,18 @@ fn start_worker_titled(
                     // The next turn starts from scratch: re-announce its
                     // first phase even if it matches this turn's last.
                     last_phase = None;
+                    if let Some(rec) = &recorder {
+                        // The record's token history, one line per model;
+                        // the dollars are the live ledger row's below.
+                        for m in &turn.usage {
+                            rec.usage(hark_core::domain::recorded::Usage {
+                                ts: record_ts(),
+                                model: m.model.clone(),
+                                usage: hark_agent::TokenUsage { ..m.usage },
+                                cost_usd: m.cost_usd,
+                            });
+                        }
+                    }
                     // Turn done, worker stays alive for the next message.
                     update_worker_summary(&config, &task2, &turn.raw);
                     if task2 != HARK_CHAT_TASK {
@@ -1573,6 +1639,9 @@ fn deliver(
     }
 
     if next == handle.spec.directives {
+        if let Some(rec) = &handle.recorder {
+            rec.user(&msg.text);
+        }
         handle.session.send_text(&msg.text, &msg.images).map_err(|e| e.to_string())?;
         return Ok(next);
     }
@@ -2418,6 +2487,7 @@ fn switch_directives(
                     session: handle.session.clone(),
                     spec: SessionSpec { directives: next.clone(), ..handle.spec.clone() },
                     generation: handle.generation,
+                    recorder: handle.recorder.clone(),
                 }),
             );
             emit_event(
@@ -3271,7 +3341,7 @@ fn find_session(query: String) -> Result<Option<serde_json::Value>, String> {
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
-    let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, &mut store);
+    refresh_histories(&config, &mut store);
     let terms = hark_core::domain::dispatch::significant_terms(&query);
     let hits = store.search_sessions(&terms, 4).map_err(|e| e.to_string())?;
     let data_dir = config.data_dir().display().to_string();
@@ -3329,7 +3399,7 @@ fn session_hits(query: &str, limit: usize) -> Result<Vec<SessionHit>, String> {
     // The index only used to move when `ask` ran, so sessions opened since
     // the last question were invisible here. Incremental (mtime + byte
     // offset), so this is milliseconds when nothing changed.
-    let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, &mut store);
+    refresh_histories(&config, &mut store);
     let terms = hark_core::domain::dispatch::significant_terms(query);
     // Overfetch: Hark's own machinery sessions (cwd inside ~/.hark — ask
     // one-shots, the hark-chat worker) are filtered out below, and they
@@ -3367,7 +3437,7 @@ fn project_sessions(path: String) -> Result<Vec<SessionHit>, String> {
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
-    let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, &mut store);
+    refresh_histories(&config, &mut store);
     let root = hark_core::config::expand_home(&path);
     let all = store.sessions_since("0").map_err(|e| e.to_string())?;
     Ok(all
@@ -3396,7 +3466,7 @@ fn task_from_session(session_id: String) -> Result<serde_json::Value, String> {
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
-    let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, &mut store);
+    refresh_histories(&config, &mut store);
     let summary = session_summary(&store, &session_id)
         .ok_or_else(|| format!("sessão {session_id} não está no índice"))?;
     let title = session_label(&summary);
@@ -4329,7 +4399,7 @@ fn usage_report(session_id: Option<String>) -> Result<serde_json::Value, String>
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
     // The machine table reads jsonl-backfilled rows: bring them current
     // first (incremental by byte offset — milliseconds when quiet).
-    let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, &mut store);
+    refresh_histories(&config, &mut store);
 
     let session = session_id.and_then(|sid| {
         let rows = store.spend_rows_session(&sid).ok()?;

@@ -309,6 +309,21 @@ fn ask_runner(config: &Config) -> Box<dyn hark_core::ports::AgentRunner + Send +
     Box::new(hark_core::app::runner::TieredRunner { inner, entry, tiers: config.models() })
 }
 
+/// Claude's files AND Hark's records of the agents that leave none.
+struct BothHistories;
+
+impl hark_core::ports::HistoryIndexer for BothHistories {
+    fn refresh(
+        &self,
+        projects_dir: &std::path::Path,
+        store: &mut dyn hark_core::ports::SessionStore,
+    ) -> anyhow::Result<usize> {
+        let files = refresh_index(projects_dir, store)?;
+        let records = hark_core::adapters::recorder::refresh(&Config::load().data_dir(), store)?;
+        Ok(files + records)
+    }
+}
+
 fn cmd_ask(question: &str) -> i32 {
     let config = Config::load();
     let result = (|| -> anyhow::Result<_> {
@@ -328,7 +343,7 @@ fn cmd_ask(question: &str) -> i32 {
             repos: &GitCli,
             runner: &*runner,
             config: &config,
-            indexer: &hark_plugin_claude::history::ClaudeHistory,
+            indexer: &BothHistories,
         };
         ask(question, &mut deps, &mut |event| {
             // StructuredOutput is the schema mechanism, not a real tool.
@@ -389,7 +404,7 @@ fn cmd_prompt(question: &str) -> i32 {
             repos: &GitCli,
             runner: &NoopRunner,
             config: &config,
-            indexer: &hark_plugin_claude::history::ClaudeHistory,
+            indexer: &BothHistories,
         };
         let (snapshot, topical) = hark_core::app::ask::snapshot_for_question(&mut deps, question)?;
         let budget = hark_core::domain::prompt::PromptBudget {
@@ -418,7 +433,11 @@ fn cmd_index(full: bool) -> i32 {
         let _ = std::fs::remove_file(config.data_dir().join("index.db"));
     }
     match open_store(&config)
-        .and_then(|mut store| refresh_index(&config.projects_dir, &mut store))
+        .and_then(|mut store| {
+            let files = refresh_index(&config.projects_dir, &mut store)?;
+            let records = hark_core::adapters::recorder::refresh(&config.data_dir(), &mut store)?;
+            Ok(files + records)
+        })
     {
         Ok(n) => {
             println!("indexed {n} changed file(s)");
@@ -449,7 +468,7 @@ fn cmd_sessions() -> i32 {
             repos: &GitCli,
             runner: &NoopRunner,
             config: &config,
-            indexer: &hark_plugin_claude::history::ClaudeHistory,
+            indexer: &BothHistories,
         };
         build_snapshot(&mut deps)
     })();
@@ -506,7 +525,7 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
             repos: &GitCli,
             runner: &NoopRunner,
             config: &config,
-            indexer: &hark_plugin_claude::history::ClaudeHistory,
+            indexer: &BothHistories,
         };
         plan(&mut deps, instruction, session_override)
     })();
@@ -952,7 +971,7 @@ fn cmd_ask_spoken(question: &str, tts: &impl hark_core::ports::Tts) -> i32 {
             repos: &GitCli,
             runner: &*runner,
             config: &config,
-            indexer: &hark_plugin_claude::history::ClaudeHistory,
+            indexer: &BothHistories,
         };
         ask(question, &mut deps, &mut |_| {})
     })();

@@ -1,10 +1,10 @@
 //! Pure reader of a session log into something a human can read back.
 //! Used by the read-only thread viewer: no LLM, no tokens, just the file.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
     User,
@@ -18,7 +18,7 @@ pub enum Role {
 }
 
 /// One readable line of a past conversation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub ts: String,
     pub role: Role,
@@ -29,8 +29,16 @@ pub struct Entry {
 }
 
 /// Parse one session-log line, skipping everything that is not conversation.
+///
+/// Two dialects, told apart per line: claude's own session file, and
+/// Hark's record of an agent that leaves no file (`domain::recorded`),
+/// whose conversation lines are an `Entry` written verbatim — recognised
+/// by a top-level `role`, which a claude line never has.
 pub fn parse_entry(line: &str) -> Option<Entry> {
     let v: Value = serde_json::from_str(line).ok()?;
+    if v.get("role").is_some() && v.get("type").is_none() {
+        return serde_json::from_value(v).ok();
+    }
     let ts = v.get("timestamp")?.as_str()?.to_string();
     if v.get("isSidechain").and_then(Value::as_bool) == Some(true) {
         return None;
