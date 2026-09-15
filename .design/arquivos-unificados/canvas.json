@@ -1,0 +1,23 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html",           "x": 0,    "y": 0,    "w": 880,  "h": 680, "title": "1 · fonte" },
+    { "file": "Renderizado.dc.html",    "x": 980,  "y": 0,    "w": 880,  "h": 680, "title": "2 · renderizado" },
+    { "file": "Recolhida.dc.html",      "x": 1960, "y": 0,    "w": 880,  "h": 680, "title": "3 · árvore recolhida" },
+    { "file": "LinhaAlvo.dc.html",      "x": 2940, "y": 0,    "w": 880,  "h": 680, "title": "4 · a linha que o chat apontou" },
+    { "file": "Vazio.dc.html",          "x": 0,    "y": 820,  "w": 880,  "h": 680, "title": "5 · vazio, árvore aberta" },
+    { "file": "VazioRecolhido.dc.html", "x": 980,  "y": 820,  "w": 880,  "h": 680, "title": "6 · vazio, árvore recolhida" },
+    { "file": "Filtro.dc.html",         "x": 1960, "y": 820,  "w": 880,  "h": 680, "title": "7 · filtro" },
+    { "file": "NaRail.dc.html",         "x": 0,    "y": 1640, "w": 1280, "h": 760, "title": "8 · na rail, do tamanho real (42%)" }
+  ],
+  "annotations": [
+    { "id": "uma-janela", "x": 0, "y": -170, "w": 320, "text": "Uma janela só. A árvore vira a coluna esquerda do visualizador; o ícone à esquerda do título recolhe e reabre, e o estado fica salvo por janela. Abas, LRU de 5 e o cabeçalho do frame não mudam." },
+    { "id": "fonte-e-render", "x": 980, "y": -170, "w": 320, "text": "Fonte = o modo de edição de hoje (lápis ↔ olho, Cmd+S). Markdown continua abrindo renderizado; código continua abrindo na fonte. O que entra é a calha de números." },
+    { "id": "recolhida", "x": 1960, "y": -170, "w": 320, "text": "Recolhida, o visualizador ocupa o corpo inteiro. Na rail estreita (frame < 560px) a árvore nasce assim; em tela cheia, aberta. O caminho completo já é o title da aba (tooltip nativo)." },
+    { "id": "linha-alvo", "x": 2940, "y": -170, "w": 320, "text": "Um \"README.md:21\" clicado no chat abre a aba e marca a linha 21 na calha. O pulo já existe (OpenFile.line); a marca é o que falta." },
+    { "id": "vazio", "x": 2940, "y": 820, "w": 300, "text": "Sem aba, o lado direito diz o que fazer. A dica muda quando a árvore está recolhida, porque a árvore deixou de ser um caminho." },
+    { "id": "fora", "x": 2940, "y": 960, "w": 300, "text": "Fica de fora dos prints de referência: kebab, pop-out, busca dentro do arquivo (⌘F do webview já acha) e o \"+\" por linha. Nada disso existe no chrome do Hark e nenhum foi pedido." },
+    { "id": "esforco", "x": 2940, "y": 1120, "w": 300, "text": "Esforço e passos em .design/arquivos-unificados/esforco.md: ~1 dia, 2 commits, zero Rust. A janela única (M) e a calha de linhas (S) são separáveis." },
+    { "id": "na-rail", "x": 1320, "y": 1640, "w": 320, "text": "A prova real: a rail tem 42% da área de trabalho. Aqui a árvore nasce recolhida e o filtro fica a um clique; o terminal recolhido embaixo é o comportamento de hoje (3º expandido recolhe o mais velho)." }
+  ],
+  "launch": { "view": "canvas" }
+}
