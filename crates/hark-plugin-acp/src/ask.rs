@@ -78,6 +78,7 @@ pub fn ask_over(
         directives: &knobs,
         limits: &no_limits,
         lean: Some(crate::session::LeanAsk { system_prompt: request.system_prompt }),
+        fork: false,
     };
     let connected = connect(wire, child, stderr, &opening)?;
     let mut prose: Vec<String> = Vec::new();

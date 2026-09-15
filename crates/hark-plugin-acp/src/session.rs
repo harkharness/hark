@@ -54,7 +54,8 @@ pub struct Opening<'a> {
     /// Registry id ("gemini"): labels the usage rows.
     pub agent: &'a str,
     pub cwd: &'a std::path::Path,
-    /// Empty = a brand-new session; otherwise `session/load` this one.
+    /// Empty = a brand-new session; otherwise `session/load` this one —
+    /// or `session/fork` it, when `fork` is set.
     pub session_id: &'a str,
     pub instruction: &'a str,
     /// Pasted screenshots riding on the opening prompt: (media type, base64).
@@ -75,6 +76,11 @@ pub struct Opening<'a> {
     /// what makes the cheap lane cheap. Elsewhere the persona is prepended
     /// to the prompt, as before.
     pub lean: Option<LeanAsk<'a>>,
+    /// Open a NEW session on this one's history ("open in parallel").
+    /// `session/fork`, for an agent that announces
+    /// `sessionCapabilities.fork`; refused by name on one that does not —
+    /// loading the old session instead would not be a fork.
+    pub fork: bool,
 }
 
 /// The cheap lane's opening: see `Opening::lean`.
@@ -163,8 +169,24 @@ fn handshake(
     let mut negotiated = negotiate(&init, opening.memory_file.clone());
 
     let resuming = !opening.session_id.is_empty();
+    let forking = resuming && opening.fork;
+    if forking && !negotiated.caps.fork {
+        anyhow::bail!(
+            "agent_failed: {} não anuncia session/fork — abrir em paralelo não existe nele",
+            opening.agent
+        );
+    }
     let cwd = opening.cwd.display().to_string();
-    let (method, params) = if resuming {
+    let (method, params) = if forking {
+        // A new session grown from the old one's history (the spec's
+        // ForkSessionRequest): the answer is a session/new answer, new id
+        // and offer included, and the Claude adapter takes the same _meta.
+        let mut params = json!({ "sessionId": opening.session_id, "cwd": cwd, "mcpServers": [] });
+        if let Some(meta) = claude_meta(opening, negotiated.claude_code) {
+            params["_meta"] = meta;
+        }
+        ("session/fork", params)
+    } else if resuming {
         ("session/load", json!({ "sessionId": opening.session_id, "cwd": cwd, "mcpServers": [] }))
     } else {
         let mut params = json!({ "cwd": cwd, "mcpServers": [] });
@@ -174,13 +196,13 @@ fn handshake(
         ("session/new", params)
     };
     let answer = session.call(method, params).map_err(|e| failure(method, e, session))?;
-    let session_id = if resuming {
+    let session_id = if resuming && !forking {
         opening.session_id.to_string()
     } else {
         answer
             .get("sessionId")
             .and_then(Value::as_str)
-            .ok_or_else(|| anyhow::anyhow!("agent_failed: session/new answered without a sessionId"))?
+            .ok_or_else(|| anyhow::anyhow!("agent_failed: {method} answered without a sessionId"))?
             .to_string()
     };
     *session.session_id.lock().unwrap_or_else(|e| e.into_inner()) = session_id.clone();
@@ -1098,6 +1120,7 @@ mod tests {
             directives,
             limits: &NO_LIMITS,
             lean: None,
+            fork: false,
         }
     }
 
@@ -1876,5 +1899,107 @@ mod tests {
         );
         assert_eq!(c.session.exit_report(), (None, String::new()));
         assert_eq!(c.session.pid(), None);
+    }
+}
+
+#[cfg(test)]
+mod forking {
+    //! "Open in parallel" over ACP: `session/fork` (announced in
+    //! `sessionCapabilities.fork` by claude-agent-acp 0.76 and codex-acp
+    //! 1.11) opens a NEW session on the old one's history.
+    use super::fake::{end_turn, fake_agent, gemini_like, CLAUDE_INIT, CLAUDE_NEW};
+    use super::{connect, Opening};
+    use crate::rpc::{self, Incoming};
+    use hark_agent::AgentEvent;
+    use hark_core::domain::directives::Directives;
+    use serde_json::{json, Value};
+
+    static NONE: Directives = Directives { mode: None, effort: None, model: None };
+    static NO_LIMITS: hark_agent::SpawnLimits = hark_agent::SpawnLimits { max_budget_usd: None, max_turns: None };
+
+    fn fork_of<'a>(session_id: &'a str) -> Opening<'a> {
+        Opening {
+            agent: "claude-acp",
+            cwd: std::path::Path::new("/tmp/proj"),
+            session_id,
+            instruction: "continua daqui, em paralelo",
+            images: &[],
+            memory_file: None,
+            directives: &NONE,
+            limits: &NO_LIMITS,
+            lean: None,
+            fork: true,
+        }
+    }
+
+    /// An agent that handshakes like claude-agent-acp and answers
+    /// session/fork with a fresh id and the same offer as session/new.
+    fn forking(
+        mut on_prompt: impl FnMut(u64, &Value, &mut dyn FnMut(String)) + Send + 'static,
+    ) -> impl FnMut(&Incoming, &mut dyn FnMut(String)) + Send + 'static {
+        move |msg, say| {
+            if let Incoming::Request { id, method, params } = msg {
+                match method.as_str() {
+                    "initialize" => say(rpc::response(id, serde_json::from_str(CLAUDE_INIT).unwrap())),
+                    "session/fork" => {
+                        let mut answer: Value = serde_json::from_str(CLAUDE_NEW).unwrap();
+                        answer["sessionId"] = json!("s-new");
+                        say(rpc::response(id, answer))
+                    }
+                    "session/set_mode" | "session/set_config_option" => say(rpc::response(id, json!({}))),
+                    "session/prompt" => on_prompt(id.as_u64().unwrap(), params, say),
+                    _ => say(rpc::error_response(id, -32601, "not in this script")),
+                }
+            }
+        }
+    }
+
+    fn sent(seen: &super::fake::Seen, method: &str) -> Vec<Value> {
+        seen.lock()
+            .unwrap()
+            .iter()
+            .filter_map(|m| match m {
+                Incoming::Request { method: got, params, .. } if got == method => Some(params.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_fork_works_on_a_new_session_grown_from_the_old_ones_history() {
+        let (wire, seen) = fake_agent(forking(|id, _p, say| say(end_turn(id))));
+        let connected = connect(wire, None, None, &fork_of("s-old")).expect("connects");
+        let started = connected
+            .events
+            .iter()
+            .find_map(|e| match e {
+                AgentEvent::SessionStarted { session_id, .. } => Some(session_id),
+                _ => None,
+            })
+            .expect("a session started");
+        // The window follows the NEW id: the mirror, the ledger, the card.
+        assert_eq!(started, "s-new");
+        let forks = sent(&seen, "session/fork");
+        assert_eq!(forks.len(), 1, "one fork request: {forks:?}");
+        assert_eq!(forks[0]["sessionId"], "s-old");
+        assert_eq!(forks[0]["cwd"], "/tmp/proj");
+        assert!(sent(&seen, "session/load").is_empty(), "a fork is not a resume");
+        assert!(sent(&seen, "session/new").is_empty(), "a fork is not a blank session");
+        assert!(connected.negotiated.caps.fork);
+        connected.session.shutdown();
+    }
+
+    #[test]
+    fn a_fork_on_an_agent_that_does_not_announce_it_is_refused_by_name() {
+        // gemini 0.46 announces no sessionCapabilities.fork. Loading the old
+        // session instead would not be a fork — the driver gates the banner
+        // on caps.fork, and the plugin refuses rather than pretend.
+        let (wire, seen) = fake_agent(gemini_like(|id, _p, say| say(end_turn(id))));
+        let err = match connect(wire, None, None, &fork_of("s-old")) {
+            Err(err) => err.to_string(),
+            Ok(_) => panic!("a fork on gemini 0.46 must be refused"),
+        };
+        assert!(err.contains("fork"), "{err}");
+        assert!(sent(&seen, "session/load").is_empty() && sent(&seen, "session/fork").is_empty(), "{err}");
     }
 }

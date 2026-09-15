@@ -269,9 +269,16 @@ fixtures come from the wire, not from the spec). Per capability:
   around an object). One fresh session per question, closed right after.
   When the agent writes no JSON at all, the gate degrades to "confirm"
   (never a silent dispatch) and the ask reads the prose.
-- **history, live list, fork** — absent. The session browser and the
-  terminal mirror degrade until F9.4 (a hark-side recorder) gives them
-  back.
+- **fork** — `session/fork` (a new session grown from the old one's
+  history: the held-session banner's "open in parallel"), for an agent
+  that announces `sessionCapabilities.fork` at initialize — claude-agent-acp
+  0.76 and codex-acp 1.11 do (`fixtures/initialize.codex-acp-1.11.0.json`),
+  gemini 0.46 does not. The answer is a session/new answer, new id and
+  offer included, and the window follows the new id. On an agent that
+  does not announce it the plugin REFUSES by name rather than load the
+  old session and call it a fork; the sheet keeps the banner off there.
+- **history, live list** — absent. The session browser and the terminal
+  mirror degrade until F9.4 (a hark-side recorder) gives them back.
 - `fs/*` and `terminal/*` are declined at initialize: the agent uses its
   own tools; Hark answers `-32601` if asked anyway.
 

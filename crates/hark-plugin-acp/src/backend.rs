@@ -65,8 +65,10 @@ impl AgentBackend for AcpBackend {
     fn spawn(&self, spec: &SessionSpec) -> anyhow::Result<(Arc<dyn AgentSession>, EventRx)> {
         // Directives ride the opening: said in the agent's own ids for
         // whatever its session/new offers (modes, config options), and
-        // dropped — with the sheet saying so — for what it does not. Fork
-        // is gated by caps.fork.
+        // dropped — with the sheet saying so — for what it does not. A
+        // fork (`spec.fork` on an existing session) is `session/fork`,
+        // which the handshake refuses by name on an agent that does not
+        // announce it.
         let mut child = std::process::Command::new(&self.cmd)
             .args(&self.args)
             .current_dir(&spec.cwd)
@@ -90,6 +92,7 @@ impl AgentBackend for AcpBackend {
             directives: &spec.directives,
             limits: &spec.limits,
             lean: None,
+            fork: spec.fork,
         };
         let connected = crate::session::connect(
             crate::session::Wire { reader: Box::new(stdout), writer: Box::new(stdin) },

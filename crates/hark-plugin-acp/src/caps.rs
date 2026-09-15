@@ -76,8 +76,9 @@ pub fn negotiate(result: &serde_json::Value, memory_file: Option<String>) -> Neg
         // ACP tool names are the agent's own; the production gate learns
         // them from the session's tool calls, not from a fixed list.
         shell_tools: Vec::new(),
-        // Nothing in ACP forks a session into a new id.
-        fork: false,
+        // `session/fork` — announced in sessionCapabilities by the Claude
+        // adapter (0.76) and codex-acp (1.11); gemini 0.46 says nothing.
+        fork: agent_caps.and_then(|c| c.pointer("/sessionCapabilities/fork")).is_some(),
         // Directives cross only through what the agent OFFERS in its
         // session/new answer (modes, config options) — unknown until then,
         // so the sheet says no until `directives::Offer` says otherwise.
@@ -182,6 +183,39 @@ mod tests {
 
     /// Recorded from claude-agent-acp 0.76.0 on 14/09/2026.
     const CLAUDE_INIT: &str = include_str!("../fixtures/initialize.claude-agent-acp-0.76.0.json");
+    /// Recorded from codex-acp 1.11.0 on 14/09/2026 (initialize only: the
+    /// machine's codex was not logged in, session/new answered
+    /// `-32000 "Authentication required"`).
+    const CODEX_INIT: &str = include_str!("../fixtures/initialize.codex-acp-1.11.0.json");
+
+    fn codex() -> Negotiated {
+        negotiate(&serde_json::from_str(CODEX_INIT).expect("fixture parses"), Some("AGENTS.md".into()))
+    }
+
+    #[test]
+    fn codex_is_read_from_its_own_wire() {
+        // OBSERVED pins, not new behaviour: what the real adapter said.
+        let n = codex();
+        assert_eq!(n.info.name, "@agentclientprotocol/codex-acp");
+        assert_eq!(n.info.version, "1.11.0");
+        assert!(n.caps.resume, "loadSession is announced");
+        assert!(n.images);
+        assert!(!n.claude_code, "codex is not the Claude adapter");
+        let ids: Vec<&str> = n.auth.iter().map(|a| a.id.as_str()).collect();
+        assert_eq!(ids, vec!["api-key", "chat-gpt"], "the login card can name codex's own methods");
+    }
+
+    #[test]
+    fn an_agent_that_announces_session_fork_can_fork() {
+        // Both the Claude adapter and codex answer initialize with
+        // `agentCapabilities.sessionCapabilities.fork`: the held-session
+        // banner's "open in parallel" is theirs to have. Gemini 0.46 says
+        // nothing of the kind and keeps the pessimistic default.
+        assert!(codex().caps.fork, "codex announces sessionCapabilities.fork");
+        let claude = negotiate(&serde_json::from_str(CLAUDE_INIT).unwrap(), Some("CLAUDE.md".into()));
+        assert!(claude.caps.fork, "claude-agent-acp announces sessionCapabilities.fork");
+        assert!(!gemini().caps.fork);
+    }
 
     #[test]
     fn the_claude_adapter_announces_itself_at_initialize() {

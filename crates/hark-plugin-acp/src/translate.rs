@@ -103,6 +103,28 @@ mod tests {
         );
     }
 
+    /// OBSERVED — codex-acp 1.11.0 with no ChatGPT login, at session/new.
+    /// A pin: the words are the adapter's; the card's runnable fix is the
+    /// registry's `codex login`.
+    #[test]
+    fn the_real_codex_auth_failure_is_recognised() {
+        let err = serde_json::json!({ "code": -32000, "message": "Authentication required" });
+        assert_eq!(auth_error(&err).as_deref(), Some("Authentication required"));
+    }
+
+    /// OBSERVED — gemini-cli 0.46.0 on an individual account, at
+    /// session/new. Same error code as an auth failure, but a deprecation:
+    /// no login fixes it, an update does. It must NOT become a login card.
+    #[test]
+    fn the_real_gemini_deprecation_is_not_an_auth_problem() {
+        let err = serde_json::json!({
+            "code": -32000,
+            "message": "This client is no longer supported for Gemini Code Assist for individuals. \
+                        To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google"
+        });
+        assert_eq!(auth_error(&err), None);
+    }
+
     #[test]
     fn an_unrelated_failure_is_not_an_auth_problem() {
         // Otherwise every crash would ask the user to log in again.
