@@ -2455,6 +2455,16 @@ button.plugin-toggle:hover { color: var(--text); border-color: var(--border-stro
   color: var(--dim); font-size: 11.5px; line-height: 1.5;
   border-top: 1px solid var(--border); padding-top: 10px; margin-top: 2px;
 }
+/* The registry line under the catalog: when Hark last read registry.json, and the button that reads it now. */
+.plugins-registry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
 
 /* Self-update: one quiet pill over the tab bar. It never blinks, never
    modals — an update is good news, not an interruption. */

@@ -1768,7 +1768,12 @@ fn agent_plugins() -> Result<serde_json::Value, String> {
     let (_, claude_bin) = claude_detected(&config);
     // Sheets learned in real sessions (remember_agent_sheet): the truth
     // about an ACP agent, where the default below is only a floor.
-    let sheets = state_file::load(&config.data_dir()).agent_sheets;
+    let gstate = state_file::load(&config.data_dir());
+    let sheets = gstate.agent_sheets;
+    // What the ACP registry published the last time Hark looked. Detected
+    // is not current: gemini 0.46 on this machine answered session/new
+    // with a deprecation notice that only an update fixes.
+    let registry = gstate.registry;
 
     let out: Vec<serde_json::Value> = entries
         .iter()
@@ -1812,6 +1817,7 @@ fn agent_plugins() -> Result<serde_json::Value, String> {
                 // overrides merged). Empty = no table: the model pill says
                 // so instead of offering claude's names to a codex.
                 "models": e.models,
+                "version": version_row(&config, e, here, registry.as_ref()),
                 // The native plugin declares its sheet in code. An ACP
                 // agent negotiates its own at every handshake; before one
                 // has happened the catalog shows the pessimistic default
@@ -1828,6 +1834,61 @@ fn agent_plugins() -> Result<serde_json::Value, String> {
         })
         .collect();
     Ok(serde_json::Value::Array(out))
+}
+
+/// Installed against published, for one catalog row. The binary is asked
+/// its `--version` only when it is here; the published number comes from
+/// the last registry reading (none yet = unknown, never a guess).
+fn version_row(
+    config: &Config,
+    entry: &hark_core::domain::agents::AgentEntry,
+    detected: bool,
+    registry: Option<&state_file::RegistrySnapshot>,
+) -> serde_json::Value {
+    use hark_core::adapters::registry_fetch;
+    use hark_core::domain::registry;
+    let installed = detected
+        .then(|| {
+            let bin = if entry.plugin == "claude" && entry.cmd == "claude" {
+                config.claude_bin_resolved()
+            } else {
+                entry.cmd.clone()
+            };
+            registry_fetch::installed_version(&bin)
+        })
+        .flatten();
+    let published = entry
+        .registry
+        .as_deref()
+        .zip(registry)
+        .and_then(|(id, snap)| snap.published.iter().find(|p| p.id == id));
+    let current = published.map(|p| p.version.clone());
+    let freshness = registry::freshness(installed.as_deref(), current.as_deref());
+    serde_json::json!({
+        "installed": installed,
+        "current": current,
+        "freshness": freshness,
+        "update": published.and_then(registry::update_command),
+        "checked_at": registry.map(|r| r.checked_at.clone()),
+    })
+}
+
+/// Read the ACP registry now and remember what it published. The one
+/// network call of the catalog, made on request (and by the panel when
+/// its last reading is a day old), never on every open.
+#[tauri::command(async)]
+fn agent_registry_refresh() -> Result<serde_json::Value, String> {
+    use hark_core::adapters::registry_fetch;
+    let config = Config::load();
+    let text = registry_fetch::fetch_registry(registry_fetch::REGISTRY_URL).map_err(|e| e.to_string())?;
+    let published = hark_core::domain::registry::parse(&text, &registry_fetch::platform_key());
+    if published.is_empty() {
+        return Err("registry.json veio vazio ou ilegível".into());
+    }
+    let mut gstate = state_file::load(&config.data_dir());
+    gstate.registry = Some(state_file::RegistrySnapshot { checked_at: now_iso(), published });
+    state_file::save(&config.data_dir(), &gstate).map_err(|e| e.to_string())?;
+    agent_plugins()
 }
 
 /// Pick the agent plugin that drives new sessions. An unknown or unshipped
@@ -4619,6 +4680,7 @@ pub fn run() {
             eco_status,
             setup_status,
             agent_plugins,
+            agent_registry_refresh,
             agent_plugin_select,
             agent_plugin_enable,
             agent_for_session,

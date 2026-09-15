@@ -29,6 +29,10 @@ pub struct AgentEntry {
     pub login_hint: Option<String>,
     /// Model ids per tier, for the model pill and the router.
     pub models: BTreeMap<String, String>,
+    /// This agent's id in the ACP registry (registry.json), when it has
+    /// one — the source of truth for what version is current. Not ours:
+    /// codex is `codex-acp` there.
+    pub registry: Option<String>,
     /// Base environment for every process of this agent: a gateway URL,
     /// the token it wants. This is how the SAME claude plugin drives a
     /// company LiteLLM (`ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`) as
@@ -48,6 +52,7 @@ impl Default for AgentEntry {
             memory_file: None,
             login_hint: None,
             models: BTreeMap::new(),
+            registry: None,
             env: BTreeMap::new(),
         }
     }
@@ -92,6 +97,7 @@ pub fn builtins() -> Vec<AgentEntry> {
             args: vec!["--acp".into()],
             memory_file: Some("GEMINI.md".into()),
             login_hint: Some("gemini".into()),
+            registry: Some("gemini".into()),
             models: models(&[
                 ("light", "gemini-2.5-flash-lite"),
                 ("standard", "gemini-2.5-flash"),
@@ -114,6 +120,7 @@ pub fn builtins() -> Vec<AgentEntry> {
             enabled: false,
             memory_file: Some("CLAUDE.md".into()),
             login_hint: Some("claude /login".into()),
+            registry: Some("claude-acp".into()),
             // Claude's own names: the adapter offers `haiku`, `sonnet`,
             // `opus[1m]`… and the ACP plugin matches them by family. An
             // ACP entry WITHOUT a table gets no model at all (see
@@ -136,6 +143,7 @@ pub fn builtins() -> Vec<AgentEntry> {
             cmd: "codex-acp".into(),
             memory_file: Some("AGENTS.md".into()),
             login_hint: Some("codex login".into()),
+            registry: Some("codex-acp".into()),
             ..Default::default()
         },
         // The DeepSeek harness ships an ACP profile (dsh --profile acp).
@@ -166,6 +174,7 @@ pub fn builtins() -> Vec<AgentEntry> {
             name: "Google Antigravity".into(),
             plugin: "acp".into(),
             cmd: "agy_acp_server.par".into(),
+            registry: Some("antigravity-acp".into()),
             ..Default::default()
         },
     ]
@@ -198,6 +207,9 @@ pub fn merge(user: &BTreeMap<String, AgentEntry>) -> Vec<AgentEntry> {
                 }
                 if over.login_hint.is_some() {
                     base.login_hint = over.login_hint;
+                }
+                if over.registry.is_some() {
+                    base.registry = over.registry;
                 }
                 for (tier, model) in over.models {
                     base.models.insert(tier, model);
@@ -604,5 +616,38 @@ mod model_ids {
         assert_eq!(tier_of("light", &tiers()), Some("light"));
         assert_eq!(tier_of("sonnet", &tiers()), Some("standard"));
         assert_eq!(tier_of("gemini-2.5-pro", &tiers()), None);
+    }
+}
+
+#[cfg(test)]
+mod registry_ids {
+    use super::*;
+
+    #[test]
+    fn builtins_name_their_entry_in_the_acp_registry() {
+        // registry.json is the source of truth for what is current; the
+        // ids there are not ours (codex is `codex-acp`).
+        let all = builtins();
+        let reg = |id: &str| resolve(&all, id).unwrap().registry.clone();
+        assert_eq!(reg("claude-acp").as_deref(), Some("claude-acp"));
+        assert_eq!(reg("codex").as_deref(), Some("codex-acp"));
+        assert_eq!(reg("gemini").as_deref(), Some("gemini"));
+        assert_eq!(reg("antigravity").as_deref(), Some("antigravity-acp"));
+        // Not in the registry (checked 14/09/2026): nothing to compare against.
+        assert_eq!(reg("deepseek"), None);
+        assert_eq!(reg("kiro"), None);
+        assert_eq!(reg("claude"), None);
+    }
+
+    #[test]
+    fn a_user_entry_can_name_its_registry_id() {
+        let mut table = BTreeMap::new();
+        table.insert("goose".to_string(), AgentEntry { cmd: "goose".into(), registry: Some("goose".into()), ..Default::default() });
+        let merged = merge(&table);
+        assert_eq!(resolve(&merged, "goose").unwrap().registry.as_deref(), Some("goose"));
+        // …and override a built-in's.
+        let mut over = BTreeMap::new();
+        over.insert("codex".to_string(), AgentEntry { registry: Some("codex-next".into()), ..Default::default() });
+        assert_eq!(resolve(&merge(&over), "codex").unwrap().registry.as_deref(), Some("codex-next"));
     }
 }

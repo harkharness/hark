@@ -509,11 +509,29 @@ export type AgentPlugin = {
    *  registry line with the user's overrides merged. Empty = no table:
    *  the model pill says so rather than offering claude's names. */
   models: Record<string, string>;
+  /** Installed against what the ACP registry publishes. */
+  version: AgentVersion;
   /** Only the native plugin declares one today; ACP negotiates at
    *  handshake, so its sheet is null until the runtime lands. */
   capabilities: AgentCapabilities | null;
 };
+export type AgentVersion = {
+  /** From `<cmd> --version`, when the binary is here and answers. */
+  installed: string | null;
+  /** From the last registry reading, when the agent is listed there. */
+  current: string | null;
+  freshness:
+    | { state: "unknown" }
+    | { state: "current" }
+    | { state: "behind"; installed: string; current: string };
+  /** The one line that brings the package to `current` (npm); null for archives. */
+  update: string | null;
+  /** When Hark last read the registry; null = never. */
+  checked_at: string | null;
+};
 export const agentPlugins = () => invoke<AgentPlugin[]>("agent_plugins");
+/** Read the ACP registry now; answers the refreshed catalog. */
+export const agentRegistryRefresh = () => invoke<AgentPlugin[]>("agent_registry_refresh");
 export const agentPluginSelect = (id: string) => invoke("agent_plugin_select", { id });
 /** `[agents.<id>] enabled` — the catalog's on/off switch, persisted in config. */
 export const agentPluginEnable = (id: string, enabled: boolean) =>

@@ -5,6 +5,7 @@ pub mod fs_files;
 pub mod git_collect;
 pub mod memory_files;
 pub mod model_fetch;
+pub mod registry_fetch;
 pub mod say_tts;
 pub mod shell_env;
 pub mod sqlite_store;

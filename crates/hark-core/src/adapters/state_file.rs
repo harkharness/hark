@@ -28,6 +28,20 @@ pub struct GlobalState {
     pub agent_sheets: std::collections::BTreeMap<String, hark_agent::Capabilities>,
     /// First-run wizard completed (or explicitly skipped) on this machine.
     pub onboarded: bool,
+    /// What the ACP registry published the last time Hark looked, and
+    /// when. The catalog compares installed versions against it; the
+    /// network is touched only on a refresh, never on every open.
+    #[serde(default)]
+    pub registry: Option<RegistrySnapshot>,
+}
+
+/// One reading of `registry.json`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct RegistrySnapshot {
+    /// RFC 3339, UTC.
+    pub checked_at: String,
+    pub published: Vec<crate::domain::registry::Published>,
 }
 
 fn state_path(data_dir: &Path) -> PathBuf {
@@ -100,6 +114,29 @@ mod tests {
         // A state file written before the field existed still loads.
         std::fs::write(dir.path().join("state.json"), r#"{"workers":[]}"#).unwrap();
         assert!(load(dir.path()).agent_sheets.is_empty());
+    }
+
+    #[test]
+    fn the_registry_snapshot_survives_a_restart() {
+        // What the ACP registry published, and when Hark last looked: the
+        // catalog compares installed versions against it without a
+        // network call on every open.
+        let dir = tempfile::tempdir().unwrap();
+        let snapshot = RegistrySnapshot {
+            checked_at: "2026-09-14T12:00:00Z".into(),
+            published: vec![crate::domain::registry::Published {
+                id: "gemini".into(),
+                version: "0.59.0".into(),
+                package: Some("@google/gemini-cli".into()),
+                archive: None,
+            }],
+        };
+        let state = GlobalState { registry: Some(snapshot.clone()), ..GlobalState::default() };
+        save(dir.path(), &state).unwrap();
+        assert_eq!(load(dir.path()).registry, Some(snapshot));
+        // A state file written before the field existed still loads.
+        std::fs::write(dir.path().join("state.json"), r#"{"workers":[]}"#).unwrap();
+        assert_eq!(load(dir.path()).registry, None);
     }
 
     #[test]

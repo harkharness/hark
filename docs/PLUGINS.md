@@ -144,6 +144,23 @@ here, never patched around in config. Checked 13/09/2026:
 
 A deprecated Zed package still runs, so "detected" is no proof the
 adapter is current: the catalog's install line is the migration command.
+Nor is a current package name proof of a current version: on 14/09/2026
+this machine ran gemini 0.46.0 with 0.59.0 published, and 0.46's
+`session/new` answered a deprecation notice ("no longer supported for
+Gemini Code Assist for individuals") that only an update fixes — Hark
+showed it as `agent_failed`, and nobody said "update". So the catalog
+compares **installed against published**: each detected binary is asked
+its `--version` (bounded, first version-looking token), each registry
+line names its id in the ACP registry (`registry` — codex is `codex-acp`
+there), and `registry.json` is read into `state.json` (`registry`
+snapshot with `checked_at`) by the panel's "check for updates" button,
+or by the panel itself when the last reading is a day old — the one
+network call of the catalog, a GET of a public file, never on every
+open. A row behind shows both numbers and the `npm install -g
+<package>@<version>` line the registry implies (archives keep their
+install text). `domain/registry.rs` is pure and tested against a trimmed
+copy of the real document (`fixtures/acp-registry.trimmed.json`);
+`adapters/registry_fetch.rs` is the curl and the probe.
 Settings › Plugins is the catalog: it selects the default, and switches
 entries on and off (`[agents.<id>] enabled`) — built-ins that ship off,
 like claude over ACP, are one click away rather than a config edit. The

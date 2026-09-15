@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Plug, RefreshCw, TerminalSquare } from "lucide-react";
+import { ArrowUpCircle, Check, Plug, RefreshCw, TerminalSquare } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
 
@@ -29,6 +29,20 @@ export default function PluginsPanel({
   const [plugins, setPlugins] = useState<ipc.AgentPlugin[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  /** The one network call of this panel: read the ACP registry. */
+  const checkUpdates = useCallback(async () => {
+    setChecking(true);
+    try {
+      const list = await ipc.agentRegistryRefresh();
+      setPlugins(list);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setChecking(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -46,6 +60,18 @@ export default function PluginsPanel({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Detected is not current: a reading older than a day (or none) is
+  // refreshed when the catalog opens — opening it IS asking about the
+  // agents. A stale answer would hide the update the user came for.
+  const checkedAt = plugins[0]?.version?.checked_at ?? null;
+  const loaded = plugins.length > 0;
+  useEffect(() => {
+    if (!loaded || checking) return;
+    const age = checkedAt ? Date.now() - Date.parse(checkedAt) : Infinity;
+    if (age > 24 * 3600 * 1000) void checkUpdates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
 
   const select = async (id: string) => {
     try {
@@ -88,7 +114,10 @@ export default function PluginsPanel({
             <div className="plugin-head">
               <div className="plugin-name">
                 {p.name}
-                <span className="plugin-crate">{p.cmd}</span>
+                <span className="plugin-crate">
+                  {p.cmd}
+                  {p.version?.installed ? ` v${p.version.installed}` : ""}
+                </span>
               </div>
               {p.selected ? (
                 <span className="plugin-badge on">
@@ -128,6 +157,19 @@ export default function PluginsPanel({
             </div>
 
             {p.detected && p.detail && <div className="plugin-path">{p.detail}</div>}
+
+            {p.version?.freshness.state === "behind" && (
+              // The migration command IS the fix: gemini 0.46's session/new
+              // answered a deprecation notice, and nothing but an update
+              // resolves it. Shown, never buried in a tooltip.
+              <div className="plugin-install">
+                <div className="ob-warn">
+                  <ArrowUpCircle size={13} />{" "}
+                  {t("pl_behind", { installed: p.version.freshness.installed, current: p.version.freshness.current })}
+                </div>
+                <pre className="ob-code">{p.version.update ?? p.install}</pre>
+              </div>
+            )}
 
             {!p.detected && p.enabled && (
               <div className="plugin-install">
@@ -176,7 +218,21 @@ export default function PluginsPanel({
         );
       })}
 
-      <div className="plugins-foot">{t("pl_foot")}</div>
+      <div className="plugins-foot">
+        {t("pl_foot")}
+        <div className="plugins-registry">
+          <span>
+            {checking
+              ? t("pl_checking")
+              : checkedAt
+                ? t("pl_checked_at", { when: new Date(checkedAt).toLocaleString() })
+                : t("pl_never_checked")}
+          </span>
+          <button className="ob-btn" disabled={checking} onClick={() => void checkUpdates()}>
+            <RefreshCw size={12} /> {t("pl_check_updates")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
