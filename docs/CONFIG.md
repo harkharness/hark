@@ -2,9 +2,9 @@
 
 [← back to the README](../README.md)
 
-Everything lives in `~/.config/hark/config.toml`. Every key is optional — the
-file below is the full set with its defaults. Edits made through Settings
-preserve your comments and formatting.
+Everything lives in `~/.hark/config.toml`. Every key is optional — the file
+below is the full set with its defaults. Edits made through Settings preserve
+your comments and formatting.
 
 ```toml
 # --- the agent ------------------------------------------------------------
@@ -13,13 +13,39 @@ model            = "sonnet"      # what `--model` gets by default
 projects_dir     = "~/.claude/projects"   # where the CLI keeps session logs
 
 [agent]
-plugin = "claude"                # which backend drives sessions
+plugin = "claude"                # which agent opens NEW chats (existing chats
+                                 #   stay with the agent that opened them)
+ask    = ""                      # which agent answers the cheap lane (voice
+                                 #   ask, dispatch gate); empty follows `plugin`
 
-[models]                         # router tiers; unset falls back to `model`
-light    = "haiku"
+[models]                         # the four tiers, in the global (Claude) names;
+light    = "haiku"               #   each agent says them in its own names below
 standard = "sonnet"
 heavy    = "sonnet"
 max      = "opus"
+
+# --- other agents ------------------------------------------------------------
+# Every agent Hark knows is one entry. The built-ins (claude, gemini, codex,
+# claude-acp, deepseek, kiro, antigravity) can be overridden field by field;
+# a new id adds an agent — anything that speaks the Agent Client Protocol.
+[agents.gemini]
+enabled     = true               # off = never offered, detected or not
+cmd         = "gemini"           # the binary Hark looks for and spawns
+args        = ["--acp"]
+memory_file = "GEMINI.md"        # the file this agent auto-loads; Hark writes
+                                 #   the assistant's persona into it
+login_hint  = "gemini"           # what to tell you when it says "not logged in"
+registry    = "gemini"           # its id in the ACP registry, for version checks
+[agents.gemini.models]           # what THIS agent calls each tier
+light    = "gemini-2.5-flash-lite"
+standard = "gemini-2.5-flash"
+heavy    = "gemini-2.5-pro"
+max      = "gemini-2.5-pro"
+[agents.gemini.env]              # extra environment for every process of it
+# GEMINI_API_KEY = "…"           #   (a gateway URL, a token); never logged
+
+[agents.claude-acp]
+enabled = false                  # ships off: same subscription as `claude`
 
 # --- voice ----------------------------------------------------------------
 language      = "pt"             # what the MICROPHONE expects to hear;
@@ -86,7 +112,24 @@ knowingly.
 **`worker_mode`.** The permission posture new workers start in when the
 instruction does not say otherwise. Empty means the CLI's own default: ask about
 everything. Note that no mode, including `bypass`, disables the production
-floor — commands that touch live infrastructure always ask.
+floor — commands that touch live infrastructure always ask. `bypass` itself is
+Claude Code's (its deny list is a Claude Code flag); on any other agent it opens
+the thread in `acceptEdits` and says so.
+
+**`[agent]` and `[agents.<id>]`.** `plugin` picks the agent that opens new
+chats; an existing chat always resumes on the agent that created it. `ask`
+picks who answers the cheap lane when that should not be the same agent. Each
+`[agents.<id>]` entry is one agent: the built-ins ship with their documented
+commands and you override any field; a new id adds any ACP agent. `models` is
+how the one model pill drives every agent — you pick a tier, each agent hears
+its own name for it; an ACP agent with no table runs its own default model and
+the pill says so. `env` is where a gateway goes: `ANTHROPIC_BASE_URL` and
+`ANTHROPIC_AUTH_TOKEN` on a second `plugin = "claude"` entry route the whole
+native experience through a company LiteLLM. Values in `env` are never logged.
+
+**`[models]`.** The global table, in Claude's names — the vocabulary the router
+and the spoken cues ("pensa melhor", "quick one") use. Per-agent tables map
+those tiers onto each agent's models.
 
 **`prompt_budget_chars`.** The ceiling on how much context a cheap question is
 allowed to carry. Lower is cheaper and blunter; the pruning keeps whatever is
@@ -110,7 +153,8 @@ reproducible benchmark shows a win, off where it does not.
 ## The assistant's memory file
 
 Separate from the config: the mother chat keeps its own personality and
-accumulated learnings in a markdown file in the data directory
-(`~/Library/Application Support/hark/CLAUDE.md` — named after whatever the
-active plugin calls its memory file). It is plain text, the model edits it
-itself through the normal permission flow, and Settings has a button to open it.
+accumulated learnings in `~/.hark/HARK.md`, mirrored into the memory file each
+enabled agent auto-loads (`CLAUDE.md`, `GEMINI.md`, `AGENTS.md`) in the same
+folder so every agent reads the same persona. It is plain text, the model edits
+it itself through the normal permission flow, and Settings has a button to open
+it.

@@ -10,9 +10,11 @@ install:
 1. **Language, name and hotkey.** What the microphone expects to hear, what the
    screen shows, what you want to call your assistant, and the global key that
    opens the mic from anywhere. All of it is editable later in Settings.
-2. **Agent plugin.** Hark checks that the agent CLI is installed and logged in.
-   Claude Code ships today; the catalog shows what else is coming. Nothing runs
-   until a plugin is detected.
+2. **Agent plugin.** Hark checks which agent CLIs are installed and logged in.
+   Claude Code plugs in natively; Gemini CLI, Codex, Claude Code over ACP and
+   any other Agent Client Protocol agent through the ACP plugin. The catalog
+   shows each one, its install line, and whether your build is the one the ACP
+   registry publishes. Nothing runs until at least one is detected.
 3. **Speech model.** Downloads a whisper model (`small`, ~466MB, the default;
    `large-v3-turbo` if you want more accuracy for the price of latency). The
    download is checksummed and resumable.
@@ -20,8 +22,8 @@ install:
    which is also what triggers the macOS permission prompt, with context, before
    you need it in the middle of something.
 
-Everything the wizard writes lands in `~/.config/hark/config.toml`, in plain
-text, with your comments preserved on later edits.
+Everything the wizard writes lands in `~/.hark/config.toml`, in plain text,
+with your comments preserved on later edits.
 
 ## Two languages, at the same time
 
@@ -89,7 +91,10 @@ have live sessions, and what they have cost.
 One window per project, and they read like the terminal you already use:
 
 - **Session history** in the sidebar, indexed from the agent CLI's own logs — a
-  chat you started in the terminal three weeks ago is right there.
+  chat you started in the terminal three weeks ago is right there. An agent
+  that keeps no logs (the ACP agents) gets its history written by Hark as the
+  turns happen, so its chats are searchable, readable and resumable too; the
+  honest limit is that a session opened outside Hark stays invisible.
 - **Transcripts** in real markdown: headings, tables, code with syntax
   highlighting, tool calls folded, bursts of shell commands grouped.
 - **Deliverables** surface as file cards; CSVs open as tables; there is a real
@@ -122,10 +127,30 @@ waiting in one thread never freezes another.
 
 **There is a hard floor.** Commands that touch production — `kubectl apply`,
 `terraform apply`, `helm`, force-pushes, destructive SQL, cloud deletes, package
-publishes — are never auto-approved. Standing "always allow" rules are ignored
-for them, the card turns red, and in bypass mode those CLIs are blocked
-outright. Hark can be careless with your tokens; it is not allowed to be
-careless with your infrastructure.
+publishes — are never auto-approved, whichever agent runs them. Standing
+"always allow" rules are ignored for them, the card turns red, and in bypass
+mode those CLIs are blocked outright on Claude Code. That block is a Claude Code
+flag with no equivalent elsewhere, so on any other agent a bypass pick opens
+the thread in accept-edits instead and says so in the chat — the pill's bypass
+row is disabled there with the reason. Hark can be careless with your tokens;
+it is not allowed to be careless with your infrastructure.
+
+## Switching agents
+
+Every chat belongs to the agent that opened it, and the pills beside the
+composer (permission mode, model tier, effort) speak to that agent in its own
+vocabulary — the model tier you pick is said as `haiku` to Claude and as
+`gemini-2.5-flash-lite` to Gemini. A knob an agent does not offer stays on
+screen, disabled, with the reason.
+
+Two spoken commands move between agents:
+
+- *"abre um chat gemini no webhook"* / *"open a chat on gemini in webhook"* —
+  a new chat in that project, on that agent.
+- *"troca esse chat pro gemini"* / *"switch this chat to gemini"* — the thread
+  you are in moves: a fresh session on the other agent opens with a local,
+  zero-token brief of the conversation so far, on the same card. The ⓘ popover
+  of a live thread has a button per available agent for the same move.
 
 ## The board
 
@@ -144,23 +169,29 @@ the heaviest sessions.
 Two rules keep the numbers honest, and they are printed at the bottom of the
 panel:
 
-- **USD comes only from the CLI's own reporting.** There is no hardcoded price
-  table anywhere in Hark.
+- **USD comes only from the agent's own reporting.** There is no hardcoded price
+  table anywhere in Hark. Claude Code and the Claude ACP adapter price their
+  turns; Codex reports tokens only; Gemini reports nothing — and a turn nobody
+  priced shows as `$ –` in the footer and in the panel, never as `$0.00`.
 - **Token counts and dollars are never summed together.** They come from
   different sources — the live stream and the session logs — and the logs cover
   all of your agent usage, not just what went through Hark.
 
 The subscription window percentages (5h / 7d) come from an **opt-in** bridge: a
-one-click wrapper around the CLI's status line that tees its JSON to a file Hark
-reads. It backs up your settings first, changes nothing until you click, and
-uninstalls cleanly.
+one-click wrapper around the Claude Code status line that tees its JSON to a
+file Hark reads. It backs up your settings first, changes nothing until you
+click, and uninstalls cleanly. Over the Claude ACP adapter the meter arrives
+with every turn and needs no bridge at all.
 
 ## Plugins
 
-Settings → **Plugins** lists the agent backends: what is installed, what it can
-do (resume, permissions, cost reporting, history, slash commands…) and which one
-is driving your sessions. Claude Code is selectable today; Gemini CLI is in
-development. See [PLUGINS.md](PLUGINS.md).
+Settings → **Plugins** is the catalog: every agent Hark knows, whether its
+binary is on this machine, what each plugin can do (resume, permissions, cost
+reporting, history, slash commands…), what the agent calls each model tier,
+which build you have against what the ACP registry publishes (and the update
+command when yours is behind), and which one opens new chats. Claude Code and
+the ACP agents — Gemini CLI, Codex, Claude Code over ACP, DeepSeek, Kiro,
+Antigravity — ship today. See [PLUGINS.md](PLUGINS.md).
 
 ## The `hark` CLI
 
@@ -170,7 +201,7 @@ The same core, headless — useful for scripting, CI, or just a terminal habit:
 hark listen                                   # the voice loop, in the terminal
 hark hear                                     # transcribe one utterance
 hark setup                                    # download the speech model
-hark ask "what's pending today?"              # a cheap, snapshot-fed question
+hark ask "what's pending today?"              # a cheap, snapshot-fed question, on the agent the app would use
 hark dispatch [--session <id>] "<instruction>"
 hark ps [--clear]                             # running workers
 hark spend [--day|--week|--project] [--rebuild] [--export csv|json]
@@ -203,11 +234,14 @@ updater replaces only the app bundle.
 
 | Path | What |
 |---|---|
-| `~/.config/hark/config.toml` | your configuration ([reference](CONFIG.md)) |
-| `~/Library/Application Support/hark/index.db` | session index and spend ledger |
-| `~/Library/Application Support/hark/models/` | speech models |
-| `~/Library/Application Support/hark/CLAUDE.md` | the assistant's own memory file |
-| `~/Library/Application Support/hark/state.json` | board, workers, active context |
+| `~/.hark/config.toml` | your configuration ([reference](CONFIG.md)) |
+| `~/.hark/index.db` | session index and spend ledger |
+| `~/.hark/models/` | speech models |
+| `~/.hark/HARK.md` | the assistant's personality and learnings, mirrored into each agent's own memory file name (`CLAUDE.md`, `GEMINI.md`, `AGENTS.md`) beside it |
+| `~/.hark/state.json` | board, workers, active context, what each agent turned out to offer |
+| `~/.hark/sessions/<agent>/<id>.jsonl` | Hark's own record of sessions on agents that keep none |
 | `<project>/.hark/` | per-project journal, state and dispatch briefs |
 
-None of it leaves your machine.
+Older installs kept these under `~/.config/hark` and
+`~/Library/Application Support/hark`; Hark moves them to `~/.hark` on first
+launch. None of it leaves your machine.

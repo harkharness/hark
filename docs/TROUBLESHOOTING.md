@@ -35,20 +35,39 @@ hotkey = "cmd+shift+h"
 
 ## "agent plugin not found"
 
-Hark needs the agent CLI installed and logged in — it does not ship one and it
-cannot authenticate for you. Check that it works on its own first:
+Hark needs at least one agent CLI installed and logged in — it does not ship
+one and it cannot authenticate for you. Check that it works on its own first:
 
 ```bash
 claude --version
+gemini --version
+codex-acp --version
 ```
 
-If the binary lives somewhere unusual, point Hark straight at it:
+If the `claude` binary lives somewhere unusual, point Hark straight at it:
 
 ```toml
 claude_bin = "/opt/homebrew/bin/claude"
 ```
 
-Then Settings → Plugins → recheck.
+For any other agent, the `cmd` of its `[agents.<id>]` entry is what Hark looks
+for. Then Settings → Plugins → recheck. The catalog card of an agent that is
+not installed shows the install command.
+
+## The catalog says my agent is behind
+
+Detected is not current. Settings → Plugins compares the version your binary
+reports with the one the [ACP registry](https://github.com/agentclientprotocol/registry)
+publishes and shows the update line, usually `npm install -g <package>@<version>`.
+One symptom worth knowing: an old Gemini CLI answers every new session with
+*"This client is no longer supported for Gemini Code Assist for individuals"* —
+that is not a login problem, it is the update.
+
+## The agent says it is not logged in
+
+The card carries that agent's own login command (`claude /login`, `gemini`,
+`codex login`…). Log in once in your terminal and send the message again; Hark
+never types credentials for you.
 
 ## The speech model failed to download
 
@@ -82,21 +101,26 @@ yet.
 
 ## The costs panel shows tokens but no dollars
 
-USD only ever comes from the agent CLI's own reporting; Hark has no price table.
-If a turn did not report a cost, its row shows tokens and no dollars rather than
-an estimate dressed up as a fact. The subscription window percentages need the
-opt-in status-line bridge (Settings → Costs).
+USD only ever comes from the agent's own reporting; Hark has no price table.
+Claude Code and the Claude ACP adapter price their turns; Codex reports tokens
+only; Gemini reports nothing. A turn nobody priced shows `$ –` with the reason
+on hover rather than an estimate dressed up as a fact — the subscription paid,
+the wire just did not carry the number. The subscription window percentages
+come from the opt-in status-line bridge (Settings → Costs), or from the Claude
+ACP adapter, which reports them on every turn.
 
 ## Uninstalling
 
 ```bash
 rm -rf /Applications/hark.app
 rm -f  ~/.local/bin/hark
-rm -rf ~/.config/hark
-rm -rf ~/Library/"Application Support"/hark
+rm -rf ~/.hark
 ```
 
-The last one deletes your index, ledger, board and the assistant's memory file.
+The last one deletes your configuration, index, ledger, board, the assistant's
+memory file and Hark's own session records. Installs older than September 2026
+may also have `~/.config/hark` and `~/Library/Application Support/hark` left
+over from before everything moved to `~/.hark`.
 If you installed the status-line bridge, uninstall it from Settings first so
 your agent CLI settings are restored from the backup Hark made.
 

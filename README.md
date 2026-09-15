@@ -16,14 +16,16 @@
 
 Hark is a voice-first cockpit that sits on top of the agent CLIs you already pay
 for. Ask what you were working on and hear the answer out loud. Dispatch real
-work into your existing Claude Code sessions — by voice or by text, across every
+work into your existing agent sessions — by voice or by text, across every
 project on your disk — and watch it run in a window that reads like the terminal
 you already know.
 
-Hark never calls a model API behind your back. It drives the `claude` CLI you
-already have installed and authenticated, so every token draws from the
-subscription you already pay for. No API key, no second bill, no telemetry, no
-account.
+Hark never calls a model API behind your back. It drives the agent CLIs you
+already have installed and authenticated — Claude Code natively, and Gemini CLI,
+Codex or any other agent that speaks the
+[Agent Client Protocol](https://agentclientprotocol.com) through one plugin — so
+every token draws from the subscription you already pay for. No API key, no
+second bill, no telemetry, no account.
 
 > **This repository ships the binaries.** Hark's source is private during the
 > beta; the agent plugins are what go public first — see
@@ -53,9 +55,12 @@ Prefer to click? Grab a `.dmg` from
 If you download the `.dmg` by hand, run `xattr -cr /Applications/hark.app` once
 before opening it.
 
-**You need:** macOS 12+, the [Claude Code CLI](https://code.claude.com)
-installed and logged in, and ~500MB of disk for the speech model. The first-run
-wizard checks all of it, downloads the model and asks for the microphone once.
+**You need:** macOS 12+, at least one supported agent CLI installed and logged
+in — the [Claude Code CLI](https://code.claude.com) gets the richest experience;
+[Gemini CLI](https://github.com/google-gemini/gemini-cli), Codex
+(`@agentclientprotocol/codex-acp`) or any other ACP agent works through the ACP
+plugin — and ~500MB of disk for the speech model. The first-run wizard checks
+all of it, downloads the model and asks for the microphone once.
 
 Linux is on the backlog — the voice layer leans on macOS-native pieces today.
 
@@ -104,6 +109,7 @@ Measured against `claude` v2.1.x on a real codebase:
 | Default `claude -p` (memory file + MCP + tools) | $0.23+ |
 | Worker turn with tools executing | $0.33+ |
 | Resumed worker turn (prompt cache warm) | ~$0.001 |
+| Lean ask over the Claude ACP adapter (`claude-agent-acp`, haiku) | ~$0.002 |
 
 The architecture assumes tokens are the scarce resource:
 
@@ -116,9 +122,11 @@ The architecture assumes tokens are the scarce resource:
   incrementally from the CLI's own logs. Recalling a chat, searching sessions,
   opening files and reading transcripts never touch a model.
 - **Hard ceilings.** Every worker spawns with a dollar budget (default $2) so a
-  runaway turn stops itself.
+  runaway turn stops itself — as a CLI flag on Claude Code, and as Hark's own
+  cancel on every ACP agent, which has no such flag.
 - **Model routing.** The tier is chosen from what you actually asked for, not
-  from a global default.
+  from a global default — and said in each agent's own model names, so one
+  window default drives a Claude chat and a Gemini chat alike.
 
 ## Documentation
 
@@ -133,16 +141,30 @@ The architecture assumes tokens are the scarce resource:
 
 Hark is a cockpit, not an agent. The agent is a **plugin** behind a small
 contract: an event vocabulary (assistant text, tool calls, permission requests,
-turn results with cost) plus a capability sheet the UI degrades against. Claude
-Code ships today, selectable in Settings → Plugins and in the first-run wizard;
-a Gemini CLI plugin is in development.
+turn results with cost) plus a capability sheet the UI degrades against. Two
+plugins speak for every agent today:
 
-The plugins are the part that goes public first — the contract and the Claude
-Code plugin become their own repositories under
-[@harkharness](https://github.com/harkharness), so anyone can write a backend
-for the agent CLI their company allows. That is the whole thesis: the workflow
-belongs to the developer, the vendor is a plugin, and the cost ledger is the one
-neutral ruler across all of them.
+- **Claude Code**, natively — the `claude` CLI with your full settings, MCP
+  servers, memory file and session history on disk.
+- **The ACP plugin** — any agent that speaks the Agent Client Protocol:
+  Gemini CLI, Codex, Claude Code over ACP, DeepSeek, Kiro, Google Antigravity
+  ship as registry lines, and any other ACP agent is one line of config away.
+
+Settings → Plugins is the catalog: what is installed, what each plugin can do,
+which build is on your machine against what the ACP registry publishes (with
+the update command when yours is behind), and what each agent calls the model
+tiers. The cockpit does not thin out when the agent changes: Hark keeps a
+history for agents that leave none on disk, prices every turn an agent reports
+and shows an honest dash where it does not, applies the same production floor
+to every one of them, and hands a thread from one agent to another mid-task
+("switch this chat to Gemini") with a local brief. What a plugin cannot do
+stays on screen, disabled, with the reason — never hidden.
+
+The contract goes public first — it and the Claude Code plugin become their own
+repositories under [@harkharness](https://github.com/harkharness), so anyone
+can write a backend for the agent CLI their company allows. That is the whole
+thesis: the workflow belongs to the developer, the vendor is a plugin, and the
+cost ledger is the one neutral ruler across all of them.
 
 Details and the current state of the contract: [docs/PLUGINS.md](docs/PLUGINS.md).
 
@@ -163,14 +185,15 @@ Details and the current state of the contract: [docs/PLUGINS.md](docs/PLUGINS.md
 contract and the Claude Code plugin are the first pieces to be published; this
 repository carries the builds in the meantime.
 
-**Does it use my Claude subscription?** Yes — that is the point. Hark shells out
-to the `claude` binary you already authenticated. It has no API key and cannot
-bill you separately.
+**Does it use my subscription?** Yes — that is the point. Hark shells out to
+the agent binaries you already authenticated — `claude`, `gemini`, `codex-acp`
+and so on. It has no API key and cannot bill you separately.
 
 **Do I need to change how I work?** No. Hark reads the sessions the CLI already
 writes to disk, honours your existing settings, memory file, MCP servers and
 skills, and hands the same sessions back. Close Hark and your terminal
-workflow is exactly where you left it.
+workflow is exactly where you left it. Agents that keep no session file get one
+written by Hark, so their chats are searchable and resumable inside Hark too.
 
 **Is it free?** Free while in beta.
 
