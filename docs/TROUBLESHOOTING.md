@@ -27,7 +27,7 @@ machine: transcription runs locally.
 ## The hotkey does not open anything
 
 Another app owns the same shortcut — `cmd+shift+space` is popular. Change it in
-Settings, or in `~/.config/hark/config.toml`:
+Settings, or in `~/.hark/config.toml`:
 
 ```toml
 hotkey = "cmd+shift+h"
