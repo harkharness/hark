@@ -1,9 +1,11 @@
 //! Headless driver: `hark ask "..."`, `hark index`, `hark sessions`.
 //!
-//! FASE 9 pin: this driver is DELIBERATELY claude-only for now — it binds
-//! the claude plugin's types directly. Multi-backend (the AgentBackend
-//! seam the Tauri app speaks) lands here after the app stabilizes; on a
-//! machine without the claude CLI it fails loudly at spawn, never silently.
+//! `hark ask` resolves its agent the way the app does (`[agent] ask`, else
+//! the selected default, else claude when it is here, else the first
+//! usable backend) and speaks tiers through the same runner. History
+//! (`index`, `sessions`, the live list) is still claude's files on disk
+//! until F9.4 gives ACP sessions a recorded history; on a machine with no
+//! claude those commands say so, never silently.
 
 use hark_plugin_claude::cli::ClaudeCli;
 use hark_core::adapters::git_collect::GitCli;
@@ -273,11 +275,46 @@ fn open_store(config: &Config) -> anyhow::Result<SqliteStore> {
     SqliteStore::open(&config.data_dir().join("index.db"))
 }
 
+/// The cheap lane's runner, resolved as the app resolves it: `[agent] ask`
+/// when set and usable, else the selected default, else claude when it is
+/// here, else the first usable backend. Claude answers under a real
+/// schema; an ACP agent is asked for JSON in the prompt. The tier the
+/// caller asks for is said in the agent's own vocabulary.
+fn ask_runner(config: &Config) -> Box<dyn hark_core::ports::AgentRunner + Send + Sync> {
+    use hark_core::domain::agents;
+    use hark_core::ports::AgentBackend as _;
+    let entries = agents::merge(&config.agents);
+    let detected = hark_core::adapters::agent_detect::detected(config, &entries);
+    let preference = if config.agent.ask.is_empty() { &config.agent.plugin } else { &config.agent.ask };
+    let id = agents::default_agent(&entries, &detected, preference).unwrap_or_else(|| "claude".into());
+    let entry = agents::resolve(&entries, &id)
+        .or_else(|| agents::resolve(&entries, "claude"))
+        .cloned()
+        .expect("claude is a builtin");
+    let inner: Box<dyn hark_core::ports::AgentRunner + Send + Sync> = if entry.plugin == "claude" {
+        let bin = if entry.cmd == "claude" { config.claude_bin_resolved() } else { entry.cmd.clone() };
+        Box::new(ClaudeCli { claude_bin: bin, work_dir: config.data_dir(), envs: entry.env_pairs() })
+    } else {
+        hark_plugin_acp::AcpBackend::new(
+            entry.id.clone(),
+            entry.cmd.clone(),
+            entry.args.clone(),
+            entry.env_pairs(),
+            entry.memory_file.clone(),
+            entry.login_hint.clone(),
+            config.data_dir(),
+        )
+        .runner()
+    };
+    Box::new(hark_core::app::runner::TieredRunner { inner, entry, tiers: config.models() })
+}
+
 fn cmd_ask(question: &str) -> i32 {
     let config = Config::load();
     let result = (|| -> anyhow::Result<_> {
         let mut store = open_store(&config)?;
         let state = state_file::load(&config.data_dir());
+        let runner = ask_runner(&config);
         let mut deps = AskDeps {
             active_context: state.active_context,
             projects: state.projects,
@@ -289,18 +326,7 @@ fn cmd_ask(question: &str) -> i32 {
                 claude_bin: config.claude_bin_resolved(),
             },
             repos: &GitCli,
-            runner: &ClaudeCli {
-                claude_bin: config.claude_bin_resolved(),
-                work_dir: config.data_dir(),
-                // The CLI is pinned to claude (F9 plan); a gateway set on
-                // the claude entry still applies to it.
-                envs: hark_core::domain::agents::resolve(
-                    &hark_core::domain::agents::merge(&config.agents),
-                    "claude",
-                )
-                .map(|e| e.env_pairs())
-                .unwrap_or_default(),
-            },
+            runner: &*runner,
             config: &config,
             indexer: &hark_plugin_claude::history::ClaudeHistory,
         };
@@ -912,6 +938,7 @@ fn cmd_ask_spoken(question: &str, tts: &impl hark_core::ports::Tts) -> i32 {
     let result = (|| -> anyhow::Result<_> {
         let mut store = open_store(&config)?;
         let state = state_file::load(&config.data_dir());
+        let runner = ask_runner(&config);
         let mut deps = AskDeps {
             active_context: state.active_context,
             projects: state.projects,
@@ -923,18 +950,7 @@ fn cmd_ask_spoken(question: &str, tts: &impl hark_core::ports::Tts) -> i32 {
                 claude_bin: config.claude_bin_resolved(),
             },
             repos: &GitCli,
-            runner: &ClaudeCli {
-                claude_bin: config.claude_bin_resolved(),
-                work_dir: config.data_dir(),
-                // The CLI is pinned to claude (F9 plan); a gateway set on
-                // the claude entry still applies to it.
-                envs: hark_core::domain::agents::resolve(
-                    &hark_core::domain::agents::merge(&config.agents),
-                    "claude",
-                )
-                .map(|e| e.env_pairs())
-                .unwrap_or_default(),
-            },
+            runner: &*runner,
             config: &config,
             indexer: &hark_plugin_claude::history::ClaudeHistory,
         };

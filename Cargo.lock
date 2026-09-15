@@ -1502,6 +1502,7 @@ dependencies = [
  "anyhow",
  "hark-agent",
  "hark-core",
+ "hark-plugin-acp",
  "hark-plugin-claude",
  "serde_json",
 ]

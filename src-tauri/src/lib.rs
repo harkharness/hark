@@ -77,28 +77,12 @@ fn ask_runner(config: &Config) -> Box<dyn AgentRunner + Send + Sync> {
         .or_else(|| agents::resolve(&entries, "claude"))
         .cloned()
         .expect("claude is a builtin");
-    Box::new(TieredRunner { inner: backend_for(config, &id).runner(), entry, tiers: config.models() })
-}
-
-/// The cheap lane asks for a TIER ("haiku" is the global table's light);
-/// each agent calls that tier something else. Translated here, once, so
-/// the three ask sites (voice, intent router, gate) never learn agent
-/// vocabularies. No id for the tier = the agent's own default model.
-struct TieredRunner {
-    inner: Box<dyn AgentRunner + Send + Sync>,
-    entry: hark_core::domain::agents::AgentEntry,
-    tiers: hark_core::domain::intent::Models,
-}
-
-impl AgentRunner for TieredRunner {
-    fn ask(
-        &self,
-        request: &hark_core::ports::TurnRequest,
-        on_event: &mut dyn FnMut(&hark_agent::AgentEvent),
-    ) -> anyhow::Result<hark_agent::TurnResult> {
-        let model = hark_core::domain::agents::model_id(&self.entry, request.model, &self.tiers).unwrap_or_default();
-        self.inner.ask(&hark_core::ports::TurnRequest { model: &model, ..*request }, on_event)
-    }
+    // The tier the caller asks for, said in the agent's own vocabulary.
+    Box::new(hark_core::app::runner::TieredRunner {
+        inner: backend_for(config, &id).runner(),
+        entry,
+        tiers: config.models(),
+    })
 }
 
 /// Directives said in the agent's own vocabulary: the model pill and the
@@ -1725,33 +1709,14 @@ fn eco_status() -> Result<serde_json::Value, String> {
 /// Is the Claude Code binary actually reachable? Returns the resolved path
 /// alongside the verdict — the wizard and the plugin catalog both need it.
 fn claude_detected(config: &Config) -> (bool, String) {
-    let bin = config.claude_bin_resolved();
-    let ok = std::path::Path::new(&bin).is_absolute()
-        || std::process::Command::new("which")
-            .arg(&bin)
-            .output()
-            .is_ok_and(|out| out.status.success());
-    (ok, bin)
+    hark_core::adapters::agent_detect::claude(config)
 }
 
 /// Which registry ids have their binary on this machine. Entries that run
 /// `claude` keep its own resolution (config can point at an absolute path,
 /// nvm shadows are skipped); everything else is a plain `which`.
 fn agents_detected(config: &Config, entries: &[hark_core::domain::agents::AgentEntry]) -> Vec<String> {
-    entries
-        .iter()
-        .filter(|e| {
-            if e.plugin == "claude" && e.cmd == "claude" {
-                claude_detected(config).0
-            } else {
-                std::process::Command::new("which")
-                    .arg(&e.cmd)
-                    .output()
-                    .is_ok_and(|out| out.status.success())
-            }
-        })
-        .map(|e| e.id.clone())
-        .collect()
+    hark_core::adapters::agent_detect::detected(config, entries)
 }
 
 /// The agent catalog: every backend in the registry (built-ins plus the

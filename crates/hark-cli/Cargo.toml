@@ -12,5 +12,6 @@ path = "src/main.rs"
 hark-core = { path = "../hark-core" }
 hark-agent = { path = "../hark-agent" }
 hark-plugin-claude = { path = "../hark-plugin-claude" }
+hark-plugin-acp = { path = "../hark-plugin-acp" }
 anyhow.workspace = true
 serde_json.workspace = true

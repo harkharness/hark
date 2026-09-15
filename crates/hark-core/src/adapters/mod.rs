@@ -1,5 +1,6 @@
 //! Adapters: thin imperative shells implementing the ports.
 
+pub mod agent_detect;
 pub mod cpal_audio;
 pub mod fs_files;
 pub mod git_collect;

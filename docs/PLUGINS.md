@@ -69,6 +69,12 @@ Seams the core exposes (in `hark-core::ports` today):
 - `HistoryIndexer::refresh(projects_dir, store)` — parse your history into
   `SessionEvent`s; the core owns the SQLite index and the spend ledger.
 
+The cheap lane's runner is wrapped once in `hark_core::app::runner::
+TieredRunner`, which says the requested tier in the agent's own model
+names; the app and `hark ask` (hark-cli) resolve the agent the same way
+and share it. Detection (`which`, claude's own binary resolution) lives
+in `adapters/agent_detect.rs` for the same reason.
+
 The persistent worker rides the `AgentBackend` / `AgentSession` seam
 (`hark-core::ports`): the driver spawns through `backend_for(config,
 agent)` and consumes ONE event stream (`EventRx`) whatever the plugin —
