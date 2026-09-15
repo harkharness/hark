@@ -73,9 +73,10 @@ pub fn negotiate(result: &serde_json::Value, memory_file: Option<String>) -> Neg
         // Announced per session, not at initialize.
         slash_commands: false,
         memory_file,
-        // ACP tool names are the agent's own; the production gate learns
-        // them from the session's tool calls, not from a fixed list.
-        shell_tools: Vec::new(),
+        // ACP tool names are the agent's own, but a shell call is of kind
+        // `execute`; the production gate also reads any input carrying a
+        // `command` (string, or codex's argv array), whatever the title.
+        shell_tools: vec!["execute".into()],
         // `session/fork` — announced in sessionCapabilities by the Claude
         // adapter (0.76) and codex-acp (1.11); gemini 0.46 says nothing.
         fork: agent_caps.and_then(|c| c.pointer("/sessionCapabilities/fork")).is_some(),
@@ -150,6 +151,14 @@ mod tests {
     #[test]
     fn permissions_are_always_available_over_acp() {
         assert!(gemini().caps.permissions);
+    }
+
+    #[test]
+    fn the_shell_tool_over_acp_is_the_execute_kind() {
+        // The production gate (kubectl/terraform never auto-approve) asks
+        // the sheet which tool is the shell; over ACP that is the `execute`
+        // kind — and, under the sheet, any input with a `command` in it.
+        assert_eq!(gemini().caps.shell_tools, vec!["execute".to_string()]);
     }
 
     #[test]

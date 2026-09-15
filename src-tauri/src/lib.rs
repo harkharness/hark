@@ -94,16 +94,19 @@ fn directives_for(
     config: &Config,
     agent: &str,
     mut directives: hark_core::domain::directives::Directives,
-) -> hark_core::domain::directives::Directives {
+) -> (hark_core::domain::directives::Directives, Option<String>) {
     use hark_core::domain::agents;
     let entries = agents::merge(&config.agents);
-    if let Some(entry) = agents::resolve(&entries, agent) {
-        directives.model = directives
-            .model
-            .as_deref()
-            .and_then(|m| agents::model_id(entry, m, &config.models()));
-    }
-    directives
+    let Some(entry) = agents::resolve(&entries, agent) else {
+        return (directives, None);
+    };
+    directives.model = directives
+        .model
+        .as_deref()
+        .and_then(|m| agents::model_id(entry, m, &config.models()));
+    // Bypass has a deny floor on claude only; elsewhere it is accepting
+    // edits, and the note is said in the chat.
+    agents::with_floor(entry, directives)
 }
 
 /// The registry id a NEW session opens with: the user's pick when it is
@@ -1010,12 +1013,15 @@ fn start_worker_titled(
 ) -> anyhow::Result<()> {
     let config_now = Config::load();
     let backend = backend_for(&config_now, &spec.agent);
-    let wired = SessionSpec {
-        directives: directives_for(&config_now, &spec.agent, spec.directives.clone()),
-        ..spec.clone()
-    };
+    let (directives, floor_note) = directives_for(&config_now, &spec.agent, spec.directives.clone());
+    if let Some(note) = floor_note {
+        emit_event(app, serde_json::json!({ "kind": "status", "task_id": task_id, "text": note }));
+    }
+    let wired = SessionSpec { directives, ..spec.clone() };
     let (session, rx) = backend.spawn(&wired)?;
     let caps = backend.capabilities();
+    // Which tool is the shell, for the production gate: the plugin's sheet.
+    let shell_tools = caps.shell_tools.clone();
     remember_agent_sheet(app, &spec.agent, caps.clone());
     // An agent that leaves no file gets Hark's record: the search, the
     // viewer, the mirror and the brief then work for this session too.
@@ -1219,7 +1225,7 @@ fn start_worker_titled(
                     ));
                     // The production gate: a flagged ask NEVER auto-resolves
                     // (standing rules, permissive windows) — a human answers.
-                    let prod_risk = hark_core::domain::prodgate::check(&tool_name, &input);
+                    let prod_risk = hark_core::domain::prodgate::check(&tool_name, &input, &shell_tools);
                     let _ = app2.emit(
                         "hark-permission",
                         serde_json::json!({
@@ -2465,7 +2471,11 @@ fn switch_directives(
     // A knob it does not offer is said out loud; reopening would drop it
     // just the same.
     let before = &handle.spec.directives;
-    let wired = directives_for(&Config::load(), &handle.spec.agent, next.clone());
+    let (wired, floor_note) = directives_for(&Config::load(), &handle.spec.agent, next.clone());
+    if let Some(note) = floor_note {
+        // Asked by name on a live chat: refused by name, not quietly downgraded.
+        return Err(note);
+    }
     match handle.session.set_directives(&wired) {
         Ok(hark_core::ports::LiveDirectives::Applied(applied)) => {
             let mut missing = Vec::new();
@@ -2784,10 +2794,11 @@ fn dispatch_text(
     // event stream inline, block on permission clicks, stop at the result.
     let result: anyhow::Result<hark_agent::TurnResult> = (|| {
         let backend = backend_for(&config, &spawn.agent);
-        let wired = SessionSpec {
-            directives: directives_for(&config, &spawn.agent, spawn.directives.clone()),
-            ..spawn.clone()
-        };
+        let (directives, floor_note) = directives_for(&config, &spawn.agent, spawn.directives.clone());
+        if let Some(note) = floor_note {
+            emit_event(&app, serde_json::json!({ "kind": "status", "task_id": task_id, "text": note }));
+        }
+        let wired = SessionSpec { directives, ..spawn.clone() };
         let (session, events) = backend.spawn(&wired)?;
         let mut outcome: Option<hark_agent::TurnResult> = None;
         for event in events.iter() {

@@ -99,3 +99,16 @@ export function costFooter(
   const why = unsupported(catalog, m.agent, "cost_reporting", t("pl_cap_cost"));
   return { label: costLabel(undefined), title: why ?? t("cost_unknown_turn") };
 }
+
+/**
+ * Why bypass is off in a chat on this agent, or undefined when it may be
+ * picked. Bypass on claude runs under a deny floor (kubectl, terraform…
+ * cannot run at all); nothing of the kind crosses ACP, so on any other
+ * plugin the driver opens acceptEdits instead and the row says so. An
+ * agent nothing is known about is not accused.
+ */
+export function bypassFloorFor(catalog: Catalog | undefined, agent: string | undefined): string | undefined {
+  const sheet = catalog && agent ? catalog[agent] : undefined;
+  if (!sheet || !sheet.capabilities || !sheet.plugin) return undefined;
+  return sheet.plugin === "claude" ? undefined : t("cap_no_bypass_floor", { name: sheet.name });
+}

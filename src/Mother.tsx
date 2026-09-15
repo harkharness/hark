@@ -18,7 +18,7 @@ import { Settings as SettingsIcon } from "lucide-react";
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import { useWorkerDefaults } from "./hooks/useWorkerDefaults";
 import { useAgentCatalog } from "./hooks/useAgentCatalog";
-import { modelPillFor, unsupported } from "./lib/support";
+import { bypassFloorFor, modelPillFor, unsupported } from "./lib/support";
 import ModeSelect from "./components/ModeSelect";
 import ModelSelect from "./components/ModelSelect";
 import EffortSelect from "./components/EffortSelect";
@@ -1430,6 +1430,7 @@ export default function Mother() {
               <ModeSelect
                 value={defaults.modeInForce}
                 disabled={modeOff}
+                bypassOff={bypassFloorFor(catalog, selectedAgent)}
                 onSelect={pillPick(ipc.workerSetMode, defaults.setModeDefault)}
               />
               <ModelSelect

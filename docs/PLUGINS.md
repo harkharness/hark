@@ -239,6 +239,24 @@ fixtures come from the wire, not from the spec). Per capability:
   row under the agent that ran it, tokens zero, cost NULL, so the turn
   count and the session link survive.
 - **resume** — `session/load`, when the agent announces `loadSession`.
+- **the production gate** — `prodgate::check` (kubectl apply, terraform
+  apply, helm upgrade, force push, DROP TABLE… never auto-approve, a human
+  answers) asks the plugin's sheet which tool is the shell: claude's
+  `Bash`, and over ACP the `execute` kind. Under the sheet it reads ANY
+  input carrying a `command` — a string, or codex-acp's argv array — as a
+  shell command whatever the agent titled the tool: a false positive is
+  one more human click, a false negative is terraform apply in
+  production. Before 15/09/2026 the check hardcoded `Bash` and the sheet's
+  `shell_tools` was decorative; over ACP the gate never fired.
+- **bypass** — has a deny floor on claude only (`BYPASS_DENY_RULES` as
+  `--disallowedTools`: kubectl, terraform and friends cannot run at all).
+  Nothing of the kind crosses ACP — in gemini's `yolo` or the Claude
+  adapter's `bypassPermissions` the agent asks nothing and the gate never
+  sees the command — so on any non-claude plugin a bypass pick opens the
+  thread in acceptEdits and SAYS so (a status line in the chat; a live
+  pick is refused by name), and the mode pill's bypass row is disabled
+  with the reason in a chat on such an agent (`agents::with_floor`,
+  `support.bypassFloorFor`).
 - **directives** — said in the agent's own ids, for whatever its
   `session/new` answer OFFERS (`directives.rs`): the permission mode
   through `session/set_mode` (exact ids first — the Claude adapter uses

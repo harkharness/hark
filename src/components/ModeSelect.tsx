@@ -20,6 +20,7 @@ export default function ModeSelect({
   windowDefault,
   onSelect,
   disabled,
+  bypassOff,
 }: {
   /** Current mode flag ("manual" | "acceptEdits" | "plan" | "auto" | "bypass"). */
   value: string;
@@ -31,6 +32,9 @@ export default function ModeSelect({
   /** The reason the pill is off for the agent in this chat (its plugin
    *  carries no directives); the pill stays, disabled, with this hover. */
   disabled?: string;
+  /** The reason bypass alone is off here: its deny floor is claude's and
+   *  does not cross ACP. The row stays, disabled, with this hover. */
+  bypassOff?: string;
 }) {
   const current = MODES.find((m) => m.flag === value) ?? MODES[0];
   const items: PillItem[] = MODES.map((m) => ({
@@ -39,6 +43,7 @@ export default function ModeSelect({
     hint: t(m.hint),
     // "aceita tudo" is a warning, not a description.
     danger: m.flag === "bypass",
+    disabled: m.flag === "bypass" ? bypassOff : undefined,
     isDefault: !!appliesTo && m.flag === windowDefault,
   }));
 

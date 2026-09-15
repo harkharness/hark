@@ -72,6 +72,9 @@ export type PillItem = {
   isDefault?: boolean;
   /** The hint is a warning, not a description (bypass). */
   danger?: boolean;
+  /** The row cannot be picked for the agent in this chat; the reason is
+   *  its hover. Shown, never hidden — the same rule as the pill itself. */
+  disabled?: string;
 };
 
 /**
@@ -101,6 +104,7 @@ export function PillMenuBody({
   }, []);
 
   const pick = (v: string) => {
+    if (items.find((i) => i.value === v)?.disabled) return;
     close();
     onPick(v);
   };
@@ -138,8 +142,9 @@ export function PillMenuBody({
       {items.map((item, i) => (
         <button
           key={item.value || "-"}
-          className={`mm-row${item.value === value ? " on" : ""}${i === cursor ? " cursor" : ""}`}
-          title={item.title}
+          className={`mm-row${item.value === value ? " on" : ""}${i === cursor ? " cursor" : ""}${item.disabled ? " off" : ""}`}
+          title={item.disabled ?? item.title}
+          disabled={!!item.disabled}
           onMouseEnter={() => setCursor(i)}
           onClick={() => pick(item.value)}
         >

@@ -16,14 +16,17 @@ pub const BYPASS_DENY_RULES: &[&str] = &[
 
 /// Does this tool call touch production-grade state? `Some(reason)` means
 /// the ask must reach a human: no standing rule, no permissive mode, no
-/// auto-approval may answer it. Bash only — that is where infra happens.
-pub fn check(tool_name: &str, input_json: &str) -> Option<String> {
-    if tool_name != "Bash" {
+/// auto-approval may answer it. Shell commands only — that is where infra
+/// happens. Which tool is the shell is the plugin's sheet (`shell_tools`:
+/// claude's `Bash`, an ACP agent's `execute` kind); under the sheet, any
+/// input carrying a `command` is read as one too — a false positive is
+/// one more human click, a false negative is terraform apply in prod.
+pub fn check(tool_name: &str, input_json: &str, shell_tools: &[String]) -> Option<String> {
+    let input: serde_json::Value = serde_json::from_str(input_json).ok()?;
+    let command = command_of(&input)?;
+    if !shell_tools.iter().any(|t| t == tool_name) && input.get("command").is_none() {
         return None;
     }
-    let command: String = serde_json::from_str::<serde_json::Value>(input_json)
-        .ok()
-        .and_then(|v| v.get("command").and_then(|c| c.as_str()).map(String::from))?;
     let lower = command.to_lowercase();
     let words: Vec<&str> = lower.split_whitespace().collect();
     let has = |w: &str| words.contains(&w);
@@ -70,12 +73,71 @@ pub fn check(tool_name: &str, input_json: &str) -> Option<String> {
     None
 }
 
+/// The command line of a tool input: a string, or an argv array joined
+/// (codex-acp hands `["bash", "-lc", "…"]`).
+fn command_of(input: &serde_json::Value) -> Option<String> {
+    match input.get("command")? {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Array(parts) => Some(
+            parts
+                .iter()
+                .filter_map(|p| p.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn bash(command: &str) -> String {
         serde_json::json!({ "command": command }).to_string()
+    }
+
+    /// claude's sheet: the shell tool is `Bash`.
+    const CLAUDE: &[&str] = &["Bash"];
+
+    fn check(tool: &str, input: &str) -> Option<String> {
+        let sheet: Vec<String> = CLAUDE.iter().map(|s| s.to_string()).collect();
+        super::check(tool, input, &sheet)
+    }
+
+    #[test]
+    fn an_acp_execute_tool_is_a_shell_tool_when_the_sheet_says_so() {
+        // Over ACP the agent's shell tool is whatever the agent calls it;
+        // the plugin reports the ACP `kind` ("execute") and the sheet
+        // names it — the gate must fire there exactly as on Bash.
+        let sheet = vec!["execute".to_string()];
+        assert!(super::check("execute", &bash("kubectl apply -f deploy.yaml"), &sheet).is_some());
+        assert_eq!(super::check("execute", &bash("kubectl get pods"), &sheet), None);
+        // The sheet decides the name: with claude's sheet, "execute" is not a shell tool by name…
+        // …but a shell-looking input still is (below).
+    }
+
+    #[test]
+    fn a_command_given_as_an_argv_array_is_read_as_one_line() {
+        // codex-acp's shell tool hands the command as argv.
+        let input = serde_json::json!({ "command": ["bash", "-lc", "terraform apply -auto-approve"], "workdir": "/p" }).to_string();
+        assert!(super::check("execute", &input, &["execute".to_string()]).is_some());
+    }
+
+    #[test]
+    fn a_shell_looking_input_is_gated_whatever_the_tool_is_called() {
+        // The belt under the sheet: an input with a `command` is a shell
+        // command whoever runs it. A false positive is one extra human
+        // click; a false negative is terraform apply in production.
+        assert!(super::check("run_shell_command", &bash("helm uninstall api"), &[]).is_some());
+        assert_eq!(super::check("run_shell_command", &bash("ls -la"), &[]), None);
+    }
+
+    #[test]
+    fn a_tool_with_no_command_in_it_is_not_a_shell_tool() {
+        let read = serde_json::json!({ "path": "/etc/hosts" }).to_string();
+        assert_eq!(super::check("read_file", &read, &["execute".to_string()]), None);
+        assert_eq!(super::check("Read", &read, &["Bash".to_string()]), None);
     }
 
     #[test]

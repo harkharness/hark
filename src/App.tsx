@@ -31,7 +31,7 @@ import WorkerChips from "./components/WorkerChips";
 import TurnStatus, { type TurnState } from "./components/TurnStatus";
 import { useWorkerDefaults } from "./hooks/useWorkerDefaults";
 import { useAgentCatalog } from "./hooks/useAgentCatalog";
-import { modelPillFor, unsupported } from "./lib/support";
+import { bypassFloorFor, modelPillFor, unsupported } from "./lib/support";
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import { useRepoStates } from "./hooks/useRepoStates";
 import RepoRuler from "./components/RepoRuler";
@@ -2796,6 +2796,7 @@ export default function App({
                   appliesTo={focused ? labelFor(focused) : undefined}
                   windowDefault={defaults.modeInForce}
                   disabled={modeOff}
+                  bypassOff={bypassFloorFor(catalog, focusedAgent)}
                   onSelect={selectMode}
                 />
                 <ModelSelect

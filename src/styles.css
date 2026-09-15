@@ -1347,6 +1347,9 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   background: none; border: none; border-radius: 8px; padding: 6px 9px;
   font: inherit; text-align: left; cursor: pointer; color: var(--text);
 }
+/* A row the agent in this chat cannot take (bypass over ACP): shown, dim, its reason on hover. */
+.mm-row.off { opacity: 0.45; cursor: not-allowed; }
+
 .mm-row.cursor { background: rgba(255,255,255,.05); }
 /* What is chosen reads as a check in the accent, not as a coloured slab. */
 .mm-row.on { background: var(--panel-2); }

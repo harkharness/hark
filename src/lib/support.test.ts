@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { costFooter, modelPillFor, tierOf, unsupported, type Catalog } from "./support";
+import { bypassFloorFor, costFooter, modelPillFor, tierOf, unsupported, type Catalog } from "./support";
 import { DEFAULT_TIERS } from "../components/ModelSelect";
 import { t } from "./i18n";
 
@@ -131,5 +131,21 @@ describe("the model pill speaks in tiers, each agent in its own names", () => {
     expect(modelPillFor(withTables, "mystery", DEFAULT_TIERS)).toEqual({ tiers: DEFAULT_TIERS });
     expect(modelPillFor(withTables, "nobody", DEFAULT_TIERS)).toEqual({ tiers: DEFAULT_TIERS });
     expect(modelPillFor(undefined, "gemini", DEFAULT_TIERS)).toEqual({ tiers: DEFAULT_TIERS });
+  });
+});
+
+describe("bypass has a floor on claude only", () => {
+  const withPlugins: Catalog = {
+    claude: { ...catalog.claude, plugin: "claude" },
+    gemini: { ...catalog.gemini, plugin: "acp" },
+    mystery: catalog.mystery,
+  };
+  it("is off in an ACP chat, naming the agent and the reason", () => {
+    expect(bypassFloorFor(withPlugins, "gemini")).toBe(t("cap_no_bypass_floor", { name: "Gemini CLI" }));
+  });
+  it("stays available on claude, and on an agent nothing is known about", () => {
+    expect(bypassFloorFor(withPlugins, "claude")).toBeUndefined();
+    expect(bypassFloorFor(withPlugins, "mystery")).toBeUndefined();
+    expect(bypassFloorFor(withPlugins, undefined)).toBeUndefined();
   });
 });

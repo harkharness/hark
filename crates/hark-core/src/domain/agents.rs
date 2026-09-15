@@ -289,6 +289,30 @@ pub fn spoken_agent(utterance: &str, entries: &[AgentEntry]) -> Option<String> {
         .map(|e| e.id.clone())
 }
 
+/// Directives an agent can honour SAFELY. Bypass on claude runs under a
+/// deny floor (`prodgate::BYPASS_DENY_RULES`, passed as --disallowedTools):
+/// kubectl, terraform and friends cannot run at all. Nothing of the kind
+/// crosses ACP — in `yolo` or `bypassPermissions` the agent asks nothing
+/// and the production gate never sees the command. So on any non-claude
+/// plugin bypass becomes acceptEdits, and the note says so out loud.
+pub fn with_floor(
+    entry: &AgentEntry,
+    mut directives: crate::domain::directives::Directives,
+) -> (crate::domain::directives::Directives, Option<String>) {
+    use crate::domain::directives::Mode;
+    if entry.plugin != "claude" && directives.mode == Some(Mode::Bypass) {
+        directives.mode = Some(Mode::AcceptEdits);
+        return (
+            directives,
+            Some(format!(
+                "bypass não atravessa o {}: o piso de segurança (regras de negação) é do claude; abrindo em acceptEdits",
+                entry.name
+            )),
+        );
+    }
+    (directives, None)
+}
+
 /// The four tiers every pill and router speak in.
 pub const TIERS: [&str; 4] = ["light", "standard", "heavy", "max"];
 
@@ -649,5 +673,51 @@ mod registry_ids {
         let mut over = BTreeMap::new();
         over.insert("codex".to_string(), AgentEntry { registry: Some("codex-next".into()), ..Default::default() });
         assert_eq!(resolve(&merge(&over), "codex").unwrap().registry.as_deref(), Some("codex-next"));
+    }
+}
+
+#[cfg(test)]
+mod floors {
+    //! Bypass mode on claude runs under a deny floor (`prodgate::
+    //! BYPASS_DENY_RULES` as --disallowedTools): kubectl, terraform and
+    //! friends cannot run at all. No such floor crosses ACP — a `yolo`
+    //! gemini or a `bypassPermissions` claude-agent-acp asks nothing and
+    //! the production gate never sees the command.
+    use super::*;
+    use crate::domain::directives::{Directives, Effort, Mode};
+
+    fn builtin(id: &str) -> AgentEntry {
+        resolve(&builtins(), id).unwrap().clone()
+    }
+
+    #[test]
+    fn bypass_on_an_acp_agent_becomes_accept_edits_and_says_why() {
+        let asked = Directives { mode: Some(Mode::Bypass), effort: Some(Effort::Low), model: None };
+        let (kept, note) = with_floor(&builtin("gemini"), asked);
+        assert_eq!(kept.mode, Some(Mode::AcceptEdits));
+        assert_eq!(kept.effort, Some(Effort::Low), "only the mode moves");
+        let note = note.expect("the downgrade is said out loud");
+        assert!(note.contains("bypass") && note.contains("acceptEdits"), "{note}");
+    }
+
+    #[test]
+    fn bypass_on_claude_keeps_its_floor_and_passes() {
+        let asked = Directives { mode: Some(Mode::Bypass), effort: None, model: None };
+        let (kept, note) = with_floor(&builtin("claude"), asked.clone());
+        assert_eq!(kept, asked);
+        assert_eq!(note, None);
+        // A claude twin (a gateway entry) runs the same CLI, same floor.
+        let twin = AgentEntry { id: "claude-litellm".into(), plugin: "claude".into(), cmd: "claude".into(), ..Default::default() };
+        assert_eq!(with_floor(&twin, asked.clone()).0, asked);
+    }
+
+    #[test]
+    fn other_modes_cross_acp_untouched() {
+        for mode in [Mode::Manual, Mode::AcceptEdits, Mode::Plan, Mode::Auto] {
+            let asked = Directives { mode: Some(mode), effort: None, model: None };
+            assert_eq!(with_floor(&builtin("codex"), asked.clone()), (asked, None));
+        }
+        let none = Directives::default();
+        assert_eq!(with_floor(&builtin("codex"), none.clone()), (none, None));
     }
 }
