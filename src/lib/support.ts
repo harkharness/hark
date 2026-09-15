@@ -121,3 +121,15 @@ export function bypassFloorFor(catalog: Catalog | undefined, agent: string | und
   if (!sheet || !sheet.capabilities || !sheet.plugin) return undefined;
   return sheet.plugin === "claude" ? undefined : t("cap_no_bypass_floor", { name: sheet.name });
 }
+
+/**
+ * Why "resume in the terminal" is off for this agent: the line Hark
+ * types is `claude --resume <id>`, claude's own. An ACP agent's session
+ * has no such line Hark knows; an agent nothing is known about is not
+ * accused.
+ */
+export function terminalResumeFor(catalog: Catalog | undefined, agent: string | undefined): string | undefined {
+  const sheet = catalog && agent ? catalog[agent] : undefined;
+  if (!sheet || !sheet.capabilities || !sheet.plugin) return undefined;
+  return sheet.plugin === "claude" ? undefined : t("term_resume_other", { name: sheet.name });
+}

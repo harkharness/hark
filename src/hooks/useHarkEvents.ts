@@ -69,6 +69,8 @@ type Handlers = {
     sessionId?: string | null,
     errorCode?: string | null,
     model?: string | null,
+    /** Registry id of the agent that produced the turn. */
+    agent?: string | null,
   ) => void;
   /**
    * Whether THIS window announces events out loud (turn done, permission
@@ -203,6 +205,7 @@ export function useHarkEvents(h: Handlers) {
           ev.session_id,
           authFail ? "agent_auth" : ev.error_code,
           ev.model,
+          ev.agent,
         );
         if (h.announce && h.speakRef.current) {
           const spoken = ev.label ?? label;

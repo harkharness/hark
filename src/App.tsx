@@ -31,7 +31,7 @@ import WorkerChips from "./components/WorkerChips";
 import TurnStatus, { type TurnState } from "./components/TurnStatus";
 import { useWorkerDefaults } from "./hooks/useWorkerDefaults";
 import { useAgentCatalog } from "./hooks/useAgentCatalog";
-import { bypassFloorFor, modelPillFor, unsupported } from "./lib/support";
+import { bypassFloorFor, modelPillFor, terminalResumeFor, unsupported } from "./lib/support";
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import { useRepoStates } from "./hooks/useRepoStates";
 import RepoRuler from "./components/RepoRuler";
@@ -127,6 +127,13 @@ export default function App({
   // speaks. Every control that needs a capability asks the sheet first,
   // so a feature this plugin lacks shows as disabled-with-a-reason.
   const { catalog, selected: selectedAgent } = useAgentCatalog();
+  // The turn handler below is a stable callback: it reads the catalog
+  // through a ref so a chat that opened before the sheet arrived still
+  // sees the sheet when its context fills up.
+  const catalogRef = useRef(catalog);
+  useEffect(() => {
+    catalogRef.current = catalog;
+  }, [catalog]);
   const [agentBySession, setAgentBySession] = useState<Record<string, string>>({});
   const focusedSession = focusedTask?.sessionId ?? "";
   useEffect(() => {
@@ -587,6 +594,8 @@ export default function App({
         _cost?: number,
         _session?: string | null,
         errorCode?: string | null,
+        _model?: string | null,
+        agent?: string | null,
       ) => {
         endTurn(label, taskId);
         // Auth death is fatal and identical on retry: the remedy is the
@@ -599,14 +608,23 @@ export default function App({
         if (taskId && contextPct != null) {
           if (contextPct >= 0.85 && !autoCompacted.current.has(taskId)) {
             autoCompacted.current.add(taskId);
-            compacting.current.add(label);
-            push({
-              who: "sys",
-              text: `contexto em ${Math.round(contextPct * 100)}% — compactando sozinho`,
-              task: label,
-            });
-            beginTurn(label);
-            ipc.workerSend(taskId, "/compact", []).catch(() => endTurn(label));
+            // "/compact" is claude's; an ACP agent has it only when it
+            // announced it. Sent elsewhere it is a paid, useless turn.
+            const pct = Math.round(contextPct * 100);
+            void (async () => {
+              const sheet = agent ? catalogRef.current[agent] : undefined;
+              if (sheet && sheet.plugin !== "claude") {
+                const cmds = await ipc.slashCommands(forcedProject?.path).catch(() => [] as string[]);
+                if (!cmds.some((c) => c.replace(/^\//, "") === "compact")) {
+                  push({ who: "sys", text: t("no_compact_here", { name: sheet.name }), task: label });
+                  return;
+                }
+              }
+              compacting.current.add(label);
+              push({ who: "sys", text: `contexto em ${pct}% — compactando sozinho`, task: label });
+              beginTurn(label);
+              ipc.workerSend(taskId, "/compact", []).catch(() => endTurn(label));
+            })();
           } else if (contextPct < 0.7) {
             autoCompacted.current.delete(taskId);
           }
@@ -2411,7 +2429,11 @@ export default function App({
       }
       actions={
         focusedTask?.sessionId ? (
-          <TerminalResume onResumeSession={pasteResume} spent={!!heldBy} />
+          <TerminalResume
+            onResumeSession={pasteResume}
+            spent={!!heldBy}
+            disabled={terminalResumeFor(catalog, focusedAgent)}
+          />
         ) : undefined
       }
       expanded={expanded === "terminal"}

@@ -343,6 +343,13 @@ fixtures come from the wire, not from the spec). Per capability:
   record rather than "unsupported".
 - **live list** — absent: no equivalent of `claude agents --json`, so a
   terminal cannot hold an ACP session and the mirror never engages there.
+- **claude's own lines stay claude's** — "resume in the terminal" types
+  `claude --resume <id>`; in a chat on another agent the button stays,
+  off, with the reason. Auto-compaction at 85% of the window sends
+  "/compact", claude's command: an ACP agent gets it only when its
+  announced commands include `compact`; otherwise the chat says so and
+  points at "restart light", which works everywhere (the brief comes
+  from Hark's record).
 - `fs/*` and `terminal/*` are declined at initialize: the agent uses its
   own tools; Hark answers `-32601` if asked anyway.
 

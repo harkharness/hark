@@ -66,16 +66,19 @@ export function TerminalTabs({
 export function TerminalResume({
   onResumeSession,
   spent,
+  disabled,
 }: {
   onResumeSession: () => void;
   /** The session is already running here: the button has nothing to do. */
   spent?: boolean;
+  /** The line is claude's; for another agent the button stays, off, with the reason. */
+  disabled?: string;
 }) {
   return (
     <button
-      className={`term-resume ${spent ? "spent" : ""}`}
-      title={`${t("term_resume")} — ${t("term_resume_hint")}`}
-      disabled={spent}
+      className={`term-resume ${spent ? "spent" : ""}${disabled ? " unsupported" : ""}`}
+      title={disabled ?? `${t("term_resume")} — ${t("term_resume_hint")}`}
+      disabled={spent || !!disabled}
       onClick={onResumeSession}
     >
       <SquareChevronRight size={13} />

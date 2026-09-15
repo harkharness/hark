@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bypassFloorFor, costFooter, modelPillFor, tierOf, unsupported, type Catalog } from "./support";
+import { bypassFloorFor, costFooter, modelPillFor, terminalResumeFor, tierOf, unsupported, type Catalog } from "./support";
 import { DEFAULT_TIERS } from "../components/ModelSelect";
 import { t } from "./i18n";
 
@@ -147,5 +147,20 @@ describe("bypass has a floor on claude only", () => {
     expect(bypassFloorFor(withPlugins, "claude")).toBeUndefined();
     expect(bypassFloorFor(withPlugins, "mystery")).toBeUndefined();
     expect(bypassFloorFor(withPlugins, undefined)).toBeUndefined();
+  });
+});
+
+describe("resume in the terminal is claude's line", () => {
+  const withPlugins: Catalog = {
+    claude: { ...catalog.claude, plugin: "claude" },
+    gemini: { ...catalog.gemini, plugin: "acp" },
+    mystery: catalog.mystery,
+  };
+  it("is off for an ACP agent, by name", () => {
+    expect(terminalResumeFor(withPlugins, "gemini")).toBe(t("term_resume_other", { name: "Gemini CLI" }));
+  });
+  it("stays on for claude and for the unknown", () => {
+    expect(terminalResumeFor(withPlugins, "claude")).toBeUndefined();
+    expect(terminalResumeFor(withPlugins, "mystery")).toBeUndefined();
   });
 });
