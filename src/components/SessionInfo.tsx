@@ -40,6 +40,7 @@ export default function SessionInfo({
   onDetail,
   agent,
   catalog,
+  onHandoff,
 }: {
   taskTitle?: string;
   sessionId?: string;
@@ -54,6 +55,8 @@ export default function SessionInfo({
   onClose: () => void;
   /** "Ver detalhamento" → the /usage card lands in the thread. */
   onDetail?: () => void;
+  /** Move the focused LIVE task to another usable agent (worker_handoff). */
+  onHandoff?: (agent: string) => void;
 }) {
   const [stats, setStats] = useState<Stats | null>(null);
   // No session file on disk is a fact about the plugin, not a glitch.
@@ -204,6 +207,34 @@ export default function SessionInfo({
             <span>{t("si_focused")}</span>
           </div>
           <p className="hint">{historyOff}</p>
+        </section>
+      )}
+
+      {onHandoff && agent && catalog && (
+        // The agent behind the thread, and the door to the others: a
+        // handoff is a fresh session there with a local brief of this one.
+        <section className="scope-block">
+          <div className="scope-block-head">
+            <span>{t("si_agent")}</span>
+            <b>{catalog[agent]?.name ?? agent}</b>
+          </div>
+          <div className="si-handoff">
+            {Object.values(catalog)
+              .filter((sheet) => sheet.usable && sheet.id !== agent)
+              .map((sheet) => (
+                <button
+                  key={sheet.id}
+                  className="ob-btn"
+                  title={t("si_handoff_hint")}
+                  onClick={() => {
+                    onHandoff(sheet.id);
+                    onClose();
+                  }}
+                >
+                  {t("si_handoff", { name: sheet.name })}
+                </button>
+              ))}
+          </div>
         </section>
       )}
 

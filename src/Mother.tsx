@@ -665,7 +665,7 @@ export default function Mother() {
       openProject({ name: cmd.title, path: cmd.path });
       if (cmd.instruction) {
         try {
-          await ipc.chatStart(cmd.path, cmd.instruction);
+          await ipc.chatStart(cmd.path, cmd.instruction, undefined, undefined, undefined, cmd.agent ?? undefined);
           say(st("sp_chat_started", { t: cmd.title }));
         } catch (err) {
           push({ who: "sys", text: `chat: ${err}` });
@@ -727,6 +727,12 @@ export default function Mother() {
     } else if (cmd.kind === "open_settings") {
       setSettingsOpen(true);
       say("Configurações na tela.");
+    } else if (cmd.kind === "handoff") {
+      // The mother has no focused thread to move: the project window does.
+      say(st("sp_handoff_needs_thread"));
+    } else if (cmd.kind === "agent_error") {
+      push({ who: "sys", text: cmd.title });
+      say(cmd.title);
     } else if (cmd.kind === "compact" || cmd.kind === "set_mode") {
       say("Isso é na janela do chat focado.");
       push({ who: "sys", text: "compactar/modo agem no chat focado — abre a janela dele" });

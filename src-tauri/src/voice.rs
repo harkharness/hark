@@ -274,7 +274,7 @@ pub fn voice_execute(
     let out: serde_json::Value = if new_task || session_id.is_none() {
         let ws = workspace.clone().ok_or("nenhum projeto pra abrir o chat")?;
         let started =
-            super::chat_start(app.clone(), app.state(), ws, instruction.clone(), None, None, None)?;
+            super::chat_start(app.clone(), app.state(), ws, instruction.clone(), None, None, None, None)?;
         serde_json::to_value(started).map_err(|e| e.to_string())?
     } else {
         let session = session_id.clone().unwrap();

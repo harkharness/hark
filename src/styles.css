@@ -2467,6 +2467,9 @@ button.plugin-toggle:hover { color: var(--text); border-color: var(--border-stro
   margin-top: 6px;
   flex-wrap: wrap;
 }
+/* The popover's handoff row: one button per other usable agent. */
+.si-handoff { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+
 
 
 /* Self-update: one quiet pill over the tab bar. It never blinks, never

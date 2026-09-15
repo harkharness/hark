@@ -375,6 +375,28 @@ Failures carry the same health codes as the claude plugin
 auth failure carries the registry's `login_hint` so the card's runnable
 fix is the agent's own command.
 
+## Handoff: the same task, another agent
+
+"Troca esse chat pro gemini" (`task_command::Handoff`; also "muda/passa/
+manda essa thread/conversa pro …", "hand/switch/move this chat to …")
+moves the thread in focus to another agent: `worker_handoff(task_id,
+agent)` shuts the session down, opens a FRESH session on the target with
+a local, zero-token brief of the old transcript as its first message —
+session formats do not cross agents, briefs do, and since F9.4 the brief
+exists for an ACP session too (Hark's record) — on the SAME task: same
+card, same title. The registry record moves first (`memory::hand_off`):
+the agent it leaves and the session id go into `lineage`, the new id
+lands at `SessionStarted` as for any fresh session. A target that is not
+usable here (installed and switched on) is refused by name; so is the
+agent the thread already runs on; the mother's own chat follows the
+selected agent instead. The session popover (the ⓘ of a focused live
+thread) shows the agent behind it and one button per other usable agent.
+"Abre um chat gemini no hark" opens a NEW chat on a named agent: the
+grammar stays the new-chat grammar (the last "no X" names the project),
+the shell reads the agent word from the sentence (`agents::spoken_agent`,
+usable agents only) and `chat_start` takes it — refused by name when it
+is not usable, never a quiet fallback to the default.
+
 ## Out-of-process plugins: ACP is the protocol
 
 An earlier note designed a Hark-specific stdio protocol ("HAP"). It died

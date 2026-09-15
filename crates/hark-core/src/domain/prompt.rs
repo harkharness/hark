@@ -408,6 +408,7 @@ mod tests {
                 status: WorkerStatus::Running,
                 started_at: "2026-08-14T11:30:00Z".into(),
                 summary: "abrir PR do DNS antigo".into(),
+                lineage: Vec::new(),
             }],
             board: "[doing]\n- Migração do DNS antigo (atualizado 2026-08-14)".into(),
         }

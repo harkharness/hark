@@ -369,6 +369,7 @@ mod tests {
             status,
             started_at: "2026-08-17T09:00:00Z".into(),
             summary: summary.into(),
+            lineage: Vec::new(),
         }
     }
 

@@ -66,6 +66,9 @@ export default function App({
   // Mode/model/effort defaults for this window — seeded from config and
   // written back on every pick. Shared with the mother's chat.
   const defaults = useWorkerDefaults(overview ?? null);
+  // "abre um chat gemini no hark" with no first task yet: the agent waits
+  // with the draft until the first message opens the chat.
+  const draftAgent = useRef<string | undefined>(undefined);
   const modeDefault = defaults.mode;
   const modelDefault = defaults.model;
   const effortDefault = defaults.effort;
@@ -932,7 +935,7 @@ export default function App({
   }
 
   /** First message of a "+" draft: opens a brand-new session in the project. */
-  async function runNewChat(project: Project, instruction: string) {
+  async function runNewChat(project: Project, instruction: string, agent?: string) {
     setBusy("abrindo sessão nova…");
     const from = currentThread() ?? GENERAL;
     push({ who: "sys", text: `novo chat em ${project.name}` });
@@ -945,6 +948,7 @@ export default function App({
         modeDefault ?? undefined,
         modelDefault || undefined,
         effortDefault || undefined,
+        agent,
       );
       if (out.status === "started") {
         const label = instruction.split(/\s+/).slice(0, 5).join(" ");
@@ -1254,11 +1258,23 @@ export default function App({
         say("Não consegui adicionar esse projeto.");
       } else if (cmd.kind === "new_chat") {
         if (cmd.instruction) {
-          await runNewChat({ name: cmd.title, path: cmd.path }, cmd.instruction);
+          await runNewChat({ name: cmd.title, path: cmd.path }, cmd.instruction, cmd.agent ?? undefined);
         } else {
+          draftAgent.current = cmd.agent ?? undefined;
           startDraftChat({ name: cmd.title, path: cmd.path });
           say(st("sp_new_chat_first", { t: cmd.title }));
         }
+      } else if (cmd.kind === "handoff") {
+        // The focused LIVE thread moves; nothing else could.
+        if (focused && liveWorkers[focused]) {
+          push({ who: "sys", text: st("sp_handoff_go", { a: cmd.name }), task: labelFor(focused) });
+          await ipc.workerHandoff(focused, cmd.agent).catch((err) => push({ who: "sys", text: `handoff: ${err}` }));
+        } else {
+          say(st("sp_handoff_needs_thread"));
+        }
+      } else if (cmd.kind === "agent_error") {
+        push({ who: "sys", text: cmd.title });
+        say(cmd.title);
       } else if (cmd.kind === "open_project") {
         await ipc.openProjectWindow(cmd.title, cmd.path).catch((err) =>
           push({ who: "sys", text: `janela: ${err}` }),
@@ -1371,7 +1387,8 @@ export default function App({
 
     // A pending "+" draft: this message opens the new session.
     if (draftChat && !toHark) {
-      await runNewChat(draftChat, text);
+      await runNewChat(draftChat, text, draftAgent.current);
+      draftAgent.current = undefined;
       return;
     }
 
@@ -2655,6 +2672,16 @@ export default function App({
                         workspace={forcedProject?.path}
                         agent={focusedAgent}
                         catalog={catalog}
+                        onHandoff={
+                          focused && liveWorkers[focused]
+                            ? (agent: string) => {
+                                push({ who: "sys", text: st("sp_handoff_go", { a: catalog[agent]?.name ?? agent }), task: labelFor(focused) });
+                                void ipc
+                                  .workerHandoff(focused, agent)
+                                  .catch((err) => push({ who: "sys", text: `handoff: ${err}` }));
+                              }
+                            : undefined
+                        }
                         costs={costs}
                         onClose={() => setScopeInfo(false)}
                         onDetail={() => {

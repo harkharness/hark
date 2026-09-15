@@ -120,6 +120,10 @@ export const workerStop = (taskId: string) => invoke("worker_stop", { taskId });
  *  LOCAL brief (zero tokens). */
 export const workerRestartLight = (taskId: string) =>
   invoke("worker_restart_light", { taskId });
+/** Move a live task to another agent: fresh session there, opened with a
+ *  local brief of this one (zero tokens); same card, lineage kept. */
+export const workerHandoff = (taskId: string, agent: string) =>
+  invoke("worker_handoff", { taskId, agent });
 
 /** The savings meter: what the architecture avoided spending, with the
  *  formula of every counter in `methodology`. */
@@ -194,6 +198,8 @@ export const chatStart = (
   mode?: string,
   model?: string,
   effort?: string,
+  /** Registry id to open the chat on ("abre um chat gemini…"); default when absent. */
+  agent?: string,
 ) =>
   invoke<DispatchOutcome>("chat_start", {
     projectPath,
@@ -201,6 +207,7 @@ export const chatStart = (
     mode: mode ?? null,
     model: model ?? null,
     effort: effort || null,
+    agent: agent ?? null,
   });
 
 /** Sessions a human is holding at a terminal (ours or any other app). */

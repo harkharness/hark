@@ -17,10 +17,38 @@ pub struct WorkerRecord {
     pub status: WorkerStatus,
     pub started_at: String,
     pub summary: String,
+    /// Where this task has been before a handoff moved it: the agent and
+    /// the session it left, and when. Empty for a task that never moved.
+    #[serde(default)]
+    pub lineage: Vec<Lineage>,
 }
 
 fn claude_id() -> String {
     "claude".into()
+}
+
+/// One earlier life of a task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Lineage {
+    pub agent: String,
+    pub session_id: String,
+    pub ended_at: String,
+}
+
+/// "Troca esse chat pro gemini": the SAME task (same card, same title)
+/// moves to another agent on a fresh session. The session it leaves goes
+/// into the lineage; the new id is unknown until the agent answers
+/// (SessionStarted fills it, as for any fresh session).
+pub fn hand_off(record: WorkerRecord, agent: &str, now: &str) -> WorkerRecord {
+    let mut lineage = record.lineage;
+    lineage.push(Lineage { agent: record.agent, session_id: record.session_id, ended_at: now.to_string() });
+    WorkerRecord {
+        agent: agent.to_string(),
+        session_id: String::new(),
+        status: WorkerStatus::Running,
+        lineage,
+        ..record
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,10 +273,65 @@ mod tests {
             status: WorkerStatus::Running,
             started_at: "2026-08-14T10:00:00Z".into(),
             summary: "open PR".into(),
+            lineage: Vec::new(),
         };
         let json = serde_json::to_string(&record).unwrap();
         assert!(json.contains(r#""status":"running""#));
         let back: WorkerRecord = serde_json::from_str(&json).unwrap();
         assert_eq!(back, record);
+    }
+}
+
+#[cfg(test)]
+mod handoff {
+    //! "Troca esse chat pro gemini": the SAME task moves to another agent
+    //! on a fresh session, and the record remembers where it has been.
+    use super::*;
+
+    fn record() -> WorkerRecord {
+        WorkerRecord {
+            task_id: "t-1".into(),
+            agent: "claude".into(),
+            context: "all".into(),
+            workspace: "/p/hark".into(),
+            session_id: "s-claude".into(),
+            status: WorkerStatus::Running,
+            started_at: "2026-09-15T10:00:00Z".into(),
+            summary: "abre o PR".into(),
+            lineage: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_handoff_moves_the_task_and_keeps_where_it_came_from() {
+        let moved = hand_off(record(), "gemini", "2026-09-15T11:00:00Z");
+        assert_eq!(moved.agent, "gemini");
+        // The new session's id is not known yet — SessionStarted fills it.
+        assert_eq!(moved.session_id, "");
+        assert_eq!(moved.task_id, "t-1", "same task, same card");
+        assert_eq!(moved.status, WorkerStatus::Running);
+        assert_eq!(
+            moved.lineage,
+            vec![Lineage { agent: "claude".into(), session_id: "s-claude".into(), ended_at: "2026-09-15T11:00:00Z".into() }]
+        );
+    }
+
+    #[test]
+    fn a_second_handoff_appends_to_the_lineage() {
+        let once = hand_off(record(), "gemini", "t1");
+        let mut settled = once.clone();
+        settled.session_id = "s-gemini".into();
+        let twice = hand_off(settled, "claude", "t2");
+        assert_eq!(twice.lineage.len(), 2);
+        assert_eq!(twice.lineage[1].agent, "gemini");
+        assert_eq!(twice.lineage[1].session_id, "s-gemini");
+        assert_eq!(twice.agent, "claude");
+    }
+
+    #[test]
+    fn a_record_written_before_lineage_existed_still_loads() {
+        let old = r#"{"task_id":"t","agent":"claude","context":"all","workspace":"/p","session_id":"s","status":"done","started_at":"x","summary":"y"}"#;
+        let rec: WorkerRecord = serde_json::from_str(old).unwrap();
+        assert!(rec.lineage.is_empty());
     }
 }

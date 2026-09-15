@@ -1464,6 +1464,7 @@ fn update_registry_and_board(
         status,
         started_at: now_iso(),
         summary: instruction.chars().take(120).collect(),
+        lineage: Vec::new(),
     });
     let _ = state_file::save(&config.data_dir(), &gstate);
 
@@ -1492,6 +1493,7 @@ fn update_registry_and_board(
 /// No plan/resume: the session id arrives via `SessionStarted` and is then
 /// linked to the board task and registry.
 #[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
 fn chat_start(
     app: AppHandle,
     live: State<'_, LiveWorkers>,
@@ -1500,16 +1502,24 @@ fn chat_start(
     mode: Option<String>,
     model: Option<String>,
     effort: Option<String>,
+    agent: Option<String>,
 ) -> Result<DispatchOut, String> {
     let config = Config::load();
     let root = std::path::PathBuf::from(hark_core::config::expand_home(&project_path));
     if !root.is_dir() {
         return Err(format!("diretório não existe: {}", root.display()));
     }
+    // "abre um chat gemini no hark": a named agent opens the chat when it
+    // is usable here; refused by name otherwise, never a quiet fallback.
+    let agent = match agent.filter(|a| !a.is_empty()) {
+        Some(id) => usable_agent_named(&config, &id)
+            .ok_or_else(|| format!("{id} não está pronto nesta máquina — instalado e ligado no catálogo?"))?,
+        None => agent_for(&config, ""),
+    };
     let task_id = format!("n-{}", Utc::now().format("%m%d%H%M%S"));
     update_registry_and_board(
         &config,
-        &agent_for(&config, ""),
+        &agent,
         &task_id,
         &root,
         None,
@@ -1527,7 +1537,7 @@ fn chat_start(
     directives.effort = directives.effort.or_else(|| {
         effort.as_deref().and_then(hark_core::domain::directives::Effort::from_flag)
     });
-    let spawn = fresh_spawn(&config, root, String::new(), instruction, directives.clone());
+    let spawn = SessionSpec { agent, ..fresh_spawn(&config, root, String::new(), instruction, directives.clone()) };
     start_worker(&app, &live, &task_id, spawn).map_err(|e| e.to_string())?;
     Ok(DispatchOut::Started { task_id, directives })
 }
@@ -2418,6 +2428,108 @@ fn worker_restart_light(
     start_worker_titled(&app, &live, &task_id, spec, Some(title)).map_err(|e| e.to_string())
 }
 
+/// The registry id an agent word names, when that agent is usable here
+/// (enabled and detected) — `spoken_agent` over the words, or the id
+/// itself. None when nothing usable was named.
+fn usable_agent_named(config: &Config, words: &str) -> Option<String> {
+    use hark_core::domain::agents;
+    let entries = agents::merge(&config.agents);
+    let detected = agents_detected(config, &entries);
+    let id = agents::resolve(&entries, words.trim())
+        .map(|e| e.id.clone())
+        .or_else(|| agents::spoken_agent(words, &entries))?;
+    agents::usable(&entries, &detected).iter().any(|e| e.id == id).then_some(id)
+}
+
+/// A LOCAL, zero-token brief of a session's transcript — claude's file or
+/// Hark's record alike. None when nothing is on disk for it yet.
+fn local_brief(config: &Config, session: &str) -> Option<String> {
+    use hark_core::ports::SessionStore;
+    let store = SqliteStore::open(&config.data_dir().join("index.db")).ok()?;
+    let path = store.session_path(session).ok().flatten()?;
+    let text = std::fs::read_to_string(&path).ok()?;
+    let entries = hark_core::domain::transcript::tail_entries(text.lines(), 400);
+    let brief = hark_core::domain::transcript::brief(&entries, 1500);
+    (!brief.trim().is_empty()).then_some(brief)
+}
+
+/// "Troca esse chat pro gemini": the SAME task (card, title) moves to
+/// another agent on a fresh session opened with a local brief of this one
+/// (zero tokens — session formats do not cross agents, briefs do). The
+/// registry keeps the lineage; SessionStarted fills the new id as for any
+/// fresh session. Always behind a click or a spoken order.
+#[tauri::command(async)]
+fn worker_handoff(
+    app: AppHandle,
+    live: State<'_, LiveWorkers>,
+    task_id: String,
+    agent: String,
+) -> Result<(), String> {
+    use hark_core::domain::agents;
+    if task_id == HARK_CHAT_TASK {
+        return Err("o chat da mãe segue o agente selecionado nas configurações".into());
+    }
+    let handle = live
+        .0
+        .lock()
+        .unwrap()
+        .get(&task_id)
+        .cloned()
+        .ok_or("worker não está mais ativo")?;
+    let config = Config::load();
+    let entries = agents::merge(&config.agents);
+    let target = agents::resolve(&entries, &agent)
+        .cloned()
+        .ok_or_else(|| format!("agente desconhecido: {agent}"))?;
+    if usable_agent_named(&config, &target.id).is_none() {
+        return Err(format!("{} não está pronto nesta máquina — instalado e ligado no catálogo?", target.name));
+    }
+    if target.id == handle.spec.agent {
+        return Err(format!("essa thread já roda no {}", target.name));
+    }
+    let from = agents::resolve(&entries, &handle.spec.agent)
+        .map(|e| e.name.clone())
+        .unwrap_or_else(|| handle.spec.agent.clone());
+    // The session actually backing this task now (registry beats spawn).
+    let session = state_file::load(&config.data_dir())
+        .workers
+        .iter()
+        .find(|w| w.task_id == task_id)
+        .map(|w| w.session_id.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| handle.spec.session_id.clone());
+    let brief = local_brief(&config, &session);
+    let title = worker_board_title(Some(&session), &handle.spec.instruction);
+    emit_event(
+        &app,
+        serde_json::json!({ "kind": "status", "task_id": task_id,
+            "text": format!("passando \"{title}\" do {from} pro {}: sessão nova{}", target.name,
+                if brief.is_some() { " com resumo local" } else { ", sem histórico local desta sessão" }) }),
+    );
+    // The record moves first: where it has been, and who runs it now.
+    let mut gstate = state_file::load(&config.data_dir());
+    if let Some(pos) = gstate.workers.iter().position(|w| w.task_id == task_id) {
+        let record = gstate.workers.remove(pos);
+        gstate.workers.insert(pos, hark_core::domain::memory::hand_off(record, &target.id, &now_iso()));
+        let _ = state_file::save(&config.data_dir(), &gstate);
+    }
+    handle.session.shutdown();
+    let instruction = match brief {
+        Some(brief) => format!(
+            "Contexto local da conversa anterior (resumo gerado sem custo, vindo de outro agente):\n{brief}\n\nContinue o trabalho de onde paramos."
+        ),
+        None => format!("Você assume a tarefa \"{title}\" no lugar de outro agente; não há resumo local. Pergunte o que falta e continue."),
+    };
+    let spec = SessionSpec {
+        agent: target.id.clone(),
+        session_id: String::new(),
+        instruction,
+        fork: false,
+        ..handle.spec.clone()
+    };
+    start_worker_titled(&app, &live, &task_id, spec, Some(title)).map_err(|e| e.to_string())
+}
+
 fn describe(d: &hark_core::domain::directives::Directives) -> String {
     [
         d.mode.map(|m| format!("modo {}", m.label())),
@@ -2773,6 +2885,7 @@ fn dispatch_text(
         status: WorkerStatus::Running,
         started_at: now_iso(),
         summary: instruction.chars().take(120).collect(),
+        lineage: Vec::new(),
     });
     let _ = state_file::save(&config.data_dir(), &gstate);
 
@@ -4110,15 +4223,47 @@ fn task_command(
         TaskCommand::NewChat { project, instruction } => {
             let config = Config::load();
             let projects = load_projects(&config);
+            // "abre um chat GEMINI no hark": an agent named in the sentence
+            // (before any instruction) opens the chat there — when it is
+            // usable here; otherwise the default agent, as ever.
+            let head = instruction
+                .as_deref()
+                .and_then(|i| text.find(i))
+                .map(|i| text[..i].to_string())
+                .unwrap_or_else(|| text.clone());
+            let agent = usable_agent_named(&config, &head);
             return Ok(Some(
                 match hark_core::domain::project::find(&projects, project) {
                     Some(hit) => serde_json::json!({
                         "kind": "new_chat", "title": hit.name, "path": hit.path,
-                        "instruction": instruction,
+                        "instruction": instruction, "agent": agent,
                     }),
                     None => serde_json::json!({ "kind": "not_found", "query": project }),
                 },
             ));
+        }
+        // "troca esse chat pro gemini": the thread in focus moves; the
+        // window that owns it does the move (worker_handoff).
+        TaskCommand::Handoff { target } => {
+            use hark_core::domain::agents;
+            let config = Config::load();
+            let entries = agents::merge(&config.agents);
+            let id = agents::resolve(&entries, &target.to_lowercase())
+                .map(|e| e.id.clone())
+                .or_else(|| agents::spoken_agent(target, &entries));
+            return Ok(Some(match id {
+                Some(id) => {
+                    let name = agents::resolve(&entries, &id).map(|e| e.name.clone()).unwrap_or_else(|| id.clone());
+                    if usable_agent_named(&config, &id).is_some() {
+                        serde_json::json!({ "kind": "handoff", "agent": id, "name": name })
+                    } else {
+                        serde_json::json!({ "kind": "agent_error",
+                            "title": format!("{name} não está pronto nesta máquina — instalado e ligado no catálogo?") })
+                    }
+                }
+                None => serde_json::json!({ "kind": "agent_error",
+                    "title": format!("não conheço o agente \"{target}\"") }),
+            }));
         }
         TaskCommand::OpenProject { query, instruction } => {
             let config = Config::load();
@@ -4244,7 +4389,8 @@ fn task_command(
         | TaskCommand::FindSession { .. }
         | TaskCommand::Compact
         | TaskCommand::SetMode { .. }
-        | TaskCommand::OpenSettings => {
+        | TaskCommand::OpenSettings
+        | TaskCommand::Handoff { .. } => {
             unreachable!("handled above")
         }
     };
@@ -4290,7 +4436,8 @@ fn task_command(
             | TaskCommand::FindSession { .. }
             | TaskCommand::Compact
             | TaskCommand::SetMode { .. }
-            | TaskCommand::OpenSettings => unreachable!("handled above"),
+            | TaskCommand::OpenSettings
+            | TaskCommand::Handoff { .. } => unreachable!("handled above"),
         }
     })
 }
@@ -4731,6 +4878,7 @@ pub fn run() {
             worker_start,
             worker_send,
             worker_restart_light,
+            worker_handoff,
             savings_summary,
             eco_status,
             setup_status,

@@ -259,8 +259,11 @@ export type TaskCommandResult =
   | { kind: "open_file"; query: string; project?: string | null }
   | { kind: "project_added"; title: string; path: string }
   | { kind: "project_error"; title: string }
-  | { kind: "new_chat"; title: string; path: string; instruction?: string | null }
+  | { kind: "new_chat"; title: string; path: string; instruction?: string | null; agent?: string | null }
   | { kind: "open_project"; title: string; path: string; instruction?: string | null }
+  /** "troca esse chat pro gemini": the focused thread moves to `agent`. */
+  | { kind: "handoff"; agent: string; name: string }
+  | { kind: "agent_error"; title: string }
   | { kind: "open_hq"; tab: "board" | "custos" }
   | { kind: "session_candidates"; query: string; candidates: SessionHit[] }
   /** Board tasks too close to call: the user picks, never a silent guess. */

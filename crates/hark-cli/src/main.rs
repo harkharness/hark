@@ -619,6 +619,7 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
         status: WorkerStatus::Running,
         started_at: now_iso(),
         summary: instruction.chars().take(120).collect(),
+        lineage: Vec::new(),
     });
     let _ = state_file::save(&config.data_dir(), &state);
 

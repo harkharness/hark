@@ -50,7 +50,24 @@ pub enum TaskCommand {
     SetMode { mode: String },
     /// Open the settings screen (config.toml behind a UI).
     OpenSettings,
+    /// Move the thread you are in to another agent, on a fresh session
+    /// opened with a local brief of this one ("troca esse chat pro
+    /// gemini"). `target` is what was said; the shell resolves it against
+    /// the registry.
+    Handoff { target: String },
 }
+
+/// "troca esse chat", "hand this thread": the thread moves. The agent
+/// follows a preposition; without one there is no target and no command.
+const HANDOFF_VERBS: &[&str] = &[
+    "troca esse chat", "troca essa thread", "troca essa conversa",
+    "muda esse chat", "muda essa thread", "muda essa conversa",
+    "passa esse chat", "passa essa thread", "passa essa conversa",
+    "manda esse chat", "manda essa thread", "manda essa conversa",
+    "hand this chat", "hand this thread", "switch this chat", "switch this thread",
+    "move this chat", "move this thread",
+];
+const HANDOFF_TO: &[&str] = &["para o ", "para a ", "para ", "pra o ", "pra a ", "pra ", "pro ", "to "];
 
 /// Words that only glue the sentence together and never name a task.
 const FILLER: &[&str] = &[
@@ -127,6 +144,9 @@ const NEW_CHAT_VERBS: &[&str] = &[
     "novo chat", "inicia um chat", "iniciar um chat", "roda um chat",
     "rode um chat", "executa um chat", "cria um chat", "começa um chat",
     "comeca um chat",
+    // "abre um chat gemini no hark" — the shape the multi-agent grammar
+    // was asked for; "abre O chat" (an existing thread) stays a switch.
+    "abre um chat", "abra um chat", "abrir um chat", "open a chat",
     "new chat", "start a chat", "open a new chat", "create a chat",
 ];
 /// Ambiguous ("nova task" is usually real work): only a chat command when
@@ -264,6 +284,26 @@ fn split_once_word(text: &str, sep: &str) -> Option<(String, String)> {
     })
 }
 
+/// The words after the LAST place phrase ("no X", "em X"…) that starts a
+/// word: "no gemini no hark" names hark; "casino no hark" is not "no " in
+/// "casino". Ties at one position go to the more specific phrase, which
+/// is why "no projeto " precedes "no " in every list handed here.
+fn last_place(text: &str, seps: &[&str]) -> Option<String> {
+    let lower = text.to_lowercase();
+    seps.iter()
+        .enumerate()
+        .filter_map(|(rank, sep)| {
+            let at = lower
+                .match_indices(sep)
+                .map(|(i, _)| i)
+                .filter(|&i| i == 0 || lower[..i].ends_with(' '))
+                .last()?;
+            Some((at, rank, text[at + sep.len()..].trim().to_string()))
+        })
+        .min_by_key(|(at, rank, _)| (std::cmp::Reverse(*at), *rank))
+        .map(|(_, _, tail)| tail)
+}
+
 /// Parse a board command, or None when the sentence is real work.
 pub fn parse(utterance: &str) -> Option<TaskCommand> {
     let lower = utterance.to_lowercase();
@@ -273,6 +313,15 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
             .map(|i| utterance[i + needle.len()..].trim().to_string())
     };
 
+    if let Some(verb) = HANDOFF_VERBS.iter().find(|v| lower.contains(**v)) {
+        let rest = after(verb)?;
+        let rest_lower = rest.to_lowercase();
+        let target = HANDOFF_TO
+            .iter()
+            .find(|to| rest_lower.starts_with(**to))
+            .map(|to| rest[to.len()..].trim().to_string())?;
+        return (!target.is_empty()).then_some(TaskCommand::Handoff { target });
+    }
     if let Some(verb) = OPEN_FILE_VERBS.iter().find(|v| lower.contains(**v)) {
         let rest = after(verb)?;
         let rest_lower = rest.to_lowercase();
@@ -314,13 +363,16 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
             .map(|(p, i)| (p, Some(i).filter(|s| !s.is_empty())))
             .unwrap_or((rest.trim().to_string(), None));
         // "no projeto X" | "no X" | "em X" | "in X" — the name is the rest.
-        let project = [
-            "no projeto ", "na projeto ", "no ", "na ", "em ",
-            "in the project ", "in project ", "in ", "on ",
-        ]
-            .iter()
-            .find_map(|sep| split_once_word(&place, sep).map(|(_, tail)| tail))
-            .unwrap_or(place);
+        // The LAST such phrase names the project: "abre um chat no gemini
+        // no hark" opens in hark (the agent word is the shell's to read).
+        let project = last_place(
+            &place,
+            &[
+                "no projeto ", "na projeto ", "no ", "na ", "em ",
+                "in the project ", "in project ", "in ", "on ",
+            ],
+        )
+        .unwrap_or(place);
         return (!project.is_empty()).then_some(TaskCommand::NewChat { project, instruction });
     }
     if let Some(verb) = OPEN_PROJECT_VERBS.iter().find(|v| lower.contains(**v)) {
@@ -966,5 +1018,53 @@ mod incident_2408 {
             }
             other => panic!("expected a session lookup, got {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod handoff_grammar {
+    //! "Troca esse chat pro gemini": the thread you are in moves to
+    //! another agent. The agent is left as the words said; the shell
+    //! resolves them against the registry (`agents::spoken_agent`).
+    use super::*;
+
+    fn handoff(utterance: &str) -> Option<String> {
+        match parse(utterance) {
+            Some(TaskCommand::Handoff { target }) => Some(target),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_thread_is_handed_to_another_agent_in_portuguese() {
+        assert_eq!(handoff("troca esse chat pro gemini").as_deref(), Some("gemini"));
+        assert_eq!(handoff("muda essa thread para o claude").as_deref(), Some("claude"));
+        assert_eq!(handoff("passa esse chat pra o codex").as_deref(), Some("codex"));
+        assert_eq!(handoff("Manda essa conversa pro Gemini CLI").as_deref(), Some("Gemini CLI"));
+    }
+
+    #[test]
+    fn and_in_english() {
+        assert_eq!(handoff("hand this chat to gemini").as_deref(), Some("gemini"));
+        assert_eq!(handoff("switch this thread to claude").as_deref(), Some("claude"));
+        assert_eq!(handoff("move this chat to codex").as_deref(), Some("codex"));
+    }
+
+    #[test]
+    fn a_new_chat_on_an_agent_is_not_a_handoff() {
+        // The agent word rides a NEW chat: the shell reads it from the
+        // utterance; the grammar stays the new-chat grammar, and the
+        // project is still the words after "no".
+        for said in ["abre um chat gemini no hark", "cria um chat no gemini no hark", "open a chat on gemini in hark"] {
+            match parse(said) {
+                Some(TaskCommand::NewChat { project, .. }) => assert_eq!(project, "hark", "{said}"),
+                other => panic!("{said}: {other:?}"),
+            }
+            assert_eq!(handoff(said), None);
+        }
+        // Nor is switching the permission mode.
+        assert_eq!(handoff("troca o modo pra plan"), None);
+        // A handoff with no agent named is nothing.
+        assert_eq!(handoff("troca esse chat pro"), None);
     }
 }

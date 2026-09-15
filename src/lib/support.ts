@@ -17,6 +17,8 @@ export type AgentSheet = {
   plugin?: string;
   /** What this agent calls each tier; empty when its registry line has no table. */
   models?: Record<string, string>;
+  /** Installed and switched on: a thread can be handed to it. */
+  usable?: boolean;
 };
 export type Catalog = Record<string, AgentSheet>;
 
@@ -24,7 +26,14 @@ export function toCatalog(plugins: AgentPlugin[]): Catalog {
   return Object.fromEntries(
     plugins.map((p) => [
       p.id,
-      { id: p.id, name: p.name, capabilities: p.capabilities, plugin: p.plugin, models: p.models ?? {} },
+      {
+        id: p.id,
+        name: p.name,
+        capabilities: p.capabilities,
+        plugin: p.plugin,
+        models: p.models ?? {},
+        usable: p.detected && p.enabled,
+      },
     ]),
   );
 }
