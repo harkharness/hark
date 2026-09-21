@@ -91,7 +91,7 @@ mod tests {
     #[test]
     fn a_term_is_never_repeated_however_it_was_written() {
         let bias = speech_bias(&s(&["Vigia"]), &[], &s(&["vigia chart", "VIGIA rollout"]), 500);
-        assert_eq!(bias.matches("eimdall").count(), 1, "{bias}");
+        assert_eq!(bias.matches("igia").count(), 1, "{bias}");
     }
 
     #[test]
