@@ -13,7 +13,7 @@ import type { OpenFile, Project } from "/src/types";
 
 const ROOT = "/Users/dev/Projects/vox";
 const VOX: Project = { name: "vox", path: ROOT };
-const OTHER: Project = { name: "workspace-fabrica", path: "/Users/dev/Projects/workspace-fabrica" };
+const OTHER: Project = { name: "workspace-acme", path: "/Users/dev/Projects/workspace-acme" };
 // Stable, like the App's state: a fresh array per render would refetch the filter.
 const PROJECTS: Project[] = [VOX, OTHER];
 

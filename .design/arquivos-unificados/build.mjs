@@ -152,7 +152,7 @@ function treeColumn({ activePath = "README.md", width = 232 } = {}) {
   return `<div style="width: ${width}px; flex: 0 0 auto; display: flex; flex-direction: column; min-height: 0; background: ${T.panel}">
     ${searchRow()}
     <div style="flex: 1; overflow: hidden; padding: 6px 8px; display: flex; flex-direction: column">
-      ${projectRow("workspace-fabrica", false)}
+      ${projectRow("workspace-acme", false)}
       ${projectRow("vox", true)}
       <div style="margin: 2px 0 8px">${rows}</div>
     </div>
