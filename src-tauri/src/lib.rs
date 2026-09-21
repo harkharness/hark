@@ -1849,9 +1849,30 @@ fn agent_plugins() -> Result<serde_json::Value, String> {
     // with a deprecation notice that only an update fixes.
     let registry = gstate.registry;
 
+    // Every binary's `--version` is a process spawn, and node-based CLIs
+    // take a second or two each to start: probed one after another they
+    // held the catalog for several seconds. Probed at once, it waits for
+    // the slowest only.
+    let versions: Vec<serde_json::Value> = std::thread::scope(|scope| {
+        let handles: Vec<_> = entries
+            .iter()
+            .map(|e| {
+                let here = detected.contains(&e.id);
+                let config = &config;
+                let registry = registry.as_ref();
+                scope.spawn(move || version_row(config, e, here, registry))
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or(serde_json::Value::Null))
+            .collect()
+    });
+
     let out: Vec<serde_json::Value> = entries
         .iter()
-        .map(|e| {
+        .zip(versions)
+        .map(|(e, version)| {
             let here = detected.contains(&e.id);
             serde_json::json!({
                 "id": e.id,
@@ -1894,7 +1915,7 @@ fn agent_plugins() -> Result<serde_json::Value, String> {
                 // overrides merged). Empty = no table: the model pill says
                 // so instead of offering claude's names to a codex.
                 "models": e.models,
-                "version": version_row(&config, e, here, registry.as_ref()),
+                "version": version,
                 // The native plugin declares its sheet in code. An ACP
                 // agent negotiates its own at every handshake; before one
                 // has happened the catalog shows the pessimistic default

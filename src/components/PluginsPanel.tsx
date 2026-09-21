@@ -123,6 +123,11 @@ export default function PluginsPanel({
     }
   };
 
+  // The first answer takes a moment (the backend probes every binary's
+  // version): the shape of the cards, not an empty list that reads as
+  // "no agents", and no form or footer under nothing.
+  const loading = busy && plugins.length === 0;
+
   return (
     <div className="plugins">
       {!compact && (
@@ -131,6 +136,23 @@ export default function PluginsPanel({
         </div>
       )}
       {error && <div className="ob-warn">{error}</div>}
+      {loading && (
+        <div className="plugins-loading" aria-busy>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="plugin-card plugin-skeleton" aria-hidden>
+              <div className="sk-line" style={{ width: "38%" }} />
+              <div className="sk-line thin" style={{ width: "60%" }} />
+              <div className="sk-pills">
+                <span />
+                <span />
+                <span />
+                <span />
+              </div>
+            </div>
+          ))}
+          <div className="plugins-loading-note">{t("pl_loading")}</div>
+        </div>
+      )}
 
       {plugins.map((p) => {
         // Runnable: in the registry, installed, switched on. Both plugins
@@ -288,7 +310,7 @@ export default function PluginsPanel({
         );
       })}
 
-      {onEditConfig && (
+      {!loading && onEditConfig && (
         <form
           className="plugins-add"
           onSubmit={(e) => {
@@ -323,21 +345,23 @@ export default function PluginsPanel({
         </form>
       )}
 
-      <div className="plugins-foot">
-        {t("pl_foot")}
-        <div className="plugins-registry">
-          <span>
-            {checking
-              ? t("pl_checking")
-              : checkedAt
-                ? t("pl_checked_at", { when: new Date(checkedAt).toLocaleString() })
-                : t("pl_never_checked")}
-          </span>
-          <button className="ob-btn" disabled={checking} onClick={() => void checkUpdates()}>
-            <RefreshCw size={12} /> {t("pl_check_updates")}
-          </button>
+      {!loading && (
+        <div className="plugins-foot">
+          {t("pl_foot")}
+          <div className="plugins-registry">
+            <span>
+              {checking
+                ? t("pl_checking")
+                : checkedAt
+                  ? t("pl_checked_at", { when: new Date(checkedAt).toLocaleString() })
+                  : t("pl_never_checked")}
+            </span>
+            <button className="ob-btn" disabled={checking} onClick={() => void checkUpdates()}>
+              <RefreshCw size={12} /> {t("pl_check_updates")}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

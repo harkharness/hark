@@ -144,6 +144,9 @@ const plugins = [
         return null;
       }
       case "agent_plugins":
+        // The real one probes every binary's version: seconds, not ms.
+        await new Promise((resolve) => setTimeout(resolve, 1800));
+        return plugins;
       case "agent_registry_refresh":
         return plugins;
       case "tts_voices":

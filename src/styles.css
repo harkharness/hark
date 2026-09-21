@@ -2766,3 +2766,13 @@ button.plugin-toggle:hover { color: var(--text); border-color: var(--border-stro
 
 /* A refused write is a warning, not a success line. */
 .viewer-status.err { color: var(--warn); }
+
+/* The catalog while the backend still probes each binary's version: the
+   shape of the cards, breathing, instead of an empty list that read as
+   "no agents" (screenshot, 21/09). */
+.plugin-skeleton { pointer-events: none; animation: pulse 1.4s ease-in-out infinite; }
+.plugin-skeleton .sk-line { height: 12px; border-radius: 6px; background: rgba(255,255,255,.08); margin-bottom: 8px; }
+.plugin-skeleton .sk-line.thin { height: 9px; opacity: .7; }
+.plugin-skeleton .sk-pills { display: flex; gap: 6px; margin-top: 4px; }
+.plugin-skeleton .sk-pills span { width: 84px; height: 18px; border-radius: 9px; background: rgba(255,255,255,.06); }
+.plugins-loading-note { color: var(--dim); font-size: 11.5px; padding: 2px 4px 8px; }

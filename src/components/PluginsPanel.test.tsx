@@ -61,3 +61,19 @@ describe("an agent's knobs from config, on its card", () => {
     expect(queryByTitle(t("pl_edit_config"))).toBeNull();
   });
 });
+
+describe("while the catalog is still being read", () => {
+  it("shows placeholders where the cards will be, and no form or footer yet", async () => {
+    // The backend probes every binary's version before it answers, which
+    // takes seconds: an empty list in the meantime read as "no agents".
+    const { invoke } = await import("@tauri-apps/api/core");
+    (invoke as unknown as { mockImplementationOnce: (f: () => Promise<never>) => void }).mockImplementationOnce(
+      () => new Promise<never>(() => {}),
+    );
+    const { getByText, queryByText, container } = render(<PluginsPanel onEditConfig={() => {}} />);
+    expect(getByText(t("pl_loading"))).toBeTruthy();
+    expect(container.querySelectorAll(".plugin-skeleton").length).toBeGreaterThan(0);
+    expect(queryByText(t("pl_add_agent"))).toBeNull();
+    expect(queryByText(t("pl_check_updates"))).toBeNull();
+  });
+});
