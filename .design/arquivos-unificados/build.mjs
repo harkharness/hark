@@ -458,7 +458,7 @@ function railContext() {
     ${sideRow("Arquivos numa janela só", true, T.ok)}
     ${sideRow("Historiador das sessões ACP", false, T.warn)}
     ${sideRow("Catálogo com versão publicada", false, T.dim)}
-    <div style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; color: ${T.dim}; font-size: 10.5px; letter-spacing: 1px; padding: 0 4px"><span>WORKSPACE-FABRICA</span><span style="display: flex; gap: 8px; align-items: center">${icon("plus", 12)}${icon("folderTree", 12)}</span></div>
+    <div style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; color: ${T.dim}; font-size: 10.5px; letter-spacing: 1px; padding: 0 4px"><span>WORKSPACE-ACME</span><span style="display: flex; gap: 8px; align-items: center">${icon("plus", 12)}${icon("folderTree", 12)}</span></div>
     ${sideRow("Alertas do cluster migra…", false, T.dim)}
   </div>`;
 
