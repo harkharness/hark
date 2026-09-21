@@ -129,8 +129,6 @@ export default function Mother() {
     text: string;
     plan: Extract<import("./types").VoicePlan, { kind: "work" }>;
   } | null>(null);
-  // App-level settings modal (machine config; project config is elsewhere).
-
   // "+ projeto" card flips into a path input.
   const [addingProject, setAddingProject] = useState(false);
   // What the voice did and where: the command-center feed.
@@ -411,10 +409,9 @@ export default function Mother() {
   // The focus ledger (Rust) keeps the last PROJECT window as the spoken
   // default — glancing at the mother must not send work to the global ask.
 
-  // Esc anywhere in this window: settings close first, then recording →
-  // cut the capture, otherwise → cut the voice. Cmd+, opens settings.
-  // Esc leaves the settings tab for the one it came from, the way it
-  // used to close the dialog.
+  // Esc anywhere in this window: the settings tab leaves first (for the
+  // tab it came from, the way the dialog used to close), then recording
+  // → cut the capture, otherwise → cut the voice. Cmd+, opens settings.
   const tabRef = useRef<MotherTab>(tab);
   const prevTab = useRef<MotherTab>("voz");
   useEffect(() => {
