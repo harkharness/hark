@@ -34,3 +34,6 @@ src-tauri/icons/ios/
 # publicado é 2 MB de editor empacotado, regenerável com um comando.
 .design/**/*.html
 !.design/**/*.dc.html
+
+# Dev-server entry for the browser pane: machine-local.
+.claude/launch.json

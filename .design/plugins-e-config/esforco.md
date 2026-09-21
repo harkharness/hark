@@ -125,3 +125,46 @@ modal de hoje (prancha `Estreito`). Ordem sugerida: E1 → E3 → E2 → E4.
   divergência deliberada, e o teste precisa fixá-la.
 - **Matizes de fornecedor** são escolha nossa, não ativo de marca; se um
   dia isso incomodar, trocar o matiz é uma linha por fornecedor.
+
+---
+
+## Entregue (21/09)
+
+Tudo acima, menos a fatia que ficou de fora de propósito (edição
+estruturada de `env` e `models` por campo). E1 foi absorvido pelo E2: o
+modal não cresceu, ele deixou de existir.
+
+- **E2** — `Ajustes` é a quarta aba da mãe (`MotherTab`), com o layout
+  largo que board e custos já usavam. Os quatro caminhos que abriam o
+  modal (engrenagem, `cmd+,`, a voz "abre as configurações" e o pedido
+  vindo de outra janela) trocam a aba; Esc volta para a aba anterior.
+- **E3** — grade responsiva de cards + painel de detalhe. Marca por
+  fornecedor em `AgentMark`, lógica pura em `lib/agentMark.ts`. Clique
+  inspeciona, "usar este" adota. Capacidade ausente aparece marcada.
+- **E4** — navegação em três grupos, cabeçalho por seção com uma linha
+  de propósito, teto de medida de 720px nos formulários.
+
+### Diferenças conscientes em relação às pranchas
+
+1. **Sem glifo de plugue.** A prancha `Marcas` mostrava um glifo ACP
+   genérico. Na implementação, fornecedor conhecido tem glifo e
+   qualquer outro id cai no monograma — um plugue genérico faria dois
+   agentes ACP diferentes ficarem com a mesma cara, que é o problema
+   que a marca existe para resolver.
+2. **O card desligado diz só "desligado".** A prancha escrevia
+   "desligado · ligar", mas o clique no card passou a inspecionar, então
+   o interruptor mora no detalhe. A exceção é o assistente de primeira
+   execução: lá não existe detalhe, e o card mantém o botão "ligar" e o
+   comando de instalação — numa máquina nova é justamente onde a
+   instrução precisa estar.
+3. **A contagem do card** usa as seis capacidades que o detalhe lista,
+   não todos os booleanos da folha (a primeira versão dizia "11
+   capacidades" para um agente com seis).
+
+### Testes
+
+28 testes novos (105 no front, de 77): resolução de marca e matiz
+estável por id, o clique que não adota, o botão que adota, chaves de
+ambiente sem valor, ausência de capacidade marcada, contagem do card,
+criação de agente, as duas saídas do assistente de primeira execução,
+e a tela de ajustes sem modal.

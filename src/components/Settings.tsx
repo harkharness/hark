@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, FileCode2, Mic2, Plug, Settings2, Wrench, X } from "lucide-react";
+import { Bot, Check, FileCode2, Mic2, Plug, Settings2, Wrench } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import PluginsPanel from "./PluginsPanel";
 import FileViewer, { type ViewerIo } from "./FileViewer";
@@ -13,6 +13,16 @@ import {
 } from "../lib/updater";
 
 type Section = "geral" | "plugins" | "voz" | "workers" | "avancado" | "config";
+
+/** A section says what it is for before it asks for anything. */
+function Head({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <div className="set-head">
+      <h2>{title}</h2>
+      {hint && <p>{hint}</p>}
+    </div>
+  );
+}
 
 /** The composer's three pills write these same keys, so Settings offers
  *  the same choices — including the empty one, which is a real state in
@@ -44,8 +54,13 @@ const MODE_OPTIONS: [string, string][] = [
  * saves on change and hot-applies where possible (theme, mode, ceilings,
  * even the hotkey re-registers). Lives on the MOTHER window only: these
  * are machine-level settings, not project ones.
+ *
+ * A TAB of the mother window, not a dialog over it: the catalog wants
+ * width and the config.toml editor wants height, and a modal capped at
+ * 760x560 gave neither however big the display was. The mother mounts
+ * it only while its tab is showing, so mounting IS opening.
  */
-export default function Settings({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function Settings() {
   const [section, setSection] = useState<Section>("geral");
   const [snap, setSnap] = useState<ipc.ConfigSnapshot | null>(null);
   const [upState, setUpState] = useState<UpdateStatus>(lastStatus());
@@ -59,14 +74,13 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
   const savedTimer = useRef<number>(0);
 
   useEffect(() => {
-    if (!open) return;
     ipc.configRead().then(setSnap).catch(() => {});
     ipc.ttsVoices().then(setVoices).catch(() => setVoices([]));
     currentVersion().then(setVersion);
     setUpState(lastStatus());
-  }, [open]);
+  }, []);
 
-  if (!open || !snap) return null;
+  if (!snap) return null;
   const v = snap.values;
 
   /** Look for an update right now instead of waiting for the next poll. */
@@ -227,43 +241,58 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
     );
   }
 
-  const sections: { id: Section; name: string; icon: React.ReactNode }[] = [
-    { id: "geral", name: t("set_general"), icon: <Settings2 size={14} /> },
-    { id: "plugins", name: t("set_plugins"), icon: <Plug size={14} /> },
-    { id: "voz", name: t("set_voice"), icon: <Mic2 size={14} /> },
-    { id: "workers", name: t("set_workers"), icon: <Bot size={14} /> },
-    { id: "avancado", name: t("set_advanced"), icon: <Wrench size={14} /> },
-    { id: "config", name: t("set_config"), icon: <FileCode2 size={14} /> },
+  const groups: { name: string; items: { id: Section; name: string; icon: React.ReactNode }[] }[] = [
+    {
+      name: t("set_group_you"),
+      items: [
+        { id: "geral", name: t("set_general"), icon: <Settings2 size={14} /> },
+        { id: "voz", name: t("set_voice"), icon: <Mic2 size={14} /> },
+      ],
+    },
+    {
+      name: t("set_group_agents"),
+      items: [
+        { id: "plugins", name: t("set_plugins"), icon: <Plug size={14} /> },
+        { id: "workers", name: t("set_workers"), icon: <Bot size={14} /> },
+      ],
+    },
+    {
+      name: t("set_group_machine"),
+      items: [
+        { id: "avancado", name: t("set_advanced"), icon: <Wrench size={14} /> },
+        { id: "config", name: t("set_config"), icon: <FileCode2 size={14} /> },
+      ],
+    },
   ];
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal settings" onClick={(e) => e.stopPropagation()}>
-        <nav className="set-nav">
-          <h3>{t("set_title")}</h3>
-          {sections.map((s) => (
-            <button
-              key={s.id}
-              className={section === s.id ? "on" : ""}
-              onClick={() => setSection(s.id)}
-            >
-              {s.icon} {s.name}
-            </button>
-          ))}
-          <div className="set-path" title={snap.path}>
-            {snap.path.replace(/^\/Users\/[^/]+/, "~")}
+    <div className="setview">
+      <nav className="set-nav">
+        {groups.map((g) => (
+          <div key={g.name} className="set-group">
+            <div className="set-group-name">{g.name}</div>
+            {g.items.map((s) => (
+              <button
+                key={s.id}
+                className={section === s.id ? "on" : ""}
+                onClick={() => setSection(s.id)}
+              >
+                {s.icon} {s.name}
+              </button>
+            ))}
           </div>
-        </nav>
+        ))}
+        <div className="set-path" title={snap.path}>
+          {snap.path.replace(/^\/Users\/[^/]+/, "~")}
+        </div>
+      </nav>
 
-        <div className={`set-body ${section === "config" ? "set-body-fill" : ""}`}>
-          <button className="set-close" onClick={onClose} title={t("set_close")}>
-            <X size={15} />
-          </button>
-          {error && <div className="gate-warning">⚠ {error}</div>}
+      <div className={`set-body ${section === "config" || section === "plugins" ? "set-body-fill" : ""}`}>
+        {error && <div className="gate-warning">⚠ {error}</div>}
 
           {section === "geral" && (
-            <>
-              <h2>{t("set_general")}</h2>
+          <div className="set-form">
+            <Head title={t("set_general")} hint={t("set_general_hint")} />
               <Field
                 label={t("set_assistant_name")}
                 hint={t("set_assistant_hint")}
@@ -339,8 +368,8 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
                 value={v.hotkey}
                 placeholder="cmd+shift+space"
               />
-            </>
-          )}
+          </div>
+        )}
 
           {section === "plugins" && (
             <PluginsPanel
@@ -360,8 +389,8 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
           )}
 
           {section === "voz" && (
-            <>
-              <h2>{t("set_voice")}</h2>
+          <div className="set-form">
+            <Head title={t("set_voice")} hint={t("set_voice_hint2")} />
               <Select
                 label={t("set_tts")}
                 hint={t("set_tts_hint")}
@@ -394,12 +423,12 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
                   ["auto", t("lang_auto")],
                 ]}
               />
-            </>
-          )}
+          </div>
+        )}
 
           {section === "workers" && (
-            <>
-              <h2>{t("set_workers")}</h2>
+          <div className="set-form">
+            <Head title={t("set_workers")} hint={t("set_workers_hint2")} />
               <Select
                 label={t("set_mode")}
                 hint={t("set_mode_hint")}
@@ -447,12 +476,12 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
                 value={v.prompt_budget_chars}
                 number
               />
-            </>
-          )}
+          </div>
+        )}
 
           {section === "avancado" && (
-            <>
-              <h2>{t("set_advanced")}</h2>
+          <div className="set-form">
+            <Head title={t("set_advanced")} hint={t("set_advanced_hint")} />
               <Field
                 label={t("set_claude")}
                 hint={t("set_claude_hint", { path: snap.claude_bin_resolved })}
@@ -473,9 +502,8 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
                 </div>
                 <code className="set-ro">{snap.data_dir}</code>
               </div>
-            </>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

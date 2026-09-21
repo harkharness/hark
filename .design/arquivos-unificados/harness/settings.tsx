@@ -6,6 +6,7 @@
 import { createRoot } from "react-dom/client";
 import "/src/styles.css";
 import Settings from "/src/components/Settings";
+import PluginsPanel from "/src/components/PluginsPanel";
 
 let CONFIG_TEXT = `# Hark — ~/.hark/config.toml
 model = "sonnet"
@@ -50,75 +51,104 @@ const values = {
   models: { light: "haiku", standard: "sonnet", heavy: "opus", max: "fable" },
 };
 
-const version = (installed: string) => ({
+const version = (installed: string, behind?: string) => ({
   installed,
-  current: null,
-  freshness: { state: "unknown" },
-  update: null,
+  current: behind ?? null,
+  freshness: behind ? { state: "behind", installed, current: behind } : { state: "unknown" },
+  update: behind ? `npm install -g @google/gemini-cli@${behind}` : null,
   checked_at: new Date().toISOString(),
 });
 
+const caps = (over: Record<string, boolean> = {}) => ({
+  resume: true, permissions: true, structured_output: true, cost_reporting: true,
+  history: true, live_list: true, slash_commands: true, memory_file: "CLAUDE.md",
+  shell_tools: [], fork: true, directive_mode: true, directive_model: true,
+  directive_effort: true, ...over,
+});
+
+const agent = (over: Record<string, unknown>) => ({
+  plugin: "claude",
+  cmd: "claude",
+  vendor: "Anthropic",
+  status: "available",
+  detected: true,
+  enabled: true,
+  detail: "/Users/dev/.local/bin/claude",
+  install: "",
+  selected: false,
+  memory_file: "CLAUDE.md",
+  login_hint: null,
+  args: [],
+  env_keys: [],
+  models: { light: "haiku", standard: "sonnet", heavy: "opus", max: "fable" },
+  version: version("2.1.236"),
+  capabilities: caps(),
+  ...over,
+});
+
 const plugins = [
-  {
-    id: "claude",
-    name: "Claude Code",
-    plugin: "claude",
-    cmd: "claude",
-    vendor: "Anthropic",
-    status: "available",
-    detected: true,
-    enabled: true,
-    detail: "/Users/dev/.local/bin/claude",
-    install: "",
-    selected: true,
-    memory_file: "CLAUDE.md",
-    login_hint: null,
-    args: [],
-    env_keys: [],
-    models: { light: "haiku", standard: "sonnet", heavy: "opus", max: "fable" },
-    version: version("2.1.236"),
-    capabilities: { permissions: true, cost_reporting: true, history: true, resume: true, slash_commands: true, live_list: true },
-  },
-  {
+  agent({ id: "claude", name: "Claude Code", selected: true, login_hint: "claude /login" }),
+  agent({
     id: "claude-gateway",
-    name: "Claude Code (gateway)",
-    plugin: "claude",
-    cmd: "claude",
-    vendor: "Anthropic",
-    status: "available",
-    detected: true,
-    enabled: true,
-    detail: "/Users/dev/.local/bin/claude",
-    install: "",
-    selected: false,
-    memory_file: "CLAUDE.md",
+    name: "Claude via gateway",
     login_hint: "chave do gateway em env (Virtual Keys)",
-    args: [],
     env_keys: ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"],
-    models: { light: "claude-haiku-4-5", standard: "claude-sonnet-5", heavy: "claude-sonnet-5", max: "auto-routing-plan" },
-    version: version("2.1.236"),
-    capabilities: { permissions: true, cost_reporting: true, history: true, resume: true, slash_commands: true, live_list: true },
-  },
-  {
+    models: {
+      light: "claude-haiku-4-5",
+      standard: "claude-sonnet-5",
+      heavy: "claude-sonnet-5",
+      max: "auto-routing-plan",
+    },
+  }),
+  agent({
     id: "gemini",
     name: "Gemini CLI",
     plugin: "acp",
     cmd: "gemini",
     vendor: "Google",
-    status: "available",
-    detected: true,
-    enabled: true,
     detail: "",
     install: "npm install -g @google/gemini-cli",
-    selected: false,
-    memory_file: "GEMINI.md",
     login_hint: "gemini",
     args: ["--experimental-acp"],
-    env_keys: [],
-    models: { light: "gemini-2.5-flash-lite", standard: "gemini-2.5-flash", heavy: "gemini-2.5-pro", max: "gemini-2.5-pro" },
-    version: version("0.59.0"),
+    models: {
+      light: "gemini-2.5-flash-lite",
+      standard: "gemini-2.5-flash",
+      heavy: "gemini-2.5-pro",
+      max: "gemini-2.5-pro",
+    },
+    version: version("0.59.0", "0.60.0"),
+    capabilities: caps({ cost_reporting: false, history: false, live_list: false }),
+  }),
+  agent({
+    id: "codex",
+    name: "Codex",
+    plugin: "acp",
+    cmd: "codex-acp",
+    vendor: "OpenAI",
+    enabled: false,
+    detail: "/Users/dev/.local/bin/codex-acp",
+    install: "npm install -g @agentclientprotocol/codex-acp",
+    login_hint: "codex login",
+    args: ["--acp"],
+    models: { standard: "gpt-5-codex", heavy: "gpt-5-codex" },
+    version: version("0.12.1"),
     capabilities: null,
-  },
+  }),
+  agent({
+    id: "qwen-local",
+    name: "Qwen local",
+    plugin: "acp",
+    cmd: "qwen-acp",
+    vendor: "",
+    detected: false,
+    detail: "",
+    install: "npm install -g qwen-acp",
+    login_hint: null,
+    args: ["--acp"],
+    models: { standard: "qwen3-coder" },
+    version: version(""),
+    capabilities: null,
+  }),
 ];
 
 (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
@@ -159,4 +189,26 @@ const plugins = [
   metadata: {},
 };
 
-createRoot(document.getElementById("root")!).render(<Settings open onClose={() => {}} />);
+// The mother window's shell around the tab body, so the view has the
+// flex parent it gets in the app.
+// ?compact shows the catalog the way the first-run wizard gets it:
+// narrow, no detail panel, and the click picks the agent.
+const compact = new URLSearchParams(location.search).has("compact");
+
+createRoot(document.getElementById("root")!).render(
+  compact ? (
+    <div className="ob-card" style={{ maxWidth: 560, margin: "40px auto" }}>
+      <PluginsPanel compact onReady={() => {}} />
+    </div>
+  ) : (
+  <div className="mother mother-wide">
+    <nav className="tabs mother-tabs">
+      <button>voz</button>
+      <button>board</button>
+      <button>custos</button>
+      <button className="active">ajustes</button>
+    </nav>
+    <Settings />
+  </div>
+  ),
+);

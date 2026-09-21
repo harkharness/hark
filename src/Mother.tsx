@@ -31,7 +31,7 @@ import * as ipc from "./lib/ipc";
 import { checkForUpdate, restartIntoUpdate } from "./lib/updater";
 import type { BoardTask, Msg, Overview, Project, RateLimitState, SessionHit } from "./types";
 
-type MotherTab = "voz" | "board" | "custos";
+type MotherTab = "voz" | "board" | "custos" | "ajustes";
 
 /** The mother's persistent work chat (backend task id — off the board). */
 const HARK_CHAT = "hark-chat";
@@ -130,7 +130,7 @@ export default function Mother() {
     plan: Extract<import("./types").VoicePlan, { kind: "work" }>;
   } | null>(null);
   // App-level settings modal (machine config; project config is elsewhere).
-  const [settingsOpen, setSettingsOpen] = useState(false);
+
   // "+ projeto" card flips into a path input.
   const [addingProject, setAddingProject] = useState(false);
   // What the voice did and where: the command-center feed.
@@ -413,17 +413,26 @@ export default function Mother() {
 
   // Esc anywhere in this window: settings close first, then recording →
   // cut the capture, otherwise → cut the voice. Cmd+, opens settings.
-  const settingsOpenRef = useRef(false);
-  settingsOpenRef.current = settingsOpen;
+  // Esc leaves the settings tab for the one it came from, the way it
+  // used to close the dialog.
+  const tabRef = useRef<MotherTab>(tab);
+  const prevTab = useRef<MotherTab>("voz");
+  useEffect(() => {
+    if (tabRef.current !== tab) {
+      prevTab.current = tabRef.current;
+      tabRef.current = tab;
+    }
+  }, [tab]);
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
-        setSettingsOpen(true);
+        setTab("ajustes");
         return;
       }
       if (e.key !== "Escape") return;
-      if (settingsOpenRef.current) setSettingsOpen(false);
+      if (tabRef.current === "ajustes")
+        setTab(prevTab.current === "ajustes" ? "voz" : prevTab.current);
       // Still capturing: keep the words. Already transcribing: the words
       // are not coming, so kill the turn instead of waiting it out.
       else if (recordingRef.current) ipc.hearStop().catch(() => {});
@@ -537,7 +546,7 @@ export default function Mother() {
     onMainTab: useCallback((t: string) => {
       if (t === "board" || t === "custos") setTab(t);
       // Other windows/HUD redirect here: app settings live on the mother.
-      if (t === "settings") setSettingsOpen(true);
+      if (t === "settings") setTab("ajustes");
     }, []),
     // The chat speaks its ACTUAL reply (first sentence), not "task done".
     // Other chats finishing get the butler's offer — spoken through the
@@ -737,7 +746,7 @@ export default function Mother() {
       });
       say(st("sp_found_tasks", { n: cmd.candidates.length }));
     } else if (cmd.kind === "open_settings") {
-      setSettingsOpen(true);
+      setTab("ajustes");
       say("Configurações na tela.");
     } else if (cmd.kind === "handoff") {
       // The mother has no focused thread to move: the project window does.
@@ -1362,16 +1371,17 @@ export default function Mother() {
           {t("tab_costs")}
         </button>
         <button
-          className="mother-gear"
+          className={tab === "ajustes" ? "active" : ""}
           title={t("settings_btn")}
-          onClick={() => setSettingsOpen(true)}
+          onClick={() => setTab("ajustes")}
         >
-          <SettingsIcon size={14} />
+          <SettingsIcon size={12} /> {t("tab_settings")}
         </button>
       </nav>
-      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
-      {tab === "board" ? (
+      {tab === "ajustes" ? (
+        <Settings />
+      ) : tab === "board" ? (
         <Board
           tasks={overview?.board ?? []}
           projects={overview?.projects ?? []}
