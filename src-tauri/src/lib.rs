@@ -1887,6 +1887,9 @@ fn agent_plugins() -> Result<serde_json::Value, String> {
                 "selected": selected.as_deref() == Some(e.id.as_str()),
                 "memory_file": e.memory_file,
                 "login_hint": e.login_hint,
+                "args": e.args,
+                // Names only: the values are the user's secrets and stay in the file.
+                "env_keys": e.env.keys().cloned().collect::<Vec<String>>(),
                 // What this agent calls each tier (registry line, user
                 // overrides merged). Empty = no table: the model pill says
                 // so instead of offering claude's names to a codex.
@@ -3920,6 +3923,47 @@ fn config_write(app: AppHandle, patch: serde_json::Value) -> Result<(), String> 
     Ok(())
 }
 
+/// config.toml as text, for the editor inside Settings. A fresh install
+/// has no file yet: that is empty text, not an error.
+#[tauri::command]
+fn config_raw_read() -> Result<serde_json::Value, String> {
+    let path = hark_core::config::config_path();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    Ok(serde_json::json!({ "text": text, "path": path.display().to_string() }))
+}
+
+/// Write config.toml whole, from the editor inside Settings — after
+/// checking it would load. A file that does not parse comes back as
+/// defaults, silently, which is the one thing an editor must never be able
+/// to cause. Hot-applies like `config_write`: menu language, hotkey, and
+/// every window (and the plugin catalog) re-reads.
+#[tauri::command]
+fn config_raw_write(app: AppHandle, text: String) -> Result<(), String> {
+    hark_core::config::validate_toml(&text)?;
+    let path = hark_core::config::config_path();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let before = Config::load();
+    std::fs::write(&path, &text).map_err(|e| e.to_string())?;
+    let after = Config::load();
+    if before.ui_language != after.ui_language {
+        if let Ok(menu) = build_native_menu(&app) {
+            let _ = app.set_menu(menu);
+        }
+    }
+    if before.hotkey != after.hotkey {
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        let _ = app.global_shortcut().unregister(before.hotkey.as_str());
+        app.global_shortcut()
+            .register(after.hotkey.as_str())
+            .map_err(|e| format!("atalho inválido: {e}"))?;
+    }
+    let _ = app.emit("hark", serde_json::json!({ "kind": "config_changed" }));
+    let _ = app.emit("hark-plugins", ());
+    Ok(())
+}
+
 /// Voices the OS `say` engine offers, pt-* first (the answer voice).
 #[tauri::command(async)]
 fn tts_voices() -> Result<Vec<(String, String)>, String> {
@@ -4955,6 +4999,8 @@ pub fn run() {
             interpret_followup,
             config_read,
             config_write,
+            config_raw_read,
+            config_raw_write,
             tts_voices,
             open_external,
             evaluate,

@@ -465,6 +465,22 @@ pub fn patch_toml(text: &str, patch: &serde_json::Value) -> anyhow::Result<Strin
     Ok(doc.to_string())
 }
 
+/// Refuse a config.toml that would not load — TOML that does not parse,
+/// or a value of the wrong type — naming the line. `Config::load` falls
+/// back to defaults on a broken file, silently, which is the one thing an
+/// editor inside the app must never be able to cause.
+pub fn validate_toml(text: &str) -> Result<(), String> {
+    let line_of = |offset: usize| text[..offset.min(text.len())].matches('\n').count() + 1;
+    text.parse::<toml_edit::DocumentMut>().map_err(|e| {
+        let at = e.span().map(|s| line_of(s.start)).unwrap_or(1);
+        format!("linha {at}: {}", e.message())
+    })?;
+    toml::from_str::<Config>(text).map(|_| ()).map_err(|e| {
+        let at = e.span().map(|s| line_of(s.start)).unwrap_or(1);
+        format!("linha {at}: {}", e.message())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -759,5 +775,34 @@ match_cwd = ["/abs/beta"]
         let out = std::fs::read_to_string(&file).unwrap();
         assert!(out.contains("Application Support/hark/models"), "{out}");
         assert!(out.contains("theme = \"hark\""), "{out}");
+    }
+}
+
+#[cfg(test)]
+mod raw_edit_tests {
+    use super::*;
+
+    #[test]
+    fn a_config_that_parses_is_accepted_as_is() {
+        assert_eq!(validate_toml("model = \"sonnet\"\n[agents.twin]\nplugin = \"claude\"\n"), Ok(()));
+    }
+
+    #[test]
+    fn the_empty_file_is_a_valid_config_of_defaults() {
+        assert_eq!(validate_toml(""), Ok(()));
+    }
+
+    #[test]
+    fn a_syntax_slip_is_refused_and_named_by_line() {
+        // A broken file loads as ALL DEFAULTS today, silently: the editor
+        // must refuse to write one, and say where.
+        let err = validate_toml("model = \"sonnet\"\n[agents.twin\nplugin = \"claude\"\n").unwrap_err();
+        assert!(err.contains("linha 2"), "{err}");
+    }
+
+    #[test]
+    fn a_wrong_type_is_refused_with_its_line() {
+        let err = validate_toml("model = \"sonnet\"\nworker_budget_usd = \"dois\"\n").unwrap_err();
+        assert!(err.contains("linha 2"), "{err}");
     }
 }

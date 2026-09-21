@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, Mic2, Plug, Settings2, Wrench, X } from "lucide-react";
+import { Bot, Check, FileCode2, Mic2, Plug, Settings2, Wrench, X } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import PluginsPanel from "./PluginsPanel";
+import FileViewer, { type ViewerIo } from "./FileViewer";
+import { sectionLine } from "../lib/configText";
 import { t } from "../lib/i18n";
 import {
   checkForUpdate,
@@ -10,7 +12,7 @@ import {
   type UpdateStatus,
 } from "../lib/updater";
 
-type Section = "geral" | "plugins" | "voz" | "workers" | "avancado";
+type Section = "geral" | "plugins" | "voz" | "workers" | "avancado" | "config";
 
 /** The composer's three pills write these same keys, so Settings offers
  *  the same choices — including the empty one, which is a real state in
@@ -52,6 +54,8 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
   const [voices, setVoices] = useState<[string, string][]>([]);
   const [savedKey, setSavedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The `[agents.<id>]` table a Plugins card asked to edit, if any. */
+  const [configTable, setConfigTable] = useState<string | null>(null);
   const savedTimer = useRef<number>(0);
 
   useEffect(() => {
@@ -229,6 +233,7 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
     { id: "voz", name: t("set_voice"), icon: <Mic2 size={14} /> },
     { id: "workers", name: t("set_workers"), icon: <Bot size={14} /> },
     { id: "avancado", name: t("set_advanced"), icon: <Wrench size={14} /> },
+    { id: "config", name: t("set_config"), icon: <FileCode2 size={14} /> },
   ];
 
   return (
@@ -250,7 +255,7 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
           </div>
         </nav>
 
-        <div className="set-body">
+        <div className={`set-body ${section === "config" ? "set-body-fill" : ""}`}>
           <button className="set-close" onClick={onClose} title={t("set_close")}>
             <X size={15} />
           </button>
@@ -337,7 +342,22 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
             </>
           )}
 
-          {section === "plugins" && <PluginsPanel />}
+          {section === "plugins" && (
+            <PluginsPanel
+              onEditConfig={(table) => {
+                setConfigTable(table);
+                setSection("config");
+              }}
+            />
+          )}
+
+          {section === "config" && (
+            <ConfigEditor
+              path={snap.path}
+              table={configTable}
+              onSaved={async () => setSnap(await ipc.configRead())}
+            />
+          )}
 
           {section === "voz" && (
             <>
@@ -457,6 +477,57 @@ export default function Settings({ open, onClose }: { open: boolean; onClose: ()
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The file, in the app: the project windows' viewer over config.toml,
+ * reading and writing through the config commands (validated before the
+ * write, hot-applied after it). `table` lands on the `[agents.<id>]`
+ * header a Plugins card pointed at.
+ */
+function ConfigEditor({
+  path,
+  table,
+  onSaved,
+}: {
+  path: string;
+  table: string | null;
+  onSaved: () => Promise<void>;
+}) {
+  const [line, setLine] = useState<number | undefined>();
+  useEffect(() => {
+    if (!table) {
+      setLine(undefined);
+      return;
+    }
+    ipc
+      .configRawRead()
+      .then((raw) => setLine(sectionLine(raw.text, table) ?? undefined))
+      .catch(() => setLine(undefined));
+  }, [table]);
+  const io: ViewerIo = {
+    read: async () => ({ content: (await ipc.configRawRead()).text, truncated: false }),
+    save: async (text) => {
+      await ipc.configRawWrite(text);
+      await onSaved();
+    },
+  };
+  const dir = path.replace(/\/[^/]*$/, "");
+  return (
+    <div className="set-config">
+      <h2>{t("set_config")}</h2>
+      <div className="set-config-hint">{t("set_config_hint")}</div>
+      <FileViewer
+        file={{
+          abs: path,
+          rel: "config.toml",
+          line,
+          project: { name: dir.replace(/^\/Users\/[^/]+/, "~"), path: dir },
+        }}
+        io={io}
+      />
     </div>
   );
 }

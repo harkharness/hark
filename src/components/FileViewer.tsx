@@ -113,13 +113,23 @@ function Gutter({ count, gutterRef }: { count: number; gutterRef?: RefObject<HTM
  * amber dot marks unsaved manual edits, VSCode-style. Source views carry a
  * gutter of line numbers, and the line a chat path pointed at is tinted.
  */
+/** Where a viewer's bytes come from and go to, when not a project file. */
+export type ViewerIo = {
+  read: () => Promise<{ content: string; truncated: boolean }>;
+  save: (text: string) => Promise<void>;
+};
+
 export default function FileViewer({
   file,
   onDirty,
+  io,
 }: {
   file: OpenFile;
   /** Reports unsaved-edit state upward (tab dots + LRU protection). */
   onDirty?: (abs: string, dirty: boolean) => void;
+  /** The app's own config.toml inside Settings: read whole, validated
+   * before it is written. Absent = a project file through the guard. */
+  io?: ViewerIo;
 }) {
   const [content, setContent] = useState("");
   const [truncated, setTruncated] = useState(false);
@@ -131,6 +141,10 @@ export default function FileViewer({
   const scrollRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const markRef = useRef<HTMLSpanElement>(null);
+  // Through a ref: an inline `io` object from the caller must not re-run
+  // the load on every render.
+  const ioRef = useRef(io);
+  ioRef.current = io;
 
   /** The tinted bar over the line the chat pointed at, while EDITING: the
    * textarea scrolls and the bar is its sibling, so it moves by hand. */
@@ -161,8 +175,7 @@ export default function FileViewer({
 
   useEffect(() => {
     setStatus(null);
-    ipc
-      .fileRead(file.abs)
+    (ioRef.current ? ioRef.current.read() : ipc.fileRead(file.abs))
       .then((out) => {
         setContent(out.content);
         setDraft(out.content);
@@ -179,7 +192,8 @@ export default function FileViewer({
 
   async function save() {
     try {
-      await ipc.fileSave(file.abs, draft);
+      if (ioRef.current) await ioRef.current.save(draft);
+      else await ipc.fileSave(file.abs, draft);
       setContent(draft);
       setStatus(t("viewer_saved"));
       window.setTimeout(() => setStatus(null), 2500);
@@ -197,7 +211,9 @@ export default function FileViewer({
         </span>
         {dirty && <span className="viewer-dirty" title={t("viewer_dirty")} />}
         {truncated && <span className="viewer-badge">truncado</span>}
-        {status && <span className="viewer-status">{status}</span>}
+        {status && (
+          <span className={`viewer-status ${status.startsWith("erro") ? "err" : ""}`}>{status}</span>
+        )}
         <span className="viewer-actions">
           {editing ? (
             <>

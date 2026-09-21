@@ -440,6 +440,10 @@ export const configRead = () => invoke<ConfigSnapshot>("config_read");
 /** Surgical patch into config.toml (comments survive); hot-applies. */
 export const configWrite = (patch: Record<string, string | number | boolean>) =>
   invoke("config_write", { patch });
+/** config.toml as text, for the editor inside Settings. */
+export const configRawRead = () => invoke<{ text: string; path: string }>("config_raw_read");
+/** Write config.toml whole; the backend validates it before writing. */
+export const configRawWrite = (text: string) => invoke("config_raw_write", { text });
 export const ttsVoices = () => invoke<[string, string][]>("tts_voices");
 
 /** Open a URL/file with the OS (default browser/app) — never in-webview. */
@@ -514,6 +518,10 @@ export type AgentPlugin = {
   selected: boolean;
   memory_file: string | null;
   login_hint: string | null;
+  /** Extra args the registry entry passes to the binary. */
+  args: string[];
+  /** NAMES of the env vars set on this agent's processes — never the values. */
+  env_keys: string[];
   /** What this agent calls each tier (light/standard/heavy/max) — the
    *  registry line with the user's overrides merged. Empty = no table:
    *  the model pill says so rather than offering claude's names. */

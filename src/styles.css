@@ -2723,3 +2723,46 @@ button.plugin-toggle:hover { color: var(--text); border-color: var(--border-stro
 }
 .scope-detail:hover { background: rgba(122,162,247,.18); }
 .msg.usage { justify-content: flex-start; }
+
+/* ---- Settings › config.toml: the file, in the app ---- */
+.set-body.set-body-fill { display: flex; flex-direction: column; overflow: hidden; }
+.set-config { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.set-config h2 { margin-bottom: 6px; }
+.set-config-hint { color: var(--dim); font-size: 11.5px; margin-bottom: 10px; }
+.set-config .viewer {
+  flex: 1; min-height: 0; height: auto;
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+}
+/* The knobs a card carries from its `[agents.<id>]` table, and the door
+   to the file for the rest of them. */
+.plugin-knobs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.plugin-args { font-family: var(--font-mono); font-size: 11px; color: var(--dim); }
+.plugin-hint { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); font-size: 11.5px; }
+.plugin-edit {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 10px;
+  background: none; border: none; color: var(--accent); cursor: pointer;
+  font: inherit; font-size: 11.5px; padding: 0;
+}
+.plugin-edit:hover { text-decoration: underline; }
+.plugins-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.plugins-add-label { color: var(--text); font-size: 12px; font-weight: 600; }
+.plugins-add input, .plugins-add select {
+  background: var(--panel-2); color: var(--text); border: 1px solid transparent;
+  border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 12px;
+}
+.plugins-add input { flex: 1 1 150px; min-width: 0; }
+.plugins-add input:focus { border-color: color-mix(in srgb, var(--accent) 45%, transparent); outline: none; }
+.plugins-add-hint { flex-basis: 100%; color: var(--dim); font-size: 11px; }
+/* The modal's own <pre> look (boxed, wrapped) must not reach the editor:
+   the code and its gutter share metrics, and one wrapped line breaks the
+   pairing (the config.toml harness showed it, 21/09). */
+.set-config .viewer pre {
+  background: var(--code-bg); border: none; border-radius: 0; margin: 0;
+  white-space: pre; word-break: normal; max-height: none; overflow: visible;
+}
+.set-config .viewer-code { padding: 12px 14px; }
+.set-config .viewer-gutter { padding: 12px 10px 12px 12px; }
+.set-config .viewer-editwrap .viewer-gutter { overflow: hidden; }
+
+/* A refused write is a warning, not a success line. */
+.viewer-status.err { color: var(--warn); }

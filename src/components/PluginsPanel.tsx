@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowUpCircle, Check, Plug, RefreshCw, TerminalSquare } from "lucide-react";
+import { ArrowUpCircle, Check, FileCode2, KeyRound, Plug, Plus, RefreshCw, TerminalSquare } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
 
@@ -13,23 +13,35 @@ const CAP_ROWS: [keyof ipc.AgentCapabilities, string][] = [
   ["live_list", "pl_cap_live"],
 ];
 
+/** A registry id: what `[agents.<id>]` accepts without quoting. */
+const ID_OK = /^[a-z0-9][a-z0-9_-]*$/;
+
 /**
  * The agent-plugin catalog — the surface where a backend is chosen. Shared
  * by Settings (a section) and the first-run wizard (a step): the product
- * has ONE place that answers "which agent drives Hark?".
+ * has ONE place that answers "which agent drives Hark?". Each card shows
+ * the knobs its `[agents.<id>]` table carries (env NAMES, args, the login
+ * hint) and, where an editor is at hand, opens the file on that table.
  */
 export default function PluginsPanel({
   onReady,
   compact = false,
+  onEditConfig,
 }: {
   /** Fires with true once a usable plugin is selected and detected. */
   onReady?: (ready: boolean) => void;
   compact?: boolean;
+  /** Open config.toml on this table (`agents.<id>`). Settings has an
+   *  editor; the wizard does not, so it passes nothing and gets no button. */
+  onEditConfig?: (table: string) => void;
 }) {
   const [plugins, setPlugins] = useState<ipc.AgentPlugin[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [newId, setNewId] = useState("");
+  const [newPlugin, setNewPlugin] = useState<"claude" | "acp">("claude");
+  const [newCmd, setNewCmd] = useState("claude");
 
   /** The one network call of this panel: read the ACP registry. */
   const checkUpdates = useCallback(async () => {
@@ -92,6 +104,25 @@ export default function PluginsPanel({
     }
   };
 
+  /** A new `[agents.<id>]` with the three keys every entry needs, written
+   *  as a surgical patch; env and models are filled in the editor, where
+   *  the user lands next. */
+  const addAgent = async () => {
+    const id = newId.trim();
+    const cmd = newCmd.trim();
+    if (!ID_OK.test(id) || !cmd || !onEditConfig) return;
+    try {
+      await ipc.configWrite({
+        [`agents.${id}.plugin`]: newPlugin,
+        [`agents.${id}.cmd`]: cmd,
+        [`agents.${id}.enabled`]: true,
+      });
+      onEditConfig(`agents.${id}`);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   return (
     <div className="plugins">
       {!compact && (
@@ -105,6 +136,8 @@ export default function PluginsPanel({
         // Runnable: in the registry, installed, switched on. Both plugins
         // (native claude, ACP) have a runtime now.
         const usable = p.detected && p.enabled;
+        const envKeys = p.env_keys ?? [];
+        const args = p.args ?? [];
         return (
           <div
             key={p.id}
@@ -205,6 +238,30 @@ export default function PluginsPanel({
               </div>
             )}
 
+            {(envKeys.length > 0 || args.length > 0 || p.login_hint) && (
+              // The rest of the `[agents.<id>]` table: how the binary is
+              // called, which env vars its processes get (names only — the
+              // values are secrets and stay in the file), what to do when
+              // it answers "not logged in".
+              <div className="plugin-knobs">
+                {args.length > 0 && (
+                  <code className="plugin-args">
+                    {p.cmd} {args.join(" ")}
+                  </code>
+                )}
+                {envKeys.map((key) => (
+                  <span key={key} className="plugin-cap plugin-env" title={t("pl_env_hint")}>
+                    env · {key}
+                  </span>
+                ))}
+                {p.login_hint && (
+                  <span className="plugin-hint">
+                    <KeyRound size={11} /> {p.login_hint}
+                  </span>
+                )}
+              </div>
+            )}
+
             {p.capabilities && (
               <div className="plugin-caps">
                 {CAP_ROWS.filter(([key]) => p.capabilities![key]).map(([key, label]) => (
@@ -214,9 +271,57 @@ export default function PluginsPanel({
                 ))}
               </div>
             )}
+
+            {onEditConfig && (
+              <button
+                className="plugin-edit"
+                title={t("pl_edit_config")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditConfig(`agents.${p.id}`);
+                }}
+              >
+                <FileCode2 size={12} /> config.toml ›
+              </button>
+            )}
           </div>
         );
       })}
+
+      {onEditConfig && (
+        <form
+          className="plugins-add"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void addAgent();
+          }}
+        >
+          <span className="plugins-add-label">{t("pl_add_agent")}</span>
+          <input
+            value={newId}
+            placeholder={t("pl_add_id_ph")}
+            onChange={(e) => setNewId(e.target.value.trim())}
+          />
+          <select
+            value={newPlugin}
+            onChange={(e) => {
+              const plugin = e.target.value as "claude" | "acp";
+              setNewPlugin(plugin);
+              // The native plugin runs one binary; an ACP agent names its own.
+              if (plugin === "claude") setNewCmd("claude");
+              else if (newCmd === "claude") setNewCmd("");
+            }}
+          >
+            <option value="claude">claude</option>
+            <option value="acp">acp</option>
+          </select>
+          <input value={newCmd} placeholder={t("pl_add_cmd_ph")} onChange={(e) => setNewCmd(e.target.value)} />
+          <button className="ob-btn" type="submit" disabled={!ID_OK.test(newId) || !newCmd.trim()}>
+            <Plus size={12} /> {t("pl_add_go")}
+          </button>
+          <span className="plugins-add-hint">{t("pl_add_hint")}</span>
+        </form>
+      )}
 
       <div className="plugins-foot">
         {t("pl_foot")}

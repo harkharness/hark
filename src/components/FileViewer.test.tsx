@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import FileViewer from "./FileViewer";
+import { t } from "../lib/i18n";
 import type { Project } from "../types";
 
 const files: Record<string, { content: string; truncated: boolean }> = {};
@@ -51,5 +52,28 @@ describe("the gutter", () => {
     );
     await findByText("Hark");
     expect(container.querySelector(".viewer-gutter")).toBeNull();
+  });
+});
+
+describe("a viewer with its own io (config.toml inside Settings)", () => {
+  it("reads through it, saves through it, and shows a refusal inline", async () => {
+    const io = {
+      read: vi.fn(async () => ({ content: "a = 1\n", truncated: false })),
+      save: vi.fn(async () => {
+        throw new Error("linha 1: nope");
+      }),
+    };
+    const { container, findByTitle, findByText } = render(
+      <FileViewer
+        file={{ abs: "/h/config.toml", rel: "config.toml", project: { name: "~/.hark", path: "/h" } }}
+        io={io}
+      />,
+    );
+    await waitFor(() => expect(container.querySelector("textarea")).toBeTruthy());
+    expect(io.read).toHaveBeenCalled();
+    fireEvent.change(container.querySelector("textarea")!, { target: { value: "a = 2\n" } });
+    fireEvent.click(await findByTitle(t("viewer_save")));
+    expect(io.save).toHaveBeenCalledWith("a = 2\n");
+    expect(await findByText(/linha 1: nope/)).toBeTruthy();
   });
 });
