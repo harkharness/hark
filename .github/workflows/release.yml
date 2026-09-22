@@ -15,7 +15,34 @@ permissions:
   contents: write
 
 jobs:
+  # Everything cheap happens here, on a runner that costs a tenth of the
+  # build ones: a refused release must not spend two macOS minutes per
+  # minute of its own refusal.
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: The tag must match the app version
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          CONF=$(sed -n 's/.*"version": "\(.*\)",.*/\1/p' src-tauri/tauri.conf.json | head -1)
+          CRATE=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "tag=${TAG} tauri.conf=${CONF} Cargo=${CRATE}"
+          [ "${TAG}" = "${CONF}" ] && [ "${TAG}" = "${CRATE}" ] || {
+            echo "::error::tag ${TAG} disagrees with the app version — bump src-tauri/tauri.conf.json and Cargo.toml before tagging (v0.2.1 shipped an app reporting 0.2.0)."
+            exit 1
+          }
+
+      - name: One feature release a week (fixes exempt)
+        run: scripts/release-cadence.sh "${GITHUB_REF_NAME}"
+
   build:
+    needs: gate
     strategy:
       fail-fast: false
       matrix:
@@ -30,18 +57,6 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: The tag must match the app version
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME#v}"
-          CONF=$(sed -n 's/.*"version": "\(.*\)",.*/\1/p' src-tauri/tauri.conf.json | head -1)
-          CRATE=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          echo "tag=${TAG} tauri.conf=${CONF} Cargo=${CRATE}"
-          [ "${TAG}" = "${CONF}" ] && [ "${TAG}" = "${CRATE}" ] || {
-            echo "::error::tag ${TAG} disagrees with the app version — bump src-tauri/tauri.conf.json and Cargo.toml before tagging (v0.2.1 shipped an app reporting 0.2.0)."
-            exit 1
-          }
 
       - uses: actions/setup-node@v4
         with:

@@ -1,12 +1,37 @@
 name: test
 
 # Keeps releases honest: workspace tests, clippy as errors, typecheck and
-# the frontend build. macOS runner because whisper-rs builds with metal.
+# the frontend build.
+#
+# Split across two runners on purpose. A macOS minute costs TEN Linux
+# minutes against the included quota, and in September the pushes (79
+# runs) ate the month before the releases (7 runs) got a chance. So
+# everything that does not need a Mac runs on Linux, and the Mac job
+# gets the built `dist` as an artifact instead of running npm itself.
+# What still needs the Mac: whisper-rs with metal, and tauri-build.
 
 on:
   push:
     branches: [main]
+    # Prose and mockups cannot break the build, and a skipped run is the
+    # cheapest run there is.
+    paths-ignore:
+      - ".design/**"
+      - "docs/**"
+      - "**/*.md"
+      - ".gitignore"
   pull_request:
+    paths-ignore:
+      - ".design/**"
+      - "docs/**"
+      - "**/*.md"
+      - ".gitignore"
+
+# Two pushes a minute apart used to mean two full runs, and the first one
+# was already worthless.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # Secret scanning is a paid feature for private repos, so the control
@@ -26,15 +51,39 @@ jobs:
             | tar -xz gitleaks
           ./gitleaks git --no-banner --redact --exit-code 1 -c .gitleaks.toml
 
-  test:
-    runs-on: macos-14
+  # The whole frontend, on the cheap runner. Its `dist` is what the Mac
+  # job needs from it: tauri-build only checks that frontendDist exists.
+  web:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      # The composer's fence parser has broken three times in a row by
+      # hand-testing alone; it has unit tests now and they gate the push.
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 1
+
+  rust:
+    needs: web
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # No npm on this runner: the bundle it would build is already built.
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
 
       # PINNED, not @stable: a floating toolchain turned every new rust
       # release with new clippy lints into a red push (1.98 broke 6 in a
@@ -47,11 +96,5 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
 
-      - run: npm ci
-      - run: npx tsc --noEmit
-      # The composer's fence parser has broken three times in a row by
-      # hand-testing alone; it has unit tests now and they gate the push.
-      - run: npm test
-      - run: npm run build
       - run: cargo test --workspace
       - run: cargo clippy --workspace --all-targets -- -D warnings

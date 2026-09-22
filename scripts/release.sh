@@ -37,6 +37,11 @@ git fetch -q origin main
 ! git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null \
   || die "v$VERSION already exists"
 
+# One feature release a week, fixes exempt. Checked HERE first so a
+# release that will be refused costs nothing: the workflow checks it
+# again, but only after two macOS runners have been asked for.
+scripts/release-cadence.sh "$VERSION" "$HEADLINE"
+
 # Both places the release workflow's guard compares against the tag, plus
 # package.json — nothing reads it for the build, but a third number left
 # behind is a third number to explain (v0.3.1 was bumped by hand for it).
