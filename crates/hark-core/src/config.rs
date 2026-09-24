@@ -778,6 +778,44 @@ match_cwd = ["/abs/beta"]
     }
 }
 
+/// The config as the windows see it (`config_read`): every value of an
+/// agent's `env` masked, the key names kept. Tokens stay in the file and
+/// in the processes that need them, never in a webview's memory.
+pub fn redacted_json(config: &Config) -> serde_json::Value {
+    let mut json = serde_json::to_value(config).unwrap_or_default();
+    if let Some(agents) = json.get_mut("agents").and_then(serde_json::Value::as_object_mut) {
+        for entry in agents.values_mut() {
+            if let Some(env) = entry.get_mut("env").and_then(serde_json::Value::as_object_mut) {
+                for value in env.values_mut() {
+                    *value = serde_json::Value::String("•••".into());
+                }
+            }
+        }
+    }
+    json
+}
+
+#[cfg(test)]
+mod redaction_tests {
+    use super::*;
+
+    #[test]
+    fn agent_env_values_never_reach_the_windows() {
+        // Gateway tokens live in [agents.<id>] env. Every window reads the
+        // config; only the key names are its business (the catalog shows
+        // env_keys the same way).
+        let cfg: Config = toml::from_str(
+            "[agents.twin]\nplugin = \"claude\"\nenv = { ANTHROPIC_AUTH_TOKEN = \"sk-live-secret\", ANTHROPIC_BASE_URL = \"https://gw.example\" }\n",
+        )
+        .unwrap();
+        let json = redacted_json(&cfg);
+        assert!(!json.to_string().contains("sk-live-secret"), "{json}");
+        let env = &json["agents"]["twin"]["env"];
+        assert!(env.get("ANTHROPIC_AUTH_TOKEN").is_some(), "key names stay: {env}");
+        assert_eq!(json["agents"]["twin"]["plugin"], "claude");
+    }
+}
+
 #[cfg(test)]
 mod raw_edit_tests {
     use super::*;

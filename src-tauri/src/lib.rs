@@ -3900,7 +3900,7 @@ fn config_read() -> Result<serde_json::Value, String> {
     let config = Config::load();
     let path = hark_core::config::config_path();
     Ok(serde_json::json!({
-        "values": config,
+        "values": hark_core::config::redacted_json(&config),
         "path": path.display().to_string(),
         "claude_bin_resolved": config.claude_bin_resolved(),
         "whisper_model_resolved": config.whisper_model_path().display().to_string(),
