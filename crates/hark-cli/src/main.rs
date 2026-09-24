@@ -636,7 +636,12 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
         session_id: planned.session.session_id.clone(),
         instruction: instruction.to_string(),
         fork: false,
+        project_settings: hark_plugin_claude::trust::project_sources(&planned.workspace_root)
+            == hark_core::domain::trust::Sources::All,
     };
+    if !spawn.project_settings {
+        eprintln!("{}", hark_plugin_claude::trust::untrusted_note(&planned.workspace_root));
+    }
     let result = worker::run(
         &spawn,
         &mut |running| eprintln!("  worker pid {}", running.pid),

@@ -5,6 +5,7 @@
 
 use crate::worker::{PersistentWorker, WorkerSpawn};
 use hark_agent::AgentEvent;
+use hark_core::domain::trust::Sources;
 use hark_core::ports::{AgentBackend, AgentRunner, AgentSession, EventRx, SessionSpec};
 use std::sync::Arc;
 
@@ -33,6 +34,7 @@ impl ClaudeBackend {
             // Entry env first, per-session (eco) env on top.
             envs: self.envs.iter().cloned().chain(spec.envs.iter().cloned()).collect(),
             fork: spec.fork,
+            project_settings: crate::trust::project_sources(&spec.cwd) == Sources::All,
         }
     }
 }
@@ -51,6 +53,11 @@ impl AgentBackend for ClaudeBackend {
         let (tx, rx) = std::sync::mpsc::channel();
         bridge_reader(stdout, tx);
         Ok((Arc::new(worker), rx))
+    }
+
+    fn spawn_note(&self, spec: &SessionSpec) -> Option<String> {
+        (crate::trust::project_sources(&spec.cwd) == Sources::UserOnly)
+            .then(|| crate::trust::untrusted_note(&spec.cwd))
     }
 
     fn runner(&self) -> Box<dyn AgentRunner + Send + Sync> {

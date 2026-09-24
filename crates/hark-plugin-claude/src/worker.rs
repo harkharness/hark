@@ -32,6 +32,11 @@ pub struct WorkerSpawn {
     /// history (`--fork-session`). The parallel-work path when a human
     /// holds the original at a terminal — two writers never meet.
     pub fork: bool,
+    /// Whether the folder's own Claude Code settings load. False when it
+    /// brings hooks, allow rules, env or MCP servers that nobody trusted
+    /// (domain::trust): `-p` skips Claude Code's trust dialog, so Hark
+    /// must not.
+    pub project_settings: bool,
 }
 
 impl WorkerSpawn {
@@ -80,6 +85,9 @@ impl WorkerSpawn {
             args.push("--include-partial-messages".into());
         }
         args.extend(["--permission-prompt-tool".into(), "stdio".into()]);
+        if !self.project_settings {
+            args.extend(["--setting-sources".into(), "user".into()]);
+        }
         args.extend(self.directive_args());
         if let Some(budget) = self.limits.max_budget_usd.filter(|b| *b > 0.0) {
             args.push("--max-budget-usd".into());
@@ -336,6 +344,7 @@ mod tests {
             limits: SpawnLimits::default(),
             envs: Vec::new(),
             fork: false,
+            project_settings: true,
         }
     }
 
@@ -415,5 +424,15 @@ mod tests {
         let args = s.cli_args(true);
         assert!(!args.contains(&"--max-budget-usd".to_string()));
         assert!(!args.contains(&"--max-turns".to_string()));
+    }
+
+    #[test]
+    fn an_untrusted_folder_loads_user_settings_only() {
+        let mut untrusted = spawn("", Directives::default());
+        untrusted.project_settings = false;
+        let args = untrusted.cli_args(true);
+        let at = args.iter().position(|a| a == "--setting-sources").expect("flag present");
+        assert_eq!(args[at + 1], "user");
+        assert!(!spawn("", Directives::default()).cli_args(true).contains(&"--setting-sources".to_string()));
     }
 }

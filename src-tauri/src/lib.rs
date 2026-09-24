@@ -1024,6 +1024,9 @@ fn start_worker_titled(
     if let Some(note) = floor_note {
         emit_event(app, serde_json::json!({ "kind": "status", "task_id": task_id, "text": note }));
     }
+    if let Some(note) = backend.spawn_note(&spec) {
+        emit_event(app, serde_json::json!({ "kind": "status", "task_id": task_id, "text": note }));
+    }
     let wired = SessionSpec { directives, ..spec.clone() };
     let (session, rx) = backend.spawn(&wired)?;
     let caps = backend.capabilities();
@@ -2957,6 +2960,9 @@ fn dispatch_text(
         let backend = backend_for(&config, &spawn.agent);
         let (directives, floor_note) = directives_for(&config, &spawn.agent, spawn.directives.clone());
         if let Some(note) = floor_note {
+            emit_event(&app, serde_json::json!({ "kind": "status", "task_id": task_id, "text": note }));
+        }
+        if let Some(note) = backend.spawn_note(&spawn) {
             emit_event(&app, serde_json::json!({ "kind": "status", "task_id": task_id, "text": note }));
         }
         let wired = SessionSpec { directives, ..spawn.clone() };

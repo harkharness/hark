@@ -15,6 +15,7 @@ pub mod live;
 pub mod log;
 pub mod statusline;
 pub mod stream;
+pub mod trust;
 pub mod worker;
 
 /// What the Claude Code backend can do, in contract terms.

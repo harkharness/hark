@@ -121,6 +121,12 @@ pub trait AgentBackend: Send + Sync {
     ) -> anyhow::Result<(std::sync::Arc<dyn AgentSession>, EventRx)>;
     /// The schema-constrained one-shot seam (voice ask / gate / intent).
     fn runner(&self) -> Box<dyn AgentRunner + Send + Sync>;
+    /// What the chat should hear before this session opens — e.g. that
+    /// the folder's own settings were left out because nobody trusted
+    /// them. Most backends have nothing to say.
+    fn spawn_note(&self, _spec: &SessionSpec) -> Option<String> {
+        None
+    }
 }
 
 /// Refreshes the on-disk session-history index before a snapshot. The
