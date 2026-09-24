@@ -28,6 +28,7 @@ import { agentError, askReplyMsg, isAuthError } from "./lib/format";
 import Composer from "./components/Composer";
 import { toImagePair, type Attachment } from "./lib/composerText";
 import * as ipc from "./lib/ipc";
+import { terminalPayload } from "./lib/terminalPayload";
 import { checkForUpdate, restartIntoUpdate } from "./lib/updater";
 import type { BoardTask, Msg, Overview, Project, RateLimitState, SessionHit } from "./types";
 
@@ -241,7 +242,7 @@ export default function Mother() {
     const target = shells[0] ?? addShell();
     if (shells[0]) setShellTab(shells[0]);
     if (!cmd) return;
-    const payload = cmd.replace(/\s+$/, "") + (execute ? "\r" : "");
+    const payload = terminalPayload(cmd, execute);
     const write = (attempt: number) => {
       ipc.termWrite(target, payload).catch(() => {
         if (attempt === 0) setTimeout(() => write(1), 700);

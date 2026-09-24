@@ -39,6 +39,7 @@ import RepoRuler from "./components/RepoRuler";
 import { ContextRing } from "./components/Meter";
 import { agentError, askReplyMsg, isAuthError } from "./lib/format";
 import * as ipc from "./lib/ipc";
+import { terminalPayload } from "./lib/terminalPayload";
 import type {
   BoardTask,
   Directives,
@@ -1821,7 +1822,7 @@ export default function App({
     const existing = shells.includes(termTab) ? termTab : shells[0];
     const target = existing ?? addShell();
     if (existing) setTermTab(existing);
-    const payload = cmd.replace(/\s+$/, "") + (execute ? "\r" : "");
+    const payload = terminalPayload(cmd, execute);
     // A fresh shell needs a beat to spawn and print its prompt — and a
     // swallowed write is a phantom click, so failure retries once and
     // then says so instead of pretending.
