@@ -1,5 +1,5 @@
-# Secret scanning for the private repo. GitHub's own scanner needs Advanced
-# Security, which this plan does not have, so the check lives in CI here.
+# Secret scanning in CI (.github/workflows/test.yml). GitHub scans this
+# public repo as well; this config is what fails a push or a pull request.
 #
 # Runs over the FULL history: a key committed months ago and later deleted
 # is still a key that leaked.

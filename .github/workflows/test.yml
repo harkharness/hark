@@ -3,12 +3,14 @@ name: test
 # Keeps releases honest: workspace tests, clippy as errors, typecheck and
 # the frontend build.
 #
-# Split across two runners on purpose. A macOS minute costs TEN Linux
-# minutes against the included quota, and in September the pushes (79
-# runs) ate the month before the releases (7 runs) got a chance. So
-# everything that does not need a Mac runs on Linux, and the Mac job
-# gets the built `dist` as an artifact instead of running npm itself.
-# What still needs the Mac: whisper-rs with metal, and tauri-build.
+# Split across two runners on purpose. When this ran from a private repo,
+# a macOS minute cost TEN Linux minutes against the included quota, and
+# in September 2026 the pushes (79 runs) ate the month before the
+# releases (7 runs) got a chance. Public repos run free, but the split
+# stays: everything that does not need a Mac runs on Linux, which starts
+# faster, and the Mac job gets the built `dist` as an artifact instead of
+# running npm itself. What still needs the Mac: whisper-rs with metal,
+# and tauri-build.
 
 on:
   push:
@@ -34,8 +36,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Secret scanning is a paid feature for private repos, so the control
-  # lives here instead: the whole history, every push, pinned binary.
+  # GitHub scans this public repo for secrets too; this job stays because
+  # it reads the whole history with our allowlist on every push and PR,
+  # and fails the run: pinned binary, no license needed.
   secrets:
     runs-on: ubuntu-latest
     steps:

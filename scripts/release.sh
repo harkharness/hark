@@ -10,10 +10,18 @@
 #
 # The second argument becomes the tag's annotation ("v0.2.4 — <line>"),
 # so `git tag -n` reads as a changelog. Without it the tag is plain.
+#
+# The tag alone builds nothing. Official builds come from a private
+# pipeline in the same org, because the updater's signing key cannot live
+# where a contributor's workflow change could reach it: this script
+# dispatches it once the tag is pushed. The pipeline checks the tag out
+# from this repository and publishes the Release back here.
 
 set -euo pipefail
 
 die() { printf 'release: %s\n' "$*" >&2; exit 1; }
+
+PIPELINE="${HARK_RELEASE_REPO:-harkharness/hark-release}"
 
 VERSION="${1:-}"
 HEADLINE="${2:-}"
@@ -66,6 +74,8 @@ else
   git tag "v$VERSION"
 fi
 git push -q origin main "v$VERSION"
-
 printf 'release: v%s pushed at %s\n' "$VERSION" "$(git rev-parse --short HEAD)"
-printf 'release: watch it with  gh run list --workflow=release.yml --limit 1\n'
+
+gh workflow run release.yml -R "$PIPELINE" -f tag="v$VERSION" \
+  || die "v$VERSION is tagged but the build was not dispatched — run: gh workflow run release.yml -R $PIPELINE -f tag=v$VERSION"
+printf 'release: watch it with  gh run list -R %s --workflow=release.yml --limit 1\n' "$PIPELINE"
