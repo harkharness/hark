@@ -1,4 +1,7 @@
 # Monthly and grouped: one pull request per ecosystem, not one per crate.
+# Minor and patch only for code dependencies — a major version is an API
+# migration (react-resizable-panels, whisper-rs), done by hand in its own
+# commit, not a bot bump that turns CI red.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -9,9 +12,11 @@ updates:
     directory: /
     schedule: { interval: monthly }
     open-pull-requests-limit: 1
-    groups: { cargo: { patterns: ["*"] } }
+    groups: { cargo: { patterns: ["*"], update-types: [minor, patch] } }
+    ignore: [{ dependency-name: "*", update-types: ["version-update:semver-major"] }]
   - package-ecosystem: npm
     directory: /
     schedule: { interval: monthly }
     open-pull-requests-limit: 1
-    groups: { npm: { patterns: ["*"] } }
+    groups: { npm: { patterns: ["*"], update-types: [minor, patch] } }
+    ignore: [{ dependency-name: "*", update-types: ["version-update:semver-major"] }]
