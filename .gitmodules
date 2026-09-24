@@ -1,4 +1,0 @@
-[submodule "releases"]
-	path = releases
-	url = git@github.com:harkharness/hark.git
-	branch = main
