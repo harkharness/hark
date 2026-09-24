@@ -66,7 +66,7 @@ pub fn plan(
     };
 
     // Refuse sessions currently open in an interactive terminal: two writers
-    // on one session file is undefined behavior (see spikes/FINDINGS.md).
+    // on one session file is undefined behavior (see docs/FINDINGS.md).
     // ONE rule decides who holds a session (domain::owner) — matching any
     // listed session also caught our own headless runs, which hold nothing.
     let live = deps.live.list().unwrap_or_default();

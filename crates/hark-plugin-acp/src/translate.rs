@@ -1,7 +1,7 @@
 //! ACP wire → `AgentEvent`. Pure: one JSON message in, one event out.
 //!
 //! Provenance matters here, so it is marked per case. `auth_error` was
-//! recorded from gemini-cli 0.46.0 (see `spikes/acp/FINDINGS.md`); the
+//! recorded from gemini-cli 0.46.0 (see `docs/FINDINGS-ACP.md`); the
 //! `session/update` shapes follow the ACP v1 method names and are
 //! re-checked against real traffic the moment an authenticated agent is
 //! available — the tests say which is which.

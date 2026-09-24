@@ -20,7 +20,6 @@ models/
 .DS_Store
 
 # Spike scratch output
-spikes/out/
 
 # Per-project agent memory (journal/state/briefs) - never commit
 .vox/
@@ -32,8 +31,11 @@ src-tauri/icons/ios/
 
 # Design canvases: os artboards (.dc.html) e o layout SÃO fonte; o arquivo
 # publicado é 2 MB de editor empacotado, regenerável com um comando.
-.design/**/*.html
-!.design/**/*.dc.html
 
 # Dev-server entry for the browser pane: machine-local.
 .claude/launch.json
+
+# Design canvases, spikes and private notes live in private repos (the
+# maintainers' workspace), never here.
+.design/
+spikes/

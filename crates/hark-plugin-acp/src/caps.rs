@@ -2,7 +2,7 @@
 //!
 //! The input is the `initialize` result, verbatim from the wire. Every
 //! field read here was OBSERVED (see `fixtures/`, and the spike notes in
-//! `spikes/acp/FINDINGS.md`) rather than taken from the spec — an agent
+//! `docs/FINDINGS-ACP.md`) rather than taken from the spec — an agent
 //! that answers more than the minimum is the normal case.
 
 use hark_agent::Capabilities;

@@ -1,5 +1,8 @@
 # Spike findings
 
+> Measured against the real CLIs; the code relies on these. The spike
+> scripts and raw recordings behind them are kept privately.
+
 Empirical results against Claude Code CLI v2.1.220 (macOS, Apple Silicon).
 These findings drive the `claude_cli` adapter design.
 

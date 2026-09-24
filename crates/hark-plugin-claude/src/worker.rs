@@ -256,7 +256,7 @@ pub fn run(
     on_event: &mut dyn FnMut(&AgentEvent),
 ) -> anyhow::Result<TurnResult> {
     // The stdio permission channel only stays open with stream-json INPUT
-    // (spikes/FINDINGS.md): the instruction goes as a user message on stdin,
+    // (docs/FINDINGS.md): the instruction goes as a user message on stdin,
     // never as a CLI argument.
     let mut child = std::process::Command::new(&spawn.claude_bin)
         .current_dir(&spawn.cwd)

@@ -35,7 +35,7 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-/// ACP v1 — the version gemini 0.46.0 answered (spikes/acp).
+/// ACP v1 — the version gemini 0.46.0 answered (docs/FINDINGS-ACP.md).
 const PROTOCOL_VERSION: u64 = 1;
 /// A handshake that takes longer than this is a hung agent, not a slow one.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -157,7 +157,7 @@ fn handshake(
                 // Declined on purpose: the agent uses its OWN tools to read
                 // and write files and run commands. Hark serves neither
                 // fs/* nor terminal/*, and saying so here is what keeps the
-                // agent from asking (spikes/acp/FINDINGS.md).
+                // agent from asking (docs/FINDINGS-ACP.md).
                 "clientCapabilities": {
                     "fs": { "readTextFile": false, "writeTextFile": false },
                     "terminal": false
@@ -886,7 +886,7 @@ fn tail_stderr(stderr: std::process::ChildStderr, tail: Arc<Mutex<VecDeque<Strin
 }
 
 /// `HARK_ACP_TRACE=<file>` records the wire both ways — how fixtures are
-/// born (spikes/acp/FINDINGS.md: traffic, not the spec, is the source).
+/// born (docs/FINDINGS-ACP.md: traffic, not the spec, is the source).
 fn trace(direction: &str, line: &str) {
     let Some(path) = std::env::var_os("HARK_ACP_TRACE") else { return };
     if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
@@ -1365,7 +1365,7 @@ mod tests {
     #[test]
     fn an_unauthenticated_agent_fails_the_connect_with_the_auth_code() {
         // OBSERVED: gemini 0.46.0 answers session/new with -32000 when no
-        // one is logged in (spikes/acp/FINDINGS.md). The windows already
+        // one is logged in (docs/FINDINGS-ACP.md). The windows already
         // render "agent_auth: …" as a login card.
         let (wire, _seen) = fake_agent(|msg, say| {
             if let Incoming::Request { id, method, .. } = msg {

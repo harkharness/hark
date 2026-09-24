@@ -18,13 +18,11 @@ on:
     # Prose and mockups cannot break the build, and a skipped run is the
     # cheapest run there is.
     paths-ignore:
-      - ".design/**"
       - "docs/**"
       - "**/*.md"
       - ".gitignore"
   pull_request:
     paths-ignore:
-      - ".design/**"
       - "docs/**"
       - "**/*.md"
       - ".gitignore"

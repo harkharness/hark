@@ -143,7 +143,7 @@ export function useHarkEvents(h: Handlers) {
           `${ts()} ── turno ${ev.is_error ? "FALHOU " : ""}${ev.model ?? ""} ${costLabel(ev.cost_usd)}`,
         );
         // The CLI reports an interrupted turn as an error (measured —
-        // spikes/FINDINGS.md). The shell already strips is_error for it;
+        // docs/FINDINGS.md). The shell already strips is_error for it;
         // this says out loud that the turn ended because it was asked to,
         // so a half-finished answer does not read as a crash.
         if (ev.stopped) {

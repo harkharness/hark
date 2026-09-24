@@ -67,16 +67,13 @@ npm run build
 - **Commits** are in English, `type(scope): summary` in lowercase (`fix`,
   `feat`, `chore`, `ci`, `docs`), with a body that explains why.
 
-## Releases (maintainers)
+## Releases
 
-```bash
-scripts/release.sh 0.7.0 "what this release is, in one line"
-```
-
-It bumps every version, commits, tags, pushes and dispatches the build. One
-feature release a week; patch releases are exempt, and `[force]` in the
-headline overrides. Official builds come from a private pipeline that holds
-the signing keys and builds exactly the tagged source from this repository.
+Maintainers cut releases from a private pipeline that holds the signing
+key. It builds exactly the tagged source in this repository and publishes to
+its Releases; installed apps only accept updates signed by that key. One
+feature release a week at most; fixes ship as patch releases when they are
+ready.
 
 ## License
 

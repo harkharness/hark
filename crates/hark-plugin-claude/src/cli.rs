@@ -1,6 +1,6 @@
 //! Spawns the `claude` binary for one fast-mode question and streams events.
 //!
-//! Flags per spikes/FINDINGS.md: lean context ($0.009/turn measured) with a
+//! Flags per docs/FINDINGS.md: lean context ($0.009/turn measured) with a
 //! JSON-schema-constrained reply. Spawned from a neutral cwd so no project
 //! CLAUDE.md is picked up. No Anthropic API is ever called directly.
 

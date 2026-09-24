@@ -1,6 +1,6 @@
 //! Pure parser for the Claude CLI stream-json output (one JSON per line),
 //! translating it into the neutral `hark_agent::AgentEvent` vocabulary.
-//! Shapes verified empirically against CLI v2.1.220 (see spikes/FINDINGS.md).
+//! Shapes verified empirically against CLI v2.1.220 (see docs/FINDINGS.md).
 
 use serde_json::Value;
 
@@ -126,7 +126,7 @@ pub fn user_message(text: &str, images: &[(String, String)]) -> String {
 /// Cut the turn in flight WITHOUT ending the session — what "parar" means
 /// next to a running turn, as opposed to closing the conversation.
 ///
-/// Measured against the CLI (spikes/FINDINGS.md): it answers
+/// Measured against the CLI (docs/FINDINGS.md): it answers
 /// `control_response/success` carrying `still_queued`, the running turn
 /// comes back as `is_error: true` with cost 0, and the process goes on to
 /// answer the next message on the same session. Sending it with nothing
@@ -519,7 +519,7 @@ mod tests {
     #[test]
     fn an_interrupt_is_the_shape_the_cli_actually_answers() {
         // Not invented: measured against the real binary in
-        // spikes/FINDINGS.md — this cut a turn at 204 of 600 and left the
+        // docs/FINDINGS.md — this cut a turn at 204 of 600 and left the
         // session alive to answer the next message.
         let v: serde_json::Value = serde_json::from_str(&interrupt_request("irq-7")).unwrap();
         assert_eq!(v["type"], "control_request");
@@ -527,7 +527,7 @@ mod tests {
         assert_eq!(v["request"]["subtype"], "interrupt");
     }
 
-    /// RECORDED from a live CLI (spikes/), not written from memory. The
+    /// RECORDED from a live CLI, not written from memory. The
     /// hand-written fixtures above are a convenience; this one is the
     /// contract. A statusLine fixture guessed its keys once and the test
     /// agreed with the bug for months, so the shapes that come from

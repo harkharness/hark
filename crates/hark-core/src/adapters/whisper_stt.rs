@@ -3,7 +3,7 @@
 //! absorbs the ~10s Metal shader compilation so the first real utterance stays
 //! fast. On CPU there are no shaders to compile, but an utterance still costs
 //! a full 30s encoder pass whatever its length — which is why the transcription
-//! is abortable there (see spikes/FINDINGS.md, spikes 2 and 4).
+//! is abortable there (see docs/FINDINGS.md, spikes 2 and 4).
 
 use crate::ports::Stt;
 use std::sync::atomic::{AtomicBool, Ordering};

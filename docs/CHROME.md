@@ -4,10 +4,8 @@
 that is a DECISION rather than a detail — the rules that kept getting
 broken, and what breaking them looked like.
 
-The `.design/` directory holds the canvases these came from
-(`visual-amigavel/` is the original harmonisation; `cabecalhos-leves/`
-is the header and divider pass). The `.dc.html` artboards are versioned;
-the seeded `.html` is not.
+The design canvases these came from live in the maintainers' private
+design repository; this page is what they settled on.
 
 ## Measure. Do not look.
 
@@ -28,7 +26,7 @@ The tallest child is the bar. Fix that, or accept the height.
 
 Rendering against the real `styles.css` beats reasoning about it: build a
 throwaway page that inlines the stylesheet and uses the REAL class names
-and DOM order (`.design/*/**-harness.html` are gitignored). A harness
+and DOM order, and keep it out of the repository. A harness
 with hand-written markup can agree with a bug the real tree does not
 have — the terminal header matched its mockup in a harness while the
 shipped one put the action button on the wrong side, because the real

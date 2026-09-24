@@ -1,5 +1,8 @@
 # Spike ACP — o que o `gemini --acp` realmente fala
 
+> Measured against the real CLIs; the code relies on these. The spike
+> scripts and raw recordings behind them are kept privately.
+
 Gravado em 07/09/2026 nesta máquina, gemini-cli **0.46.0**, com
 `spikes/acp/handshake.mjs` (jsonrpc 2.0 por stdio, uma linha por
 mensagem). O handshake não chega ao modelo: custo zero.

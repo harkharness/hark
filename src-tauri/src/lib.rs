@@ -1714,7 +1714,7 @@ const HARK_CHAT_TASK: &str = "hark-chat";
 /// Tasks whose current turn the user just stopped.
 ///
 /// An interrupted turn comes back from the CLI as `is_error: true` with
-/// cost 0 (measured — spikes/FINDINGS.md). Without this the window would
+/// cost 0 (measured — docs/FINDINGS.md). Without this the window would
 /// report the user's own stop as a failure and fail the card. Set by
 /// `worker_interrupt`, taken by the turn that follows it.
 #[derive(Default)]

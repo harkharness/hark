@@ -8,7 +8,6 @@ members = [
     "crates/hark-cli",
     "src-tauri",
 ]
-exclude = ["spikes/whisper-spike"]
 
 [workspace.package]
 version = "0.6.0"

@@ -30,7 +30,9 @@ Also by design:
 - Every privileged tool call is a permission card. Commands that touch
   production are never auto-approved.
 - Updates are signed; installed apps refuse an update the release key did not
-  sign.
+  sign. The key lives in a private pipeline and never meets a job that runs
+  project code or dependencies: the build runs without it, and a separate job
+  signs.
 - Hark makes one network call of its own (the update check) and has no
   telemetry.
 

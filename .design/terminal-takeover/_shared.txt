@@ -1,3 +1,0 @@
-tokens: bg #0b0e12 | deep #07090d | panel #11151b | border rgba(255,255,255,.07)
-text #d7dde6 | dim #7a8698 | accent #7aa2f7 | ok #9ece6a | warn #e0af68 | err #f7768e
-mono "SF Mono", ui-monospace, Menlo | ui -apple-system, "SF Pro Text", system-ui | base 13px

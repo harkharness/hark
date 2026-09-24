@@ -19,7 +19,7 @@ keywords = ["key", "secret", "token", "password"]
 [rules.allowlist]
 description = "published checksums, and the uuids every recorded CLI event carries"
 paths = ['''crates/hark-core/src/adapters/model_fetch\.rs''']
-# Recorded stream-json is a fixture format here (spikes/, the parsers'
+# Recorded stream-json is a fixture format here (the parsers'
 # recordings), and every event in it reads `..._tokens":N,"uuid":"<uuid>"`
 # — the keyword `token` followed within 20 chars by a 36-char quoted
 # string. That is an event id, not a credential, and it tripped 15 times
