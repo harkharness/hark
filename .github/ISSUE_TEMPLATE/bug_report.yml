@@ -1,0 +1,45 @@
+name: Bug report
+description: Something does not work the way the docs say it should.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open a project window\n2. Say …\n3. …"
+  - type: input
+    id: version
+    attributes:
+      label: Hark version
+      placeholder: "0.7.0 (Settings → About, or `hark --version`)"
+    validations:
+      required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Mac
+      options: [Apple Silicon, Intel]
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "15.4"
+  - type: input
+    id: agent
+    attributes:
+      label: Agent CLI and version
+      placeholder: "claude 2.1.x, gemini 0.60.0, …"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Remove anything private first — prompts, paths, tokens.

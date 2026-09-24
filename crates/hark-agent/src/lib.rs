@@ -10,7 +10,7 @@
 //!
 //! v1 is in-process (plugins are Rust crates composed at build time). The
 //! out-of-process protocol (ndjson over stdio, "HAP") serializes exactly
-//! these types; see docs/PLUGINS.md.
+//! these types; see docs/PLUGIN-CONTRACT.md.
 
 use serde::{Deserialize, Serialize};
 

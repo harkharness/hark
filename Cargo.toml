@@ -14,7 +14,7 @@ exclude = ["spikes/whisper-spike"]
 version = "0.6.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/jhonmike/hark-harness"
+repository = "https://github.com/harkharness/hark"
 
 [workspace.dependencies]
 anyhow = "1"

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/harkharness/hark/security/advisories/new
+    about: Privately, please — not as a public issue.
+  - name: Documentation
+    url: https://github.com/harkharness/hark/tree/main/docs
+    about: Usage, configuration, plugins and troubleshooting.
