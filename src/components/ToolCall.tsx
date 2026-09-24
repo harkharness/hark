@@ -2,14 +2,11 @@ import type { ReactNode } from "react";
 import Markdown from "./Markdown";
 import { t } from "../lib/i18n";
 import * as ipc from "../lib/ipc";
+import { fence } from "../lib/fence";
 
 /** Shorten absolute paths to something readable in a narrow pane. */
 function shortPath(path: string): string {
   return path.replace(/^\/Users\/[^/]+\//, "~/");
-}
-
-function fence(lang: string, body: string): string {
-  return "```" + lang + "\n" + body.trimEnd() + "\n```";
 }
 
 /** Formats the editor can't render — the OS opens these. */

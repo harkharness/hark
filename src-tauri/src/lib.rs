@@ -4010,11 +4010,28 @@ fn tts_voices() -> Result<Vec<(String, String)>, String> {
 /// Open a URL or local file with the OS (default browser/app) — NEVER
 /// inside the webview: a click must not navigate the app away (that bug
 /// turned a project window into the mother and lost the chat).
+///
+/// Links come from agent output, which a repository can steer, and
+/// `open` runs whatever the target's type says. So only web URLs and
+/// documents go out (domain::external), judged again after symlinks are
+/// resolved: `notes.pdf` pointing at `payload.command` is a command.
 #[tauri::command]
 fn open_external(target: String) -> Result<(), String> {
-    let target = hark_core::config::expand_home(&target);
+    use hark_core::domain::external::{allowed_file, classify, Opener};
+    let arg = match classify(&target)? {
+        Opener::Url(url) => url,
+        Opener::File(path) => {
+            let path = hark_core::config::expand_home(&path.to_string_lossy());
+            let real = std::fs::canonicalize(&path).map_err(|e| format!("{path}: {e}"))?;
+            let is_file = std::fs::metadata(&real).map(|m| m.is_file()).unwrap_or(false);
+            if !is_file || !allowed_file(&real) {
+                return Err(format!("refused: {} is not a document", real.display()));
+            }
+            real.to_string_lossy().into_owned()
+        }
+    };
     std::process::Command::new("open")
-        .arg(&target)
+        .arg(&arg)
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
