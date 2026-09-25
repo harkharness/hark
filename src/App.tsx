@@ -104,6 +104,10 @@ export default function App({
   const [forkDraft, setForkDraft] = useState<{ title: string; sessionId: string } | null>(null);
   /** Tasks auto-compacted on this climb of the context window. */
   const autoCompacted = useRef<Set<string>>(new Set());
+  // Sessions whose heavy-session warning was answered "go ahead": the
+  // user said no to compacting, and a compaction they refused is not
+  // for the window to run anyway (25/09).
+  const declinedCompact = useRef<Set<string>>(new Set());
   /** The login nudge fired already — expired OAuth fails every call, and
    *  one typed `claude` is help; five are harassment. */
   const loginNudged = useRef(false);
@@ -595,7 +599,7 @@ export default function App({
         taskId?: string,
         contextPct?: number | null,
         _cost?: number,
-        _session?: string | null,
+        session?: string | null,
         errorCode?: string | null,
         _model?: string | null,
         agent?: string | null,
@@ -608,7 +612,12 @@ export default function App({
         // 85% the next turns degrade and a forced summary is coming
         // anyway; compacting NOW is the cheap version of that. Once per
         // climb — the flag re-arms when the window drops back.
-        if (taskId && contextPct != null) {
+        // Never on a reading past 100%: that is a window we were told
+        // wrong, not a full one, and a 1M-token compaction is the most
+        // expensive turn there is (30491% set one off, 25/09). Never
+        // either on a session whose user already said no to it.
+        const refused = !!session && declinedCompact.current.has(session);
+        if (taskId && contextPct != null && contextPct <= 1 && !refused) {
           if (contextPct >= 0.85 && !autoCompacted.current.has(taskId)) {
             autoCompacted.current.add(taskId);
             // "/compact" is claude's; an ACP agent has it only when it
@@ -1918,6 +1927,10 @@ export default function App({
     const p = pendingRef.current;
     if (p?.kind !== "confirm-dispatch") return;
     setPending(null);
+    // Confirming past a "compact first" offer is the answer to it.
+    if (p.sessionId && (p.warnings ?? []).some((w) => w.actions.includes("compact_first"))) {
+      declinedCompact.current.add(p.sessionId);
+    }
     if (focusedTask) reactivateIfDone(focusedTask.title);
     runDispatch(p.instruction, p.sessionId);
   }
