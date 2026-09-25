@@ -532,8 +532,21 @@ export default function Transcript({
     i: number;
     result?: { content: string; error: boolean };
     decision?: "allow" | "deny";
+    /** Folded into the call it authorized: not a row of its own. */
+    gone?: boolean;
   };
   const units: Unit[] = [];
+  // Twins are found by key, never by scanning every row: a long chat has
+  // thousands of tool rows, a scan per row made every render quadratic,
+  // and the whole window lagged in a 178-turn chat (25/09).
+  const twinKey = (tool: string, input: string) => `${tool}\u0000${input}`;
+  const undecidedCalls = new Map<string, Unit[]>();
+  const decidedAsks = new Map<string, Unit[]>();
+  const enqueue = (queues: Map<string, Unit[]>, key: string, u: Unit) => {
+    const queue = queues.get(key);
+    if (queue) queue.push(u);
+    else queues.set(key, [u]);
+  };
   messages.forEach((m, i) => {
     if (m.who === "output") {
       const last = units.at(-1);
@@ -550,13 +563,7 @@ export default function Transcript({
     // Same fusion the other way round: an auto-approved card can land
     // after the tool row it belongs to.
     if (m.who === "permission" && m.decision) {
-      const twin = units.find(
-        (u) =>
-          u.m.who === "tool" &&
-          !u.decision &&
-          u.m.name === m.tool &&
-          u.m.input === m.input,
-      );
+      const twin = undecidedCalls.get(twinKey(m.tool, m.input))?.shift();
       if (twin) {
         twin.decision = m.decision;
         return;
@@ -567,21 +574,19 @@ export default function Transcript({
     // Seven MCP reads showed fourteen rows. Same tool, same payload, one
     // line — the decision rides along as a badge.
     if (m.who === "tool") {
-      const twin = units.findIndex(
-        (u) =>
-          u.m.who === "permission" &&
-          !!u.m.decision &&
-          u.m.tool === m.name &&
-          u.m.input === m.input,
-      );
-      if (twin >= 0) {
-        const decision = (units[twin].m as { decision?: "allow" | "deny" }).decision;
-        units.splice(twin, 1);
-        units.push({ m, i, decision });
+      const twin = decidedAsks.get(twinKey(m.name, m.input))?.shift();
+      if (twin) {
+        twin.gone = true;
+        units.push({ m, i, decision: (twin.m as { decision?: "allow" | "deny" }).decision });
         return;
       }
     }
-    units.push({ m, i });
+    const unit: Unit = { m, i };
+    units.push(unit);
+    if (m.who === "tool") enqueue(undecidedCalls, twinKey(m.name, m.input), unit);
+    else if (m.who === "permission" && m.decision) {
+      enqueue(decidedAsks, twinKey(m.tool, m.input), unit);
+    }
   });
 
   const renderUnit = ({ m, i, result, decision }: Unit): ReactNode =>
@@ -633,6 +638,7 @@ export default function Transcript({
     run = [];
   };
   units.forEach((u) => {
+    if (u.gone) return;
     const groupable =
       (u.m.who === "tool" && !STANDALONE_TOOLS.has(u.m.name)) ||
       // A DECIDED permission is a record, not a request: it folds into the

@@ -1709,6 +1709,11 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   border-radius: 50%; background: var(--err); color: #180a0d; border: none; cursor: pointer;
 }
 .composer textarea {
+  /* Block, not the default inline-block: the baseline gap under an
+     inline textarea made the field 3px taller than the textarea, the
+     mirror (inset: 0) took the taller box, and once the text scrolled
+     the two layers stopped lining up — the doubled text of 25/09. */
+  display: block;
   width: 100%;
   background: transparent;
   border: none;
@@ -2571,6 +2576,9 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    caret, selection and editing. Deleting a marker character reverts the
    styling by itself — the glyphs never left the text. */
 .composer textarea.has-rich { color: transparent; caret-color: var(--text); }
+/* A classic scrollbar (mouse attached) narrows the textarea and not the
+   mirror, so the same text wrapped at two widths. It still scrolls. */
+.composer textarea::-webkit-scrollbar { display: none; }
 .composer textarea.has-rich::selection { background: rgba(122,162,247,.35); color: transparent; }
 /* Code inside a block: color only — the BOX is .cm-fblock, a measured
    full-width rectangle behind the text that also covers the hidden

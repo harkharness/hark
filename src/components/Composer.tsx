@@ -131,10 +131,18 @@ export default function Composer({
   /** CLI slash list, fetched once per composer (cheap local lookup). */
   const cliSlash = useRef<string[] | null>(null);
 
-  function autoGrow() {
+  /** Draft length at the last grow, and the width the height was measured
+   *  at: only a SHORTER draft or a new width needs the height reset.
+   *  Collapsing on every key made the field give up ~80px and take them
+   *  back per keystroke, and each round trip resized the whole transcript
+   *  under it, so typing in a long chat lagged (25/09). */
+  const grownFor = useRef({ len: 0, width: 0 });
+  function autoGrow(force = false) {
     const el = areaRef.current;
     if (!el) return;
-    el.style.height = "auto";
+    const len = el.value.length;
+    if (force || len < grownFor.current.len) el.style.height = "auto";
+    grownFor.current.len = len;
     // Input-sized at rest; grows to FIVE lines max, then scrolls inside.
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }
@@ -144,7 +152,9 @@ export default function Composer({
    *  changes, so the caret stays honest by construction. */
   function measureBlocks() {
     const m = mirrorRef.current;
-    if (!m) return;
+    // No block, nothing to measure: the rect read below forces a layout,
+    // and it used to run on every key of plain prose.
+    if (!m || !m.querySelector(".cm-fblock")) return;
     const mr = m.getBoundingClientRect();
     const segs = m.querySelectorAll<HTMLElement>(".cm-fseg");
     m.querySelectorAll<HTMLElement>(".cm-fblock").forEach((box, i) => {
@@ -314,7 +324,7 @@ export default function Composer({
     setImages([]);
     setMention(null);
     setSlash(null);
-    requestAnimationFrame(autoGrow);
+    requestAnimationFrame(() => autoGrow());
     return t;
   }
 
@@ -480,12 +490,13 @@ export default function Composer({
     }
   }
 
-  useEffect(autoGrow, [text]);
+  useEffect(() => autoGrow(), [text]);
 
   const blockCount = useMemo(
     () => fenceSegments(text).filter((s) => s.fenced).length,
     [text],
   );
+  const rich = useMemo(() => hasRich(text), [text]);
   useLayoutEffect(measureBlocks, [text, blockCount]);
 
   // First paint happens before the panels settle their widths, so the
@@ -495,7 +506,12 @@ export default function Composer({
     const el = areaRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
-      autoGrow();
+      // A new width rewraps the text, so the height starts over; a new
+      // height is autoGrow's own doing and needs nothing.
+      const width = el.clientWidth;
+      const rewrapped = width !== grownFor.current.width;
+      grownFor.current.width = width;
+      if (rewrapped) autoGrow(true);
       measureBlocks();
     });
     ro.observe(el);
@@ -571,7 +587,10 @@ export default function Composer({
               className={`cm-fblock ${insideOpenFence(text, caret) ? "in" : ""}`}
             />
           ))}
-          {groupBlocks(paint(text, caret)).map((g, i) =>
+          {/* Plain prose has nothing to paint: the textarea shows its
+              own glyphs, and a second copy under them is what doubled
+              the text whenever the two layers drifted apart (25/09). */}
+          {rich && groupBlocks(paint(text, caret)).map((g, i) =>
             g.fid !== undefined ? (
               <span key={i} className="cm-fseg" data-fid={g.fid}>
                 {g.parts.map((p, j) =>
@@ -597,11 +616,11 @@ export default function Composer({
             ),
           )}
           {/* Trailing newline needs a glyph or the mirror ends short. */}
-          {text.endsWith("\n") ? " " : ""}
+          {rich && text.endsWith("\n") ? " " : ""}
         </div>
         <textarea
           ref={areaRef}
-          className={hasRich(text) ? "has-rich" : ""}
+          className={rich ? "has-rich" : ""}
           rows={1}
           autoFocus={autoFocus}
           placeholder={placeholder}

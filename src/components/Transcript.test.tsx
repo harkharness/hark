@@ -136,3 +136,31 @@ describe("the footer of a reply tells the truth about its price", () => {
     expect(container.textContent).toContain("$0.0123");
   });
 });
+
+describe("an ask and the call it authorized are one row", () => {
+  const ask = (input: string): Msg => ({
+    who: "permission",
+    requestId: `r-${input}`,
+    tool: "Read",
+    input,
+    decision: "allow",
+  });
+  const call = (input: string): Msg => ({ who: "tool", name: "Read", input });
+  const summary = (messages: Msg[]) =>
+    render(<Parent messages={messages} />).container.querySelector(".tool-group summary")
+      ?.textContent;
+
+  it("the card that came first folds into the call", () => {
+    expect(summary([ask("a"), call("a"), ask("b"), call("b"), ask("c"), call("c")])).toBe(
+      t("tools_ran", { n: 3 }),
+    );
+  });
+
+  it("a card that lands after its call folds into it too", () => {
+    expect(summary([call("a"), ask("a"), call("b"), ask("b")])).toBe(t("tools_ran", { n: 2 }));
+  });
+
+  it("a card and a call with different payloads stay two rows", () => {
+    expect(summary([ask("a"), call("b"), call("c")])).toBe(t("tools_ran", { n: 3 }));
+  });
+});
