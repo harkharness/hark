@@ -13,23 +13,28 @@ pub type ClaudeEvent = AgentEvent;
 
 /// Parse one stdout line from the CLI.
 pub fn parse(line: &str) -> AgentEvent {
-    let Ok(v) = serde_json::from_str::<Value>(line) else {
-        return ClaudeEvent::Ignored;
-    };
+    match serde_json::from_str::<Value>(line) {
+        Ok(v) => parse_value(&v),
+        Err(_) => ClaudeEvent::Ignored,
+    }
+}
+
+/// `parse` for a line already read as JSON (the meter reads it too).
+pub fn parse_value(v: &Value) -> AgentEvent {
     match v.get("type").and_then(Value::as_str) {
-        Some("assistant") => parse_tool_use(&v)
-            .or_else(|| parse_assistant_text(&v))
+        Some("assistant") => parse_tool_use(v)
+            .or_else(|| parse_assistant_text(v))
             .unwrap_or(ClaudeEvent::Ignored),
-        Some("user") => parse_tool_result(&v).unwrap_or(ClaudeEvent::Ignored),
-        Some("result") => parse_result(&v).map(ClaudeEvent::Result).unwrap_or(ClaudeEvent::Ignored),
-        Some("control_request") => parse_permission(&v).unwrap_or(ClaudeEvent::Ignored),
+        Some("user") => parse_tool_result(v).unwrap_or(ClaudeEvent::Ignored),
+        Some("result") => parse_result(v).map(ClaudeEvent::Result).unwrap_or(ClaudeEvent::Ignored),
+        Some("control_request") => parse_permission(v).unwrap_or(ClaudeEvent::Ignored),
         Some("system") => match v.get("subtype").and_then(Value::as_str) {
-            Some("init") => parse_init(&v).unwrap_or(ClaudeEvent::Ignored),
-            Some("status") => parse_status(&v).unwrap_or(ClaudeEvent::Ignored),
+            Some("init") => parse_init(v).unwrap_or(ClaudeEvent::Ignored),
+            Some("status") => parse_status(v).unwrap_or(ClaudeEvent::Ignored),
             _ => ClaudeEvent::Ignored,
         },
-        Some("stream_event") => parse_stream_phase(&v).unwrap_or(ClaudeEvent::Ignored),
-        Some("rate_limit_event") => parse_rate_limit(&v).unwrap_or(ClaudeEvent::Ignored),
+        Some("stream_event") => parse_stream_phase(v).unwrap_or(ClaudeEvent::Ignored),
+        Some("rate_limit_event") => parse_rate_limit(v).unwrap_or(ClaudeEvent::Ignored),
         _ => ClaudeEvent::Ignored,
     }
 }
@@ -188,6 +193,8 @@ fn parse_result(v: &Value) -> Option<TurnResult> {
         duration_ms: v.get("duration_ms").and_then(Value::as_u64),
         model: main_model(v),
         usage: parse_usage(v),
+        // Only the turn's calls know this; the meter fills it in.
+        context: None,
     })
 }
 

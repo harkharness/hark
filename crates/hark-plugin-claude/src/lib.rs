@@ -13,6 +13,7 @@ pub mod health;
 pub mod history;
 pub mod live;
 pub mod log;
+pub mod meter;
 pub mod statusline;
 pub mod stream;
 pub mod trust;

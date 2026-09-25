@@ -186,6 +186,45 @@ pub fn context_fill(usage: &[hark_agent::ModelUsage]) -> Option<f64> {
         .fold(None, |best: Option<f64>, r| Some(best.map_or(r, |b| b.max(r))))
 }
 
+/// The window a context reading is measured against: the one its model
+/// ran with. The call may name the model without the window tag the
+/// per-model totals carry (`claude-opus-5` / `claude-opus-5[1m]`).
+fn reading_window(turn: &TurnResult, reading: &hark_agent::ContextReading) -> Option<u64> {
+    let same = |m: &&hark_agent::ModelUsage| m.model == reading.model;
+    let tagged = |m: &&hark_agent::ModelUsage| {
+        m.model.strip_prefix(reading.model.as_str()).is_some_and(|rest| rest.starts_with('['))
+    };
+    match turn.usage.iter().find(same).or_else(|| turn.usage.iter().find(tagged)) {
+        Some(m) => effective_window(&m.model, m.context_window),
+        None => effective_window(&reading.model, None).or_else(|| max_window(&turn.usage)),
+    }
+}
+
+fn max_window(usage: &[hark_agent::ModelUsage]) -> Option<u64> {
+    usage.iter().filter_map(|m| effective_window(&m.model, m.context_window)).max()
+}
+
+/// How full the context is after a turn. The backend's own reading (the
+/// last call's prompt) when it has one: the turn's usage adds up every
+/// call, so a turn that ran tools reads as a multiple of its context.
+/// Without a reading, the per-model estimate of `context_fill`.
+pub fn turn_fill(turn: &TurnResult) -> Option<f64> {
+    match &turn.context {
+        Some(reading) => reading_window(turn, reading)
+            .filter(|w| *w > 0)
+            .map(|w| reading.tokens as f64 / w as f64),
+        None => context_fill(&turn.usage),
+    }
+}
+
+/// The window `turn_fill` measured against.
+pub fn turn_window(turn: &TurnResult) -> Option<u64> {
+    match &turn.context {
+        Some(reading) => reading_window(turn, reading),
+        None => max_window(&turn.usage),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +239,7 @@ mod tests {
             duration_ms: Some(1200),
             model: None,
             usage,
+            context: None,
         }
     }
 
@@ -241,6 +281,50 @@ mod tests {
             used("haiku", 100_000, Some(200_000)),
         ]);
         assert_eq!(fill, Some(0.8));
+    }
+
+    fn reading(model: &str, tokens: u64) -> Option<hark_agent::ContextReading> {
+        Some(hark_agent::ContextReading { model: model.into(), tokens })
+    }
+
+    #[test]
+    fn a_turn_that_ran_many_calls_is_as_full_as_its_last_call() {
+        // A turn's usage adds up every call: forty tool calls over a 300k
+        // chat read 12M, and 12M over the window is how a chat "reached"
+        // thousands of percent (25/09). The last call's prompt is the
+        // context in use.
+        let t = TurnResult {
+            context: reading("claude-opus-5", 300_000),
+            ..turn(vec![used("claude-opus-5[1m]", 12_000_000, Some(1_000_000))], Some(9.0), false)
+        };
+        assert_eq!(turn_fill(&t), Some(0.3));
+        assert_eq!(turn_window(&t), Some(1_000_000));
+    }
+
+    #[test]
+    fn the_reading_is_measured_against_the_window_its_model_ran_with() {
+        // The call names `claude-opus-5`; the totals name the same model
+        // `claude-opus-5[1m]` and still report 200000.
+        let t = TurnResult {
+            context: reading("claude-opus-5", 500_000),
+            ..turn(
+                vec![
+                    used("claude-haiku-4-5", 90_000, Some(200_000)),
+                    used("claude-opus-5[1m]", 2_000_000, Some(200_000)),
+                ],
+                None,
+                false,
+            )
+        };
+        assert_eq!(turn_fill(&t), Some(0.5));
+        assert_eq!(turn_window(&t), Some(1_000_000));
+    }
+
+    #[test]
+    fn without_a_reading_the_per_model_estimate_stands() {
+        let t = turn(vec![used("opus", 800_000, Some(1_000_000))], None, false);
+        assert_eq!(turn_fill(&t), Some(0.8));
+        assert_eq!(turn_window(&t), Some(1_000_000));
     }
 
     #[test]

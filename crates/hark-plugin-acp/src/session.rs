@@ -807,6 +807,7 @@ impl AcpSession {
             duration_ms: None,
             model: Some(model),
             usage,
+            context: None,
         }
     }
 }

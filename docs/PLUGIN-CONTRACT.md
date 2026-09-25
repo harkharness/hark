@@ -21,7 +21,7 @@ Types every plugin speaks:
 | Type | Role |
 |---|---|
 | `AgentEvent` | The event stream: `ToolUse`, `AssistantText`, `ToolResult`, `Result(TurnResult)`, `PermissionRequest`, `SessionStarted`, `RateLimit`, `Ignored` |
-| `TurnResult` | End of turn: `is_error`, `raw`, `reply` (raw JSON when a schema constrained the answer), `cost_usd: Option`, per-model `usage` |
+| `TurnResult` | End of turn: `is_error`, `raw`, `reply` (raw JSON when a schema constrained the answer), `cost_usd: Option`, per-model `usage` (what the turn spent, every call added up), `context: Option<ContextReading>` (the last main-thread call's prompt: the context in use) |
 | `ModelUsage` / `TokenUsage` | The ledger's raw material; USD optional, tokens not |
 | `SessionEvent` | Neutral history facts (`UserPrompt`, `AssistantUsage`, `CompactBoundary`, `Title`) the indexer consumes |
 | `SpawnLimits` | Hard caps (`max_budget_usd`, `max_turns`) |

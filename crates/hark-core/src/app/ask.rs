@@ -188,6 +188,7 @@ fn finish_local(
             cost_usd: Some(0.0),
             context_window: None,
         }],
+        context: None,
     };
     let rows = crate::domain::spend::rows_from_turn(
         &now,

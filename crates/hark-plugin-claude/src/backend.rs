@@ -97,7 +97,8 @@ impl AgentSession for PersistentWorker {
 
 /// stdout → events: one parsed line per send; dropping the sender at EOF
 /// closes the stream, which is how the reader loop learns the process
-/// ended. HARK_DEBUG echoes raw lines, as the old in-loop echo did.
+/// ended. HARK_DEBUG echoes raw lines, as the old in-loop echo did. One
+/// meter per process: the CLI's totals run for the process's lifetime.
 pub fn bridge_reader<R: std::io::Read + Send + 'static>(
     reader: R,
     tx: std::sync::mpsc::Sender<AgentEvent>,
@@ -105,11 +106,12 @@ pub fn bridge_reader<R: std::io::Read + Send + 'static>(
     std::thread::spawn(move || {
         use std::io::BufRead;
         let debug = std::env::var("HARK_DEBUG").is_ok();
+        let mut meter = crate::meter::Meter::default();
         for line in std::io::BufReader::new(reader).lines().map_while(Result::ok) {
             if debug {
                 eprintln!("[hark worker] {line}");
             }
-            if tx.send(crate::stream::parse(&line)).is_err() {
+            if tx.send(meter.read(&line)).is_err() {
                 break; // receiver gone: the driver dropped the session
             }
         }

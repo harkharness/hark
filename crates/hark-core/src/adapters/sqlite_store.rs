@@ -112,44 +112,61 @@ impl SqliteStore {
         Ok(())
     }
 
-    /// The newest live non-sidechain turn of a session, split into the parts
-    /// that occupy the context window (what the next turn drags along).
+    /// The context a session drags into its next turn, split into the parts
+    /// that occupy the window: its last main-thread CALL. The session
+    /// file's rows are one per call; a live row adds up every call of its
+    /// turn (a turn that ran forty tools "held" forty contexts), so it is
+    /// only the fallback for a session the index has not read yet.
     pub fn last_context_weight(
         &self,
         session_id: &str,
     ) -> anyhow::Result<Option<crate::ports::ContextWeight>> {
-        let row = self
-            .conn
-            .query_row(
-                "SELECT input_tokens, output_tokens, cache_read_tokens,
-                        cache_created_tokens, context_window, model
-                 FROM spend
-                 WHERE session_id = ?1 AND source = 'live' AND is_sidechain = 0
-                 ORDER BY ts DESC, id DESC LIMIT 1",
-                params![session_id],
-                |r| {
-                    let input = r.get::<_, i64>(0)? as u64;
-                    let cache_read = r.get::<_, i64>(2)? as u64;
-                    let cache_created = r.get::<_, i64>(3)? as u64;
-                    Ok(crate::ports::ContextWeight {
-                        input,
-                        output: r.get::<_, i64>(1)? as u64,
-                        cache_read,
-                        cache_created,
-                        total: input + cache_read + cache_created,
-                        // The window the row RECORDED, corrected by what
-                        // the model id declares: rows written before that
-                        // was understood still carry 200000 for a model
-                        // that ran with a million.
-                        context_window: crate::domain::spend::effective_window(
-                            &r.get::<_, String>(5).unwrap_or_default(),
-                            r.get::<_, Option<i64>>(4)?.map(|w| w as u64),
-                        ),
-                    })
-                },
-            )
-            .optional()?;
-        Ok(row)
+        let read = |source: &str| {
+            self.conn
+                .query_row(
+                    "SELECT input_tokens, output_tokens, cache_read_tokens,
+                            cache_created_tokens, context_window, model
+                     FROM spend
+                     WHERE session_id = ?1 AND source = ?2 AND is_sidechain = 0
+                       AND model != '<synthetic>'
+                       AND input_tokens + cache_read_tokens + cache_created_tokens > 0
+                     ORDER BY ts DESC, id DESC LIMIT 1",
+                    params![session_id, source],
+                    |r| {
+                        let input = r.get::<_, i64>(0)? as u64;
+                        let cache_read = r.get::<_, i64>(2)? as u64;
+                        let cache_created = r.get::<_, i64>(3)? as u64;
+                        let weight = crate::ports::ContextWeight {
+                            input,
+                            output: r.get::<_, i64>(1)? as u64,
+                            cache_read,
+                            cache_created,
+                            total: input + cache_read + cache_created,
+                            context_window: r.get::<_, Option<i64>>(4)?.map(|w| w as u64),
+                        };
+                        Ok((weight, r.get::<_, String>(5).unwrap_or_default()))
+                    },
+                )
+                .optional()
+        };
+        let live = read("live")?;
+        let Some((mut weight, model)) = read("jsonl")?.or_else(|| live.clone()) else {
+            return Ok(None);
+        };
+        // The window: what a live row of the same model recorded, corrected
+        // by what its id declares (`claude-opus-5[1m]` ran with a million
+        // while still reporting 200000). The session file names the model
+        // without the tag, so the live row is the one that knows.
+        weight.context_window = match live {
+            Some((w, live_model))
+                if live_model == model
+                    || live_model.strip_prefix(model.as_str()).is_some_and(|r| r.starts_with('[')) =>
+            {
+                crate::domain::spend::effective_window(&live_model, w.context_window)
+            }
+            _ => crate::domain::spend::effective_window(&model, weight.context_window),
+        };
+        Ok(Some(weight))
     }
 
     fn row_to_agg(row: &rusqlite::Row) -> rusqlite::Result<crate::ports::SpendAgg> {
@@ -1030,5 +1047,59 @@ mod tests {
         assert_eq!(weight.total, 42_000, "occupancy = input + cache read + cache created");
         assert_eq!(weight.context_window, Some(200_000));
         assert!(store.last_context_weight("nope").unwrap().is_none());
+    }
+
+    #[test]
+    fn context_weight_is_the_last_call_not_the_sum_of_a_turn() {
+        // A live row adds up every call of its turn: forty tools over a
+        // 300k chat is 12M "in the window". The session file has one row
+        // per call, and the last main one IS the context in use. The live
+        // row still says which window the model ran with (25/09).
+        use hark_agent::TokenUsage;
+        use crate::domain::spend::{SpendKind, SpendRow, SpendSource};
+        use crate::ports::SpendLedger;
+
+        let mut store = SqliteStore::in_memory().unwrap();
+        let row = |ts: &str, source: SpendSource, model: &str, usage: TokenUsage, sidechain: bool| {
+            SpendRow {
+                ts: ts.into(),
+                kind: if source == SpendSource::Live { SpendKind::Worker } else { SpendKind::Session },
+                source,
+                task_id: None,
+                label: None,
+                session_id: Some("s-1".into()),
+                workspace: None,
+                model: model.into(),
+                usage,
+                cost_usd: (source == SpendSource::Live).then_some(9.0),
+                duration_ms: None,
+                is_error: false,
+                is_sidechain: sidechain,
+                context_window: (source == SpendSource::Live).then_some(200_000),
+                request_id: (source == SpendSource::Jsonl).then(|| format!("req-{ts}")),
+                outcome: None,
+            }
+        };
+        let call = |input, cache_read, cache_created| TokenUsage { input, output: 50, cache_read, cache_created };
+        store
+            .record_spend(&[
+                row("2026-09-25T10:59:30Z", SpendSource::Jsonl, "claude-opus-5", call(3, 300_000, 1_000), false),
+                row("2026-09-25T10:59:50Z", SpendSource::Jsonl, "claude-opus-5", call(2, 301_000, 900), false),
+                // A subagent's call has its own context.
+                row("2026-09-25T10:59:55Z", SpendSource::Jsonl, "claude-haiku-4-5", call(9, 700_000, 9), true),
+                row(
+                    "2026-09-25T11:00:00Z",
+                    SpendSource::Live,
+                    "claude-opus-5[1m]",
+                    TokenUsage { input: 40, output: 2_000, cache_read: 12_000_000, cache_created: 40_000 },
+                    false,
+                ),
+            ])
+            .unwrap();
+
+        let weight = store.last_context_weight("s-1").unwrap().unwrap();
+        assert_eq!(weight.total, 2 + 301_000 + 900);
+        assert_eq!(weight.cache_read, 301_000);
+        assert_eq!(weight.context_window, Some(1_000_000), "the window the model ran with");
     }
 }

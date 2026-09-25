@@ -1296,16 +1296,12 @@ fn start_worker_titled(
                         usage.cache_read += m.usage.cache_read;
                         usage.cache_created += m.usage.cache_created;
                     }
-                    let context_pct = hark_core::domain::spend::context_fill(&turn.usage);
-                    // The window each model said it had, so the reading can
-                    // be checked instead of believed.
-                    let context_window = turn
-                        .usage
-                        .iter()
-                        .filter_map(|m| {
-                            hark_core::domain::spend::effective_window(&m.model, m.context_window)
-                        })
-                        .max();
+                    // The last call's prompt when the backend read it (the
+                    // turn's usage adds every call up), and the window it
+                    // was measured against, so the reading can be checked
+                    // instead of believed.
+                    let context_pct = hark_core::domain::spend::turn_fill(&turn);
+                    let context_window = hark_core::domain::spend::turn_window(&turn);
                     // A failed turn carries its CLASS, so the windows can
                     // act (auth → open a terminal with `claude` typed) and
                     // know it is fatal — the crash-resend must never replay

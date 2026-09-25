@@ -3,7 +3,7 @@
 //! routes permission requests to a decision callback (terminal y/n today,
 //! voice tomorrow). This is the arm of the orchestrator.
 
-use crate::stream::{parse, permission_response, user_message};
+use crate::stream::{permission_response, user_message};
 use hark_agent::{AgentEvent, PermissionDecision, TurnResult};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -282,11 +282,14 @@ pub fn run(
 
     let debug = std::env::var_os("HARK_DEBUG").is_some();
     let mut result = None;
+    // A resumed session opens on its lifetime totals: the meter is what
+    // keeps this one turn from being billed the whole history.
+    let mut meter = crate::meter::Meter::default();
     for line in BufReader::new(stdout).lines().map_while(Result::ok) {
         if debug {
             eprintln!("[worker] {line}");
         }
-        let event = parse(&line);
+        let event = meter.read(&line);
         on_event(&event);
         match event {
             AgentEvent::PermissionRequest {

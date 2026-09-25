@@ -49,7 +49,23 @@ pub struct TurnResult {
     /// Main model that produced the turn.
     pub model: Option<String>,
     /// Token usage per model (empty only when the backend reported nothing).
+    /// This is what the turn SPENT: every call of the turn added up.
     pub usage: Vec<ModelUsage>,
+    /// How full the context was when the turn ended, when the backend can
+    /// tell. `usage` cannot answer that: a turn that ran forty tools read
+    /// the same context forty times, and its usage says so.
+    #[serde(default)]
+    pub context: Option<ContextReading>,
+}
+
+/// The context in use at the end of a turn: the prompt of the turn's last
+/// main-thread call (fresh input + cache read + cache written).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextReading {
+    /// The model as the call named it. It may lack the window tag the
+    /// per-model totals carry (`claude-opus-5` vs `claude-opus-5[1m]`).
+    pub model: String,
+    pub tokens: u64,
 }
 
 /// Subscription/quota window signal, when the backend has one.

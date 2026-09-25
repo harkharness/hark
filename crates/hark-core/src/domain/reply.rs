@@ -141,6 +141,7 @@ mod tests {
             duration_ms: None,
             model: None,
             usage: vec![],
+            context: None,
         };
         let reply = VoiceReply::from_turn(&turn).expect("typed reply");
         assert_eq!(reply.fala, "Duas pendências hoje.");

@@ -104,6 +104,29 @@ stream-json stdin. No `--resume` needed within a live session.
   to target sessions listed by `claude agents --json` and asks the user to
   close them or pick another session.
 
+### A result reports the process, not the turn (measured 08/2026, 09/2026)
+
+- `total_cost_usd` and `modelUsage` on a `result` line are RUNNING TOTALS for
+  the whole process. In a persistent worker the second turn "read from cache"
+  exactly the tokens the first one had written (ledger, 21/08: 290,925 read /
+  74,802 written, then 365,727 / 76,958). `duration_ms` is per turn.
+- Since CLI 2.1.277 a headless resume (`-p --resume`) no longer starts those
+  totals at zero: they open at the session's lifetime figures ("headless
+  sessions now save their totals at exit"). One message into a 176-turn
+  terminal session came back as $1286 and 178.8M cached tokens.
+- So: a turn's cost and tokens are the difference between consecutive
+  results of one process (`hark-plugin-claude::meter`). The first result of a
+  resumed process has nothing to subtract; it is checked against the usage
+  its own `assistant` lines reported, and totals far beyond those calls mean
+  inherited figures: the turn keeps the calls' tokens and no price.
+- `modelUsage` adds up every call of the turn, so it is not the context in
+  use: a turn that ran forty tools read the same context forty times. The
+  context is the prompt of the turn's LAST main-thread call (input + cache
+  read + cache written of its `assistant` line).
+- `--max-budget-usd` is weighed against the same totals: on a resumed session
+  it fires at once, every turn, with a result that has no `result` text
+  (`subtype: error_max_budget_usd`). Hark only passes it to new sessions.
+
 ### Session listing
 
 `claude agents --json` lists live sessions (pid, cwd, sessionId, name, status)
