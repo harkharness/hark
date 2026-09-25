@@ -1316,9 +1316,28 @@ fn start_worker_titled(
                         .unwrap()
                         .remove(&task2);
                     let is_error = turn.is_error && !stopped;
-                    let error_code = (is_error
-                        && hark_plugin_claude::health::looks_unauthenticated(&turn.raw))
-                    .then_some("agent_auth");
+                    let error_code = if !is_error {
+                        None
+                    } else if hark_plugin_claude::health::looks_unauthenticated(&turn.raw) {
+                        Some("agent_auth")
+                    } else if hark_plugin_claude::health::budget_stop(&turn.raw) {
+                        // The window says which ceiling and where it lives:
+                        // the CLI's own result has no text at all.
+                        Some("budget")
+                    } else {
+                        None
+                    };
+                    let budget_usd = (error_code == Some("budget"))
+                        .then(|| config.spawn_limits_for(&workspace).max_budget_usd)
+                        .flatten();
+                    // A stop ends as `error_during_execution` with no text,
+                    // and the parser names the subtype for real failures:
+                    // a stop is not one, and never shows it as a reply.
+                    let text = if stopped && hark_plugin_claude::health::subtype_text(&turn.raw) {
+                        ""
+                    } else {
+                        turn.raw.as_str()
+                    };
                     emit_event(
                         &app2,
                         serde_json::json!({ "kind": "worker_turn", "task_id": task2,
@@ -1327,7 +1346,8 @@ fn start_worker_titled(
                             "agent": agent_id,
                             "login_hint": login_hint,
                             "error_code": error_code,
-                            "text": turn.raw, "cost_usd": turn.cost_usd, "model": turn.model,
+                            "budget_usd": budget_usd,
+                            "text": text, "cost_usd": turn.cost_usd, "model": turn.model,
                             "is_error": is_error, "stopped": stopped,
                             "usage": { "input": usage.input, "output": usage.output,
                                        "cache_read": usage.cache_read, "cache_created": usage.cache_created },

@@ -178,9 +178,28 @@ fn parse_tool_use(v: &Value) -> Option<ClaudeEvent> {
 }
 
 fn parse_result(v: &Value) -> Option<TurnResult> {
-    let raw = v.get("result").and_then(Value::as_str).unwrap_or_default().to_string();
+    let text = v.get("result").and_then(Value::as_str).unwrap_or_default().to_string();
+    let subtype = v.get("subtype").and_then(Value::as_str);
     let is_error = v.get("is_error").and_then(Value::as_bool).unwrap_or(false)
-        || v.get("subtype").and_then(Value::as_str) != Some("success");
+        || subtype != Some("success");
+    // An error the CLI raised itself (the budget, the turn cap, a resume
+    // it could not load) has no `result` text, and the turn used to end in
+    // silence. The subtype leads, so the shell can tell a budget stop.
+    let raw = if is_error && text.trim().is_empty() {
+        let lines: Vec<&str> = v
+            .get("errors")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        let head = subtype.unwrap_or("error");
+        if lines.is_empty() {
+            head.to_string()
+        } else {
+            format!("{head}: {}", lines.join("\n"))
+        }
+    } else {
+        text
+    };
     Some(TurnResult {
         is_error,
         // Structured replies stay raw JSON here; the product layer decides
@@ -467,6 +486,38 @@ mod tests {
         assert!(result.is_error);
         assert_eq!(result.usage.len(), 1);
         assert_eq!(result.usage[0].usage.output, 6);
+    }
+
+    #[test]
+    fn an_error_result_without_text_still_says_what_stopped_it() {
+        // A budget stop carries no `result` field: the turn ended with an
+        // empty string, and the window had nothing to show but "falhou"
+        // read aloud (25/09).
+        let line = r#"{"type":"result","subtype":"error_max_budget_usd","is_error":true,"total_cost_usd":1286.36}"#;
+        let ClaudeEvent::Result(result) = parse(line) else {
+            panic!("expected result");
+        };
+        assert!(result.is_error);
+        assert!(result.raw.starts_with("error_max_budget_usd"), "{:?}", result.raw);
+    }
+
+    #[test]
+    fn an_error_result_without_text_keeps_the_clis_own_error_lines() {
+        let line = r#"{"type":"result","subtype":"error_during_execution","is_error":true,
+            "errors":["No conversation found with session ID: 4b0b"]}"#;
+        let ClaudeEvent::Result(result) = parse(line) else {
+            panic!("expected result");
+        };
+        assert!(result.raw.contains("No conversation found"), "{:?}", result.raw);
+    }
+
+    #[test]
+    fn a_successful_result_keeps_its_text_untouched() {
+        let line = r#"{"type":"result","subtype":"success","is_error":false,"result":"pronto"}"#;
+        let ClaudeEvent::Result(result) = parse(line) else {
+            panic!("expected result");
+        };
+        assert_eq!(result.raw, "pronto");
     }
 
     #[test]

@@ -89,7 +89,13 @@ impl WorkerSpawn {
             args.extend(["--setting-sources".into(), "user".into()]);
         }
         args.extend(self.directive_args());
-        if let Some(budget) = self.limits.max_budget_usd.filter(|b| *b > 0.0) {
+        // The CLI weighs the cap against the SESSION's running total, and
+        // since 2.1.277 a resume opens on the session's lifetime figures:
+        // any chat that had ever cost more than the cap failed every turn,
+        // with nothing on screen. Only a new session starts from zero, so
+        // only there does the cap mean what it says.
+        let fresh = self.session_id.is_empty();
+        if let Some(budget) = self.limits.max_budget_usd.filter(|b| *b > 0.0 && fresh) {
             args.push("--max-budget-usd".into());
             args.push(format!("{budget}"));
         }
@@ -415,7 +421,7 @@ mod tests {
 
     #[test]
     fn hard_limits_become_cli_caps() {
-        let mut s = spawn("s-1", Directives::default());
+        let mut s = spawn("", Directives::default());
         s.limits = SpawnLimits { max_budget_usd: Some(2.0), max_turns: Some(30) };
         let args = s.cli_args(true);
         assert!(args.contains(&"--max-budget-usd".to_string()));
@@ -427,6 +433,21 @@ mod tests {
         let args = s.cli_args(true);
         assert!(!args.contains(&"--max-budget-usd".to_string()));
         assert!(!args.contains(&"--max-turns".to_string()));
+    }
+
+    #[test]
+    fn a_resumed_session_is_not_capped_against_its_lifetime_total() {
+        // The CLI weighs the cap against the session's running total, and
+        // a resume opens on the session's lifetime figures (2.1.277): a
+        // chat that had ever cost more than $2 failed every turn (25/09).
+        let mut s = spawn("s-1", Directives::default());
+        s.limits = SpawnLimits { max_budget_usd: Some(2.0), max_turns: Some(30) };
+        let args = s.cli_args(true);
+        assert!(!args.contains(&"--max-budget-usd".to_string()), "{args:?}");
+        assert!(args.contains(&"--max-turns".to_string()), "the turn cap is not a total");
+        // A fork carries the same history, so the same inheritance.
+        s.fork = true;
+        assert!(!s.cli_args(true).contains(&"--max-budget-usd".to_string()));
     }
 
     #[test]

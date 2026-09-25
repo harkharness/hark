@@ -57,6 +57,20 @@ pub fn looks_unauthenticated(stderr: &str) -> bool {
     PHRASES.iter().any(|p| s.contains(p))
 }
 
+/// Did the CLI stop the turn at `--max-budget-usd`? Its result carries no
+/// text; the stream parser puts the subtype first instead.
+pub fn budget_stop(raw: &str) -> bool {
+    raw.starts_with("error_max_budget_usd")
+}
+
+/// Is this the text the stream parser wrote in place of an empty error
+/// result (`error_max_turns: …`)? The CLI's subtype, not anything the
+/// agent said.
+pub fn subtype_text(raw: &str) -> bool {
+    let head = raw.split(':').next().unwrap_or_default();
+    head.starts_with("error_") && head.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+}
+
 /// Turn a non-zero exit into a coded, actionable error.
 pub fn exit_error(bin: &str, status: &str, stderr: &str) -> String {
     let tail: String = stderr.trim().chars().take(300).collect();
@@ -122,6 +136,26 @@ mod tests {
         ] {
             assert!(!looks_unauthenticated(stderr), "{stderr:?}");
         }
+    }
+
+    #[test]
+    fn a_budget_stop_is_told_apart_from_other_failures() {
+        // The parser names the subtype when the CLI gives no text.
+        assert!(budget_stop("error_max_budget_usd"));
+        assert!(budget_stop("error_max_budget_usd: Reached maximum budget"));
+        assert!(!budget_stop("error_during_execution: boom"));
+        assert!(!budget_stop("the budget of the project was discussed"));
+    }
+
+    #[test]
+    fn the_parsers_stand_in_text_is_told_apart_from_what_an_agent_said() {
+        // A stopped turn ends as error_during_execution with no text; the
+        // parser names the subtype, and a stop must not show it as a reply.
+        assert!(subtype_text("error_during_execution"));
+        assert!(subtype_text("error_max_turns: Reached maximum number of turns"));
+        assert!(!subtype_text("error handling is fine now"));
+        assert!(!subtype_text("Error: boom"));
+        assert!(!subtype_text(""));
     }
 
     #[test]

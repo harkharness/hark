@@ -135,9 +135,16 @@ export function useHarkEvents(h: Handlers) {
         // the event (gemini → `gemini`, kiro → `kiro-cli login`); claude's
         // is the historical default.
         const loginFix = ev.login_hint ?? "claude /login";
+        // A failure is never silent: a budget stop has no text of its own
+        // (the window used to show nothing and only say "falhou"), so it
+        // says which ceiling stopped it and where that lives.
         const turnText = authFail
           ? `${ev.text}\n\n${t("auth_fix")}\n\n${fence}bash\n${loginFix}\n${fence}`
-          : ev.text;
+          : ev.error_code === "budget"
+            ? t("budget_hit", { usd: ev.budget_usd != null ? ` ($${ev.budget_usd})` : "" })
+            : ev.is_error && !ev.text.trim()
+              ? t("turn_failed_silent")
+              : ev.text;
         h.pushRaw(
           label,
           `${ts()} ── turno ${ev.is_error ? "FALHOU " : ""}${ev.model ?? ""} ${costLabel(ev.cost_usd)}`,

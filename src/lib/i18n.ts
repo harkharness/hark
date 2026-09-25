@@ -76,6 +76,9 @@ const pt = {
   mo_files: "arquivos",
   mo_term_empty: "sem shell aberto — o + cria um",
   auth_fix: "Sessão do Claude expirou — roda no terminal e faz o login:",
+  budget_hit:
+    "O turno parou no teto de gasto por processo{usd} (--max-budget-usd). Ajuste em Ajustes → Teto por worker; 0 desliga.",
+  turn_failed_silent: "O turno falhou e o agente não disse por quê.",
   hud_type_placeholder: "dita ou digita aqui — Enter mira e envia",
   held_title: "esta sessão está aberta no terminal",
   held_why: "{name} · pid {pid} · {since} — dois escritores corromperiam o histórico",
@@ -652,6 +655,9 @@ const en: Record<keyof typeof pt, string> = {
   mo_files: "files",
   mo_term_empty: "no shell open — + starts one",
   auth_fix: "Claude session expired — run this in the terminal and log in:",
+  budget_hit:
+    "The turn stopped at the per-process spend ceiling{usd} (--max-budget-usd). Change it in Settings → Per-worker ceiling; 0 turns it off.",
+  turn_failed_silent: "The turn failed and the agent did not say why.",
   hud_type_placeholder: "dictate or type here — Enter targets and sends",
   held_title: "this session is open in the terminal",
   held_why: "{name} · pid {pid} · {since} — two writers would corrupt the history",

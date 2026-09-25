@@ -40,6 +40,8 @@ export type HarkEvent =
       /** Failure class of an error turn ("agent_auth"): fatal — never
        *  auto-resent, and the window offers the remedy. */
       error_code?: string | null;
+      /** The ceiling a "budget" stop hit, when one was configured. */
+      budget_usd?: number | null;
       usage?: TurnUsage;
       context_pct?: number | null;
       /** The window the model said it had — lets the reading be checked. */

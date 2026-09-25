@@ -70,7 +70,7 @@ match_cwd = ["~/Projects/side"]  # cwd prefixes that belong to this context
 repos     = ["~/Projects/side/api"]
 
 # --- workers --------------------------------------------------------------
-worker_budget_usd = 2.0          # hard ceiling per worker process; 0 = off
+worker_budget_usd = 2.0          # ceiling per new-session worker; 0 = off
 worker_max_turns  = 0            # turn ceiling per worker; 0 = off
 worker_mode       = ""           # "" | "manual" | "acceptEdits" | "plan"
                                  #    | "auto" | "bypass"
@@ -105,8 +105,12 @@ what the system prompt tells the agent to answer in. Neither one restricts what
 Hark *understands*: the spoken grammar accepts Portuguese and English at the
 same time.
 
-**`worker_budget_usd`.** The guardrail. Every worker process spawns with a
-dollar ceiling and stops itself when it hits it. `0` disables it — do that
+**`worker_budget_usd`.** The guardrail. A worker that starts a NEW session
+spawns with a dollar ceiling and stops itself when it hits it. A resumed chat
+does not get one: Claude Code weighs the ceiling against the session's running
+total, and since CLI 2.1.277 a resume opens on the session's lifetime figures,
+so any chat that had ever cost more than the ceiling failed every turn. When
+the ceiling does stop a turn, the chat says so. `0` disables it — do that
 knowingly.
 
 **`worker_mode`.** The permission posture new workers start in when the
