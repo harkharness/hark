@@ -3663,24 +3663,22 @@ fn task_from_session(session_id: String) -> Result<serde_json::Value, String> {
     refresh_histories(&config, &mut store);
     let summary = session_summary(&store, &session_id)
         .ok_or_else(|| format!("sessão {session_id} não está no índice"))?;
-    let title = session_label(&summary);
     let tasks = store.board().map_err(|e| e.to_string())?;
-    let updates = [hark_core::domain::board::BoardUpdate {
-        titulo: title.clone(),
-        status: hark_core::domain::board::TaskStatus::Doing,
-        nota: Some("sessão recuperada".into()),
-        sessao: None,
-    }];
-    let merged = hark_core::domain::board::apply_updates(
+    // By session id only, and the card answers with the title and folder
+    // it really has: a look-alike title used to hand the session to
+    // another project's card, and the window focused a name no list had.
+    let (merged, card) = hark_core::domain::board::adopt_session(
         tasks,
-        &updates,
+        &session_label(&summary),
         &now_iso(),
         summary.cwd.as_deref(),
-        Some(&session_id),
+        &session_id,
     );
     store.save_board(&merged).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
-        "title": title, "workspace": summary.cwd, "session_id": session_id,
+        "title": card.title,
+        "workspace": card.workspace.or(summary.cwd),
+        "session_id": session_id,
     }))
 }
 

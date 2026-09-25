@@ -179,6 +179,55 @@ pub fn apply_updates(
     tasks
 }
 
+/// A session recovered from history (the palette, the HUD) becomes a card
+/// of ITS folder. Only the session id matches: `apply_updates` also
+/// matches by title for the model's updates, and a look-alike title put a
+/// terminal session on another project's card, where no window of its own
+/// project listed it (25/09). Returns the card as saved, so the caller
+/// focuses the title the board really has.
+pub fn adopt_session(
+    mut tasks: Vec<Task>,
+    label: &str,
+    now: &str,
+    cwd: Option<&str>,
+    session_id: &str,
+) -> (Vec<Task>, Task) {
+    let covers = |ws: &str, dir: &str| {
+        let ws = ws.trim_end_matches('/');
+        dir == ws || dir.starts_with(&format!("{ws}/"))
+    };
+    if let Some(task) = tasks.iter_mut().find(|t| t.session_ids.iter().any(|s| s == session_id)) {
+        task.status = TaskStatus::Doing;
+        task.updated_at = now.to_string();
+        if let Some(dir) = cwd {
+            if !task.workspace.as_deref().is_some_and(|ws| covers(ws, dir)) {
+                task.workspace = Some(dir.to_string());
+            }
+        }
+        let card = task.clone();
+        return (tasks, card);
+    }
+    // The title is the board's key: a new card never takes one in use.
+    let mut title = label.to_string();
+    let mut n = 2;
+    while tasks.iter().any(|t| t.title == title) {
+        title = format!("{label} ({n})");
+        n += 1;
+    }
+    let card = Task {
+        title,
+        status: TaskStatus::Doing,
+        workspace: cwd.map(String::from),
+        session_ids: vec![session_id.to_string()],
+        updated_at: now.to_string(),
+        note: Some("sessão recuperada".into()),
+        pinned: false,
+        subtasks: Vec::new(),
+    };
+    tasks.push(card.clone());
+    (tasks, card)
+}
+
 /// Manual move (drag on the board): exact title match, new status, no LLM.
 pub fn set_status(mut tasks: Vec<Task>, title: &str, status: TaskStatus, now: &str) -> Vec<Task> {
     if let Some(task) = tasks.iter_mut().find(|t| t.title == title) {
@@ -303,6 +352,61 @@ mod tests {
             pinned: false,
             subtasks: Vec::new(),
         }
+    }
+
+    fn linked(title: &str, workspace: &str, session: &str) -> Task {
+        Task {
+            workspace: Some(workspace.into()),
+            session_ids: vec![session.into()],
+            ..card(title, "2026-09-01T10:00:00Z")
+        }
+    }
+
+    const NOW: &str = "2026-09-25T12:00:00Z";
+
+    #[test]
+    fn a_recovered_session_gets_its_own_card_in_its_own_folder() {
+        // 25/09: a terminal session opened from the history palette was
+        // matched BY TITLE to another project's card, so the chat showed
+        // in neither list of its own window. Only the session id may
+        // match a recovered session.
+        let board = vec![linked("deploy phase 8 production", "/home/dev/other", "s-old")];
+        let (tasks, card) = adopt_session(board, "deploy-phase-9-production", NOW, Some("/home/dev/ws"), "s-9");
+        assert_eq!(card.title, "deploy-phase-9-production");
+        assert_eq!(card.workspace.as_deref(), Some("/home/dev/ws"));
+        assert_eq!(card.session_ids, vec!["s-9".to_string()]);
+        assert_eq!(card.status, TaskStatus::Doing);
+        assert_eq!(tasks.len(), 2, "the look-alike card is someone else's");
+        assert_eq!(tasks[0], linked("deploy phase 8 production", "/home/dev/other", "s-old"));
+    }
+
+    #[test]
+    fn a_session_already_on_a_card_reopens_that_card() {
+        let board = vec![linked("Renomeado pelo usuário", "/home/dev/ws", "s-9")];
+        let (tasks, card) = adopt_session(board, "deploy-phase-9-production", NOW, Some("/home/dev/ws"), "s-9");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(card.title, "Renomeado pelo usuário", "the card keeps the name it was given");
+        assert_eq!(card.updated_at, NOW);
+    }
+
+    #[test]
+    fn a_card_outside_the_sessions_folder_follows_the_session() {
+        let board = vec![linked("chat", "/home/dev/other", "s-9")];
+        let (_, moved) = adopt_session(board, "chat", NOW, Some("/home/dev/ws"), "s-9");
+        assert_eq!(moved.workspace.as_deref(), Some("/home/dev/ws"));
+        // A card on the project root already covers a session in a subfolder.
+        let board = vec![linked("chat", "/home/dev/ws", "s-9")];
+        let (_, kept) = adopt_session(board, "chat", NOW, Some("/home/dev/ws/apps/game"), "s-9");
+        assert_eq!(kept.workspace.as_deref(), Some("/home/dev/ws"));
+    }
+
+    #[test]
+    fn a_new_card_never_takes_a_title_already_on_the_board() {
+        // The title is the board's key: a clash would fail the save.
+        let board = vec![linked("deploy", "/home/dev/ws", "s-1")];
+        let (tasks, card) = adopt_session(board, "deploy", NOW, Some("/home/dev/ws"), "s-2");
+        assert_eq!(card.title, "deploy (2)");
+        assert_eq!(tasks.len(), 2);
     }
 
     #[test]

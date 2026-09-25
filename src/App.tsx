@@ -2590,9 +2590,11 @@ export default function App({
             <Sidebar
               projects={projects}
               tasks={board}
+              // A history row steps aside only for a card THIS window
+              // lists: a session whose card lives in another project used
+              // to drop out of both lists (25/09).
               chats={chats.filter(
-                (c) =>
-                  !(overview?.board ?? []).some((t) => t.session_ids.includes(c.session_id)),
+                (c) => !board.some((t) => t.session_ids.includes(c.session_id)),
               )}
               activeTitle={focusedTask?.title}
               liveTitles={Object.values(liveWorkers).map((w) => w.label)}
