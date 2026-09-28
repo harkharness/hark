@@ -164,3 +164,36 @@ describe("an ask and the call it authorized are one row", () => {
     expect(summary([ask("a"), call("b"), call("c")])).toBe(t("tools_ran", { n: 3 }));
   });
 });
+
+describe("a turn cut at the per-turn ceiling", () => {
+  const cut: Msg = { who: "ceiling", taskId: "t-1", spent: 5.2, cap: 5, task: "deploy" };
+
+  it("names both numbers and offers the two ways on", () => {
+    const lift = vi.fn();
+    const light = vi.fn();
+    const { container, getByText } = render(
+      <Transcript
+        messages={[cut]}
+        catalog={catalog}
+        directivesFor={() => undefined}
+        onAnswerPermission={() => {}}
+        onOpenPath={() => {}}
+        onLiftCap={lift}
+        onRestartLight={light}
+      />,
+    );
+    expect(container.querySelector(".ceiling-card")?.textContent).toContain(
+      t("ceiling_title", { spent: "5.20", cap: "5.00" }),
+    );
+    getByText(t("ceiling_lift")).click();
+    getByText(t("ceiling_light")).click();
+    expect(lift).toHaveBeenCalledWith("t-1");
+    expect(light).toHaveBeenCalledWith("t-1");
+  });
+
+  it("once lifted, the buttons give way to the fact", () => {
+    const { container, queryByText } = render(<Parent messages={[{ ...cut, lifted: true }]} />);
+    expect(container.textContent).toContain(t("ceiling_lifted"));
+    expect(queryByText(t("ceiling_lift"))).toBeNull();
+  });
+});

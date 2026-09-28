@@ -20,6 +20,10 @@ export type TurnState = {
   phase: TurnPhase;
   /** Characters of assistant text streamed this turn (token estimate). */
   chars: number;
+  /** What the turn has cost so far, as the backend prices its calls
+   *  (list prices; the finished turn brings the real number). Null when
+   *  a model in the turn has no known price; absent until a call lands. */
+  usd?: number | null;
 };
 
 /** Elapsed, the way a person reads it. */
@@ -72,6 +76,12 @@ export default function TurnStatus({ state }: { state: TurnState }) {
         <>
           <span className="ts-dot">·</span>
           <span className="ts-tokens">{st("sp_ts_tokens", { n: tokens })}</span>
+        </>
+      )}
+      {state.usd != null && (
+        <>
+          <span className="ts-dot">·</span>
+          <span className="ts-cost">{st("sp_ts_cost", { n: state.usd.toFixed(2) })}</span>
         </>
       )}
       <span className="ts-dot">·</span>

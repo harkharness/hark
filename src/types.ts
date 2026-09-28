@@ -42,10 +42,23 @@ export type HarkEvent =
       error_code?: string | null;
       /** The ceiling a "budget" stop hit, when one was configured. */
       budget_usd?: number | null;
+      /** What the turn had spent when Hark cut it for that ceiling. */
+      spent_usd?: number | null;
       usage?: TurnUsage;
       context_pct?: number | null;
       /** The window the model said it had — lets the reading be checked. */
       context_window?: number | null;
+    }
+  | {
+      /** The running turn's spend so far, as the backend estimates it
+       *  from the calls it has seen; the turn's result is the truth. */
+      kind: "worker_spend";
+      task_id: string;
+      label?: string;
+      calls: number;
+      usage: TurnUsage;
+      /** Null when a model in the turn has no known price. */
+      cost_usd?: number | null;
     }
   | {
       kind: "rate_limit";
@@ -153,6 +166,9 @@ export type Msg =
     }
   /** The CLI's compaction summary: history, not conversation — folded. */
   | { who: "compact"; text: string; task?: string }
+  /** Hark cut a turn at the per-turn ceiling: the numbers, and the ways
+   *  on from here. `lifted` once the user chose to go on without one. */
+  | { who: "ceiling"; taskId: string; spent: number; cap: number; lifted?: boolean; task?: string }
   | { who: "sys"; text: string; task?: string };
 
 export type Directives = {

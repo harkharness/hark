@@ -35,6 +35,8 @@ type Handlers = {
     detail?: string,
     chars?: number,
   ) => void;
+  /** The running turn's estimated spend moved (dollars null = unpriced). */
+  onTurnSpend?: (thread: string, usd: number | null) => void;
   /** Subscription window signal from the newest turn. */
   onRateLimit: (state: import("../types").RateLimitState) => void;
   /** Global hotkey pressed (mother window only receives this). */
@@ -137,14 +139,28 @@ export function useHarkEvents(h: Handlers) {
         const loginFix = ev.login_hint ?? "claude /login";
         // A failure is never silent: a budget stop has no text of its own
         // (the window used to show nothing and only say "falhou"), so it
-        // says which ceiling stopped it and where that lives.
-        const turnText = authFail
-          ? `${ev.text}\n\n${t("auth_fix")}\n\n${fence}bash\n${loginFix}\n${fence}`
-          : ev.error_code === "budget"
-            ? t("budget_hit", { usd: ev.budget_usd != null ? ` ($${ev.budget_usd})` : "" })
-            : ev.is_error && !ev.text.trim()
-              ? t("turn_failed_silent")
-              : ev.text;
+        // says which ceiling stopped it and where that lives. A turn Hark
+        // cut itself gets a card with the numbers and the ways on.
+        const ceilingCut =
+          ev.error_code === "budget" && ev.spent_usd != null && ev.budget_usd != null;
+        const turnText = ceilingCut
+          ? ""
+          : authFail
+            ? `${ev.text}\n\n${t("auth_fix")}\n\n${fence}bash\n${loginFix}\n${fence}`
+            : ev.error_code === "budget"
+              ? t("budget_hit", { usd: ev.budget_usd != null ? ` ($${ev.budget_usd})` : "" })
+              : ev.is_error && !ev.text.trim()
+                ? t("turn_failed_silent")
+                : ev.text;
+        if (ceilingCut) {
+          h.push({
+            who: "ceiling",
+            taskId: ev.task_id,
+            spent: ev.spent_usd!,
+            cap: ev.budget_usd!,
+            task: label,
+          });
+        }
         h.pushRaw(
           label,
           `${ts()} ── turno ${ev.is_error ? "FALHOU " : ""}${ev.model ?? ""} ${costLabel(ev.cost_usd)}`,
@@ -225,6 +241,8 @@ export function useHarkEvents(h: Handlers) {
           ).catch(() => {});
         }
         h.refresh();
+      } else if (ev.kind === "worker_spend") {
+        h.onTurnSpend?.(h.labelFor(ev.task_id), ev.cost_usd ?? null);
       } else if (ev.kind === "phase") {
         // "requesting" and "thinking" are both waiting as far as the user
         // is concerned; the status line escalates its wording by elapsed.

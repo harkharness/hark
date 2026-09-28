@@ -68,6 +68,20 @@ pub struct ContextReading {
     pub tokens: u64,
 }
 
+/// The running spend of the turn in flight, as the backend estimates it
+/// from the calls it has seen so far. An estimate: the turn's `Result`
+/// carries the numbers that count. What it is for is acting before the
+/// result exists — a ceiling held while the turn runs, a meter ticking in
+/// the window.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct TurnSpend {
+    /// API calls the turn has made so far (subagents' included).
+    pub calls: u32,
+    pub usage: TokenUsage,
+    /// None when a model in the turn has no known price: unpriced, not free.
+    pub cost_usd: Option<f64>,
+}
+
 /// Subscription/quota window signal, when the backend has one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct RateLimitInfo {
@@ -157,6 +171,9 @@ pub enum AgentEvent {
     },
     /// Quota window status, when the backend emits one.
     RateLimit(RateLimitInfo),
+    /// The turn's running spend, sent whenever it moves. Optional: a
+    /// backend that cannot price calls as they happen never sends it.
+    Spend(TurnSpend),
     /// What the agent is doing RIGHT NOW — no content, just the phase.
     /// A turn can spend a minute reasoning before it emits a single word,
     /// and a window with nothing on screen reads as a window that broke.

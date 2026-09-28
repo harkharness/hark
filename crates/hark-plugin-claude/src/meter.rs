@@ -21,14 +21,53 @@
 use hark_agent::{ContextReading, ModelUsage, TokenUsage, TurnResult};
 use serde_json::Value;
 
-/// One API call of the current turn, as its `assistant` line reported it.
+/// One API call of the current turn, as its stream reported it: the
+/// `message_start` event when partial messages are on, the `assistant`
+/// line otherwise (both carry the same message id and the same prompt
+/// numbers; the assistant line's output count is a placeholder).
 #[derive(Debug, Clone)]
 struct Call {
     id: String,
     model: String,
     usage: TokenUsage,
-    /// False for a subagent's call: its context is not the chat's.
-    main: bool,
+    /// Cache writes by the TTL they were written with, when the stream
+    /// breaks them down; the two are priced 1.6× apart.
+    write_5m: u64,
+    write_1h: u64,
+    /// The real output count, from the `message_delta` that ends the
+    /// message; the placeholder in `usage.output` stands until then.
+    output_final: Option<u64>,
+    /// Which agent made the call: None for the chat itself, the tool id
+    /// for a subagent (its context is not the chat's).
+    parent: Option<String>,
+}
+
+impl Call {
+    fn main(&self) -> bool {
+        self.parent.is_none()
+    }
+
+    fn output(&self) -> u64 {
+        self.output_final.unwrap_or(self.usage.output)
+    }
+
+    /// The call's tokens at the prices that apply to each kind. Writes
+    /// the stream did not break down are taken as hour writes: the dearer
+    /// TTL, so the estimate errs on the side of the ceiling.
+    fn tokens(&self) -> crate::prices::CallTokens {
+        let (w5, w1) = if self.write_5m + self.write_1h == self.usage.cache_created {
+            (self.write_5m, self.write_1h)
+        } else {
+            (0, self.usage.cache_created)
+        };
+        crate::prices::CallTokens {
+            input: self.usage.input,
+            output: self.output(),
+            cache_read: self.usage.cache_read,
+            cache_write_5m: w5,
+            cache_write_1h: w1,
+        }
+    }
 }
 
 /// The running totals as of the last result of this process.
@@ -43,6 +82,8 @@ struct Totals {
 pub struct Meter {
     last: Option<Totals>,
     calls: Vec<Call>,
+    /// The spend last reported by `read`, so it reports only movement.
+    reported_spend: Option<hark_agent::TurnSpend>,
 }
 
 /// Room for the calls a turn makes that never surface as an `assistant`
@@ -56,26 +97,78 @@ fn tokens(u: &TokenUsage) -> u64 {
 }
 
 impl Meter {
-    /// One stdout line through the meter: every line informs it, and a
-    /// result comes out as the turn's own numbers.
-    pub fn read(&mut self, line: &str) -> hark_agent::AgentEvent {
+    /// One stdout line through the meter: every line informs it, a result
+    /// comes out as the turn's own numbers, and the running spend follows
+    /// any line that moved it.
+    pub fn read(&mut self, line: &str) -> Vec<hark_agent::AgentEvent> {
         let Ok(v) = serde_json::from_str::<Value>(line) else {
-            return hark_agent::AgentEvent::Ignored;
+            return vec![hark_agent::AgentEvent::Ignored];
         };
         self.observe(&v);
-        match crate::stream::parse_value(&v) {
-            hark_agent::AgentEvent::Result(r) => hark_agent::AgentEvent::Result(self.settle(r)),
-            other => other,
+        let mut events = match crate::stream::parse_value(&v) {
+            hark_agent::AgentEvent::Result(r) => vec![hark_agent::AgentEvent::Result(self.settle(r))],
+            other => vec![other],
+        };
+        let spend = self.turn_spend();
+        if self.reported_spend.as_ref() != Some(&spend) && spend.calls > 0 {
+            events.push(hark_agent::AgentEvent::Spend(spend.clone()));
+            self.reported_spend = Some(spend);
         }
+        events
     }
 
-    /// Records the usage of an `assistant` line; every other line is
-    /// ignored.
-    pub fn observe(&mut self, line: &Value) {
-        if line.get("type").and_then(Value::as_str) != Some("assistant") {
-            return;
+    /// What the turn in flight has spent so far, at list price. The
+    /// dollars are None as soon as one call's model has no price.
+    pub fn turn_spend(&self) -> hark_agent::TurnSpend {
+        let mut spend = hark_agent::TurnSpend { calls: self.calls.len() as u32, ..Default::default() };
+        // Nothing called, nothing known: not "known to be zero".
+        let mut cost = (!self.calls.is_empty()).then_some(0.0);
+        for c in &self.calls {
+            spend.usage.input += c.usage.input;
+            spend.usage.output += c.output();
+            spend.usage.cache_read += c.usage.cache_read;
+            spend.usage.cache_created += c.usage.cache_created;
+            cost = match (cost, crate::prices::lookup(&c.model)) {
+                (Some(so_far), Some(price)) => Some(so_far + crate::prices::cost(&price, &c.tokens())),
+                _ => None,
+            };
         }
-        let Some(message) = line.get("message") else { return };
+        spend.cost_usd = cost;
+        spend
+    }
+
+    /// Records what a line says about the turn's calls: a `message_start`
+    /// or `assistant` line opens (or repeats) a call, a `message_delta`
+    /// ends one with its real output count. Every other line is ignored.
+    pub fn observe(&mut self, line: &Value) {
+        let parent = line
+            .get("parent_tool_use_id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let message = match line.get("type").and_then(Value::as_str) {
+            Some("assistant") => line.get("message"),
+            Some("stream_event") => {
+                let event = line.get("event");
+                match event.and_then(|e| e.get("type")).and_then(Value::as_str) {
+                    Some("message_start") => event.and_then(|e| e.get("message")),
+                    Some("message_delta") => {
+                        let output = event
+                            .and_then(|e| e.get("usage"))
+                            .and_then(|u| u.get("output_tokens"))
+                            .and_then(Value::as_u64);
+                        // The delta names no message: it ends the latest
+                        // call of the same agent.
+                        if let Some(call) = self.calls.iter_mut().rev().find(|c| c.parent == parent) {
+                            call.output_final = output;
+                        }
+                        return;
+                    }
+                    _ => return,
+                }
+            }
+            _ => return,
+        };
+        let Some(message) = message else { return };
         let Some(usage) = message.get("usage") else { return };
         let model = message.get("model").and_then(Value::as_str).unwrap_or_default();
         // "<synthetic>" is the CLI speaking for itself (an API error it
@@ -84,31 +177,40 @@ impl Meter {
             return;
         }
         let num = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
-        let usage = TokenUsage {
+        let ttl = |key: &str| {
+            usage.get("cache_creation").and_then(|c| c.get(key)).and_then(Value::as_u64).unwrap_or(0)
+        };
+        let seen_usage = TokenUsage {
             input: num("input_tokens"),
             output: num("output_tokens"),
             cache_read: num("cache_read_input_tokens"),
             cache_created: num("cache_creation_input_tokens"),
         };
         let id = message.get("id").and_then(Value::as_str).unwrap_or_default();
-        // One message arrives block by block, each line repeating its
-        // usage: the latest line of a message is the one that counts.
+        // One message arrives several times — message_start, then a line
+        // per content block, each repeating its usage: one call. Its
+        // output count is a placeholder on every one of them (the count
+        // at message_start); only the message_delta knows the real one.
         if let Some(seen) = self.calls.iter_mut().find(|c| !id.is_empty() && c.id == id) {
-            seen.usage = usage;
+            seen.usage = TokenUsage { output: seen.usage.output, ..seen_usage };
             return;
         }
         self.calls.push(Call {
             id: id.to_string(),
             model: model.to_string(),
-            usage,
-            main: line.get("parent_tool_use_id").is_none_or(Value::is_null),
+            usage: seen_usage,
+            write_5m: ttl("ephemeral_5m_input_tokens"),
+            write_1h: ttl("ephemeral_1h_input_tokens"),
+            output_final: None,
+            parent,
         });
     }
 
     /// The result line's running totals in, the turn's own numbers out.
     pub fn settle(&mut self, reported: TurnResult) -> TurnResult {
         let calls = std::mem::take(&mut self.calls);
-        let context = calls.iter().rev().find(|c| c.main).map(|c| ContextReading {
+        self.reported_spend = None;
+        let context = calls.iter().rev().find(|c| c.main()).map(|c| ContextReading {
             model: c.model.clone(),
             tokens: c.usage.input + c.usage.cache_read + c.usage.cache_created,
         });
@@ -209,13 +311,13 @@ fn from_calls(reported: TurnResult, calls: &[Call]) -> TurnResult {
         match usage.iter_mut().find(|m| m.model == name) {
             Some(m) => {
                 m.usage.input += c.usage.input;
-                m.usage.output += c.usage.output;
+                m.usage.output += c.output();
                 m.usage.cache_read += c.usage.cache_read;
                 m.usage.cache_created += c.usage.cache_created;
             }
             None => usage.push(ModelUsage {
                 model: name.to_string(),
-                usage: c.usage,
+                usage: TokenUsage { output: c.output(), ..c.usage },
                 cost_usd: None,
                 context_window: known.and_then(|m| m.context_window),
             }),
@@ -224,7 +326,7 @@ fn from_calls(reported: TurnResult, calls: &[Call]) -> TurnResult {
     let main = calls
         .iter()
         .rev()
-        .find(|c| c.main)
+        .find(|c| c.main())
         .map(|c| totals_name(&reported.usage, &c.model).map_or(c.model.clone(), |m| m.model.clone()));
     TurnResult {
         cost_usd: None,
@@ -418,7 +520,8 @@ mod tests {
         ];
         let results: Vec<TurnResult> = lines
             .iter()
-            .filter_map(|l| match meter.read(l) {
+            .flat_map(|l| meter.read(l))
+            .filter_map(|e| match e {
                 hark_agent::AgentEvent::Result(r) => Some(r),
                 _ => None,
             })
@@ -426,7 +529,124 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert!(close(results[1].cost_usd, 1.0878 - 1.0188), "{:?}", results[1].cost_usd);
         assert_eq!(results[1].context.as_ref().map(|c| c.tokens), Some(74_802 + 2_156));
-        assert!(matches!(meter.read("not json"), hark_agent::AgentEvent::Ignored));
+        assert!(matches!(meter.read("not json")[..], [hark_agent::AgentEvent::Ignored]));
+    }
+
+    // ---- the turn in flight: what it has spent so far ----
+
+    fn message_start(id: &str, model: &str, input: u64, read: u64, w5m: u64, w1h: u64) -> Value {
+        json!({"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "message_start",
+            "message": {"id": id, "type": "message", "role": "assistant", "model": model, "content": [],
+                "usage": {"input_tokens": input, "cache_read_input_tokens": read,
+                          "cache_creation_input_tokens": w5m + w1h, "output_tokens": 1,
+                          "cache_creation": {"ephemeral_5m_input_tokens": w5m, "ephemeral_1h_input_tokens": w1h}}}}})
+    }
+
+    fn message_delta(output: u64) -> Value {
+        json!({"type": "stream_event", "parent_tool_use_id": null, "event": {"type": "message_delta",
+            "delta": {"stop_reason": "end_turn", "stop_sequence": null},
+            "usage": {"output_tokens": output}}})
+    }
+
+    fn near(a: Option<f64>, b: f64) -> bool {
+        a.is_some_and(|a| (a - b).abs() < 0.01)
+    }
+
+    #[test]
+    fn a_message_start_prices_the_call_before_its_output_arrives() {
+        // 25/09 again, as the stream showed it: the resumed session's first
+        // call wrote a million tokens to the hour cache on Fable. At
+        // message_start that is already known — and already $20.
+        let mut meter = Meter::default();
+        meter.observe(&message_start("m1", "claude-fable-5-1", 2_600, 0, 0, 1_000_000));
+        let spend = meter.turn_spend();
+        assert_eq!(spend.calls, 1);
+        assert_eq!(spend.usage.cache_created, 1_000_000);
+        assert!(near(spend.cost_usd, 20.03), "{:?}", spend.cost_usd);
+
+        // The output is only known when the message ends.
+        meter.observe(&message_delta(1_500));
+        let spend = meter.turn_spend();
+        assert_eq!(spend.usage.output, 1_500);
+        assert!(near(spend.cost_usd, 20.03 + 0.075), "{:?}", spend.cost_usd);
+    }
+
+    #[test]
+    fn the_assistant_line_of_the_same_message_is_not_a_second_call() {
+        let mut meter = Meter::default();
+        meter.observe(&message_start("m1", "claude-opus-5", 10, 300_000, 0, 1_000));
+        meter.observe(&message_delta(400));
+        meter.observe(&call("m1", "claude-opus-5", 10, 300_000, 1_000, 5));
+        let spend = meter.turn_spend();
+        assert_eq!(spend.calls, 1);
+        assert_eq!(spend.usage.output, 400, "the assistant line's output is a placeholder");
+    }
+
+    #[test]
+    fn the_five_minute_and_the_hour_writes_are_priced_apart() {
+        let mut meter = Meter::default();
+        meter.observe(&message_start("m1", "claude-opus-5", 0, 0, 100_000, 100_000));
+        // 100k at $6.25/M plus 100k at $10/M.
+        assert!(near(meter.turn_spend().cost_usd, 0.625 + 1.0), "{:?}", meter.turn_spend().cost_usd);
+    }
+
+    #[test]
+    fn writes_without_a_breakdown_are_taken_as_hour_writes() {
+        // An assistant line may carry only the total; the dearer TTL is
+        // assumed, so the estimate errs on the side of the ceiling.
+        let mut meter = Meter::default();
+        meter.observe(&call("m1", "claude-opus-5", 0, 0, 100_000, 0));
+        assert!(near(meter.turn_spend().cost_usd, 1.0), "{:?}", meter.turn_spend().cost_usd);
+    }
+
+    #[test]
+    fn an_unpriced_model_leaves_the_dollars_unknown_but_counts_the_tokens() {
+        let mut meter = Meter::default();
+        meter.observe(&message_start("m1", "claude-opus-5", 0, 100_000, 0, 0));
+        meter.observe(&message_start("m2", "claude-next-6", 0, 100_000, 0, 0));
+        let spend = meter.turn_spend();
+        assert_eq!(spend.calls, 2);
+        assert_eq!(spend.usage.cache_read, 200_000);
+        assert_eq!(spend.cost_usd, None, "unpriced, not free");
+    }
+
+    #[test]
+    fn a_subagents_call_is_spent_but_is_not_the_context() {
+        let mut meter = Meter::default();
+        meter.observe(&message_start("m1", "claude-opus-5", 0, 300_000, 0, 0));
+        let mut sub = message_start("s1", "claude-haiku-4-5", 0, 700_000, 0, 0);
+        sub["parent_tool_use_id"] = json!("toolu_9");
+        meter.observe(&sub);
+        let spend = meter.turn_spend();
+        assert_eq!(spend.calls, 2);
+        assert!(near(spend.cost_usd, 0.15 + 0.07), "{:?}", spend.cost_usd);
+        let turn = meter.settle(totals("claude-opus-5", 0.3, 1_000_000, 0, 0));
+        assert_eq!(turn.context.map(|c| c.tokens), Some(300_000));
+    }
+
+    #[test]
+    fn the_spend_starts_over_when_the_turn_settles() {
+        let mut meter = Meter::default();
+        meter.observe(&message_start("m1", "claude-opus-5", 0, 100_000, 0, 0));
+        meter.settle(totals("claude-opus-5", 0.05, 100_000, 0, 0));
+        assert_eq!(meter.turn_spend(), hark_agent::TurnSpend::default());
+    }
+
+    #[test]
+    fn reading_lines_reports_the_spend_only_when_it_moves() {
+        let mut meter = Meter::default();
+        let spends = |events: Vec<hark_agent::AgentEvent>| {
+            events.into_iter().filter(|e| matches!(e, hark_agent::AgentEvent::Spend(_))).count()
+        };
+        assert_eq!(spends(meter.read(&message_start("m1", "claude-opus-5", 0, 100_000, 0, 0).to_string())), 1);
+        // The same message's assistant line adds nothing to the bill.
+        let events = meter.read(&call("m1", "claude-opus-5", 0, 100_000, 0, 5).to_string());
+        assert!(events.iter().any(|e| matches!(e, hark_agent::AgentEvent::AssistantText(_))));
+        assert_eq!(spends(events), 0);
+        // Its output does.
+        let events = meter.read(&message_delta(900).to_string());
+        assert_eq!(spends(events.clone()), 1);
+        assert!(events.iter().any(|e| matches!(e, hark_agent::AgentEvent::Spend(s) if s.usage.output == 900)));
     }
 
     #[test]

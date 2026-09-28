@@ -10,7 +10,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Check, ChevronDown, Copy, Lock, RefreshCw, Square, Volume2, X } from "lucide-react";
+import { Check, ChevronDown, Copy, Gauge, Lock, RefreshCw, Square, Volume2, X } from "lucide-react";
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput, toolHint, toolLabel } from "./ToolCall";
 import UsageCard from "./UsageCard";
@@ -223,6 +223,10 @@ type RowProps = {
   onRunCommand?: (cmd: string, execute: boolean) => void;
   onQueuedNow?: (msgId: string, taskLabel?: string) => void;
   onQueuedDrop?: (msgId: string, taskLabel?: string) => void;
+  /** The ceiling card's two ways on: go on without a ceiling in this
+   *  chat, or restart light (a local brief, zero tokens). */
+  onLiftCap?: (taskId: string) => void;
+  onRestartLight?: (taskId: string) => void;
 };
 
 /**
@@ -241,11 +245,36 @@ const Row = memo(function Row({
   onRunCommand,
   onQueuedNow,
   onQueuedDrop,
+  onLiftCap,
+  onRestartLight,
 }: RowProps) {
   return (
     <div className={`msg ${m.who}`}>
       {m.who === "sys" ? (
         <span>{m.text}</span>
+      ) : m.who === "ceiling" ? (
+        // Hark cut the turn at the per-turn ceiling. The card says the
+        // two numbers and offers the ways on; the model pill is the
+        // third (a cheaper model), and lives where it always does.
+        <div className="ceiling-card">
+          <div className="perm-title">
+            <Gauge size={13} />{" "}
+            <b>{t("ceiling_title", { spent: m.spent.toFixed(2), cap: m.cap.toFixed(2) })}</b>
+          </div>
+          <div className="ceiling-hint">{t("ceiling_hint")}</div>
+          {m.lifted ? (
+            <div className="perm-expired">{t("ceiling_lifted")}</div>
+          ) : (
+            <div className="perm-actions">
+              <button className="deny" onClick={() => onRestartLight?.(m.taskId)}>
+                {t("ceiling_light")}
+              </button>
+              <button className="allow" onClick={() => onLiftCap?.(m.taskId)}>
+                {t("ceiling_lift")}
+              </button>
+            </div>
+          )}
+        </div>
       ) : m.who === "usage" ? (
         <UsageCard report={m.report} />
       ) : m.who === "compact" ? (
@@ -472,6 +501,8 @@ export default function Transcript({
   onLoadOlder,
   onQueuedNow,
   onQueuedDrop,
+  onLiftCap,
+  onRestartLight,
 }: {
   messages: Msg[];
   directivesFor: (taskLabel?: string) => Directives | undefined;
@@ -489,6 +520,9 @@ export default function Transcript({
   onQueuedNow?: (msgId: string, taskLabel?: string) => void;
   /** ...or never runs at all. */
   onQueuedDrop?: (msgId: string, taskLabel?: string) => void;
+  /** The ceiling card's ways on (see RowProps). */
+  onLiftCap?: (taskId: string) => void;
+  onRestartLight?: (taskId: string) => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -523,6 +557,8 @@ export default function Transcript({
   const runCmd = useLatest(onRunCommand);
   const queueNow = useLatest(onQueuedNow);
   const queueDrop = useLatest(onQueuedDrop);
+  const liftCap = useLatest(onLiftCap);
+  const restartLight = useLatest(onRestartLight);
 
   // A tool and its output are ONE unit: the output fuses into the tool's
   // fold (✓/✗ on the line, "resultado · N linhas" inside). Orphan outputs
@@ -611,6 +647,8 @@ export default function Transcript({
         onRunCommand={runCmd}
         onQueuedNow={queueNow}
         onQueuedDrop={queueDrop}
+        onLiftCap={liftCap}
+        onRestartLight={restartLight}
       />
     );
 

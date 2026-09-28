@@ -111,8 +111,10 @@ pub fn bridge_reader<R: std::io::Read + Send + 'static>(
             if debug {
                 eprintln!("[hark worker] {line}");
             }
-            if tx.send(meter.read(&line)).is_err() {
-                break; // receiver gone: the driver dropped the session
+            for event in meter.read(&line) {
+                if tx.send(event).is_err() {
+                    return; // receiver gone: the driver dropped the session
+                }
             }
         }
     });

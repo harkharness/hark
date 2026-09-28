@@ -70,7 +70,11 @@ impl WorkerSpawn {
     /// The COMPLETE argument list every worker path must use. One source
     /// of truth: the one-shot runner used to skip directive flags entirely
     /// (a spoken "rapidinho" was silently ignored).
-    pub fn cli_args(&self, partial_messages: bool) -> Vec<String> {
+    ///
+    /// `persistent` is the chat: many turns in one process, the stream
+    /// read with partial messages so the meter prices calls as they
+    /// happen. False is the one-shot runner: one turn, then exit.
+    pub fn cli_args(&self, persistent: bool) -> Vec<String> {
         let mut args: Vec<String> = vec!["-p".into(), "--input-format".into(), "stream-json".into()];
         args.extend(self.resume_args());
         if self.fork && !self.session_id.is_empty() {
@@ -81,7 +85,7 @@ impl WorkerSpawn {
             "stream-json".into(),
             "--verbose".into(),
         ]);
-        if partial_messages {
+        if persistent {
             args.push("--include-partial-messages".into());
         }
         args.extend(["--permission-prompt-tool".into(), "stdio".into()]);
@@ -89,13 +93,13 @@ impl WorkerSpawn {
             args.extend(["--setting-sources".into(), "user".into()]);
         }
         args.extend(self.directive_args());
-        // The CLI weighs the cap against the SESSION's running total, and
-        // since 2.1.277 a resume opens on the session's lifetime figures:
-        // any chat that had ever cost more than the cap failed every turn,
-        // with nothing on screen. Only a new session starts from zero, so
-        // only there does the cap mean what it says.
-        let fresh = self.session_id.is_empty();
-        if let Some(budget) = self.limits.max_budget_usd.filter(|b| *b > 0.0 && fresh) {
+        // The CLI's cap counts the whole PROCESS and is checked after the
+        // response that crosses it. In a one-shot run that is a per-turn
+        // cap with a hard stop, so it rides. In a chat it meant "$2 for
+        // the whole conversation, then every message fails" (25/09): the
+        // chat's ceiling is held by Hark, per turn, from the metered
+        // stream (`AgentEvent::Spend`) — never by this flag.
+        if let Some(budget) = self.limits.max_budget_usd.filter(|b| *b > 0.0 && !persistent) {
             args.push("--max-budget-usd".into());
             args.push(format!("{budget}"));
         }
@@ -291,29 +295,30 @@ pub fn run(
     // A resumed session opens on its lifetime totals: the meter is what
     // keeps this one turn from being billed the whole history.
     let mut meter = crate::meter::Meter::default();
-    for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+    'lines: for line in BufReader::new(stdout).lines().map_while(Result::ok) {
         if debug {
             eprintln!("[worker] {line}");
         }
-        let event = meter.read(&line);
-        on_event(&event);
-        match event {
-            AgentEvent::PermissionRequest {
-                ref request_id,
-                ref tool_name,
-                ref input,
-            } => {
-                let decision = decide(tool_name, input);
-                let response = permission_response(request_id, decision);
-                stdin.write_all(response.as_bytes())?;
-                stdin.write_all(b"\n")?;
-                stdin.flush()?;
+        for event in meter.read(&line) {
+            on_event(&event);
+            match event {
+                AgentEvent::PermissionRequest {
+                    ref request_id,
+                    ref tool_name,
+                    ref input,
+                } => {
+                    let decision = decide(tool_name, input);
+                    let response = permission_response(request_id, decision);
+                    stdin.write_all(response.as_bytes())?;
+                    stdin.write_all(b"\n")?;
+                    stdin.flush()?;
+                }
+                AgentEvent::Result(r) => {
+                    result = Some(r);
+                    break 'lines;
+                }
+                _ => {}
             }
-            AgentEvent::Result(r) => {
-                result = Some(r);
-                break;
-            }
-            _ => {}
         }
     }
 
@@ -420,34 +425,38 @@ mod tests {
     }
 
     #[test]
-    fn hard_limits_become_cli_caps() {
-        let mut s = spawn("", Directives::default());
-        s.limits = SpawnLimits { max_budget_usd: Some(2.0), max_turns: Some(30) };
-        let args = s.cli_args(true);
-        assert!(args.contains(&"--max-budget-usd".to_string()));
-        assert!(args.contains(&"2".to_string()));
-        assert!(args.contains(&"--max-turns".to_string()));
-        assert!(args.contains(&"30".to_string()));
-        // Zero means disabled, not "cap at zero".
-        s.limits = SpawnLimits { max_budget_usd: Some(0.0), max_turns: Some(0) };
-        let args = s.cli_args(true);
-        assert!(!args.contains(&"--max-budget-usd".to_string()));
-        assert!(!args.contains(&"--max-turns".to_string()));
+    fn a_one_shot_run_carries_the_dollar_cap_as_a_cli_flag() {
+        // One turn per process: the CLI's per-process cap IS a per-turn
+        // cap there, and it holds even if Hark dies mid-turn. A resume
+        // changes nothing — restored totals do not count toward the flag.
+        for session in ["", "s-1"] {
+            let mut s = spawn(session, Directives::default());
+            s.limits = SpawnLimits { max_budget_usd: Some(2.0), max_turns: Some(30) };
+            let args = s.cli_args(false);
+            assert!(args.contains(&"--max-budget-usd".to_string()), "{args:?}");
+            assert!(args.contains(&"2".to_string()));
+            assert!(args.contains(&"--max-turns".to_string()));
+            assert!(args.contains(&"30".to_string()));
+            // Zero means disabled, not "cap at zero".
+            s.limits = SpawnLimits { max_budget_usd: Some(0.0), max_turns: Some(0) };
+            let args = s.cli_args(false);
+            assert!(!args.contains(&"--max-budget-usd".to_string()));
+            assert!(!args.contains(&"--max-turns".to_string()));
+        }
     }
 
     #[test]
-    fn a_resumed_session_is_not_capped_against_its_lifetime_total() {
-        // The CLI weighs the cap against the session's running total, and
-        // a resume opens on the session's lifetime figures (2.1.277): a
-        // chat that had ever cost more than $2 failed every turn (25/09).
-        let mut s = spawn("s-1", Directives::default());
+    fn a_persistent_worker_holds_its_ceiling_itself() {
+        // The CLI's cap counts the whole PROCESS: in a chat that lives for
+        // many turns, "$2" meant "$2 for the whole conversation, then
+        // every message fails" (25/09). The chat's ceiling is Hark's, per
+        // turn, held from the metered stream; the turn cap still rides.
+        let mut s = spawn("", Directives::default());
         s.limits = SpawnLimits { max_budget_usd: Some(2.0), max_turns: Some(30) };
         let args = s.cli_args(true);
         assert!(!args.contains(&"--max-budget-usd".to_string()), "{args:?}");
-        assert!(args.contains(&"--max-turns".to_string()), "the turn cap is not a total");
-        // A fork carries the same history, so the same inheritance.
-        s.fork = true;
-        assert!(!s.cli_args(true).contains(&"--max-budget-usd".to_string()));
+        assert!(args.contains(&"--max-turns".to_string()));
+        assert!(args.contains(&"--include-partial-messages".to_string()), "the meter reads the stream");
     }
 
     #[test]

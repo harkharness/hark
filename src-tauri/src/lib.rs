@@ -1054,6 +1054,11 @@ fn start_worker_titled(
     let task2 = task_id.to_string();
     let workspace = spec.cwd.clone();
     let is_new_session = spec.session_id.is_empty();
+    // The per-turn ceiling this chat runs under. Held HERE, from the
+    // metered stream: the CLI's own flag counts the whole process, and in
+    // a chat that meant "$2 for the conversation, then every message
+    // fails" (25/09).
+    let turn_cap = spec.limits.max_budget_usd.filter(|b| *b > 0.0);
     // Which backend runs this session, and how one logs in to it: the
     // auth card's runnable fix is the AGENT's, not always `claude /login`.
     let agent_id = spec.agent.clone();
@@ -1315,25 +1320,34 @@ fn start_worker_titled(
                         .lock()
                         .unwrap()
                         .remove(&task2);
-                    let is_error = turn.is_error && !stopped;
-                    let error_code = if !is_error {
+                    // A turn Hark cut for its ceiling: an error that names
+                    // the numbers, whatever the CLI said about the stop.
+                    let ceiling = app2.state::<CeilingHits>().0.lock().unwrap().remove(&task2);
+                    let is_error = (turn.is_error && !stopped) || ceiling.is_some();
+                    let error_code = if ceiling.is_some() {
+                        Some("budget")
+                    } else if !is_error {
                         None
                     } else if hark_plugin_claude::health::looks_unauthenticated(&turn.raw) {
                         Some("agent_auth")
                     } else if hark_plugin_claude::health::budget_stop(&turn.raw) {
-                        // The window says which ceiling and where it lives:
-                        // the CLI's own result has no text at all.
+                        // The CLI's own flag (one-shot runs): its result has
+                        // no text at all, so the window names the ceiling.
                         Some("budget")
                     } else {
                         None
                     };
-                    let budget_usd = (error_code == Some("budget"))
-                        .then(|| config.spawn_limits_for(&workspace).max_budget_usd)
-                        .flatten();
+                    let budget_usd = ceiling.map(|(_, cap)| cap).or_else(|| {
+                        (error_code == Some("budget"))
+                            .then(|| config.spawn_limits_for(&workspace).max_budget_usd)
+                            .flatten()
+                    });
+                    let spent_usd = ceiling.map(|(spent, _)| spent);
                     // A stop ends as `error_during_execution` with no text,
                     // and the parser names the subtype for real failures:
                     // a stop is not one, and never shows it as a reply.
-                    let text = if stopped && hark_plugin_claude::health::subtype_text(&turn.raw) {
+                    let cut = stopped || ceiling.is_some();
+                    let text = if cut && hark_plugin_claude::health::subtype_text(&turn.raw) {
                         ""
                     } else {
                         turn.raw.as_str()
@@ -1347,6 +1361,7 @@ fn start_worker_titled(
                             "login_hint": login_hint,
                             "error_code": error_code,
                             "budget_usd": budget_usd,
+                            "spent_usd": spent_usd,
                             "text": text, "cost_usd": turn.cost_usd, "model": turn.model,
                             "is_error": is_error, "stopped": stopped,
                             "usage": { "input": usage.input, "output": usage.output,
@@ -1382,6 +1397,34 @@ fn start_worker_titled(
                                 serde_json::json!({ "kind": "queued_failed",
                                     "task_id": task2, "id": id, "why": why }),
                             ),
+                        }
+                    }
+                }
+                ClaudeEvent::Spend(spend) => {
+                    emit_event(
+                        &app2,
+                        serde_json::json!({ "kind": "worker_spend", "task_id": task2,
+                            "label": board_title, "calls": spend.calls,
+                            "usage": { "input": spend.usage.input, "output": spend.usage.output,
+                                       "cache_read": spend.usage.cache_read,
+                                       "cache_created": spend.usage.cache_created },
+                            "cost_usd": spend.cost_usd }),
+                    );
+                    // Past the ceiling the turn is cut between calls — the
+                    // call in flight is already paid for, so the overshoot
+                    // is at most one call. Once per turn, and never on a
+                    // chat whose ceiling the user lifted.
+                    if let (Some(cap), Some(spent)) = (turn_cap, spend.cost_usd) {
+                        let lifted = app2.state::<LiftedCaps>().0.lock().unwrap().contains(&task2);
+                        let first = spent > cap
+                            && !lifted
+                            && !app2.state::<CeilingHits>().0.lock().unwrap().contains_key(&task2);
+                        if first {
+                            app2.state::<CeilingHits>().0.lock().unwrap().insert(task2.clone(), (spent, cap));
+                            let handle = app2.state::<LiveWorkers>().0.lock().unwrap().get(&task2).cloned();
+                            if let Some(handle) = handle {
+                                let _ = handle.session.interrupt();
+                            }
                         }
                     }
                 }
@@ -1735,6 +1778,17 @@ const HARK_CHAT_TASK: &str = "hark-chat";
 /// `worker_interrupt`, taken by the turn that follows it.
 #[derive(Default)]
 pub(crate) struct Interrupting(pub(crate) Mutex<std::collections::HashSet<String>>);
+
+/// Chats whose per-turn ceiling the user lifted ("continuar sem teto
+/// neste chat"): task ids, for the life of the process. The config is
+/// untouched — the next chat starts capped again.
+#[derive(Default)]
+pub(crate) struct LiftedCaps(pub(crate) Mutex<std::collections::HashSet<String>>);
+
+/// Turns Hark cut for their ceiling, awaiting their result: task id →
+/// (spent so far, the ceiling). The result reads it once and clears it.
+#[derive(Default)]
+pub(crate) struct CeilingHits(pub(crate) Mutex<HashMap<String, (f64, f64)>>);
 
 /// What each worker is holding: the turn it is running, and the messages
 /// you typed while it ran (`domain::outbox`).
@@ -2827,6 +2881,14 @@ fn worker_interrupt(
     Ok(())
 }
 
+/// "Continuar sem teto neste chat": the per-turn ceiling stops holding
+/// this task's turns for the life of the process. The config is untouched.
+#[tauri::command]
+fn worker_lift_cap(app: AppHandle, task_id: String) -> Result<(), String> {
+    app.state::<LiftedCaps>().0.lock().unwrap().insert(task_id);
+    Ok(())
+}
+
 /// "Send this one now": the held message jumps to the front of the queue
 /// and the running turn is cut. Cutting produces a result like any other
 /// ending, and that result is what drains the queue — so the promoted
@@ -2972,6 +3034,7 @@ fn dispatch_text(
     let label = worker_board_title(Some(&planned.session.session_id), &instruction);
     // One-shot on the same backend seam as persistent workers: consume the
     // event stream inline, block on permission clicks, stop at the result.
+    let mut ceiling: Option<(f64, f64)> = None;
     let result: anyhow::Result<hark_agent::TurnResult> = (|| {
         let backend = backend_for(&config, &spawn.agent);
         let (directives, floor_note) = directives_for(&config, &spawn.agent, spawn.directives.clone());
@@ -2986,6 +3049,25 @@ fn dispatch_text(
         let mut outcome: Option<hark_agent::TurnResult> = None;
         for event in events.iter() {
             match event {
+                ClaudeEvent::Spend(spend) => {
+                    emit_event(
+                        &app,
+                        serde_json::json!({ "kind": "worker_spend", "task_id": task_id,
+                            "label": label, "calls": spend.calls,
+                            "usage": { "input": spend.usage.input, "output": spend.usage.output,
+                                       "cache_read": spend.usage.cache_read,
+                                       "cache_created": spend.usage.cache_created },
+                            "cost_usd": spend.cost_usd }),
+                    );
+                    // Same ceiling as the chat's, held the same way.
+                    let cap = spawn.limits.max_budget_usd.filter(|b| *b > 0.0);
+                    if let (Some(cap), Some(spent)) = (cap, spend.cost_usd) {
+                        if spent > cap && ceiling.is_none() {
+                            ceiling = Some((spent, cap));
+                            let _ = session.interrupt();
+                        }
+                    }
+                }
                 ClaudeEvent::ToolUse { name, input } => {
                     emit_event(
                         &app,
@@ -3048,7 +3130,7 @@ fn dispatch_text(
     }
 
     let (status, out) = match &result {
-        Ok(turn) if !turn.is_error => (
+        Ok(turn) if !turn.is_error && ceiling.is_none() => (
             WorkerStatus::Done,
             DispatchOut::Done {
                 task_id: task_id.clone(),
@@ -3060,7 +3142,12 @@ fn dispatch_text(
             WorkerStatus::Failed,
             DispatchOut::Failed {
                 task_id: task_id.clone(),
-                summary: turn.raw.clone(),
+                summary: match ceiling {
+                    Some((spent, cap)) => format!(
+                        "teto de US$ {cap:.2} por turno atingido — este turno já custa ≈US$ {spent:.2}"
+                    ),
+                    None => turn.raw.clone(),
+                },
                 cost_usd: turn.cost_usd,
             },
         ),
@@ -4972,6 +5059,8 @@ pub fn run() {
         .manage(PermLog::default())
         .manage(Outboxes::default())
         .manage(Interrupting::default())
+        .manage(LiftedCaps::default())
+        .manage(CeilingHits::default())
         .manage(MicLease::default())
         .manage(LiveWorkers(Mutex::new(HashMap::new())))
         .manage(LiveLimits::default())
@@ -5030,6 +5119,7 @@ pub fn run() {
             worker_set_model,
             worker_set_effort,
             worker_interrupt,
+            worker_lift_cap,
             worker_queued_now,
             worker_queued_drop,
             worker_stop,

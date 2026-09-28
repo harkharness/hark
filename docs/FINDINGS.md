@@ -123,9 +123,21 @@ stream-json stdin. No `--resume` needed within a live session.
   use: a turn that ran forty tools read the same context forty times. The
   context is the prompt of the turn's LAST main-thread call (input + cache
   read + cache written of its `assistant` line).
-- `--max-budget-usd` is weighed against the same totals: on a resumed session
-  it fires at once, every turn, with a result that has no `result` text
-  (`subtype: error_max_budget_usd`). Hark only passes it to new sessions.
+- `--max-budget-usd` counts the PROCESS's own spend (restored totals do not
+  count — docs), and it is checked after the response that crosses it: the
+  crossing call is paid in full. In a chat (one process, many turns) "$2"
+  meant "$2 for the whole conversation, then every message fails", with a
+  result that has no `result` text (`subtype: error_max_budget_usd`). The
+  first call of a cold resume of a 1M-token session on Fable is ≈$20 by
+  itself (1-hour cache write at 2× input). Hark therefore holds its own
+  ceiling PER TURN, from the metered stream (`AgentEvent::Spend`, priced
+  from `message_start` / `message_delta`), and passes the flag only to
+  one-shot runs, where one process is one turn.
+- On a subscription the cache TTL is 1 hour (`cache_creation.ephemeral_1h`
+  dominates the session files); a call after a longer gap rewrites the whole
+  context (measured: 332,933 written, 0 read). Per-step `output_tokens` on
+  `assistant` lines is a placeholder; the real count is on `message_delta`
+  and on the result.
 
 ### Session listing
 

@@ -694,13 +694,16 @@ impl AcpSession {
 
     /// Past the budget: cancel the turn, and remember why for its result.
     /// The CLI's `--max-budget-usd` has no ACP equivalent, so the client
-    /// is the ceiling; the number compared is the session's running total,
-    /// which is what the flag caps too.
+    /// is the ceiling. The agent's cost is a running total for the
+    /// session; the ceiling is the TURN's — a chat that has spent $2.50
+    /// over its life is not over a $2 ceiling on a fifty-cent turn.
     fn hold_the_budget(&self, total: f64, turn: &mut Turn) {
         let Some(cap) = self.limits.max_budget_usd.filter(|b| *b > 0.0) else { return };
-        if total > cap && turn.ceiling.is_none() {
+        let before = *self.cost_before.lock().unwrap_or_else(|e| e.into_inner());
+        let spent = (total - before).max(0.0);
+        if spent > cap && turn.ceiling.is_none() {
             turn.ceiling = Some(format!(
-                "teto de US$ {cap:.2} atingido — a sessão já gastou US$ {total:.2}. \
+                "teto de US$ {cap:.2} por turno atingido — este turno já custa US$ {spent:.2}. \
                  Reabra a thread com um teto maior, ou \"sem teto\" na config."
             ));
             let _ = self.interrupt();
@@ -1825,6 +1828,31 @@ mod tests {
         assert!(t.is_error);
         assert!(t.raw.contains("teto") && t.raw.contains("2.00") && t.raw.contains("2.50"), "{}", t.raw);
         assert_eq!(t.cost_usd, Some(2.5), "the money spent is still on the record");
+    }
+
+    #[test]
+    fn the_budget_ceiling_is_per_turn_not_per_session() {
+        // The agent's cost is a running total for the session. A chat that
+        // has spent $2.50 over its life is not over a $2 ceiling on a turn
+        // that cost fifty cents — the CLI's per-process flag made exactly
+        // that mistake, and every later message failed (25/09).
+        let calls = Arc::new(Mutex::new(0u32));
+        let (wire, seen) = fake_agent(gemini_like(move |id, _p, say| {
+            let n = { let mut c = calls.lock().unwrap(); *c += 1; *c };
+            let total = if n == 1 { 1.9 } else { 2.4 };
+            say(update(json!({ "sessionUpdate": "usage_update", "used": 1000, "size": 200000,
+                "cost": { "amount": total, "currency": "USD" } })));
+            say(end_turn(id));
+        }));
+        let limits = hark_agent::SpawnLimits { max_budget_usd: Some(2.0), max_turns: None };
+        let c = connect(wire, None, None, &Opening { limits: &limits, ..opening("", "oi") }).expect("connects");
+        let first = turn(&until_result(&c.events)).clone();
+        assert!(!first.is_error, "{}", first.raw);
+        c.session.send_text("de novo", &[]).expect("sends");
+        let second = turn(&until_result(&c.events)).clone();
+        assert!(!second.is_error, "a fifty-cent turn is under the ceiling: {}", second.raw);
+        assert!((second.cost_usd.unwrap() - 0.5).abs() < 1e-9);
+        assert!(!methods(&seen).iter().any(|m| m == "session/cancel"), "{:?}", methods(&seen));
     }
 
     #[test]

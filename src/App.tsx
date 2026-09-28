@@ -685,6 +685,20 @@ export default function App({
         }),
       [],
     ),
+    // The meter ticking under the status line: what this turn has cost so
+    // far, as the backend prices its calls. Null dollars = unpriced.
+    onTurnSpend: useCallback(
+      (thread: string, usd: number | null) =>
+        setTurns((old) => {
+          const running = old[thread] ?? {
+            startedAt: Date.now(),
+            phase: { kind: "thinking" as const },
+            chars: 0,
+          };
+          return { ...old, [thread]: { ...running, usd } };
+        }),
+      [],
+    ),
     onRateLimit: setRateLimit,
     autoAllow: useCallback(
       (ask: import("./types").PermissionAsk) => {
@@ -2788,6 +2802,23 @@ export default function App({
                   }
                   onQueuedNow={queuedNow}
                   onQueuedDrop={queuedDrop}
+                  onLiftCap={(taskId) =>
+                    ipc
+                      .workerLiftCap(taskId)
+                      .then(() =>
+                        setMessages((old) =>
+                          old.map((m) =>
+                            m.who === "ceiling" && m.taskId === taskId ? { ...m, lifted: true } : m,
+                          ),
+                        ),
+                      )
+                      .catch((err) => push({ who: "sys", text: `teto: ${err}` }))
+                  }
+                  onRestartLight={(taskId) =>
+                    ipc
+                      .workerRestartLight(taskId)
+                      .catch((err) => push({ who: "sys", text: `recomeço leve: ${err}` }))
+                  }
                 />
               )}
               {turns[focusedTask?.title ?? GENERAL] && (

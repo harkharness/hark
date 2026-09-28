@@ -141,9 +141,10 @@ The architecture assumes tokens are the scarce resource:
 - **Local-first everything.** Session history lives in a SQLite index built
   incrementally from the CLI's own logs. Recalling a chat, searching sessions,
   opening files and reading transcripts never touch a model.
-- **Hard ceilings.** Every worker spawns with a dollar budget (default $2) so a
-  runaway turn stops itself — as a CLI flag on Claude Code, and as Hark's own
-  cancel on every ACP agent, which has no such flag.
+- **Hard ceilings.** Every turn runs under a dollar ceiling (default $5) held
+  by Hark itself: it prices the turn's calls as the stream reports them and
+  cuts the turn between calls past the ceiling, then says how much, and offers
+  to lift it for that chat, restart light, or switch model. On every agent.
 - **Model routing.** The tier is chosen from what you actually asked for, not
   from a global default — and said in each agent's own model names, so one
   window default drives a Claude chat and a Gemini chat alike.

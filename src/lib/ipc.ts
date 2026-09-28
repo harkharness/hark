@@ -375,6 +375,9 @@ export const workerSetModel = (taskId: string, model: string) =>
   invoke<{ directives: Directives; restarted: boolean }>("worker_set_model", { taskId, model });
 /** Stop the turn in flight; the session stays and answers the next message. */
 export const workerInterrupt = (taskId: string) => invoke<void>("worker_interrupt", { taskId });
+/** "Continuar sem teto neste chat": the per-turn ceiling stops holding this
+ *  task's turns for the life of the process; the config is untouched. */
+export const workerLiftCap = (taskId: string) => invoke<void>("worker_lift_cap", { taskId });
 /** Reasoning effort; "" clears the directive (back to the CLI's default). */
 export const workerSetEffort = (taskId: string, effort: string) =>
   invoke<{ directives: Directives; restarted: boolean }>("worker_set_effort", { taskId, effort });

@@ -56,8 +56,10 @@ what the agent calls each model tier. Selecting one decides which agent opens
   and friends never auto-approve, whichever agent runs them and whatever it
   names its shell tool. Bypass mode is Claude Code's (its deny list is a Claude
   Code flag): elsewhere a bypass pick opens accept-edits and says so.
-- **A ceiling.** The per-worker dollar budget is a Claude Code flag; on ACP
-  Hark itself cancels the turn past the budget and says by how much.
+- **A ceiling.** The per-turn dollar ceiling is Hark's on every agent: the
+  plugin reports the running turn's spend (`Spend` events, priced from the
+  stream on Claude; the agent's own `usage_update` on ACP) and Hark cuts the
+  turn between calls past it, then says by how much and offers the ways on.
 - **Handoff.** "Switch this chat to Gemini" moves the thread: a fresh session on
   the other agent, opened with a local zero-token brief, same card, lineage
   kept.

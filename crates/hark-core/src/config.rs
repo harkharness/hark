@@ -62,8 +62,11 @@ pub struct Config {
     pub prompt_budget_chars: usize,
     /// Global hotkey that opens the mic from anywhere (mother window).
     pub hotkey: String,
-    /// Dollar ceiling per worker process (`--max-budget-usd`). The
-    /// post-incident guardrail: 0 disables. Default 2.0.
+    /// Dollar ceiling per TURN of a worker: Hark cuts the turn between
+    /// calls once its metered spend passes it (a one-shot run hands it to
+    /// the CLI as `--max-budget-usd`, which is per turn there). The
+    /// post-incident guardrail: 0 disables. Default 5.0 — a heavy turn on
+    /// a big context at Fable prices fits, a runaway loop does not.
     pub worker_budget_usd: f64,
     /// Optional turn ceiling per worker process (`--max-turns`); 0 = off.
     pub worker_max_turns: u32,
@@ -167,7 +170,7 @@ impl Default for Config {
             theme: "hark".into(),
             prompt_budget_chars: 12_000,
             hotkey: "cmd+shift+space".into(),
-            worker_budget_usd: 2.0,
+            worker_budget_usd: 5.0,
             worker_max_turns: 0,
             project_budgets: BTreeMap::new(),
             worker_mode: String::new(),
@@ -590,7 +593,7 @@ name = "Codex"
         let old_file = "model = \"sonnet\"\nlanguage = \"pt\"\n";
         let config: Config = toml::from_str(old_file).expect("parses");
         assert!(config.auto_update, "auto_update must default to on");
-        assert_eq!(config.worker_budget_usd, 2.0, "the $2 guardrail survives");
+        assert_eq!(config.worker_budget_usd, 5.0, "the per-turn guardrail survives");
         // FASE 8.6: a project's own ceiling beats the global one — longest
         // prefix wins, and 0 switches the cap off for that project only.
         let mut cfg = Config::default();
@@ -601,7 +604,7 @@ name = "Codex"
         assert_eq!(at("~/Projects/caro"), Some(8.0));
         assert_eq!(at("~/Projects/caro/api"), Some(8.0), "prefix covers children");
         assert_eq!(at("~/Projects/caro/sub"), None, "0 = uncapped, longest prefix wins");
-        assert_eq!(at("~/Projects/outro"), Some(2.0), "global default elsewhere");
+        assert_eq!(at("~/Projects/outro"), Some(5.0), "global default elsewhere");
         assert_eq!(config.assistant_name, "Hark");
         assert_eq!(config.hotkey, "cmd+shift+space");
         // What the file DID say still wins.
