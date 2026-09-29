@@ -49,6 +49,8 @@ export type HarkEvent =
       /** The window the model said it had — lets the reading be checked. */
       context_window?: number | null;
     }
+  /** The native menu's "Report a problem…": open the dialog here. */
+  | { kind: "open_report" }
   | {
       /** The running turn's spend so far, as the backend estimates it
        *  from the calls it has seen; the turn's result is the truth. */

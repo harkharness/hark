@@ -4,6 +4,7 @@ import Board from "./components/Board";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import CostsPanel from "./components/CostsPanel";
 import Settings from "./components/Settings";
+import ReportDialog from "./components/ReportDialog";
 import Onboarding from "./components/Onboarding";
 import Transcript from "./components/Transcript";
 import { FileTabs } from "./components/FilesEditor";
@@ -441,6 +442,10 @@ export default function Mother() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // "Reportar um problema": the settings tab's button and the native
+  // menu both land here.
+  const [reportOpen, setReportOpen] = useState(false);
+
   useHarkEvents({
     labelFor: (id) => id,
     push,
@@ -541,6 +546,7 @@ export default function Mother() {
       setTab("voz");
       micRef.current();
     }, []),
+    onOpenReport: useCallback(() => setReportOpen(true), []),
     onMainTab: useCallback((t: string) => {
       if (t === "board" || t === "custos") setTab(t);
       // Other windows/HUD redirect here: app settings live on the mother.
@@ -1378,7 +1384,7 @@ export default function Mother() {
       </nav>
 
       {tab === "ajustes" ? (
-        <Settings />
+        <Settings onReport={() => setReportOpen(true)} />
       ) : tab === "board" ? (
         <Board
           tasks={overview?.board ?? []}
@@ -1629,6 +1635,7 @@ export default function Mother() {
         </>
         )
       )}
+      <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} />
     </div>
   );
 }

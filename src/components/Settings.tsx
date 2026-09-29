@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, FileCode2, Mic2, Plug, Settings2, Wrench } from "lucide-react";
+import { Bot, Check, FileCode2, Mic2, Plug, Settings2, Wrench, Bug } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import PluginsPanel from "./PluginsPanel";
 import FileViewer, { type ViewerIo } from "./FileViewer";
@@ -60,7 +60,7 @@ const MODE_OPTIONS: [string, string][] = [
  * 760x560 gave neither however big the display was. The mother mounts
  * it only while its tab is showing, so mounting IS opening.
  */
-export default function Settings() {
+export default function Settings({ onReport }: { onReport?: () => void } = {}) {
   const [section, setSection] = useState<Section>("geral");
   const [snap, setSnap] = useState<ipc.ConfigSnapshot | null>(null);
   const [upState, setUpState] = useState<UpdateStatus>(lastStatus());
@@ -285,6 +285,11 @@ export default function Settings() {
         <div className="set-path" title={snap.path}>
           {snap.path.replace(/^\/Users\/[^/]+/, "~")}
         </div>
+        {onReport && (
+          <button className="set-report" onClick={onReport} title={t("report_hint")}>
+            <Bug size={13} /> {t("report_title")}
+          </button>
+        )}
       </nav>
 
       <div className={`set-body ${section === "config" || section === "plugins" ? "set-body-fill" : ""}`}>

@@ -9,6 +9,18 @@ within a few days, and credit in the release notes if you want it.
 Only the latest release is supported. Hark updates itself with signed updates,
 so fixes ship as new releases.
 
+## What a bug report contains
+
+"Report a problem" never sends anything by itself: it opens a GitHub issue
+form in your browser, under your account, for you to review. Diagnostics
+ride along only when you tick the box, and they are scrubbed before you
+see them: home directories, tokens, e-mails and URL credentials are
+removed, agents' `env` values are masked, and the app log they come from
+holds event kinds and error classes, not prompts, replies or tool outputs.
+The issue is public; the dialog shows the exact text first. If you find
+something in a report that should not have been there, tell us through the
+vulnerability channel above.
+
 ## What Hark defends against
 
 Hark drives agent CLIs on your machine with your permissions, so its threat

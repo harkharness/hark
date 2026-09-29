@@ -20,7 +20,9 @@ best contributions keep that shape.
   the voice classifier honest: a phrase, the catalog it was said against, and
   where it should land.
 - **Bug reports** with the Hark version, macOS version and architecture, and
-  the agent CLI with its version. The issue form asks for all of it.
+  the agent CLI with its version. The issue form asks for all of it, and the
+  app's "Report a problem" (sidebar, Settings or the menu) fills it in for
+  you, with scrubbed diagnostics if you tick the box.
 
 For anything bigger than a fix, open an issue first so we can agree on the
 shape before you spend a weekend on it.

@@ -276,7 +276,21 @@ fn now_iso() -> String {
 }
 
 fn emit_event(app: &AppHandle, payload: serde_json::Value) {
+    // The log keeps the facts of an event (kind, task, error class), never
+    // its bodies — domain::report decides which is which.
+    if let Some(line) = hark_core::domain::report::summarize_event(&payload) {
+        diag(app, &line);
+    }
     let _ = app.emit("hark", payload);
+}
+
+/// One line into the app log. Scrubbed on the way in; silent if the log
+/// could not be opened (a report without a log beats an app that cannot
+/// boot for want of one).
+fn diag(app: &AppHandle, line: &str) {
+    if let Some(d) = app.try_state::<Diag>() {
+        d.0.append(line);
+    }
 }
 
 fn build_deps<'a>(
@@ -1029,6 +1043,18 @@ fn start_worker_titled(
     }
     let wired = SessionSpec { directives, ..spec.clone() };
     let (session, rx) = backend.spawn(&wired)?;
+    diag(
+        app,
+        &format!(
+            "spawn agent={} task={} session={} fork={} cwd={} directives={:?}",
+            wired.agent,
+            task_id,
+            if wired.session_id.is_empty() { "new" } else { wired.session_id.as_str() },
+            wired.fork,
+            wired.cwd.display(),
+            wired.directives
+        ),
+    );
     let caps = backend.capabilities();
     // Which tool is the shell, for the production gate: the plugin's sheet.
     let shell_tools = caps.shell_tools.clone();
@@ -1778,6 +1804,10 @@ const HARK_CHAT_TASK: &str = "hark-chat";
 /// `worker_interrupt`, taken by the turn that follows it.
 #[derive(Default)]
 pub(crate) struct Interrupting(pub(crate) Mutex<std::collections::HashSet<String>>);
+
+/// The app's own log on disk (scrubbed as written): what a bug report
+/// carries, and what a developer reads when a window "just died".
+pub(crate) struct Diag(pub(crate) hark_core::adapters::diag_log::DiagLog);
 
 /// Chats whose per-turn ceiling the user lifted ("continuar sem teto
 /// neste chat"): task ids, for the life of the process. The config is
@@ -3046,6 +3076,7 @@ fn dispatch_text(
         }
         let wired = SessionSpec { directives, ..spawn.clone() };
         let (session, events) = backend.spawn(&wired)?;
+        diag(&app, &format!("spawn one-shot agent={} task={} cwd={}", wired.agent, task_id, wired.cwd.display()));
         let mut outcome: Option<hark_agent::TurnResult> = None;
         for event in events.iter() {
             match event {
@@ -4122,6 +4153,237 @@ fn tts_voices() -> Result<Vec<(String, String)>, String> {
 /// `open` runs whatever the target's type says. So only web URLs and
 /// documents go out (domain::external), judged again after symlinks are
 /// resolved: `notes.pdf` pointing at `payload.command` is a command.
+/// What the machine knows about itself, for a bug report: build, OS,
+/// agents and their versions, the config with secrets masked, and the
+/// tail of the app log. Rendered and scrubbed by domain::report.
+fn build_bundle(app: &AppHandle) -> hark_core::domain::report::Bundle {
+    use hark_core::domain::agents;
+    let config = Config::load();
+    let os = std::process::Command::new("sw_vers")
+        .arg("-productVersion")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|v| format!("macOS {}", v.trim()))
+        .unwrap_or_else(|| std::env::consts::OS.to_string());
+    let entries = agents::merge(&config.agents);
+    let detected = agents_detected(&config, &entries);
+    // Every `--version` is a process spawn (node CLIs take a second each):
+    // probed at once, the report waits for the slowest only.
+    let agents: Vec<(String, Option<String>)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = entries
+            .iter()
+            .filter(|e| detected.contains(&e.id))
+            .map(|e| {
+                let bin = if e.plugin == "claude" && e.cmd == "claude" {
+                    config.claude_bin_resolved()
+                } else {
+                    e.cmd.clone()
+                };
+                let id = e.id.clone();
+                scope.spawn(move || (id, hark_core::adapters::registry_fetch::installed_version(&bin)))
+            })
+            .collect();
+        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+    });
+    // Scalars only: the tables (contexts, project budgets, agents' env)
+    // name the user's own folders and keys, which are not the bug's.
+    let masked = hark_core::config::redacted_json(&config);
+    let mut config_lines: Vec<(String, String)> = Vec::new();
+    if let Some(obj) = masked.as_object() {
+        for (k, v) in obj {
+            if !(v.is_object() || v.is_array()) {
+                config_lines.push((k.clone(), v.to_string()));
+            }
+        }
+        if let Some(agents_obj) = obj.get("agents").and_then(|a| a.as_object()) {
+            for (id, entry) in agents_obj {
+                let plugin = entry.get("plugin").and_then(|p| p.as_str()).unwrap_or("");
+                let enabled = entry.get("enabled").and_then(|p| p.as_bool()).unwrap_or(true);
+                let env_keys: Vec<&str> = entry
+                    .get("env")
+                    .and_then(|e| e.as_object())
+                    .map(|m| m.keys().map(String::as_str).collect())
+                    .unwrap_or_default();
+                config_lines.push((format!("agents.{id}"), format!("plugin={plugin} enabled={enabled} env_keys={env_keys:?}")));
+            }
+        }
+    }
+    let log = app.try_state::<Diag>().map(|d| d.0.tail(200)).unwrap_or_default();
+    hark_core::domain::report::Bundle {
+        app_version: app.package_info().version.to_string(),
+        os,
+        arch: std::env::consts::ARCH.to_string(),
+        agents,
+        config: config_lines,
+        log,
+    }
+}
+
+/// The diagnostic block as the issue would show it, for the dialog's
+/// "see what will be sent".
+#[tauri::command(async)]
+fn report_bundle(app: AppHandle) -> Result<serde_json::Value, String> {
+    let bundle = build_bundle(&app);
+    Ok(serde_json::json!({
+        "markdown": hark_core::domain::report::render(&bundle),
+        "version": bundle.app_version,
+        "os": bundle.os,
+        "arch": hark_core::domain::report::mac_label(&bundle.arch),
+        "agents": hark_core::domain::report::agents_line(&bundle.agents),
+        "log_lines": bundle.log.len(),
+    }))
+}
+
+/// The GitHub "new issue" URL with the bug form prefilled. The person
+/// opens it in their own browser, under their own account, and edits
+/// before submitting. `logs` rides the URL when short enough; otherwise
+/// it comes back for the clipboard.
+#[tauri::command(async)]
+fn report_issue_url(
+    app: AppHandle,
+    title: String,
+    what: String,
+    steps: String,
+    include_logs: bool,
+) -> Result<serde_json::Value, String> {
+    use hark_core::domain::report::{agents_line, issue_url, render, IssueFields};
+    let bundle = build_bundle(&app);
+    let logs = include_logs.then(|| render(&bundle));
+    let fields = IssueFields {
+        title,
+        what,
+        steps,
+        version: bundle.app_version.clone(),
+        arch: bundle.arch.clone(),
+        macos: bundle.os.trim_start_matches("macOS ").to_string(),
+        agent: agents_line(&bundle.agents),
+        logs: logs.clone(),
+    };
+    let (url, logs_in_url) = issue_url(&fields);
+    diag(&app, &format!("report: issue url built ({} chars, logs_in_url={logs_in_url})", url.len()));
+    Ok(serde_json::json!({ "url": url, "logs_in_url": logs_in_url, "logs": logs }))
+}
+
+/// The whole report as a file under the data dir, for people without
+/// GitHub (or with a log too long for a URL): attach or send it by hand.
+#[tauri::command(async)]
+fn report_save(app: AppHandle, title: String, what: String, steps: String) -> Result<String, String> {
+    use hark_core::domain::report::render;
+    let bundle = build_bundle(&app);
+    let dir = Config::load().data_dir().join("reports");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("hark-report-{}.md", Utc::now().format("%Y%m%d-%H%M%S")));
+    let text = format!(
+        "# {}
+
+## What happened
+
+{}
+
+## Steps to reproduce
+
+{}
+
+## Diagnostics
+
+{}",
+        hark_core::domain::redact::redact(&title),
+        hark_core::domain::redact::redact(&what),
+        hark_core::domain::redact::redact(&steps),
+        render(&bundle)
+    );
+    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    // Finder, with the file selected: the next step is to drag it.
+    let _ = std::process::Command::new("open").arg("-R").arg(&path).spawn();
+    Ok(path.display().to_string())
+}
+
+/// Is `gh` here and logged in? Then an issue can be created without the
+/// browser round trip — under the person's own account, as before.
+#[tauri::command(async)]
+fn report_gh_status() -> bool {
+    std::process::Command::new("gh")
+        .args(["auth", "status"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// `gh issue create` with the full body (logs included when asked): the
+/// issue URL comes back, to open for editing.
+#[tauri::command(async)]
+fn report_gh_create(
+    app: AppHandle,
+    title: String,
+    what: String,
+    steps: String,
+    include_logs: bool,
+) -> Result<String, String> {
+    use hark_core::domain::redact::redact;
+    use hark_core::domain::report::{agents_line, mac_label, render, REPO};
+    let bundle = build_bundle(&app);
+    let mut body = format!(
+        "### What happened
+
+{}
+
+### Steps to reproduce
+
+{}
+
+### Hark version
+
+{}
+
+### Mac
+
+{}
+
+### macOS version
+
+{}
+
+### Agent CLI and version
+
+{}
+",
+        redact(&what),
+        redact(&steps),
+        bundle.app_version,
+        mac_label(&bundle.arch),
+        bundle.os.trim_start_matches("macOS "),
+        agents_line(&bundle.agents)
+    );
+    if include_logs {
+        body.push_str("
+### Logs or screenshots
+
+");
+        body.push_str(&render(&bundle));
+    }
+    let dir = std::env::temp_dir();
+    let file = dir.join(format!("hark-issue-{}.md", std::process::id()));
+    std::fs::write(&file, body).map_err(|e| e.to_string())?;
+    let out = std::process::Command::new("gh")
+        .args(["issue", "create", "-R", REPO, "--label", "bug", "--title"])
+        .arg(redact(&title))
+        .arg("--body-file")
+        .arg(&file)
+        .output()
+        .map_err(|e| format!("gh: {e}"))?;
+    let _ = std::fs::remove_file(&file);
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("gh issue create: {}", err.trim().chars().take(300).collect::<String>()));
+    }
+    let url = String::from_utf8_lossy(&out.stdout).trim().lines().last().unwrap_or_default().to_string();
+    diag(&app, &format!("report: issue created via gh ({url})"));
+    Ok(url)
+}
+
 #[tauri::command]
 fn open_external(target: String) -> Result<(), String> {
     use hark_core::domain::external::{allowed_file, classify, Opener};
@@ -4978,10 +5240,17 @@ fn build_native_menu(
     let settings = MenuItemBuilder::with_id("settings", label)
         .accelerator("Cmd+,")
         .build(handle)?;
+    let report_label = if Config::load().ui_language == "en" {
+        "Report a problem…"
+    } else {
+        "Reportar um problema…"
+    };
+    let report = MenuItemBuilder::with_id("report", report_label).build(handle)?;
     let app_menu = SubmenuBuilder::new(handle, "hark")
         .about(Some(AboutMetadata::default()))
         .separator()
         .item(&settings)
+        .item(&report)
         .separator()
         .hide()
         .hide_others()
@@ -5051,6 +5320,16 @@ pub fn run() {
             if event.id() == "settings" {
                 let _ = focus_main(app.clone(), Some("settings".into()));
             }
+            if event.id() == "report" {
+                // The dialog opens in the window the person is looking at.
+                let focused = app
+                    .webview_windows()
+                    .into_iter()
+                    .find(|(_, w)| w.is_focused().unwrap_or(false))
+                    .map(|(label, _)| label)
+                    .unwrap_or_else(|| "main".to_string());
+                let _ = app.emit_to(focused.as_str(), "hark", serde_json::json!({ "kind": "open_report" }));
+            }
         })
         .manage(terminal::Terminals::default())
         .manage(voice::ActiveContext::default())
@@ -5069,6 +5348,10 @@ pub fn run() {
             // Move data written under the old product name (vox) into the
             // hark dirs BEFORE anything reads config or touches the data dir.
             hark_core::config::migrate_legacy();
+            // The log opens before anything can fail: the first line of a
+            // bug report is which build booted.
+            app.manage(Diag(hark_core::adapters::diag_log::DiagLog::open(&Config::load().data_dir())));
+            diag(app.handle(), &format!("hark {} start ({} {})", app.package_info().version, std::env::consts::OS, std::env::consts::ARCH));
             // The chat's soul file exists from the first boot (settings can
             // open it before the chat ever spawns).
             ensure_persona(&Config::load());
@@ -5120,6 +5403,11 @@ pub fn run() {
             worker_set_effort,
             worker_interrupt,
             worker_lift_cap,
+            report_bundle,
+            report_issue_url,
+            report_save,
+            report_gh_status,
+            report_gh_create,
             worker_queued_now,
             worker_queued_drop,
             worker_stop,

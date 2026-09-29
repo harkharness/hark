@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderTree, MessageSquare, MoreVertical, Pin, Plus, Search, SquareKanban } from "lucide-react";
+import { Bug, FolderTree, MessageSquare, MoreVertical, Pin, Plus, Search, SquareKanban } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 
@@ -27,6 +27,7 @@ export default function Sidebar({
   boardOpen,
   onToggleBoard,
   onOpenGeneral,
+  onReport,
   generalActive,
   onRename,
   onPin,
@@ -59,6 +60,8 @@ export default function Sidebar({
   /** Back to the window's general chat — the way out of a task now that
    *  clicking the chat you are already in no longer closes it. */
   onOpenGeneral?: () => void;
+  /** The bug report dialog (bottom of the rail, like every desktop app). */
+  onReport?: () => void;
   generalActive?: boolean;
   onRename: (task: BoardTask, title: string) => void;
   onPin: (task: BoardTask) => void;
@@ -297,6 +300,11 @@ export default function Sidebar({
       ) : (
         <button className="side-add-project" onClick={() => setAdding(true)}>
           {t("side_add_project")}
+        </button>
+      )}
+      {onReport && (
+        <button className="side-add-project side-report" onClick={onReport} title={t("report_hint")}>
+          <Bug size={13} /> {t("report_title")}
         </button>
       )}
     </nav>

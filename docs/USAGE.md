@@ -230,6 +230,30 @@ curl -fsSL https://harkharness.web.app/install.sh | bash
 The `hark` CLI in `~/.local/bin` is updated by that same script — the in-app
 updater replaces only the app bundle.
 
+## Reporting a problem
+
+**Sidebar → "Report a problem"**, Settings, or the app menu. The dialog asks
+for a title and what happened, and opens the GitHub issue form in your
+browser, under your own account, already filled in: you review and edit
+everything before pressing Submit. Nothing leaves your machine through Hark.
+
+Tick **"Include diagnostics and logs"** to attach what the machine knows:
+Hark's version, macOS and architecture, the agents it found and their
+versions, your config with every secret masked, and the tail of Hark's own
+log (`<data dir>/logs/hark.log`, rotated at 1 MB). That log records what the
+app did — spawns, turn outcomes, error classes — never prompts, replies or
+tool outputs, and it is scrubbed as it is written: home directories become
+`~`, tokens, e-mails and credentials inside URLs are removed. The dialog
+shows the exact text before anything is sent. **The issue is public**: read
+the preview.
+
+When the diagnostics do not fit the link, they go to your clipboard and the
+dialog says so — paste them into the form's "Logs or screenshots" field. With
+`gh` installed and logged in, **"Create directly with gh"** files the issue,
+logs included, and opens it for editing. **"Save file"** writes the whole
+report under `<data dir>/reports/` and reveals it in Finder, for people
+without a GitHub account.
+
 ## Where things live
 
 | Path | What |

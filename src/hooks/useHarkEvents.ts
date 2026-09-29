@@ -43,6 +43,8 @@ type Handlers = {
   onHotkeyMic?: () => void;
   /** Another window asked the mother to show a tab (board/custos). */
   onMainTab?: (tab: string) => void;
+  /** The native menu asked for the bug report dialog. */
+  onOpenReport?: () => void;
   /** The global board asked this project window to open a task's chat. */
   onFocusTask?: (title: string, sessionId?: string | null) => void;
   /** The voice HUD executed something (the mother records the feed). */
@@ -272,6 +274,8 @@ export function useHarkEvents(h: Handlers) {
         h.onMicPhase?.(ev.phase);
       } else if (ev.kind === "hotkey_mic") {
         h.onHotkeyMic?.();
+      } else if (ev.kind === "open_report") {
+        h.onOpenReport?.();
       } else if (ev.kind === "main_tab") {
         h.onMainTab?.(ev.tab);
       } else if (ev.kind === "focus_task") {

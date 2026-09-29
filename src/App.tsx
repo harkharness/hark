@@ -16,6 +16,7 @@ import { FileTabs } from "./components/FilesEditor";
 import FilesWindow, { TreeToggle } from "./components/FilesWindow";
 import { useFilesTree } from "./hooks/useFilesTree";
 import Modals, { type Pending } from "./components/Modals";
+import ReportDialog from "./components/ReportDialog";
 import ModeSelect from "./components/ModeSelect";
 import ModelSelect from "./components/ModelSelect";
 import EffortSelect from "./components/EffortSelect";
@@ -582,6 +583,10 @@ export default function App({
     return () => window.removeEventListener("focus", report);
   }, [focusedTask, forcedProject]);
 
+  // "Reportar um problema": the sidebar's bug button and the native menu
+  // both land here.
+  const [reportOpen, setReportOpen] = useState(false);
+
   useHarkEvents({
     labelFor,
     push,
@@ -700,6 +705,7 @@ export default function App({
       [],
     ),
     onRateLimit: setRateLimit,
+    onOpenReport: useCallback(() => setReportOpen(true), []),
     autoAllow: useCallback(
       (ask: import("./types").PermissionAsk) => {
         const label = workersRef.current[ask.task_id]?.label ?? ask.label ?? ask.task_id;
@@ -2636,6 +2642,7 @@ export default function App({
                 })
               }
               onNewChat={startDraftChat}
+              onReport={() => setReportOpen(true)}
               onAddProject={(path) =>
                 ipc
                   .projectAdd(path)
@@ -2998,6 +3005,11 @@ export default function App({
         />
       )}
 
+      <ReportDialog
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        onNote={(text) => push({ who: "sys", text })}
+      />
       <Modals
         pending={pending}
         setPending={setPending}

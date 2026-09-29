@@ -378,6 +378,31 @@ export const workerInterrupt = (taskId: string) => invoke<void>("worker_interrup
 /** "Continuar sem teto neste chat": the per-turn ceiling stops holding this
  *  task's turns for the life of the process; the config is untouched. */
 export const workerLiftCap = (taskId: string) => invoke<void>("worker_lift_cap", { taskId });
+
+/** The bug report's diagnostics, as the issue would show them. */
+export type ReportBundle = {
+  markdown: string;
+  version: string;
+  os: string;
+  arch: string;
+  agents: string;
+  log_lines: number;
+};
+export const reportBundle = () => invoke<ReportBundle>("report_bundle");
+/** The GitHub issue form, prefilled. `logs` comes back when it did not
+ *  fit the URL, for the clipboard. */
+export const reportIssueUrl = (title: string, what: string, steps: string, includeLogs: boolean) =>
+  invoke<{ url: string; logs_in_url: boolean; logs: string | null }>("report_issue_url", {
+    title,
+    what,
+    steps,
+    includeLogs,
+  });
+export const reportSave = (title: string, what: string, steps: string) =>
+  invoke<string>("report_save", { title, what, steps });
+export const reportGhStatus = () => invoke<boolean>("report_gh_status");
+export const reportGhCreate = (title: string, what: string, steps: string, includeLogs: boolean) =>
+  invoke<string>("report_gh_create", { title, what, steps, includeLogs });
 /** Reasoning effort; "" clears the directive (back to the CLI's default). */
 export const workerSetEffort = (taskId: string, effort: string) =>
   invoke<{ directives: Directives; restarted: boolean }>("worker_set_effort", { taskId, effort });
