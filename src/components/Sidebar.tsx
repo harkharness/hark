@@ -303,9 +303,16 @@ export default function Sidebar({
         </button>
       )}
       {onReport && (
-        <button className="side-add-project side-report" onClick={onReport} title={t("report_hint")}>
-          <Bug size={13} /> {t("report_title")}
-        </button>
+        <div className="side-foot">
+          <button
+            className="side-head-btn"
+            onClick={onReport}
+            title={t("report_title")}
+            aria-label={t("report_title")}
+          >
+            <Bug size={15} />
+          </button>
+        </div>
       )}
     </nav>
   );

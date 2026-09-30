@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, Lock, Maximize2, Mic, Minimize2, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
+import { Bug, ExternalLink, Lock, Maximize2, Mic, Minimize2, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import Board from "./components/Board";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import CostsPanel from "./components/CostsPanel";
@@ -1384,7 +1384,7 @@ export default function Mother() {
       </nav>
 
       {tab === "ajustes" ? (
-        <Settings onReport={() => setReportOpen(true)} />
+        <Settings />
       ) : tab === "board" ? (
         <Board
           tasks={overview?.board ?? []}
@@ -1635,6 +1635,14 @@ export default function Mother() {
         </>
         )
       )}
+      <button
+        className="mother-report"
+        onClick={() => setReportOpen(true)}
+        title={t("report_title")}
+        aria-label={t("report_title")}
+      >
+        <Bug size={15} />
+      </button>
       <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} />
     </div>
   );
