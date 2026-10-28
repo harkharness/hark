@@ -15,7 +15,23 @@ fn save(store: &dyn ArtifactStore, space: &str, tree: &Tree) -> anyhow::Result<(
 pub fn load(store: &dyn ArtifactStore, space: &str, now: &str) -> anyhow::Result<Tree> {
     let mut tree = Tree::parse(&store.read_index(space)?).map_err(anyhow::Error::msg)?;
     let files = store.list_pages(space)?;
-    let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+    // Only the files the index does not know get their head read: the
+    // title of an adopted page comes from it. Two kilobytes is plenty.
+    let heads: Vec<(String, Option<String>)> = files
+        .iter()
+        .map(|f| {
+            let known = tree.nodes.iter().any(|n| &n.path == f);
+            let title = (!known)
+                .then(|| store.read_page(space, f).ok())
+                .flatten()
+                .map(|text| {
+                    let cut = text.char_indices().map(|(i, _)| i).find(|&i| i >= 2048).unwrap_or(text.len());
+                    crate::domain::artifacts::page_title(f, &text[..cut])
+                });
+            (f.clone(), title)
+        })
+        .collect();
+    let refs: Vec<(&str, Option<&str>)> = heads.iter().map(|(f, t)| (f.as_str(), t.as_deref())).collect();
     let pass = tree.reconcile(&refs, now);
     if !pass.added.is_empty() || !pass.orphaned.is_empty() {
         save(store, space, &tree)?;
@@ -202,7 +218,7 @@ mod tests {
         let origin = Origin { session_id: Some("s-9".into()), task: Some("Retry".into()) };
         let node = attach_origin(&s, "hark", "decisoes/adr-005.md", origin.clone(), NOW).unwrap();
         assert_eq!(node.origin, Some(origin.clone()));
-        assert_eq!(node.title, "adr-005");
+        assert_eq!(node.title, "ADR 005", "the heading the agent wrote is the title");
         // A second write by another chat keeps the first origin: the page
         // was born once.
         let other = Origin { session_id: Some("s-2".into()), task: None };

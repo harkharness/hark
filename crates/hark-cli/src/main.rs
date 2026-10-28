@@ -638,6 +638,8 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
         fork: false,
         project_settings: hark_plugin_claude::trust::project_sources(&planned.workspace_root)
             == hark_core::domain::trust::Sources::All,
+        // Pages are written without a prompt here too, as in the app.
+        add_dirs: vec![config.data_dir().join("artifacts")],
     };
     if !spawn.project_settings {
         eprintln!("{}", hark_plugin_claude::trust::untrusted_note(&planned.workspace_root));

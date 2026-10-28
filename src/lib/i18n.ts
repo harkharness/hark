@@ -688,6 +688,7 @@ const pt = {
   art_ago_yesterday: "ontem",
   art_ago_d: "há {d} dias",
   art_sent_about: "sobre a página «{t}»: a mensagem foi para o chat geral com a página junto",
+  art_cited: "{n} página(s) citada(s) vão junto: {t}",
   set_data_hint: "índice, ledger e modelos ficam aqui — nada sai da máquina",
 };
 
@@ -1356,6 +1357,7 @@ const en: Record<keyof typeof pt, string> = {
   art_ago_yesterday: "yesterday",
   art_ago_d: "{d} days ago",
   art_sent_about: "about the page «{t}»: the message went to the general chat with the page along",
+  art_cited: "{n} cited page(s) ride along: {t}",
   set_data_hint: "index, ledger and models live here — nothing leaves the machine",
 };
 

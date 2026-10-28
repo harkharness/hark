@@ -37,6 +37,10 @@ pub struct WorkerSpawn {
     /// (domain::trust): `-p` skips Claude Code's trust dialog, so Hark
     /// must not.
     pub project_settings: bool,
+    /// Folders the worker may read and write besides `cwd` (`--add-dir`):
+    /// the artifacts root, so pages are written without a prompt and the
+    /// skill under it loads. Nothing else of `~/.hark` is granted.
+    pub add_dirs: Vec<PathBuf>,
 }
 
 impl WorkerSpawn {
@@ -91,6 +95,10 @@ impl WorkerSpawn {
         args.extend(["--permission-prompt-tool".into(), "stdio".into()]);
         if !self.project_settings {
             args.extend(["--setting-sources".into(), "user".into()]);
+        }
+        for dir in &self.add_dirs {
+            args.push("--add-dir".into());
+            args.push(dir.to_string_lossy().to_string());
         }
         args.extend(self.directive_args());
         // The CLI's cap counts the whole PROCESS and is checked after the
@@ -359,6 +367,7 @@ mod tests {
             envs: Vec::new(),
             fork: false,
             project_settings: true,
+            add_dirs: Vec::new(),
         }
     }
 
@@ -467,5 +476,15 @@ mod tests {
         let at = args.iter().position(|a| a == "--setting-sources").expect("flag present");
         assert_eq!(args[at + 1], "user");
         assert!(!spawn("", Directives::default()).cli_args(true).contains(&"--setting-sources".to_string()));
+    }
+
+    #[test]
+    fn an_extra_directory_rides_as_add_dir() {
+        let mut s = spawn("", Directives::default());
+        s.add_dirs = vec![PathBuf::from("/Users/x/.hark/artifacts")];
+        let args = s.cli_args(true);
+        let at = args.iter().position(|a| a == "--add-dir").expect("--add-dir present");
+        assert_eq!(args[at + 1], "/Users/x/.hark/artifacts");
+        assert!(!spawn("", Directives::default()).cli_args(true).contains(&"--add-dir".to_string()));
     }
 }

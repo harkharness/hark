@@ -2,7 +2,7 @@
 //! that mention it. Pure; the shell brings the artifacts root and the
 //! tree, and gets back ids and paths.
 
-use super::artifacts::{validate_path, Tree};
+use super::artifacts::{validate_path, Node, Tree};
 
 /// A page an agent just wrote: which space, which file inside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,10 +50,36 @@ pub fn cites(text: &str, tree: &Tree) -> Vec<String> {
         .collect()
 }
 
+/// The pages a task owns: the ones it wrote (origin) or is tied to (a
+/// link naming the task), in the tree's order.
+pub fn linked_to_task<'a>(tree: &'a Tree, task: &str) -> Vec<&'a Node> {
+    tree.nodes
+        .iter()
+        .filter(|n| {
+            n.origin.as_ref().and_then(|o| o.task.as_deref()) == Some(task)
+                || n.links.iter().any(|l| l.task.as_deref() == Some(task))
+        })
+        .collect()
+}
+
+/// The lines a brief carries about a task's pages: title, place, path.
+/// Titles and breadcrumbs only — the body rides only when the page is the
+/// scope (`scope::page_brief`). Empty when there is nothing to say.
+pub fn pages_block(pages: &[(&Node, Vec<&str>)], space: &str) -> String {
+    if pages.is_empty() {
+        return String::new();
+    }
+    let mut out = format!("Páginas desta task no espaço «{space}» (HARK_ARTIFACTS_DIR/{space}):\n");
+    for (node, crumbs) in pages {
+        out.push_str(&format!("- «{}» ({}) — {}\n", node.title, crumbs.join(" › "), node.path));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::artifacts::{Kind, Node};
+    use crate::domain::artifacts::{Kind, Link, Node, Origin};
 
     const ROOT: &str = "/Users/x/.hark/artifacts";
 
@@ -118,5 +144,27 @@ mod tests {
         assert_eq!(cites("o retry queue fix falhou", &t), vec!["retry"]);
         assert_eq!(cites("retrying is not it", &t), Vec::<String>::new());
         assert_eq!(cites("Retry, e de novo o retry", &t), vec!["retry"]);
+    }
+
+    #[test]
+    fn the_pages_of_a_task_are_the_ones_it_wrote_or_tied() {
+        let mut t = Tree::default();
+        let page = |id: &str, origin: Option<Origin>, links: Vec<Link>| Node { id: id.into(), title: id.into(), path: format!("{id}.md"), parent: None, kind: Kind::Doc, origin, links, updated_at: String::new(), orphan: false };
+        t.insert(page("adr-004", Some(Origin { session_id: Some("s1".into()), task: Some("Billing".into()) }), vec![]), None).unwrap();
+        t.insert(page("retry", None, vec![]), None).unwrap();
+        t.insert(page("visao", None, vec![Link { kind: "cita".into(), session_id: None, task: Some("Billing".into()), node: None }]), None).unwrap();
+        let ids: Vec<&str> = linked_to_task(&t, "Billing").iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(ids, vec!["adr-004", "visao"], "tree order, origin or link");
+        assert!(linked_to_task(&t, "Retry queue").is_empty());
+    }
+
+    #[test]
+    fn a_pages_block_names_each_page_with_its_place_and_path() {
+        let t = tree();
+        let adr = t.get("adr-004").unwrap();
+        let block = pages_block(&[(adr, vec!["hark", "Decisões", "ADR 004: janela única"])], "hark");
+        assert!(block.starts_with("Páginas desta task no espaço «hark»"), "{block}");
+        assert!(block.contains("- «ADR 004: janela única» (hark › Decisões › ADR 004: janela única) — adr-004.md"), "{block}");
+        assert_eq!(pages_block(&[], "hark"), "");
     }
 }

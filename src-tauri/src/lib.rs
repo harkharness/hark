@@ -1891,11 +1891,45 @@ fn fresh_spawn(
         // workspace the worker actually runs in (FASE 8.6).
         limits: config.spawn_limits_for(&cwd),
         envs: worker_envs(config),
+        // Pages are written without a prompt, and the skill under the root
+        // loads; nothing else of ~/.hark is granted.
+        extra_dirs: vec![artifacts_root(config)],
         cwd,
         session_id,
         instruction,
         directives,
         fork: false,
+    }
+}
+
+/// The lines a brief carries about a task's pages, across every space:
+/// title and place only (the body rides only when the page is the scope).
+fn task_pages_block(config: &Config, task: &str) -> String {
+    let store = FsArtifacts::new(artifacts_root(config));
+    let Ok(spaces) = store.spaces() else {
+        return String::new();
+    };
+    let mut out = String::new();
+    for space in spaces {
+        let Ok(tree) = hark_core::app::artifacts::load(&store, &space, &now_iso()) else {
+            continue;
+        };
+        let pages: Vec<_> = hark_core::domain::artifact_links::linked_to_task(&tree, task)
+            .into_iter()
+            .map(|n| (n, tree.breadcrumb(&n.id)))
+            .collect();
+        out.push_str(&hark_core::domain::artifact_links::pages_block(&pages, &space));
+    }
+    out
+}
+
+/// A brief with the task's pages after it, when it has any.
+fn with_task_pages(config: &Config, task: &str, brief: String) -> String {
+    let pages = task_pages_block(config, task);
+    if pages.is_empty() {
+        brief
+    } else {
+        format!("{brief}\n\n{pages}")
     }
 }
 
@@ -1995,6 +2029,47 @@ fn artifact_brief(space: String, id: String) -> Result<String, String> {
     let scope = hark_core::domain::scope::Scope::Page { title: page.node.title.clone(), path: page.node.path.clone(), space };
     let crumbs: Vec<&str> = page.breadcrumb.iter().map(String::as_str).collect();
     Ok(hark_core::domain::scope::page_brief(&scope, &crumbs, &page.text, PAGE_BRIEF_CHARS))
+}
+
+#[derive(Serialize)]
+struct ArtifactCitesOut {
+    /// The pages the text names, as "space › title".
+    titles: Vec<String>,
+    /// The attributed context block to travel inside the message.
+    block: String,
+}
+
+/// Each page a text cites by title is a few thousand characters of context
+/// at most: enough for a decision page, bounded for a long one.
+const CITED_PAGE_CHARS: usize = 4_000;
+
+/// "…como ficou no ADR 004": the cited pages ride inside the message,
+/// attributed, zero tokens to find. None when nothing is named.
+#[tauri::command]
+fn artifact_cites(text: String) -> Result<Option<ArtifactCitesOut>, String> {
+    use hark_core::domain::{artifact_links, scope};
+    let config = Config::load();
+    let store = FsArtifacts::new(artifacts_root(&config));
+    let mut titles = vec![];
+    let mut blocks = vec![];
+    for space in store.spaces().map_err(|e| e.to_string())? {
+        let Ok(tree) = hark_core::app::artifacts::load(&store, &space, &now_iso()) else {
+            continue;
+        };
+        for id in artifact_links::cites(&text, &tree) {
+            let Some(node) = tree.get(&id) else { continue };
+            let Ok(body) = store.read_page(&space, &node.path) else { continue };
+            let page = scope::Scope::Page { title: node.title.clone(), path: node.path.clone(), space: space.clone() };
+            let crumbs = tree.breadcrumb(&id);
+            blocks.push(scope::page_brief(&page, &crumbs, &body, CITED_PAGE_CHARS));
+            titles.push(format!("{space} › {}", node.title));
+        }
+    }
+    if titles.is_empty() {
+        return Ok(None);
+    }
+    let block = format!("<contexto origem=\"páginas do Hark\">\n{}\n</contexto>", blocks.join("\n\n"));
+    Ok(Some(ArtifactCitesOut { titles, block }))
 }
 
 #[tauri::command]
@@ -2450,6 +2525,33 @@ fn setup_mark_done() -> Result<(), String> {
 /// whatever agent is talking. Created once from the template; after that
 /// it belongs to the user and to the model's own edits — NEVER overwritten.
 pub(crate) fn ensure_persona(config: &Config) {
+    ensure_soul(config);
+    ensure_artifact_skill(config);
+}
+
+/// The artifacts skill under the root (Hark's own file: rewritten when its
+/// text moves) and the soul file's section about pages (appended once;
+/// never rewritten, the user may have edited around it).
+fn ensure_artifact_skill(config: &Config) {
+    use hark_core::domain::artifact_skill;
+    let root = artifacts_root(config);
+    let skill = root.join(artifact_skill::SKILL_PATH);
+    let want = artifact_skill::skill_md(&root.to_string_lossy());
+    if std::fs::read_to_string(&skill).ok().as_deref() != Some(want.as_str()) {
+        if let Some(parent) = skill.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&skill, want);
+    }
+    let soul = config.data_dir().join("HARK.md");
+    if let Ok(doc) = std::fs::read_to_string(&soul) {
+        if let Some(next) = artifact_skill::with_section(&doc, &artifact_skill::persona_section(&root.to_string_lossy())) {
+            let _ = std::fs::write(&soul, next);
+        }
+    }
+}
+
+fn ensure_soul(config: &Config) {
     // One soul, many mouths: HARK.md is canonical; each agent's memory
     // file (the name its CLI auto-loads — the registry's memory_file:
     // CLAUDE.md, GEMINI.md, AGENTS.md) is a symlink to it, so every
@@ -2703,6 +2805,7 @@ fn worker_restart_light(
         hark_core::domain::transcript::brief(&entries, 1500)
     };
     let title = worker_board_title(Some(&session), &handle.spec.instruction);
+    let brief = with_task_pages(&config, &title, brief);
     emit_event(
         &app,
         serde_json::json!({ "kind": "status",
@@ -2789,8 +2892,8 @@ fn worker_handoff(
         .map(|w| w.session_id.clone())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| handle.spec.session_id.clone());
-    let brief = local_brief(&config, &session);
     let title = worker_board_title(Some(&session), &handle.spec.instruction);
+    let brief = local_brief(&config, &session).map(|b| with_task_pages(&config, &title, b));
     emit_event(
         &app,
         serde_json::json!({ "kind": "status", "task_id": task_id,
@@ -5644,6 +5747,7 @@ pub fn run() {
             artifacts_tree,
             artifact_read,
             artifact_brief,
+            artifact_cites,
             artifact_write,
             artifact_create,
             artifact_move,

@@ -2624,14 +2624,26 @@ export default function App({
    *  local log and ride them inside the message — visible, attributed,
    *  zero tokens. Returns the message to actually send. */
   async function withCrossref(text: string, thread?: string): Promise<string> {
-    const ref = await ipc.crossrefContext(text).catch(() => null);
-    if (!ref) return text;
-    push({
-      who: "sys",
-      text: `puxei ${ref.lines} linha${ref.lines > 1 ? "s" : ""} do chat "${ref.title}"`,
-      task: thread,
-    });
-    return `${text}\n\n${ref.block}`;
+    const [ref, pages] = await Promise.all([
+      ipc.crossrefContext(text).catch(() => null),
+      ipc.artifactCites(text).catch(() => null),
+    ]);
+    let out = text;
+    if (ref) {
+      push({
+        who: "sys",
+        text: `puxei ${ref.lines} linha${ref.lines > 1 ? "s" : ""} do chat "${ref.title}"`,
+        task: thread,
+      });
+      out = `${out}\n\n${ref.block}`;
+    }
+    // A page named by its title rides along too: a decision page is the
+    // context the instruction assumes.
+    if (pages) {
+      push({ who: "sys", text: t("art_cited", { n: pages.titles.length, t: pages.titles.join(", ") }), task: thread });
+      out = `${out}\n\n${pages.block}`;
+    }
+    return out;
   }
 
   /** Send a message into a task: live worker if any, else a fresh resume. */

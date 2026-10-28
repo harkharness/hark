@@ -150,6 +150,7 @@ mod tests {
             limits: Default::default(),
             envs: Vec::new(),
             fork: false,
+            extra_dirs: Vec::new(),
         }
     }
 
@@ -215,6 +216,7 @@ mod tests {
             limits: Default::default(),
             envs: Vec::new(),
             fork: false,
+            extra_dirs: Vec::new(),
         };
         let (session, events) = backend.spawn(&spec).expect("spawns and handshakes");
         let caps = backend.capabilities();

@@ -597,6 +597,9 @@ export const artifactRead = (space: string, id: string) =>
   invoke<import("../types").ArtifactPage>("artifact_read", { space, id });
 /** The page as the prompt carries it (whole while it fits, else its head). */
 export const artifactBrief = (space: string, id: string) => invoke<string>("artifact_brief", { space, id });
+/** The pages a text cites by title, as a context block (null = none). */
+export const artifactCites = (text: string) =>
+  invoke<{ titles: string[]; block: string } | null>("artifact_cites", { text });
 export const artifactWrite = (space: string, id: string, text: string) =>
   invoke("artifact_write", { space, id, text });
 export const artifactCreate = (

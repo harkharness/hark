@@ -320,29 +320,47 @@ impl Tree {
         if dir.is_empty() { format!("{slug}.{ext}") } else { format!("{dir}/{slug}.{ext}") }
     }
 
+    /// The node whose file names a folder: `a/b.md`, `a/b.html` or
+    /// `a/b/index.*` all name `a/b`. None when no page does.
+    fn page_naming_folder(&self, folder: &str) -> Option<&str> {
+        self.nodes
+            .iter()
+            .find(|n| {
+                let p = n.path.as_str();
+                let own = p.rsplit_once('.').map(|(d, _)| d).unwrap_or(p);
+                own == folder || (stem(p) == "index" && p.rsplit_once('/').map(|(d, _)| d) == Some(folder))
+            })
+            .map(|n| n.id.as_str())
+    }
+
     /// Bring the index in line with the files on disk: a file the index
-    /// does not know becomes a page at the root (the person files it); a
-    /// page whose file is gone is flagged, never deleted. Idempotent.
-    pub fn reconcile(&mut self, files: &[&str], now: &str) -> Reconciled {
+    /// does not know becomes a page — titled by its head when it has one,
+    /// under the page whose file names its folder when one does, else at
+    /// the root for the person to file; a page whose file is gone is
+    /// flagged, never deleted. Shallow files go first, so a parent written
+    /// in the same pass as its children is there before them. Idempotent.
+    pub fn reconcile(&mut self, files: &[(&str, Option<&str>)], now: &str) -> Reconciled {
         let mut out = Reconciled::default();
         for n in &mut self.nodes {
-            let present = files.contains(&n.path.as_str());
+            let present = files.iter().any(|(f, _)| *f == n.path);
             if !present && !n.orphan {
                 out.orphaned.push(n.id.clone());
             }
             n.orphan = !present;
         }
-        for f in files {
-            if validate_path(f).is_err() || self.nodes.iter().any(|n| n.path == *f) {
-                continue;
-            }
-            let id = self.fresh_id(stem(f));
+        let mut fresh: Vec<&(&str, Option<&str>)> =
+            files.iter().filter(|(f, _)| validate_path(f).is_ok() && !self.nodes.iter().any(|n| n.path == *f)).collect();
+        fresh.sort_by_key(|(f, _)| (f.matches('/').count(), *f));
+        for (f, title) in fresh {
+            let title = title.map(str::to_string).unwrap_or_else(|| stem(f).to_string());
+            let id = self.fresh_id(&title);
+            let parent = f.rsplit_once('/').and_then(|(folder, _)| self.page_naming_folder(folder)).map(str::to_string);
             let node = Node {
                 id: id.clone(),
-                title: stem(f).to_string(),
+                title,
                 path: (*f).to_string(),
-                parent: None,
-                kind: Kind::Doc,
+                parent: parent.clone(),
+                kind: if f.ends_with(".md") { Kind::Doc } else { Kind::Slides },
                 origin: None,
                 links: vec![],
                 updated_at: now.to_string(),
@@ -354,6 +372,41 @@ impl Tree {
         }
         out
     }
+}
+
+/// What the head of a file says a page is called: the first `# heading`
+/// of markdown (front matter skipped), the `<title>` or first `<h1>` of
+/// html, else the file name.
+pub fn page_title(path: &str, head: &str) -> String {
+    let found = if path.ends_with(".md") {
+        let mut lines = head.lines().map(str::trim);
+        let mut body: Vec<&str> = vec![];
+        if lines.next() == Some("---") {
+            for l in lines.by_ref() {
+                if l == "---" {
+                    break;
+                }
+            }
+        } else {
+            body = head.lines().map(str::trim).collect();
+        }
+        if body.is_empty() {
+            body = lines.collect();
+        }
+        body.iter().find_map(|l| l.strip_prefix("# ").map(|t| t.trim().to_string()))
+    } else {
+        tag_text(head, "title").or_else(|| tag_text(head, "h1"))
+    };
+    found.filter(|t| !t.is_empty()).unwrap_or_else(|| stem(path).to_string())
+}
+
+/// The text inside the first `<tag …>…</tag>` of an html head, trimmed.
+fn tag_text(html: &str, tag: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let open = lower.find(&format!("<{tag}"))?;
+    let start = open + lower[open..].find('>')? + 1;
+    let end = start + lower[start..].find(&format!("</{tag}>"))?;
+    Some(html[start..end].trim().to_string())
 }
 
 #[cfg(test)]
@@ -461,23 +514,59 @@ mod tests {
     #[test]
     fn reconcile_adopts_files_the_index_does_not_know_and_flags_the_ones_that_vanished() {
         let mut t = sample();
-        let on_disk = ["decisoes/adr-003.md", "decisoes/adr-004.md", "visao-geral.md", "notas/reuniao.md", "fase-10.html"];
+        let on_disk = found(&["decisoes/adr-003.md", "decisoes/adr-004.md", "visao-geral.md", "notas/reuniao.md", "fase-10.html"]);
         let out = t.reconcile(&on_disk, "2026-10-28T11:00:00Z");
-        assert_eq!(out.added, vec!["reuniao", "fase-10"]);
+        assert_eq!(out.added, vec!["fase-10", "reuniao"], "shallow first");
         assert_eq!(out.orphaned, vec!["decisoes"]);
         let reuniao = t.get("reuniao").unwrap();
         assert_eq!(reuniao.title, "reuniao");
-        assert_eq!(reuniao.parent, None, "adopted files land at the root; the person files them");
+        assert_eq!(reuniao.parent, None, "no page named the folder: the root, and the person files it");
         assert_eq!(reuniao.kind, Kind::Doc);
-        assert_eq!(t.get("fase-10").unwrap().kind, Kind::Doc, "html is a document unless the index says otherwise");
+        assert_eq!(t.get("fase-10").unwrap().kind, Kind::Slides, "html adopted is a deck until the index says otherwise");
         assert!(t.get("decisoes").unwrap().orphan);
         // Running it again changes nothing.
         let again = t.reconcile(&on_disk, "2026-10-28T12:00:00Z");
         assert!(again.added.is_empty() && again.orphaned.is_empty());
         // The file is back: no longer an orphan.
-        let back = ["decisoes/index.md", "decisoes/adr-003.md", "decisoes/adr-004.md", "visao-geral.md", "notas/reuniao.md", "fase-10.html"];
+        let back = found(&["decisoes/index.md", "decisoes/adr-003.md", "decisoes/adr-004.md", "visao-geral.md", "notas/reuniao.md", "fase-10.html"]);
         t.reconcile(&back, "2026-10-28T13:00:00Z");
         assert!(!t.get("decisoes").unwrap().orphan);
+    }
+
+    /// Files as the store lists them, with no title hint.
+    fn found<'a>(paths: &[&'a str]) -> Vec<(&'a str, Option<&'a str>)> {
+        paths.iter().map(|p| (*p, None)).collect()
+    }
+
+    #[test]
+    fn an_adopted_file_takes_its_heading_as_title_and_its_folder_s_page_as_parent() {
+        let mut t = sample();
+        let on_disk = vec![
+            ("decisoes/index.md", None),
+            ("decisoes/adr-003.md", None),
+            ("decisoes/adr-004.md", None),
+            ("visao-geral.md", None),
+            ("decisoes/adr-005.md", Some("ADR 005: teto por turno")),
+            ("guia/passo-1.md", Some("Passo 1")),
+            ("guia.md", Some("Guia")),
+        ];
+        let out = t.reconcile(&on_disk, "2026-10-28T11:00:00Z");
+        assert_eq!(out.added, vec!["guia", "adr-005-teto-por-turno", "passo-1"], "shallow first, so a parent exists before its child");
+        let adr = t.get("adr-005-teto-por-turno").unwrap();
+        assert_eq!(adr.title, "ADR 005: teto por turno");
+        assert_eq!(adr.parent.as_deref(), Some("decisoes"), "decisoes/index.md names the folder");
+        assert_eq!(t.get("passo-1").unwrap().parent.as_deref(), Some("guia"), "guia.md names the folder, adopted in the same pass");
+        assert_eq!(t.children(Some("decisoes")).last().map(|n| n.id.as_str()), Some("adr-005-teto-por-turno"));
+    }
+
+    #[test]
+    fn a_page_s_title_comes_from_its_head_or_its_file_name() {
+        assert_eq!(page_title("decisoes/adr-004.md", "# ADR 004: janela única\n\ntexto"), "ADR 004: janela única");
+        assert_eq!(page_title("x.md", "---\ntitle: y\n---\n\n# Título real\n"), "Título real", "front matter is skipped");
+        assert_eq!(page_title("x.md", "sem heading"), "x");
+        assert_eq!(page_title("deck.html", "<html><head><title>Infra como plataforma</title></head>"), "Infra como plataforma");
+        assert_eq!(page_title("deck.html", "<h1>Só um h1</h1>"), "Só um h1");
+        assert_eq!(page_title("deck.html", "<p>nada</p>"), "deck");
     }
 
     #[test]

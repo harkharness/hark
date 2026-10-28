@@ -35,6 +35,7 @@ impl ClaudeBackend {
             envs: self.envs.iter().cloned().chain(spec.envs.iter().cloned()).collect(),
             fork: spec.fork,
             project_settings: crate::trust::project_sources(&spec.cwd) == Sources::All,
+            add_dirs: spec.extra_dirs.clone(),
         }
     }
 }

@@ -107,6 +107,9 @@ pub struct SessionSpec {
     pub envs: Vec<(String, String)>,
     /// Fork instead of resume (requires Capabilities.fork).
     pub fork: bool,
+    /// Folders granted besides `cwd` (the artifacts root): a backend that
+    /// has no such notion ignores them.
+    pub extra_dirs: Vec<std::path::PathBuf>,
 }
 
 /// A configured agent backend: one instance per registry entry.
