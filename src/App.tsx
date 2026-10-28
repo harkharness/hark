@@ -39,7 +39,11 @@ import { useHarkEvents } from "./hooks/useHarkEvents";
 import { useRepoStates } from "./hooks/useRepoStates";
 import RepoRuler from "./components/RepoRuler";
 import { ContextRing } from "./components/Meter";
-import { agentError, askReplyMsg, isAuthError } from "./lib/format";
+import { agentError, askReplyMsg, firstSentence, isAuthError } from "./lib/format";
+import CostsPanel from "./components/CostsPanel";
+import Settings from "./components/Settings";
+import Onboarding from "./components/Onboarding";
+import { checkForUpdate, restartIntoUpdate } from "./lib/updater";
 import * as ipc from "./lib/ipc";
 import { terminalPayload } from "./lib/terminalPayload";
 import type {
@@ -81,6 +85,22 @@ export default function App({
   const [busy, setBusy] = useState<string | null>(null);
   // Key for the window's general chat, which has no task title.
   const GENERAL = "";
+  /** The persistent general chat's task id on the Rust side. Its events
+   *  land in the GENERAL thread of the main window. */
+  const HARK_CHAT = "hark-chat";
+  /** No forced project = the main window: every project, the general chat
+   *  backed by the persistent worker, board/costs/settings as views. */
+  const isMain = !forcedProject;
+  type View = "chat" | "board" | "custos" | "ajustes";
+  const [view, setView] = useState<View>("chat");
+  const [setup, setSetup] = useState<ipc.SetupStatus | null>(null);
+  const [updateReady, setUpdateReady] = useState<string | null>(null);
+  /** The last typed message in flight on the general chat, for the one
+   *  resend after a worker crash. */
+  const chatInFlightRef = useRef<{ text: string; retried: boolean } | null>(null);
+  /** A finished chat elsewhere offers "faz algo lá": the NEXT sentence
+   *  may answer it. */
+  const followUpRef = useRef<{ label: string; sessionId: string } | null>(null);
   // What each running turn is doing, keyed by thread — the status line
   // belongs to ONE chat, not to the window. A single global one showed
   // "1m 35s · quase terminando de pensar…" above every chat you opened,
@@ -436,7 +456,8 @@ export default function App({
 
   /** Thread key for worker events: the task LABEL, stable and readable. */
   const labelFor = useCallback(
-    (taskId: string) => workersRef.current[taskId]?.label ?? taskId,
+    (taskId: string) => (taskId === HARK_CHAT ? GENERAL : (workersRef.current[taskId]?.label ?? taskId)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
   const refresh = useCallback(() => {
@@ -456,6 +477,74 @@ export default function App({
     if (forcedProject) {
       ipc.projectSessions(forcedProject.path).then(setChats).catch(() => {});
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // The main window lists every project's history: one query per
+  // registered project, merged. Refreshed with the project list.
+  const projectPaths = (overview?.projects ?? []).map((p) => p.path).join("\n");
+  useEffect(() => {
+    if (!isMain || !projectPaths) return;
+    let alive = true;
+    Promise.all(projectPaths.split("\n").map((path) => ipc.projectSessions(path).catch(() => [] as SessionHit[])))
+      .then((lists) => {
+        if (alive) setChats(lists.flat());
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPaths]);
+
+  // Main window only: the first-run gate, the update poll and the general
+  // chat's stored record (the mother's three boot duties).
+  useEffect(() => {
+    if (!isMain) return;
+    ipc
+      .setupStatus()
+      .then((st) => {
+        // Any usable backend counts: a machine with only gemini or codex
+        // must not be sent to a wizard asking for claude.
+        if (!st.onboarded && (!st.config_exists || !st.whisper_ok || !st.agent_ok)) setSetup(st);
+      })
+      .catch(() => {});
+    let alive = true;
+    const poll = async () => {
+      const cfg = await ipc.configRead().catch(() => null);
+      if (!cfg?.values.auto_update) return;
+      const up = await checkForUpdate();
+      if (alive && up.kind === "ready") setUpdateReady(up.version);
+    };
+    void poll();
+    const id = setInterval(poll, 6 * 60 * 60 * 1000);
+    // The general chat is CONTINUOUS across restarts, visually too: the
+    // journal (ask turns) and the hark-chat transcript (work turns), one
+    // timeline. Local, zero tokens.
+    void (async () => {
+      const [stt, journal] = await Promise.all([
+        ipc.harkChatStatus().catch(() => null),
+        ipc.journalRecent(12).catch(() => [] as import("./types").JournalTurn[]),
+      ]);
+      const hist: (Msg & { ts?: number })[] = [];
+      for (const turn of journal) {
+        const ts = Date.parse(turn.ts) || undefined;
+        hist.push({ who: "user", text: turn.question, ts });
+        hist.push({ who: "hark", text: turn.fala, detalhes: turn.body || undefined, ts });
+      }
+      if (stt?.session_id) {
+        const tr = await ipc.readTranscript(stt.session_id, 30).catch(() => null);
+        for (const e of tr?.entries ?? []) {
+          if (e.role !== "user" && e.role !== "assistant") continue;
+          hist.push({ who: e.role === "user" ? "user" : "hark", text: e.text, ts: Date.parse(e.ts) || undefined });
+        }
+      }
+      hist.sort((x, y) => (x.ts ?? 0) - (y.ts ?? 0));
+      if (hist.length && alive) setMessages((old) => [...hist, ...old].slice(-80));
+    })();
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const say = useCallback((text: string) => {
@@ -614,6 +703,14 @@ export default function App({
         // Auth death is fatal and identical on retry: the remedy is the
         // terminal, so open it with `claude` typed (once per window).
         if (errorCode === "agent_auth") nudgeRef.current("agent_auth:turn");
+        if (taskId === HARK_CHAT) {
+          // The reply landed (or failed as an answer): nothing in flight.
+          chatInFlightRef.current = null;
+          return;
+        }
+        // A chat finished elsewhere: the next sentence in the general chat
+        // may answer the offer. Failures announce but never offer.
+        if (isMain && !_err && session) followUpRef.current = { label, sessionId: session };
         // FASE 8.6: act on context pressure instead of only warning. At
         // 85% the next turns degrade and a forced summary is coming
         // anyway; compacting NOW is the cheap version of that. Once per
@@ -707,6 +804,42 @@ export default function App({
     ),
     onRateLimit: setRateLimit,
     onOpenReport: useCallback(() => setReportOpen(true), []),
+    // The main window is the one that SPEAKS; project windows stay quiet.
+    announce: isMain,
+    // Other windows and the HUD redirect here for the global views.
+    onMainTab: useCallback((tab: string) => {
+      if (tab === "board" || tab === "custos") setView(tab);
+      if (tab === "settings") setView("ajustes");
+    }, []),
+    // The general chat speaks its ACTUAL reply (first sentence); another
+    // chat finishing gets the butler's offer, through the same TTS queue.
+    turnSpeech: useCallback((taskId: string, text: string, isError: boolean, label: string) => {
+      if (!isMain || isError) return undefined;
+      if (taskId === HARK_CHAT) return firstSentence(text) || undefined;
+      return st("sp_fu_offer", { t: label });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+    // Spoken turns handled by the HUD land in the general thread too.
+    onChatEcho: useCallback(
+      (
+        question: string,
+        reply: { fala: string; detalhes?: string; itens?: string[]; cost_usd?: number; model?: string } | undefined,
+        work: boolean,
+      ) => {
+        if (!isMain) return;
+        push({ who: "user", text: question });
+        if (work) chatInFlightRef.current = { text: question, retried: false };
+        if (reply) push({ who: "hark", ...askReplyMsg(reply) });
+      },
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [],
+    ),
+    // The voice feed of the mother, as one quiet line in the general thread.
+    onVoiceAction: useCallback((utterance: string, target?: string | null, status?: string) => {
+      if (!isMain) return;
+      push({ who: "sys", text: `${t("hud_voice_line")} “${utterance}” → ${target ?? "?"}${status ? ` · ${status}` : ""}` });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
     autoAllow: useCallback(
       (ask: import("./types").PermissionAsk) => {
         const label = workersRef.current[ask.task_id]?.label ?? ask.label ?? ask.task_id;
@@ -728,8 +861,22 @@ export default function App({
     onQueued: markQueued,
     speakRef,
     refresh,
-    onWorkerExit: useCallback((taskId: string) => {
+    onWorkerExit: useCallback((taskId: string, reason?: string | null) => {
       endTurn(null, taskId);
+      if (taskId === HARK_CHAT) {
+        // One retry, announced: hark_chat_send respawns the worker on the
+        // same session, so the conversation's memory survives the crash.
+        // An unauthenticated death would die again: no resend.
+        const inflight = chatInFlightRef.current;
+        if (inflight && !inflight.retried && !(reason ?? "").includes("agent_auth")) {
+          chatInFlightRef.current = { ...inflight, retried: true };
+          push({ who: "sys", text: t("chat_crash_resend", { why: reason ? ` (${reason})` : "" }) });
+          ipc.harkChatSend(inflight.text).catch((err) => push({ who: "sys", text: `chat hark: ${err}` }));
+        } else {
+          chatInFlightRef.current = null;
+        }
+        return;
+      }
       // Its open asks can never be answered now: approving would reach a
       // process that is gone. They say so instead of offering buttons.
       const label = labelFor(taskId);
@@ -780,7 +927,8 @@ export default function App({
       // App settings live on the mother: Cmd+, from here redirects.
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
-        ipc.focusMain("settings").catch(() => {});
+        if (isMain) setView("ajustes");
+        else ipc.focusMain("settings").catch(() => {});
       }
       // Permission pending and not typing anywhere: y / n / a decide it
       // from wherever the focus is — no mouse trip required.
@@ -901,14 +1049,15 @@ export default function App({
     [],
   );
 
-  async function runAsk(question: string, images: Attachment[]) {
+  async function runAsk(question: string, images: Attachment[], noProject = false) {
     setBusy("perguntando…");
     const thread = currentThread() ?? GENERAL;
     beginTurn();
     try {
       // The focused project scopes the snapshot: clicking a chat or
-      // starting one IS the context selection (no manual picker).
-      const reply = await ipc.askText(question, images.map(toImagePair), activeProject);
+      // starting one IS the context selection (no manual picker). The
+      // general chat of the main window asks with no project at all.
+      const reply = await ipc.askText(question, images.map(toImagePair), noProject ? undefined : activeProject);
       push({ who: "hark", ...askReplyMsg(reply) });
       if (reply.cost_usd) addCost("hark (perguntas)", reply.cost_usd);
       say(reply.fala);
@@ -1357,7 +1506,8 @@ export default function App({
           say(st("sp_board_screen"));
         } else {
           // Costs are global: they live on the mother window.
-          await ipc.focusMain("custos").catch(() => {});
+          if (isMain) setView("custos");
+          else await ipc.focusMain("custos").catch(() => {});
           say("Custos na janela mãe.");
         }
       } else if (cmd.kind === "session_candidates") {
@@ -1529,6 +1679,10 @@ export default function App({
       );
       return;
     }
+    if (isMain) {
+      await submitGeneral(text, images);
+      return;
+    }
     const route = await ipc.routeText(text);
     if (route === "dispatch") {
       push({ who: "user", text });
@@ -1537,6 +1691,168 @@ export default function App({
     }
     push({ who: "user", text, images: images.map((i) => i.dataUrl) });
     runAsk(text, images);
+  }
+
+  /**
+   * The general chat of the main window, scope "all projects". Order:
+   * the pending butler offer; action verbs are PLANNED against every
+   * project (board, index) and confirmed, never guessed; work with no
+   * target goes to the persistent chat (full settings + MCP); a sentence
+   * the grammar cannot place is placed by the light classifier before
+   * the cheap bare ask answers the wrong thing.
+   */
+  async function submitGeneral(text: string, images: Attachment[]) {
+    const offer = followUpRef.current;
+    if (offer) {
+      followUpRef.current = null;
+      const fu = await ipc.interpretFollowup(text, offer.label).catch(() => null);
+      if (fu?.kind === "go") {
+        push({ who: "user", text });
+        say(st("sp_fu_going", { t: offer.label }));
+        openTaskByTitle(offer.label, offer.sessionId);
+        return;
+      }
+      if (fu?.kind === "do" && fu.instruction) {
+        push({ who: "user", text });
+        await ipc
+          .voiceExecute({ instruction: fu.instruction, session_id: offer.sessionId, new_task: false })
+          .catch((err) => push({ who: "sys", text: `dispatch: ${err}` }));
+        say(st("sp_fu_doing", { t: offer.label }));
+        return;
+      }
+      if (fu?.kind === "stay") {
+        push({ who: "user", text });
+        say(st("sp_fu_stay"));
+        return;
+      }
+    }
+    const route = await ipc.routeText(text).catch(() => "ask");
+    const lane = await ipc.askLane(text).catch(() => "lean");
+    const msgId = crypto.randomUUID();
+    push({ who: "user", text, images: images.map((i) => i.dataUrl), msgId });
+    if (route === "dispatch") {
+      const plan = await ipc.planUtterance(text).catch(() => null);
+      if (plan?.kind === "work") {
+        // Same modal as a typed dispatch in a project window; the session
+        // the funnel found rides along so the worker resumes it.
+        setPending({ kind: "confirm-dispatch", instruction: plan.instruction ?? text, sessionId: plan.session_id ?? undefined, typed: true });
+        return;
+      }
+      if (plan?.kind === "candidates") {
+        setPending({
+          kind: "pick-session",
+          query: text,
+          candidates: plan.options.map((o) => ({ session_id: o.session_id ?? "", title: o.title, cwd: o.workspace })),
+        });
+        say(st("sp_found_dests", { n: plan.options.length }));
+        return;
+      }
+      if (lane === "work") {
+        await sendToChat(text, images, msgId);
+        return;
+      }
+      if (await tryIntent(text)) return;
+      push({ who: "sys", text: t("no_target_hint") });
+      say(st("sp_no_target"));
+      return;
+    }
+    if (lane === "work") {
+      await sendToChat(text, images, msgId);
+      return;
+    }
+    if (await tryIntent(text)) return;
+    runAsk(text, images, true);
+  }
+
+  /** Hand real work to the persistent general chat; its turns stream back
+   *  into the GENERAL thread as events (task id "hark-chat"). */
+  async function sendToChat(text: string, images: Attachment[], msgId?: string) {
+    beginTurn(GENERAL);
+    try {
+      chatInFlightRef.current = { text, retried: false };
+      const out = await ipc.harkChatSend(text, images.map(toImagePair), msgId);
+      if (out.queued && msgId) markQueued(msgId, { state: "waiting" });
+    } catch (err) {
+      chatInFlightRef.current = null;
+      endTurn(GENERAL);
+      nudgeRef.current(err);
+      push({ who: "sys", text: `chat hark: ${agentError(err)}` });
+    }
+  }
+
+  /**
+   * The light model PLACES a sentence against the real catalog of
+   * projects and sessions, then the window acts. Returns true when it did.
+   */
+  async function tryIntent(text: string): Promise<boolean> {
+    const recent = messages
+      .filter((m) => !("task" in m && m.task))
+      .slice(-6)
+      .map((m) => `${m.who}: ${("text" in m ? m.text : "").slice(0, 200)}`);
+    const intent = await ipc.classifyUtterance(text, recent).catch(() => null);
+    if (!intent || intent.kind === "question") return false;
+    if (intent.kind === "clarify" && intent.options.length > 0) {
+      setPending({
+        kind: "pick-session",
+        query: text,
+        candidates: intent.options.map((o) => ({ session_id: o.session_id, title: o.title, cwd: o.project ?? undefined })),
+      });
+      const question = intent.question ?? st("sp_found_dests", { n: intent.options.length });
+      push({ who: "hark", text: question, cost: intent.cost_usd ?? undefined });
+      say(question);
+      return true;
+    }
+    if (intent.kind === "status") {
+      const workers = overview?.workers ?? [];
+      const running = workers.filter((w) => w.status === "running");
+      const line = (() => {
+        if (intent.session_id) {
+          const w = workers.find((x) => x.session_id === intent.session_id);
+          return w
+            ? st("sp_status_one", { t: w.summary, s: w.status === "running" ? st("sp_status_running") : st("sp_status_done") })
+            : st("sp_status_none");
+        }
+        if (running.length === 0) return st("sp_status_none");
+        if (running.length === 1) return st("sp_status_one", { t: running[0].summary, s: st("sp_status_running") });
+        return st("sp_status_many", { n: running.length, list: running.map((w) => w.summary).slice(0, 3).join("; ") });
+      })();
+      push({ who: "hark", text: line, cost: intent.cost_usd ?? undefined });
+      say(line);
+      return true;
+    }
+    if (intent.kind === "open_project" && intent.project) {
+      const project = allProjects.find((p) => p.name.toLowerCase() === intent.project!.toLowerCase());
+      if (!project) return false;
+      if (intent.instruction) {
+        try {
+          await ipc.chatStart(project.path, intent.instruction);
+          say(st("sp_opening_and_work", { t: project.name }));
+        } catch (err) {
+          push({ who: "sys", text: `chat: ${err}` });
+        }
+      } else {
+        startDraftChat(project);
+        say(st("sp_opening_project", { t: project.name }));
+      }
+      return true;
+    }
+    if (intent.kind === "open_session" && intent.session_id) {
+      await recoverSession({ session_id: intent.session_id, title: intent.session_title ?? text });
+      if (intent.instruction) {
+        await ipc
+          .voiceExecute({ instruction: intent.instruction, session_id: intent.session_id, new_task: false })
+          .catch((err) => push({ who: "sys", text: `dispatch: ${err}` }));
+      }
+      return true;
+    }
+    if (intent.kind === "dispatch" && intent.instruction && intent.session_id) {
+      await ipc
+        .voiceExecute({ instruction: intent.instruction, session_id: intent.session_id, new_task: false })
+        .catch((err) => push({ who: "sys", text: `dispatch: ${err}` }));
+      say(st("sp_confirm_to", { target: intent.session_title ?? "a sessão em foco" }));
+      return true;
+    }
+    return false;
   }
 
   /** Model the pill answers for: the focused task's directive, else the
@@ -2418,7 +2734,9 @@ export default function App({
   const visibleMessages = useMemo(
     () =>
       messages.filter((m) => {
-        const thread = "task" in m ? (m.task ?? null) : null;
+        // The general thread is the empty label: the persistent general
+        // chat's events arrive tagged with it, typed asks with none.
+        const thread = "task" in m && m.task ? m.task : null;
         return thread === focusedTitle;
       }),
     [messages, focusedTitle],
@@ -2601,6 +2919,16 @@ export default function App({
       >
         <PanelLeft size={14} />
       </button>
+      {setup && <Onboarding status={setup} onClose={() => setSetup(null)} />}
+      {updateReady && (
+        <button
+          className="update-pill"
+          title={t("up_restart")}
+          onClick={() => restartIntoUpdate().catch(() => setUpdateReady(null))}
+        >
+          {t("up_ready", { v: updateReady })} · {t("up_restart")}
+        </button>
+      )}
 
       {expanded ? (
         <div className="workarea expanded-area">
@@ -2638,11 +2966,22 @@ export default function App({
               onOpenChat={recoverSession}
               workspaceName={forcedProject?.name}
               onSearchChats={() => setChatPalette(true)}
-              onOpenGeneral={leaveChat}
-              generalActive={!focusedTask && !draftChat}
-              boardOpen={railHas("board")}
+              onOpenGeneral={() => {
+                leaveChat();
+                setView("chat");
+              }}
+              generalActive={!focusedTask && !draftChat && view === "chat"}
+              onOpenCosts={isMain ? () => setView((v) => (v === "custos" ? "chat" : "custos")) : undefined}
+              onOpenSettings={isMain ? () => setView((v) => (v === "ajustes" ? "chat" : "ajustes")) : undefined}
+              costsOpen={view === "custos"}
+              settingsOpen={view === "ajustes"}
+              boardOpen={isMain ? view === "board" : railHas("board")}
               onToggleBoard={() =>
-                railHas("board") ? removeRail("board") : ensureRail("board")
+                isMain
+                  ? setView((v) => (v === "board" ? "chat" : "board"))
+                  : railHas("board")
+                    ? removeRail("board")
+                    : ensureRail("board")
               }
               onRename={(t, newTitle) =>
                 ipc.boardRename(t.title, newTitle).then(refresh)
@@ -2685,6 +3024,31 @@ export default function App({
           <PanelResizeHandle className="rhandle" />
           <Panel minSize={30} className="pane">
             <div className="maincol" style={scopeColour ? ({ "--proj": scopeColour } as React.CSSProperties) : undefined}>
+              {/* The main window's global views take the column whole:
+                  the board of every project, the ledger, the settings. */}
+              {isMain && view === "board" ? (
+                <div className="view-wide">
+                  <Board
+                    tasks={board}
+                    projects={allProjects}
+                    onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
+                    onOpen={(task) => {
+                      setView("chat");
+                      openTaskFromSidebar(task);
+                    }}
+                    onSubtask={(title, index, done) => ipc.boardSubtaskToggle(title, index, done).then(refresh).catch(() => {})}
+                  />
+                </div>
+              ) : isMain && view === "custos" ? (
+                <div className="view-wide costs-page">
+                  <CostsPanel />
+                </div>
+              ) : isMain && view === "ajustes" ? (
+                <div className="view-wide">
+                  <Settings />
+                </div>
+              ) : (
+              <>
               {/* The thread says what it is: a slim title over the prose,
                   like the Claude Code app — controls stay on the composer. */}
               {!reading && (
@@ -2965,6 +3329,8 @@ export default function App({
                   }
                 />
               </Composer>
+              </>
+              )}
             </div>
           </Panel>
           {rail.length > 0 && (

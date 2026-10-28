@@ -2493,12 +2493,12 @@ fn hark_chat_send(
         // its owner: the state file does.
         spawn.agent = owner;
     }
-    // The budget ceiling exists for dispatched workers, whose runaway is
-    // the risk it guards. The assistant is the product's front door and
-    // long-lived by design: with the cap it died at the $2 process line,
-    // MID-TURN, showing "worker encerrado" and eating the message. Its
-    // spend stays visible in the chat header; the ceiling does not apply.
-    spawn.limits = hark_agent::SpawnLimits::default();
+    // The ceiling is PER TURN now and held by Hark, not by the CLI's
+    // per-process budget that killed this chat at the $2 line mid-turn
+    // (0.7.0). A runaway turn in the front door costs the same as one in
+    // a dispatched worker, so the same ceiling applies: the turn is cut,
+    // the card offers to lift it, the chat stays alive.
+    spawn.limits = config.spawn_limits_for(&config.data_dir());
     start_worker(&app, &live, HARK_CHAT_TASK, spawn).map_err(|e| e.to_string())?;
     Ok(HarkChatOut {
         task_id: HARK_CHAT_TASK.into(),

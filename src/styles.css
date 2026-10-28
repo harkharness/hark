@@ -98,6 +98,10 @@ body {
 /* The project's line: 2px of its colour across the top of the chat
    column. Transparent when no project is in command. */
 .maincol { border-top: 2px solid var(--proj, transparent); }
+/* Board, costs and settings as VIEWS of the main window: they take the
+   chat column whole, the composer steps aside. */
+.maincol .view-wide { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; padding: 10px 12px; }
+.maincol .view-wide > .kanban { flex: 1; }
 /* Invisible until you need it: panels separate by space, not by rails.
    Same bargain as the rail's horizontal handle — the line costs 2px and
    the GRAB AREA reaches past it on both sides, so the divider is a

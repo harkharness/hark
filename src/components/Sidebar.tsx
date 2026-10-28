@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bug, FolderTree, MessageSquare, MoreVertical, Pin, Plus, Search, SquareKanban } from "lucide-react";
+import { Bug, FolderTree, MessageSquare, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, SquareKanban, Wallet } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 
@@ -27,6 +27,10 @@ export default function Sidebar({
   onOpenChat,
   boardOpen,
   onToggleBoard,
+  onOpenCosts,
+  onOpenSettings,
+  costsOpen,
+  settingsOpen,
   onOpenGeneral,
   onReport,
   generalActive,
@@ -60,6 +64,11 @@ export default function Sidebar({
   boardOpen?: boolean;
   /** Toggle the board panel — the prominent spot the topbar tab had. */
   onToggleBoard?: () => void;
+  /** The main window's global views, as rows under the board. */
+  onOpenCosts?: () => void;
+  onOpenSettings?: () => void;
+  costsOpen?: boolean;
+  settingsOpen?: boolean;
   /** Back to the window's general chat — the way out of a task now that
    *  clicking the chat you are already in no longer closes it. */
   onOpenGeneral?: () => void;
@@ -190,6 +199,16 @@ export default function Sidebar({
           title={t("side_board_hint")}
         >
           <SquareKanban size={13} /> {t("side_board")}
+        </button>
+      )}
+      {onOpenCosts && (
+        <button className={`side-board ${costsOpen ? "on" : ""}`} onClick={onOpenCosts} title={t("tab_costs")}>
+          <Wallet size={13} /> {t("tab_costs")}
+        </button>
+      )}
+      {onOpenSettings && (
+        <button className={`side-board ${settingsOpen ? "on" : ""}`} onClick={onOpenSettings} title={t("settings_btn")}>
+          <SettingsIcon size={13} /> {t("tab_settings")}
         </button>
       )}
       {onOpenGeneral && (

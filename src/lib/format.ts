@@ -106,3 +106,20 @@ export function agentError(err: unknown): string {
   }
   return raw;
 }
+
+/** Markdown → one readable line: fences, marks and links stripped. */
+export function miniText(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[*_`#>]/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** What the voice reads from a chat reply: the first sentence, clean. */
+export function firstSentence(md: string): string {
+  const clean = miniText(md);
+  const first = clean.split(/(?<=[.!?…])\s+/)[0] ?? clean;
+  return first.length > 240 ? `${first.slice(0, 240)}…` : first;
+}

@@ -2,13 +2,13 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import Hud from "./Hud";
-import Mother from "./Mother";
 import "./styles.css";
 
-// One bundle, two window kinds: the main window is the MOTHER (voice +
-// global board/costs tabs); project windows open with ?project=<path>&name=
-// and run the workbench scoped to that project (board filtered, costs in
-// the scope popover only).
+// One bundle, two window kinds: the main window is the cabin (every
+// project, the general chat, board, costs and settings as views); project
+// windows open with ?project=<path>&name= and run the same workbench
+// scoped to one project. The mother is retired from the main window
+// (phase 10.1b); its file goes in 10.1d.
 const params = new URLSearchParams(window.location.search);
 const projectPath = params.get("project");
 const projectName = params.get("name");
@@ -31,7 +31,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         }
       />
     ) : (
-      <Mother />
+      <App />
     )}
   </React.StrictMode>,
 );
