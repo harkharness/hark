@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState } from "react";
+import { Globe } from "lucide-react";
 import { t } from "../lib/i18n";
+import { boardSummary, idleDays, inProject } from "../lib/board";
 import type { BoardTask, Project } from "../types";
+
+/** A permission a task is waiting on, as the card answers it. */
+export type CardAsk = { requestId: string; tool: string; prodRisk?: string | null };
+
+/** Done cards shown before "n older" folds the rest away. */
+const DONE_SHOWN = 5;
+/** A waiting card that sat this long says so. */
+const IDLE_SAYS_AT = 2;
 
 const COLUMNS = ["backlog", "doing", "waiting", "done"] as const;
 type Status = (typeof COLUMNS)[number];
@@ -34,6 +44,13 @@ function shortWhen(iso: string): string {
 export default function Board({
   tasks,
   projects,
+  colourOf,
+  filter,
+  onFilter,
+  liveTitles,
+  asking,
+  costs,
+  onAnswerPermission,
   onMove,
   onOpen,
   onSubtask,
@@ -41,12 +58,30 @@ export default function Board({
   tasks: BoardTask[];
   /** Given on the global board: each card shows the project it belongs to. */
   projects?: Project[];
+  /** The project colour of a path (css token): the card's edge. */
+  colourOf?: (path?: string) => string | undefined;
+  /** The scope's project: the board shows its cards only. */
+  filter?: Project | null;
+  /** The pills over the board set the scope (null = every project). */
+  onFilter?: (project: Project | null) => void;
+  /** Tasks with a worker running right now. */
+  liveTitles?: string[];
+  /** Tasks waiting on a permission, answered from the card. */
+  asking?: Record<string, CardAsk>;
+  /** What each task spent in this window. */
+  costs?: Record<string, number>;
+  onAnswerPermission?: (requestId: string, allow: boolean) => void;
   onMove: (title: string, status: BoardTask["status"]) => void;
   /** Click on a card = go back to work on that task. */
   onOpen?: (task: BoardTask) => void;
   /** Tick/untick one step of the task's plan checklist. */
   onSubtask?: (title: string, index: number, done: boolean) => void;
 }) {
+  const [moreDone, setMoreDone] = useState(false);
+  const live = new Set(liveTitles ?? []);
+  const asks = asking ?? {};
+  const shown = filter ? tasks.filter((task) => inProject(task, filter)) : tasks;
+  const summary = boardSummary(shown, live, new Set(Object.keys(asks)));
   // The drop target has to be obvious BEFORE the release, so the column
   // under the pointer lights up in its own color while dragging.
   const [over, setOver] = useState<BoardTask["status"] | null>(null);
@@ -73,19 +108,49 @@ export default function Board({
     return folded[status] ?? (count > 0 && status !== "done");
   }
 
-  /** Name of the project a task lives in (registered one first). */
+  /** The project a task lives in (registered one first). */
+  function projectOf(task: BoardTask): Project | undefined {
+    return task.workspace ? projects?.find((p) => inProject(task, p)) : undefined;
+  }
   function tagOf(task: BoardTask): string | undefined {
-    const ws = task.workspace;
-    if (!ws) return undefined;
-    const project = projects?.find((p) => ws === p.path || ws.startsWith(`${p.path}/`));
-    return project?.name ?? ws.split("/").filter(Boolean).pop();
+    return projectOf(task)?.name ?? task.workspace?.split("/").filter(Boolean).pop();
   }
 
   return (
-    <div ref={rootRef} className={`kanban ${narrow ? "narrow" : ""}`}>
+    <div ref={rootRef} className={`kanban-wrap ${narrow ? "narrow" : ""}`}>
+      {projects && onFilter && (
+        <div className="kanban-bar">
+          <span className="kanban-pills">
+            <button className={`pill-btn ${!filter ? "on" : ""}`} onClick={() => onFilter(null)}>
+              <Globe size={11} /> {t("board_all")}
+            </button>
+            {projects.map((p) => {
+              const colour = colourOf?.(p.path);
+              return (
+                <button
+                  key={p.path}
+                  className={`pill-btn ${filter?.path === p.path ? "on" : ""}`}
+                  onClick={() => onFilter(filter?.path === p.path ? null : p)}
+                  title={p.path}
+                >
+                  <span className="art-dot" style={colour ? { background: colour } : undefined} /> {p.name}
+                </button>
+              );
+            })}
+          </span>
+          <span className="dim kanban-summary">
+            {t("board_summary", { n: summary.cards })}
+            {summary.live > 0 ? ` · ${t("board_live_n", { n: summary.live })}` : ""}
+            {summary.asking > 0 ? ` · ${t("board_asking_n", { n: summary.asking })}` : ""}
+          </span>
+        </div>
+      )}
+      <div className={`kanban ${narrow ? "narrow" : ""}`}>
       {(narrow ? LIST_ORDER : COLUMNS).map((status) => {
-        const items = tasks.filter((t) => t.status === status);
-        const open = isOpen(status, items.length);
+        const all = shown.filter((t) => t.status === status);
+        const items = status === "done" && !moreDone ? all.slice(0, DONE_SHOWN) : all;
+        const hidden = all.length - items.length;
+        const open = isOpen(status, all.length);
         return (
           <div
             key={status}
@@ -111,18 +176,24 @@ export default function Board({
               onClick={narrow ? () => setFolded((f) => ({ ...f, [status]: !open })) : undefined}
             >
               <span className="col-dot" />
-              {t(COL_LABEL[status])} <span className="count">{items.length}</span>
+              {t(COL_LABEL[status])} <span className="count">{all.length}</span>
             </h3>
             {open &&
               /* NOTE: `task`, not `t` — `t()` is the i18n lookup in scope. */
               items.map((task) => {
                 const tag = projects ? tagOf(task) : undefined;
+                const colour = colourOf?.(projectOf(task)?.path);
                 const steps = task.subtasks ?? [];
                 const ticked = steps.filter((s) => s.done).length;
+                const ask = asks[task.title];
+                const isLive = live.has(task.title);
+                const idle = status === "waiting" && !isLive && !ask ? idleDays(task.updated_at) : 0;
+                const usd = costs?.[task.title];
                 return (
                   <div
                     key={task.title}
-                    className={`card${dragging === task.title ? " dragging" : ""}${onOpen ? " clickable" : ""}`}
+                    className={`card${dragging === task.title ? " dragging" : ""}${onOpen ? " clickable" : ""}${ask ? " asking" : ""}`}
+                    style={colour ? { borderLeftColor: colour } : undefined}
                     draggable
                     title={onOpen ? t("card_open") : undefined}
                     onClick={() => onOpen?.(task)}
@@ -145,6 +216,22 @@ export default function Board({
                       )}
                       <div className="card-title">{task.title}</div>
                       {task.note && <div className="card-note">{task.note}</div>}
+                      {(isLive || ask || idle >= IDLE_SAYS_AT || usd) && (
+                        <div className="card-state">
+                          {isLive && <span className="ok">{t("board_live")}</span>}
+                          {ask && <span className={ask.prodRisk ? "err" : "warn"}>{t("board_asks", { tool: ask.tool })}</span>}
+                          {idle >= IDLE_SAYS_AT && <span>{t("board_idle", { d: idle })}</span>}
+                          {usd ? <span>≈ ${usd.toFixed(2)}</span> : null}
+                        </div>
+                      )}
+                      {ask && onAnswerPermission && (
+                        <div className="card-ask" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => onAnswerPermission(ask.requestId, false)}>{t("perm_deny")}</button>
+                          <button className="allow" onClick={() => onAnswerPermission(ask.requestId, true)}>
+                            {t("perm_once")}
+                          </button>
+                        </div>
+                      )}
                       <div className="card-foot">
                         {steps.length > 0 && (
                           <details className="card-subs" onClick={(e) => e.stopPropagation()}>
@@ -181,9 +268,15 @@ export default function Board({
                   </div>
                 );
               })}
+            {open && hidden > 0 && (
+              <button className="kanban-more" onClick={() => setMoreDone(true)}>
+                {t("board_older", { n: hidden })}
+              </button>
+            )}
           </div>
         );
       })}
+      </div>
     </div>
   );
 }

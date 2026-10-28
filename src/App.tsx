@@ -11,7 +11,7 @@ import { colourIndex, projColour, scopeOf } from "./lib/scope";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import Artifacts, { ArtifactLinks, type ArtSel } from "./components/Artifacts";
-import Board from "./components/Board";
+import Board, { type CardAsk } from "./components/Board";
 import Composer from "./components/Composer";
 import { toImagePair, type Attachment } from "./lib/composerText";
 import { FileTabs } from "./components/FilesEditor";
@@ -2094,6 +2094,18 @@ export default function App({
 
   const railHas = (id: RailItem) => railOn === id;
 
+  /** The permission each task is waiting on right now: the board's cards
+   *  answer it in place. One per task — the newest open one. */
+  const askingByTask: Record<string, CardAsk> = {};
+  for (const m of messages) {
+    if (m.who === "permission" && !m.decision && !m.expired && m.task) {
+      askingByTask[m.task] = { requestId: m.requestId, tool: m.tool, prodRisk: m.prodRisk };
+    }
+  }
+  const liveTitles = Object.values(liveWorkers).map((w) => w.label);
+  /** The project the scope points at, for the board's filter. */
+  const scopeProject = scope.kind === "chat" ? scope.project ?? null : scope.kind === "project" ? scope.project : null;
+
   /** Show a rail panel; whatever was there steps aside. */
   function ensureRail(id: RailItem) {
     // The terminal opens on a REAL shell. It used to land on the feed,
@@ -2854,6 +2866,13 @@ export default function App({
     >
       <Board
         tasks={board}
+        projects={isMain ? allProjects : undefined}
+        colourOf={colourOf}
+        filter={isMain ? scopeProject : undefined}
+        liveTitles={liveTitles}
+        asking={askingByTask}
+        costs={costs}
+        onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
         onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
         onOpen={openTaskFromSidebar}
         onSubtask={(title, index, done) => ipc.boardSubtaskToggle(title, index, done).then(refresh).catch(() => {})}
@@ -3102,6 +3121,17 @@ export default function App({
                   <Board
                     tasks={board}
                     projects={allProjects}
+                    colourOf={colourOf}
+                    filter={scopeProject}
+                    onFilter={(p) => {
+                      // The pill IS the scope: the composer's chip follows it.
+                      leaveChat();
+                      setDraftChat(p);
+                    }}
+                    liveTitles={liveTitles}
+                    asking={askingByTask}
+                    costs={costs}
+                    onAnswerPermission={(id, allow) => void answerPermission(id, allow)}
                     onMove={(title, status) => ipc.boardMove(title, status).then(refresh).catch(() => {})}
                     onOpen={(task) => {
                       setView("chat");

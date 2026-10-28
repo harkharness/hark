@@ -101,7 +101,7 @@ body {
 /* Board, costs and settings as VIEWS of the main window: they take the
    chat column whole, the composer steps aside. */
 .maincol .view-wide { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; padding: 10px 12px; }
-.maincol .view-wide > .kanban { flex: 1; }
+.maincol .view-wide > .kanban, .maincol .view-wide > .kanban-wrap { flex: 1; }
 /* Invisible until you need it: panels separate by space, not by rails.
    Same bargain as the rail's horizontal handle — the line costs 2px and
    the GRAB AREA reaches past it on both sides, so the divider is a
@@ -2765,3 +2765,24 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .art-body .viewer { flex: 1; min-height: 0; }
 .art-frame { flex: 1; width: 100%; border: none; background: #fff; }
 .art-children { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+
+/* ---- the global board (phase 10.4): pills over the columns ---- */
+.kanban-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+.kanban-wrap > .kanban { flex: 1; }
+.kanban-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 10px 10px 0; }
+.kanban-pills { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.kanban-summary { font-size: 12px; }
+.kanban .card-state { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; font-size: 11.5px; color: var(--dim); }
+.kanban .card-state .ok { color: var(--ok); }
+.kanban .card-state .warn { color: var(--warn); }
+.kanban .card-state .err { color: var(--err); }
+.kanban .card.asking { box-shadow: 0 0 0 1px color-mix(in srgb, var(--warn) 50%, transparent); }
+.kanban .card-ask { display: flex; gap: 6px; margin-top: 6px; }
+.kanban .card-ask button {
+  font: inherit; font-size: 11px; padding: 2px 10px; border-radius: 999px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--border); color: var(--text);
+}
+.kanban .card-ask button:hover { border-color: var(--accent); }
+.kanban .card-ask button.allow { border-color: var(--ok); color: var(--ok); }
+.kanban-more { background: none; border: none; color: var(--dim); font: inherit; font-size: 11px; padding: 4px 6px; cursor: pointer; }
+.kanban-more:hover { color: var(--text); }

@@ -689,6 +689,14 @@ const pt = {
   art_ago_d: "há {d} dias",
   art_sent_about: "sobre a página «{t}»: a mensagem foi para o chat geral com a página junto",
   art_cited: "{n} página(s) citada(s) vão junto: {t}",
+  board_all: "Todos",
+  board_summary: "{n} cards",
+  board_live_n: "{n} com worker vivo",
+  board_asking_n: "{n} pedindo permissão",
+  board_live: "worker vivo",
+  board_asks: "pede {tool}",
+  board_idle: "parado há {d} dias",
+  board_older: "{n} mais antigos",
   set_data_hint: "índice, ledger e modelos ficam aqui — nada sai da máquina",
 };
 
@@ -1358,6 +1366,14 @@ const en: Record<keyof typeof pt, string> = {
   art_ago_d: "{d} days ago",
   art_sent_about: "about the page «{t}»: the message went to the general chat with the page along",
   art_cited: "{n} cited page(s) ride along: {t}",
+  board_all: "All",
+  board_summary: "{n} cards",
+  board_live_n: "{n} with a live worker",
+  board_asking_n: "{n} asking permission",
+  board_live: "live worker",
+  board_asks: "asks {tool}",
+  board_idle: "idle for {d} days",
+  board_older: "{n} older",
   set_data_hint: "index, ledger and models live here — nothing leaves the machine",
 };
 
