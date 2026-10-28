@@ -80,7 +80,7 @@ and how a release is cut.
 
 ## What it looks like
 
-<img src="docs/img/mother.png" width="820" alt="The mother window: an orb, a work chat and every project at a glance">
+<img src="docs/img/mother.png" width="820" alt="The main window: every project in the sidebar, the general chat, the board, costs and settings as views">
 
 **One window that is your assistant.** A persistent chat backed by a long-lived
 Claude Code session with your full settings — MCP servers and tools included. It

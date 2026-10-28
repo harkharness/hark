@@ -68,27 +68,34 @@ at one of two speeds:
 Answers are spoken back through the system voice while the details render on
 screen.
 
-## The mother window
+## The main window
 
-Three tabs: **voice**, **board**, **costs**.
+One window holds every project. The sidebar lists each registered project
+with its chats, and three global views: the **board**, **costs** and
+**settings**. The composer carries a scope chip that says where the next
+message lands: *all projects* when nothing is selected, `project › chat`
+when a chat is open. Each project owns a colour; it runs down the sidebar
+group, across the top of the chat and through the chip.
 
-The voice tab is a persistent chat backed by one long-lived agent session
-carrying your full settings — MCP servers, tools, skills, memory file. It has a
-name, a personality, and a memory file it maintains itself: tell it "remember
-that I prefer short answers" and it writes that down, durably, through the
-normal permission flow.
+**The general chat** (nothing selected) is a persistent chat backed by one
+long-lived agent session carrying your full settings — MCP servers, tools,
+skills, memory file. It has a name, a personality, and a memory file it
+maintains itself: tell it "remember that I prefer short answers" and it
+writes that down, durably, through the normal permission flow.
 
 That session is expensive, so Hark protects it. Questions it can answer from the
 local index — what is on the board, which workers are running, what you spent
 today — never reach a model at all. Questions that only need rephrasing go to a
-light model with a small context. Only real reasoning pays full price.
-
-Project chips at the bottom show every workspace Hark knows about, which ones
-have live sessions, and what they have cost.
+light model with a small context. Only real reasoning pays full price. A
+sentence that is work ("continua a migração do webhook") is resolved against
+every project and confirmed before it runs; it never opens a window.
 
 ## Project windows
 
-One window per project, and they read like the terminal you already use:
+A chat can be **detached** into a window of its own (the ↗ button in the
+chat's title bar). A detached window keeps receiving its project's tasks,
+spoken or clicked, until it is closed. Detached or not, a project's chat
+reads like the terminal you already use:
 
 - **Session history** in the sidebar, indexed from the agent CLI's own logs — a
   chat you started in the terminal three weeks ago is right there. An agent
@@ -156,8 +163,8 @@ Two spoken commands move between agents:
 
 A kanban of your demands where the cards *are* the sessions. Moving a card does
 not move a ticket somewhere else — it tracks the conversation that is doing the
-work, so resuming means resuming, not starting over. The board is global (it
-lives in the mother window) and each project window shows its slice.
+work, so resuming means resuming, not starting over. The board is global (a
+view of the main window) and a detached project window shows its slice.
 
 ## Costs
 
@@ -215,7 +222,7 @@ hark board                                    # the board, as text
 
 Hark keeps itself current without ever surprising you. When a new release
 lands, the app downloads it in the background, verifies its signature, and
-shows one quiet pill in the mother window: **restart to update**. Click it and
+shows one quiet pill in the main window: **restart to update**. Click it and
 the app closes and reopens on the new version. Ignore it and nothing happens —
 next launch checks again.
 

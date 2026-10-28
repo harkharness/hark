@@ -6,8 +6,11 @@ side effects concentrated in one orchestrator.
 
 ```
 src/
-  main.tsx            entry point
-  App.tsx             THE orchestrator: all state, all flows, the layout
+  main.tsx            entry point: the main window (every project), a
+                      detached project window (?project=), or the HUD
+  App.tsx             THE orchestrator: all state, all flows, the layout;
+                      the same component is the main window and a
+                      detached project window (`forcedProject`)
   types.ts            shared types (mirror of the Rust command payloads)
   styles.css          single stylesheet, CSS variables for the palette
   lib/

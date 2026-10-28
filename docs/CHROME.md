@@ -176,9 +176,9 @@ the double-click `internal-toggle-maximize`, not the drag), so
 `src-tauri/capabilities/default.json` lists
 `core:window:allow-start-dragging` explicitly. Without it every drag
 region in the app is silently dead — which is exactly what happened the
-day the project window went Overlay: the mother kept dragging because it
-has a real title bar and macOS does that itself, so the missing
-permission hid behind "the mother works". There used to be a
+day the project window went Overlay: the main window (then the mother,
+with a real title bar) kept dragging because macOS does that itself, so
+the missing permission hid behind "the other window works". There used to be a
 `position: fixed` full-width `.titlebar-drag` under the header as a
 catch-all. It sat ABOVE the rail's panel headers, so the terminal's ×
 went dead (hover lost, a click became a drag), while the header it was
