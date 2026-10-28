@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, FileCode2, Mic2, Plug, Settings2, Wrench } from "lucide-react";
+import { Bot, Check, FileCode2, Mic2, Plug, Settings2, Wallet, Wrench } from "lucide-react";
+import CostsPanel from "./CostsPanel";
 import * as ipc from "../lib/ipc";
 import PluginsPanel from "./PluginsPanel";
 import FileViewer, { type ViewerIo } from "./FileViewer";
@@ -12,7 +13,7 @@ import {
   type UpdateStatus,
 } from "../lib/updater";
 
-type Section = "geral" | "plugins" | "voz" | "workers" | "avancado" | "config";
+export type Section = "geral" | "plugins" | "voz" | "workers" | "avancado" | "config" | "custos";
 
 /** A section says what it is for before it asks for anything. */
 function Head({ title, hint }: { title: string; hint?: string }) {
@@ -60,8 +61,10 @@ const MODE_OPTIONS: [string, string][] = [
  * 760x560 gave neither however big the display was. The mother mounts
  * it only while its tab is showing, so mounting IS opening.
  */
-export default function Settings() {
-  const [section, setSection] = useState<Section>("geral");
+export default function Settings({ initialSection = "geral" }: { initialSection?: Section }) {
+  const [section, setSection] = useState<Section>(initialSection);
+  // Opened again on another section (the /usage route lands on costs).
+  useEffect(() => setSection(initialSection), [initialSection]);
   const [snap, setSnap] = useState<ipc.ConfigSnapshot | null>(null);
   const [upState, setUpState] = useState<UpdateStatus>(lastStatus());
   const [version, setVersion] = useState("?");
@@ -261,6 +264,7 @@ export default function Settings() {
       items: [
         { id: "avancado", name: t("set_advanced"), icon: <Wrench size={14} /> },
         { id: "config", name: t("set_config"), icon: <FileCode2 size={14} /> },
+        { id: "custos", name: t("tab_costs"), icon: <Wallet size={14} /> },
       ],
     },
   ];
@@ -287,8 +291,13 @@ export default function Settings() {
         </div>
       </nav>
 
-      <div className={`set-body ${section === "config" || section === "plugins" ? "set-body-fill" : ""}`}>
+      <div className={`set-body ${section === "config" || section === "plugins" || section === "custos" ? "set-body-fill" : ""}`}>
         {error && <div className="gate-warning">⚠ {error}</div>}
+        {section === "custos" && (
+          <div className="costs-page">
+            <CostsPanel />
+          </div>
+        )}
 
           {section === "geral" && (
           <div className="set-form">

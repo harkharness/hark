@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bug, FolderTree, MessageSquare, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, SquareKanban, Wallet } from "lucide-react";
+import { Bug, FolderTree, MessageSquare, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, SquareKanban } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 
@@ -27,9 +27,7 @@ export default function Sidebar({
   onOpenChat,
   boardOpen,
   onToggleBoard,
-  onOpenCosts,
   onOpenSettings,
-  costsOpen,
   settingsOpen,
   onOpenGeneral,
   onReport,
@@ -64,10 +62,8 @@ export default function Sidebar({
   boardOpen?: boolean;
   /** Toggle the board panel — the prominent spot the topbar tab had. */
   onToggleBoard?: () => void;
-  /** The main window's global views, as rows under the board. */
-  onOpenCosts?: () => void;
+  /** Settings (with costs inside) live behind the gear at the foot. */
   onOpenSettings?: () => void;
-  costsOpen?: boolean;
   settingsOpen?: boolean;
   /** Back to the window's general chat — the way out of a task now that
    *  clicking the chat you are already in no longer closes it. */
@@ -201,16 +197,6 @@ export default function Sidebar({
           <SquareKanban size={13} /> {t("side_board")}
         </button>
       )}
-      {onOpenCosts && (
-        <button className={`side-board ${costsOpen ? "on" : ""}`} onClick={onOpenCosts} title={t("tab_costs")}>
-          <Wallet size={13} /> {t("tab_costs")}
-        </button>
-      )}
-      {onOpenSettings && (
-        <button className={`side-board ${settingsOpen ? "on" : ""}`} onClick={onOpenSettings} title={t("settings_btn")}>
-          <SettingsIcon size={13} /> {t("tab_settings")}
-        </button>
-      )}
       {onOpenGeneral && (
         <button
           className={`side-board ${generalActive ? "on" : ""}`}
@@ -329,16 +315,28 @@ export default function Sidebar({
           {t("side_add_project")}
         </button>
       )}
-      {onReport && (
+      {(onReport || onOpenSettings) && (
         <div className="side-foot">
-          <button
-            className="side-head-btn"
-            onClick={onReport}
-            title={t("report_title")}
-            aria-label={t("report_title")}
-          >
-            <Bug size={15} />
-          </button>
+          {onReport && (
+            <button
+              className="side-head-btn"
+              onClick={onReport}
+              title={t("report_title")}
+              aria-label={t("report_title")}
+            >
+              <Bug size={15} />
+            </button>
+          )}
+          {onOpenSettings && (
+            <button
+              className={`side-head-btn ${settingsOpen ? "on" : ""}`}
+              onClick={onOpenSettings}
+              title={t("settings_btn")}
+              aria-label={t("settings_btn")}
+            >
+              <SettingsIcon size={15} />
+            </button>
+          )}
         </div>
       )}
     </nav>

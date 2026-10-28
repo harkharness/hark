@@ -41,8 +41,7 @@ import { useRepoStates } from "./hooks/useRepoStates";
 import RepoRuler from "./components/RepoRuler";
 import { ContextRing } from "./components/Meter";
 import { agentError, askReplyMsg, firstSentence, isAuthError } from "./lib/format";
-import CostsPanel from "./components/CostsPanel";
-import Settings from "./components/Settings";
+import Settings, { type Section as SettingsSection } from "./components/Settings";
 import Onboarding from "./components/Onboarding";
 import { checkForUpdate, restartIntoUpdate } from "./lib/updater";
 import * as ipc from "./lib/ipc";
@@ -92,8 +91,14 @@ export default function App({
   /** No forced project = the main window: every project, the general chat
    *  backed by the persistent worker, board/costs/settings as views. */
   const isMain = !forcedProject;
-  type View = "chat" | "board" | "custos" | "ajustes";
+  type View = "chat" | "board" | "ajustes";
   const [view, setView] = useState<View>("chat");
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("geral");
+  /** Settings on a given section (costs is one of them). */
+  const openSettings = (section: SettingsSection = "geral") => {
+    setSettingsSection(section);
+    setView("ajustes");
+  };
   const [setup, setSetup] = useState<ipc.SetupStatus | null>(null);
   const [updateReady, setUpdateReady] = useState<string | null>(null);
   /** The last typed message in flight on the general chat, for the one
@@ -799,8 +804,9 @@ export default function App({
     announce: isMain,
     // Other windows and the HUD redirect here for the global views.
     onMainTab: useCallback((tab: string) => {
-      if (tab === "board" || tab === "custos") setView(tab);
-      if (tab === "settings") setView("ajustes");
+      if (tab === "board") setView("board");
+      if (tab === "custos") openSettings("custos");
+      if (tab === "settings") openSettings();
     }, []),
     // The general chat speaks its ACTUAL reply (first sentence); another
     // chat finishing gets the butler's offer, through the same TTS queue.
@@ -923,7 +929,7 @@ export default function App({
       // App settings live on the mother: Cmd+, from here redirects.
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
-        if (isMain) setView("ajustes");
+        if (isMain) openSettings();
         else ipc.focusMain("settings").catch(() => {});
       }
       // Permission pending and not typing anywhere: y / n / a decide it
@@ -1464,7 +1470,7 @@ export default function App({
         await ipc.openTask(cmd.title, cmd.path).catch(() => {});
       } else if (cmd.kind === "project_error") {
         push({ who: "sys", text: cmd.title });
-        say("Não consegui adicionar esse projeto.");
+        say(st("sp_project_add_fail"));
       } else if (cmd.kind === "new_chat") {
         if (cmd.instruction) {
           await runNewChat({ name: cmd.title, path: cmd.path }, cmd.instruction, cmd.agent ?? undefined);
@@ -1501,10 +1507,10 @@ export default function App({
           ensureRail("board");
           say(st("sp_board_screen"));
         } else {
-          // Costs are global: they live on the mother window.
-          if (isMain) setView("custos");
+          // Costs are a section of the settings, in the main window.
+          if (isMain) openSettings("custos");
           else await ipc.focusMain("custos").catch(() => {});
-          say("Custos na janela mãe.");
+          say(st(isMain ? "sp_costs_screen" : "sp_costs_main"));
         }
       } else if (cmd.kind === "session_candidates") {
         // Recovering a session is a local lookup: the index already knows
@@ -1523,9 +1529,10 @@ export default function App({
         setPending({ kind: "pick-task", query: cmd.query, candidates: cmd.candidates });
         say(st("sp_found_tasks", { n: cmd.candidates.length }));
       } else if (cmd.kind === "open_settings") {
-        // App settings live on the mother window.
-        await ipc.focusMain("settings").catch(() => {});
-        say("Configurações na janela mãe.");
+        // App settings live in the main window.
+        if (isMain) openSettings();
+        else await ipc.focusMain("settings").catch(() => {});
+        say(st(isMain ? "sp_settings_screen" : "sp_settings_main"));
       } else if (cmd.kind === "compact") {
         // Spoken "compacta o contexto": /compact on the focused session.
         await sendSlash("/compact");
@@ -1845,7 +1852,7 @@ export default function App({
       await ipc
         .voiceExecute({ instruction: intent.instruction, session_id: intent.session_id, new_task: false })
         .catch((err) => push({ who: "sys", text: `dispatch: ${err}` }));
-      say(st("sp_confirm_to", { target: intent.session_title ?? "a sessão em foco" }));
+      say(st("sp_confirm_to", { target: intent.session_title ?? st("sp_focused_session") }));
       return true;
     }
     return false;
@@ -2685,8 +2692,8 @@ export default function App({
         await ipc
           .openTask(owner.name, owner.path, task.title, hit.session_id)
           .catch((err) => push({ who: "sys", text: `janela: ${err}` }));
-        push({ who: "sys", text: `"${task.title}" é do projeto ${owner.name}: abri lá` });
-        say(`Essa sessão é do projeto ${owner.name}. Abri lá.`);
+        push({ who: "sys", text: t("sys_elsewhere", { t: task.title, p: owner.name }) });
+        say(st("sp_elsewhere", { p: owner.name }));
         refresh();
         return;
       }
@@ -2961,9 +2968,7 @@ export default function App({
                 setView("chat");
               }}
               generalActive={!focusedTask && !draftChat && view === "chat"}
-              onOpenCosts={isMain ? () => setView((v) => (v === "custos" ? "chat" : "custos")) : undefined}
-              onOpenSettings={isMain ? () => setView((v) => (v === "ajustes" ? "chat" : "ajustes")) : undefined}
-              costsOpen={view === "custos"}
+              onOpenSettings={isMain ? () => (view === "ajustes" ? setView("chat") : openSettings()) : undefined}
               settingsOpen={view === "ajustes"}
               boardOpen={isMain ? view === "board" : railHas("board")}
               onToggleBoard={() =>
@@ -3029,13 +3034,9 @@ export default function App({
                     onSubtask={(title, index, done) => ipc.boardSubtaskToggle(title, index, done).then(refresh).catch(() => {})}
                   />
                 </div>
-              ) : isMain && view === "custos" ? (
-                <div className="view-wide costs-page">
-                  <CostsPanel />
-                </div>
               ) : isMain && view === "ajustes" ? (
                 <div className="view-wide">
-                  <Settings />
+                  <Settings initialSection={settingsSection} />
                 </div>
               ) : (
               <>
