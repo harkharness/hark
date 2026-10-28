@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { keepIfSame } from "./lib/settle";
 import {
   Panel,
@@ -6,7 +6,7 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
-import { ExternalLink, PanelLeft, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
+import { ExternalLink, FolderTree, PanelLeft, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import { colourIndex, projColour, scopeOf } from "./lib/scope";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
@@ -25,7 +25,8 @@ import PanelFrame from "./components/PanelFrame";
 import QuickOpen from "./components/QuickOpen";
 import ChatPalette from "./components/ChatPalette";
 import Reader from "./components/Reader";
-import SessionInfo from "./components/SessionInfo";
+import SessionPanel from "./components/SessionPanel";
+import { collectOutputs } from "./lib/outputs";
 import Sidebar from "./components/Sidebar";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
@@ -59,7 +60,7 @@ import type {
   TranscriptEntry,
 } from "./types";
 
-type RailItem = "terminal" | "arquivos" | "board";
+type RailItem = "sessao" | "terminal" | "arquivos" | "board";
 
 export default function App({
   forcedProject,
@@ -237,41 +238,31 @@ export default function App({
    * third expanded panel collapses the oldest — nothing ever dies, it
    * shrinks. Order in the array = order on screen.
    */
-  const [rail, setRail] = useState<{ id: RailItem; collapsed: boolean }[]>([]);
-  const dragRail = useRef<RailItem | null>(null);
-  // Vertical split between expanded rail panels (flex units, default 1).
-  const [railFlex, setRailFlex] = useState<Record<string, number>>({});
-  const railRef = useRef<HTMLDivElement>(null);
+  // ONE panel at a time (phase 10.2): the rail shows the panel named
+  // here or nothing at all, and the choice survives a restart.
+  const RAIL_KEY = "hark.rail";
+  const [railOn, setRailOn] = useState<RailItem | null>(() => {
+    try {
+      const saved = window.localStorage.getItem(RAIL_KEY);
+      return saved === "sessao" || saved === "arquivos" || saved === "board" ? saved : null;
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    try {
+      // A terminal is a process, not a view: it is never reopened blind.
+      if (railOn && railOn !== "terminal") window.localStorage.setItem(RAIL_KEY, railOn);
+      else window.localStorage.removeItem(RAIL_KEY);
+    } catch {
+      /* private window */
+    }
+  }, [railOn]);
 
-  /** Drag the divider between two expanded rail panels. */
-  function startRailResize(e: React.MouseEvent, above: RailItem, below: RailItem) {
-    e.preventDefault();
-    e.stopPropagation();
-    const startY = e.clientY;
-    const fa = railFlex[above] ?? 1;
-    const fb = railFlex[below] ?? 1;
-    const sum = fa + fb;
-    const expanded = rail.filter((s) => !s.collapsed);
-    const totalFlex = expanded.reduce((a, s) => a + (railFlex[s.id] ?? 1), 0) || 1;
-    const totalPx = railRef.current?.getBoundingClientRect().height ?? 600;
-    const unit = Math.max(40, totalPx / totalFlex);
-    const onMove = (ev: MouseEvent) => {
-      const d = (ev.clientY - startY) / unit;
-      const a = Math.min(Math.max(fa + d, 0.25), sum - 0.25);
-      setRailFlex((old) => ({ ...old, [above]: a, [below]: sum - a }));
-    };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }
   // Real shell tabs (PTY ids). Owned here so hiding the pane keeps them.
   const [shells, setShells] = useState<string[]>([]);
   const [termTab, setTermTab] = useState<string>("");
   const shellSeq = useRef(1);
-  const [scopeInfo, setScopeInfo] = useState(false);
   // Mirrors the sidebar panel's collapsed state (topbar toggle icon).
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [speaking, setSpeaking] = useState(false);
@@ -2053,10 +2044,9 @@ export default function App({
     return open.length;
   }
 
-  const railHas = (id: RailItem) => rail.some((s) => s.id === id);
+  const railHas = (id: RailItem) => railOn === id;
 
-  /** Open (or re-expand) a rail panel; a 3rd expanded one collapses the
-   *  oldest other expanded panel instead of killing anything. */
+  /** Show a rail panel; whatever was there steps aside. */
   function ensureRail(id: RailItem) {
     // The terminal opens on a REAL shell. It used to land on the feed,
     // which is a log of the agent's tool calls — and on a fresh thread
@@ -2066,45 +2056,16 @@ export default function App({
       if (shells.length === 0) addShell();
       else if (!shells.includes(termTab)) setTermTab(shells[0]);
     }
-    setRail((old) => {
-      let next = old.some((s) => s.id === id)
-        ? old.map((s) => (s.id === id ? { ...s, collapsed: false } : s))
-        : [...old, { id, collapsed: false }];
-      const expanded = next.filter((s) => !s.collapsed);
-      if (expanded.length > 2) {
-        const victim = expanded.find((s) => s.id !== id);
-        if (victim) {
-          next = next.map((s) => (s.id === victim.id ? { ...s, collapsed: true } : s));
-        }
-      }
-      return next;
-    });
+    setRailOn(id);
   }
 
   function removeRail(id: RailItem) {
-    setRail((old) => old.filter((s) => s.id !== id));
+    setRailOn((on) => (on === id ? null : on));
     setExpanded((e) => (e === id ? null : e));
   }
 
-  function toggleRailCollapse(id: RailItem) {
-    setRail((old) =>
-      old.map((s) => (s.id === id ? { ...s, collapsed: !s.collapsed } : s)),
-    );
-  }
-
-  /** Drop the dragged panel at the target's position. */
-  function dropRail(target: RailItem) {
-    const from = dragRail.current;
-    dragRail.current = null;
-    if (!from || from === target) return;
-    setRail((old) => {
-      const moving = old.find((s) => s.id === from);
-      if (!moving) return old;
-      const without = old.filter((s) => s.id !== from);
-      const at = without.findIndex((s) => s.id === target);
-      return [...without.slice(0, at), moving, ...without.slice(at)];
-    });
-  }
+  /** Toggle from a header icon: open it, or close it if it is the one open. */
+  const toggleRail = (id: RailItem) => (railHas(id) ? removeRail(id) : ensureRail(id));
 
   function addShell(): string {
     const id = `sh-${shellSeq.current++}-${Date.now() % 1e6}`;
@@ -2738,6 +2699,8 @@ export default function App({
   // Memoised: a fresh filter() every render is O(n) for nothing and hands
   // the transcript a new array, re-running its scroll effect each time.
   const focusedTitle = focusedTask?.title ?? null;
+  /** What this thread produced: the session panel's "Saídas". */
+  const threadOutputs = useMemo(() => collectOutputs(messages, focusedTitle), [messages, focusedTitle]);
   const visibleMessages = useMemo(
     () =>
       messages.filter((m) => {
@@ -2751,16 +2714,43 @@ export default function App({
 
   // Typed windows, shared by the tiled layout and the expanded mode.
   /** Drag-to-reorder wiring for a rail panel's header. */
-  const railDragProps = (id: RailItem): React.HTMLAttributes<HTMLDivElement> => ({
-    draggable: true,
-    onDragStart: () => {
-      dragRail.current = id;
-    },
-    onDragOver: (e) => e.preventDefault(),
-    onDrop: () => dropRail(id),
-  });
-
-  const frameTerminal = (slot?: { collapsed: boolean }) => (
+  /** The session panel: environment, context, outputs, costs of the
+   *  thread on screen (or of the window, in the "all projects" scope). */
+  const frameSessao = () => (
+    <PanelFrame
+      title={t("frame_session")}
+      expanded={expanded === "sessao"}
+      onToggleExpand={() => setExpanded((e) => (e === "sessao" ? null : "sessao"))}
+      onClose={() => removeRail("sessao")}
+    >
+      <SessionPanel
+        scope={scope}
+        projectsCount={allProjects.length}
+        taskTitle={focusedTask?.title}
+        sessionId={focusedTask?.sessionId || undefined}
+        workspace={activeProject?.path}
+        repo={focusedRepo}
+        agentName={focusedAgent ? (catalog[focusedAgent]?.name ?? focusedAgent) : undefined}
+        mode={currentMode ?? undefined}
+        model={liveModel ?? currentModel ?? undefined}
+        effort={currentEffort || undefined}
+        context={shownContext}
+        turnUsd={turns[focusedTask?.title ?? GENERAL]?.usd ?? null}
+        costs={costs}
+        outputs={threadOutputs}
+        onOpenPath={openAbsolutePath}
+        onDetail={() => {
+          void ipc
+            .usageReport(focusedTask?.sessionId ?? undefined)
+            .then((report) =>
+              push({ who: "usage", report, task: focused ? labelFor(focused) : focusedTask?.title }),
+            )
+            .catch(() => {});
+        }}
+      />
+    </PanelFrame>
+  );
+  const frameTerminal = () => (
     <PanelFrame
       title={t("frame_terminal")}
       tabs={
@@ -2782,10 +2772,7 @@ export default function App({
         ) : undefined
       }
       expanded={expanded === "terminal"}
-      collapsed={slot?.collapsed ?? false}
       onToggleExpand={() => setExpanded((e) => (e === "terminal" ? null : "terminal"))}
-      onToggleCollapse={slot ? () => toggleRailCollapse("terminal") : undefined}
-      dragProps={slot ? railDragProps("terminal") : undefined}
       onClose={() => removeRail("terminal")}
     >
       <TerminalPane
@@ -2798,14 +2785,11 @@ export default function App({
       />
     </PanelFrame>
   );
-  const frameBoard = (slot?: { collapsed: boolean }) => (
+  const frameBoard = () => (
     <PanelFrame
       title={t("frame_board")}
       expanded={expanded === "board"}
-      collapsed={slot?.collapsed ?? false}
       onToggleExpand={() => setExpanded((e) => (e === "board" ? null : "board"))}
-      onToggleCollapse={slot ? () => toggleRailCollapse("board") : undefined}
-      dragProps={slot ? railDragProps("board") : undefined}
       onClose={() => removeRail("board")}
     >
       <Board
@@ -2817,7 +2801,7 @@ export default function App({
     </PanelFrame>
   );
   /** The files window: the tree column, the tabs in the header, the viewer. */
-  const frameArquivos = (slot?: { collapsed: boolean }) => (
+  const frameArquivos = () => (
     <PanelFrame
       title={t("frame_files")}
       lead={<TreeToggle open={filesTree.open} onToggle={filesTree.toggle} />}
@@ -2835,10 +2819,7 @@ export default function App({
         />
       }
       expanded={expanded === "arquivos"}
-      collapsed={slot?.collapsed ?? false}
       onToggleExpand={() => setExpanded((e) => (e === "arquivos" ? null : "arquivos"))}
-      onToggleCollapse={slot ? () => toggleRailCollapse("arquivos") : undefined}
-      dragProps={slot ? railDragProps("arquivos") : undefined}
       onClose={() => {
         setOpenFiles([]);
         setDirtyPaths(new Set());
@@ -2939,11 +2920,13 @@ export default function App({
 
       {expanded ? (
         <div className="workarea expanded-area">
-          {expanded === "terminal"
-            ? frameTerminal()
-            : expanded === "board"
-              ? frameBoard()
-              : frameArquivos()}
+          {expanded === "sessao"
+            ? frameSessao()
+            : expanded === "terminal"
+              ? frameTerminal()
+              : expanded === "board"
+                ? frameBoard()
+                : frameArquivos()}
         </div>
       ) : (
         <PanelGroup direction="horizontal" autoSaveId="hark-code" className="workarea">
@@ -3092,64 +3075,27 @@ export default function App({
                       used to be a pill here AND a wallet button down there —
                       same number, two places. It is one control now: the
                       number opens the breakdown. */}
-                  <div className="scope-anchor">
-                    <button
-                      className={`chat-spend ${scopeInfo ? "on" : ""}`}
-                      title={t("costs_btn")}
-                      onClick={() => setScopeInfo((v) => !v)}
-                    >
-                      ${(costs[focusedTask?.title ?? ""] ?? 0).toFixed(2)}
-                      {/* The context rides in the same pill: one click,
-                          one popover, both facts about this thread. */}
-                      {/* Always present while a chat is focused. It used to
-                          disappear whenever no source had a reading, which
-                          reads as "nothing to worry about" rather than
-                          "nobody has measured yet". */}
-                      {focusedTask && (
-                        <ContextRing
-                          used={shownContext?.pct ?? null}
-                          window={shownContext?.window}
-                          tokens={shownContext?.tokens}
-                          model={liveModel ?? currentModel ?? undefined}
-                          unsupported={ringOff}
-                        />
-                      )}
-                    </button>
-                    {scopeInfo && (
-                      <SessionInfo
-                        taskTitle={focusedTask?.title}
-                        sessionId={focusedTask?.sessionId || undefined}
-                        projectName={activeProject?.name}
-                        workspace={forcedProject?.path}
-                        agent={focusedAgent}
-                        catalog={catalog}
-                        onHandoff={
-                          focused && liveWorkers[focused]
-                            ? (agent: string) => {
-                                push({ who: "sys", text: st("sp_handoff_go", { a: catalog[agent]?.name ?? agent }), task: labelFor(focused) });
-                                void ipc
-                                  .workerHandoff(focused, agent)
-                                  .catch((err) => push({ who: "sys", text: `handoff: ${err}` }));
-                              }
-                            : undefined
-                        }
-                        costs={costs}
-                        onClose={() => setScopeInfo(false)}
-                        onDetail={() => {
-                          void ipc
-                            .usageReport(focusedTask?.sessionId ?? undefined)
-                            .then((report) =>
-                              push({
-                                who: "usage",
-                                report,
-                                task: focused ? labelFor(focused) : focusedTask?.title,
-                              }),
-                            )
-                            .catch(() => {});
-                        }}
+                  <button
+                    className={`chat-spend ${railHas("sessao") ? "on" : ""}`}
+                    title={t("session_btn")}
+                    onClick={() => toggleRail("sessao")}
+                  >
+                    ${(costs[focusedTask?.title ?? ""] ?? 0).toFixed(2)}
+                    {/* The context rides in the same pill; the click opens
+                        the session panel in the rail, where both facts
+                        about this thread live with its outputs. Always
+                        present while a chat is focused: vanishing read as
+                        "nothing to worry about", not "not measured". */}
+                    {focusedTask && (
+                      <ContextRing
+                        used={shownContext?.pct ?? null}
+                        window={shownContext?.window}
+                        tokens={shownContext?.tokens}
+                        model={liveModel ?? currentModel ?? undefined}
+                        unsupported={ringOff}
                       />
                     )}
-                  </div>
+                  </button>
                   {isMain && scope.kind === "chat" && scope.project && (
                     <button
                       className="chat-head-btn"
@@ -3164,15 +3110,38 @@ export default function App({
                       <ExternalLink size={13} />
                     </button>
                   )}
+                  {/* The rail's doors, one icon each: one panel shows at a
+                      time, the lit icon says which. */}
                   <button
                     className={`chat-head-btn ${railHas("terminal") ? "on" : ""}`}
                     title={t("terminal_btn")}
-                    onClick={() =>
-                      railHas("terminal") ? removeRail("terminal") : ensureRail("terminal")
-                    }
+                    onClick={() => toggleRail("terminal")}
                   >
                     <SquareTerminal size={13} />
                   </button>
+                  <button
+                    className={`chat-head-btn ${railHas("arquivos") ? "on" : ""}`}
+                    title={t("frame_files")}
+                    onClick={() => {
+                      if (railHas("arquivos")) {
+                        removeRail("arquivos");
+                      } else {
+                        filesTree.set(true);
+                        ensureRail("arquivos");
+                      }
+                    }}
+                  >
+                    <FolderTree size={13} />
+                  </button>
+                  {!isMain && (
+                    <button
+                      className={`chat-head-btn ${railHas("board") ? "on" : ""}`}
+                      title={t("frame_board")}
+                      onClick={() => toggleRail("board")}
+                    >
+                      <SquareKanban size={13} />
+                    </button>
+                  )}
                 </div>
               )}
               {reading ? (
@@ -3354,43 +3323,21 @@ export default function App({
               )}
             </div>
           </Panel>
-          {rail.length > 0 && (
+          {railOn && (
             <>
               <PanelResizeHandle className="rhandle" />
               <Panel defaultSize={42} minSize={20} className="pane">
-                {/* The rail: panels stack vertically; expanded ones split
-                    the height, collapsed ones cost a title bar. */}
-                <div className="rail" ref={railRef}>
-                  {rail.map((slot, i) => {
-                    const prev = rail
-                      .slice(0, i)
-                      .reverse()
-                      .find((s) => !s.collapsed);
-                    return (
-                      <Fragment key={slot.id}>
-                        {i > 0 && !slot.collapsed && prev && (
-                          <div
-                            className="rail-vhandle"
-                            onMouseDown={(e) => startRailResize(e, prev.id, slot.id)}
-                          />
-                        )}
-                        <div
-                          className={`rail-slot ${slot.collapsed ? "collapsed" : ""}`}
-                          style={
-                            slot.collapsed
-                              ? undefined
-                              : { flexGrow: railFlex[slot.id] ?? 1 }
-                          }
-                        >
-                          {slot.id === "terminal"
-                            ? frameTerminal(slot)
-                            : slot.id === "board"
-                              ? frameBoard(slot)
-                              : frameArquivos(slot)}
-                        </div>
-                      </Fragment>
-                    );
-                  })}
+                {/* The rail: one panel, the whole height. */}
+                <div className="rail">
+                  <div className="rail-slot">
+                    {railOn === "sessao"
+                      ? frameSessao()
+                      : railOn === "terminal"
+                        ? frameTerminal()
+                        : railOn === "board"
+                          ? frameBoard()
+                          : frameArquivos()}
+                  </div>
                 </div>
               </Panel>
             </>

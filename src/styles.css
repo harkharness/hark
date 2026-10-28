@@ -2080,6 +2080,30 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   height: 100%; min-height: 0; padding-right: 0;
 }
 .rail-slot { display: flex; min-height: 0; flex: 1 1 0; }
+/* The session panel: sections stacked, the same blocks the old popover
+   drew, now with the whole rail's height. */
+.session-panel { display: flex; flex-direction: column; gap: 12px; padding: 10px 12px; overflow-y: auto; min-height: 0; flex: 1; font-size: 12.5px; }
+.session-panel > .scope-block:first-of-type { padding-top: 0; border-top: none; }
+.session-panel .hint { color: var(--dim); font-size: 11.5px; margin: 0; }
+.session-panel .hint.warn { color: var(--warn); }
+.session-panel .dim { color: var(--dim); }
+.session-panel .mono { font-family: var(--font-mono); font-size: 11px; }
+.sp-row { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text); }
+.sp-row > svg, .sp-ico { flex: 0 0 13px; width: 13px; color: var(--dim); }
+.sp-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-out {
+  display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%;
+  background: none; border: none; border-radius: 8px; padding: 5px 6px; margin: 0 -6px;
+  color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; text-align: left;
+}
+.sp-out:hover { background: var(--panel-2); }
+.sp-out > svg { flex: 0 0 auto; color: var(--dim); }
+.sp-out-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-out-dir { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.pill-kind { flex: 0 0 auto; font-size: 10.5px; padding: 1px 7px; border-radius: 999px; background: var(--panel-2); color: var(--dim); }
+.pill-kind.delivered { color: var(--ok); }
+.pill-kind.written { color: var(--accent); }
+.sp-link { align-self: flex-start; background: none; border: none; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; padding: 0; }
 /* Drag between two expanded rail panels to trade height. */
 /* The gap between two stacked panels was paid twice: each frame's own
    8px margin (16px between them) PLUS this handle's height and margins,
@@ -2090,14 +2114,6 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    14px. A resize edge has to be easy to hit; it does not have to be
    visible furniture. */
 .rail-slot .frame { margin: 0 0 4px 4px; }
-.rail-vhandle {
-  flex: 0 0 2px; cursor: row-resize; border-radius: 2px; margin: 0 8px;
-  position: relative;
-}
-.rail-vhandle::after {
-  content: ""; position: absolute; left: 0; right: 0; top: -6px; bottom: -6px;
-}
-.rail-vhandle:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 /* The gap between stacked panels is paid ONCE, below each of them, so
    the first frame starts on the window gutter and the last ends on it.
    Splitting it 2px above + 2px below put 2px of nothing against the
