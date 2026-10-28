@@ -278,3 +278,23 @@ pub enum Cue {
     /// Something failed.
     Error,
 }
+
+/// The artifacts on disk: one folder per space under the artifacts root,
+/// pages inside, an `index.json` per space. Paths are RELATIVE to the
+/// space; the adapter refuses anything that climbs or goes through a link.
+pub trait ArtifactStore {
+    /// The spaces that exist as folders (the root is created when missing).
+    fn spaces(&self) -> anyhow::Result<Vec<String>>;
+    /// The space's index, or an empty string when it has none yet.
+    fn read_index(&self, space: &str) -> anyhow::Result<String>;
+    fn write_index(&self, space: &str, json: &str) -> anyhow::Result<()>;
+    /// Every page file under the space, relative, sorted; hidden files
+    /// and non-page formats are not listed.
+    fn list_pages(&self, space: &str) -> anyhow::Result<Vec<String>>;
+    fn read_page(&self, space: &str, path: &str) -> anyhow::Result<String>;
+    /// Writes the page, creating its folders.
+    fn write_page(&self, space: &str, path: &str, text: &str) -> anyhow::Result<()>;
+    fn remove_page(&self, space: &str, path: &str) -> anyhow::Result<()>;
+    /// The absolute path of a page, for the viewer and the Finder.
+    fn absolute(&self, space: &str, path: &str) -> anyhow::Result<std::path::PathBuf>;
+}
