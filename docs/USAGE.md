@@ -71,8 +71,8 @@ screen.
 ## The main window
 
 One window holds every project. The sidebar lists each registered project
-with its chats, and three global views: the **board**, **costs** and
-**settings**. The composer carries a scope chip that says where the next
+with its chats, and the global views: the **board**, **artifacts** and
+**settings** (costs live inside settings). The composer carries a scope chip that says where the next
 message lands: *all projects* when nothing is selected, `project › chat`
 when a chat is open. Each project owns a colour; it runs down the sidebar
 group, across the top of the chat and through the chip.
@@ -89,6 +89,36 @@ today — never reach a model at all. Questions that only need rephrasing go to 
 light model with a small context. Only real reasoning pays full price. A
 sentence that is work ("continua a migração do webhook") is resolved against
 every project and confirmed before it runs; it never opens a window.
+
+## Artifacts
+
+**Artifacts** is the documentation of this machine: pages you and the agents
+write, kept as a tree the way a wiki keeps them, one *space* per project plus
+a personal one. A page is a markdown or an HTML file under
+`~/.hark/artifacts/<space>/`; the tree is an `index.json` beside them, and
+a file dropped there by hand is adopted at the root on the next read.
+
+- **The tree column** lists every space and page. Click a page to read it,
+  drag one onto another to move it under it, the `+` on a row makes a
+  child, the `⋯` renames or removes (removing deletes the file and its
+  children — it is your file, so it asks nothing twice).
+- **The space home** shows what moved last. The tree is the documentation;
+  the home is only the freshest touches.
+- **A page** opens with its breadcrumb, its kind, when it was edited and
+  the chat it was born in, when an agent wrote it: that chip opens the chat.
+  Markdown reads rendered and edits in place (the pencil). HTML renders in
+  an isolated frame with scripts off; turn them on for a slide deck that
+  needs them — even then the frame has no access to Hark.
+- **The composer follows the page.** With a page open the scope chip names
+  it and the next message goes to the general chat with the page along:
+  whole while it fits, its head past twelve thousand characters. The
+  bubble shows what you typed; the page rides in the prompt only.
+- **Links** (the panel beside the page) says what the page is, where it
+  came from and what it ties to: the origin chat, child pages, citations.
+
+Agents write pages through `HARK_ARTIFACTS_DIR`, set on every worker; a
+`Write` into that directory is caught as the page's origin, so the tree
+knows which chat produced which page. Nothing here costs tokens to browse.
 
 ## Project windows
 
@@ -269,6 +299,7 @@ without a GitHub account.
 | `~/.hark/index.db` | session index and spend ledger |
 | `~/.hark/models/` | speech models |
 | `~/.hark/HARK.md` | the assistant's personality and learnings, mirrored into each agent's own memory file name (`CLAUDE.md`, `GEMINI.md`, `AGENTS.md`) beside it |
+| `~/.hark/artifacts/<space>/` | the documentation tree: pages (`.md`, `.html`) and the `index.json` that orders them |
 | `~/.hark/state.json` | board, workers, active context, what each agent turned out to offer |
 | `~/.hark/sessions/<agent>/<id>.jsonl` | Hark's own record of sessions on agents that keep none |
 | `<project>/.hark/` | per-project journal, state and dispatch briefs |

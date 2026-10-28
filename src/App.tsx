@@ -10,6 +10,7 @@ import { ExternalLink, FolderTree, PanelLeft, SquareKanban, SquareTerminal, Volu
 import { colourIndex, projColour, scopeOf } from "./lib/scope";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
+import Artifacts, { ArtifactLinks, type ArtSel } from "./components/Artifacts";
 import Board from "./components/Board";
 import Composer from "./components/Composer";
 import { toImagePair, type Attachment } from "./lib/composerText";
@@ -57,9 +58,11 @@ import type {
   SessionHit,
   SessionOwner,
   TranscriptEntry,
+  ArtifactPage,
+  ArtifactTree,
 } from "./types";
 
-type RailItem = "sessao" | "terminal" | "arquivos" | "board";
+type RailItem = "sessao" | "terminal" | "arquivos" | "board" | "artefatos";
 
 export default function App({
   forcedProject,
@@ -91,8 +94,27 @@ export default function App({
   /** No forced project = the main window: every project, the general chat
    *  backed by the persistent worker, board/costs/settings as views. */
   const isMain = !forcedProject;
-  type View = "chat" | "board" | "ajustes";
+  type View = "chat" | "board" | "ajustes" | "artefatos";
   const [view, setView] = useState<View>("chat");
+  // The artifacts view: the space and page on screen, the page's data
+  // (for the composer's scope and the rail) and a tick that re-reads the
+  // tree when an agent writes a page.
+  const [artSel, setArtSel] = useState<ArtSel | null>(null);
+  const [artPage, setArtPage] = useState<ArtifactPage | null>(null);
+  const [artTree, setArtTree] = useState<ArtifactTree | null>(null);
+  const [artTick, setArtTick] = useState(0);
+  const [artCount, setArtCount] = useState(0);
+  const onArtPage = useCallback((page: ArtifactPage | null, tree: ArtifactTree | null) => {
+    setArtPage(page);
+    setArtTree(tree);
+  }, []);
+  useEffect(() => {
+    if (!isMain) return;
+    ipc
+      .artifactsSpaces()
+      .then((spaces) => setArtCount(spaces.reduce((a, s) => a + s.pages, 0)))
+      .catch(() => {});
+  }, [isMain, artTick, overview]);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("geral");
   /** Settings on a given section (costs is one of them). */
   const openSettings = (section: SettingsSection = "geral") => {
@@ -249,7 +271,7 @@ export default function App({
   const [railOn, setRailOn] = useState<RailItem | null>(() => {
     try {
       const saved = window.localStorage.getItem(RAIL_KEY);
-      return saved === "sessao" || saved === "arquivos" || saved === "board" ? saved : null;
+      return saved === "sessao" || saved === "arquivos" || saved === "board" || saved === "artefatos" ? saved : null;
     } catch {
       return null;
     }
@@ -899,6 +921,7 @@ export default function App({
       setView("chat");
       startDraftRef.current(project);
     }, []),
+    onArtifactWritten: useCallback(() => setArtTick((n) => n + 1), []),
     onSessionStarted: useCallback((taskId: string, sessionId: string) => {
       // A fresh chat finally has a session: link the focused task to it.
       const label = workersRef.current[taskId]?.label;
@@ -1026,6 +1049,10 @@ export default function App({
     draftChat,
     focusedTask,
     taskProject: focusedTask ? projectOf(board.find((t) => t.title === focusedTask.title)) : undefined,
+    page:
+      isMain && view === "artefatos" && artPage && artSel?.id
+        ? { title: artPage.node.title, path: artPage.node.path, space: artSel.space }
+        : null,
   });
   /** Colour by REGISTRY order, not by this window's filtered list, so a
    *  project is the same colour in every window and in the mother. */
@@ -1571,6 +1598,20 @@ export default function App({
     const aside = TO_HARK.exec(text);
     if (aside) text = text.slice(aside[0].length).trim() || text;
     const toHark = !!aside;
+
+    // A page in scope: the message goes to the general chat with the page
+    // along (whole while it fits, else its head — domain::scope). The
+    // bubble shows what was typed; the page rides in the prompt only.
+    if (scope.kind === "page" && artSel?.id) {
+      const brief = await ipc.artifactBrief(artSel.space, artSel.id).catch(() => "");
+      const msgId = crypto.randomUUID();
+      push({ who: "user", text, images: images.map((i) => i.dataUrl), msgId });
+      push({ who: "sys", text: t("art_sent_about", { t: scope.title }) });
+      leaveChat();
+      setView("chat");
+      await sendToChat(brief ? `${brief}\n\n---\n\n${text}` : text, images, msgId);
+      return;
+    }
 
     // A fork draft armed by the held banner: this message starts a NEW
     // session seeded with the held one's history and works there.
@@ -2807,6 +2848,26 @@ export default function App({
       />
     </PanelFrame>
   );
+  /** The links of the artifact page on screen: what it is, where it came
+   *  from, what it ties to. */
+  const frameArtefatos = () => (
+    <PanelFrame
+      title={t("frame_artifacts")}
+      expanded={expanded === "artefatos"}
+      onToggleExpand={() => setExpanded((e) => (e === "artefatos" ? null : "artefatos"))}
+      onClose={() => removeRail("artefatos")}
+    >
+      <ArtifactLinks
+        page={view === "artefatos" ? artPage : null}
+        tree={artTree}
+        onOpen={(id) => artSel && setArtSel({ space: artSel.space, id })}
+        onOpenTask={(title, sessionId) => {
+          setView("chat");
+          void openTaskByTitle(title, sessionId);
+        }}
+      />
+    </PanelFrame>
+  );
   /** The files window: the tree column, the tabs in the header, the viewer. */
   const frameArquivos = () => (
     <PanelFrame
@@ -2968,6 +3029,9 @@ export default function App({
                 setView("chat");
               }}
               generalActive={!focusedTask && !draftChat && view === "chat"}
+              artifactsOpen={isMain && view === "artefatos"}
+              artifactsCount={artCount}
+              onToggleArtifacts={isMain ? () => setView((v) => (v === "artefatos" ? "chat" : "artefatos")) : undefined}
               onOpenSettings={isMain ? () => (view === "ajustes" ? setView("chat") : openSettings()) : undefined}
               settingsOpen={view === "ajustes"}
               boardOpen={isMain ? view === "board" : railHas("board")}
@@ -3042,7 +3106,7 @@ export default function App({
               <>
               {/* The thread says what it is: a slim title over the prose,
                   like the Claude Code app — controls stay on the composer. */}
-              {!reading && (
+              {!reading && view !== "artefatos" && (
                 <div className="chat-title-head" data-tauri-drag-region>
                   {focusedTask && (
                     <>
@@ -3145,7 +3209,21 @@ export default function App({
                   )}
                 </div>
               )}
-              {reading ? (
+              {isMain && view === "artefatos" ? (
+                <Artifacts
+                  sel={artSel}
+                  onSel={setArtSel}
+                  colourOf={colourOf}
+                  tick={artTick}
+                  onPage={onArtPage}
+                  onOpenTask={(title, sessionId) => {
+                    setView("chat");
+                    void openTaskByTitle(title, sessionId);
+                  }}
+                  linksOn={railHas("artefatos")}
+                  onToggleLinks={() => toggleRail("artefatos")}
+                />
+              ) : reading ? (
                 <Reader
                   sessionId={reading.sessionId}
                   title={reading.title}
@@ -3337,7 +3415,9 @@ export default function App({
                         ? frameTerminal()
                         : railOn === "board"
                           ? frameBoard()
-                          : frameArquivos()}
+                          : railOn === "artefatos"
+                            ? frameArtefatos()
+                            : frameArquivos()}
                   </div>
                 </div>
               </Panel>

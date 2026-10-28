@@ -11,13 +11,17 @@ export function scopeOf({
   draftChat,
   focusedTask,
   taskProject,
+  page,
 }: {
   forcedProject?: Project;
   draftChat?: Project | null;
   focusedTask?: { title: string; sessionId: string } | null;
   /** The project the focused task lives in (by workspace prefix). */
   taskProject?: Project;
+  /** An artifact page on screen: it is the scope, over any chat. */
+  page?: { title: string; path: string; space: string } | null;
 }): Scope {
+  if (page) return { kind: "page", title: page.title, path: page.path, space: page.space };
   if (focusedTask) {
     return {
       kind: "chat",

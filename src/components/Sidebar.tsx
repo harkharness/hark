@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bug, FolderTree, MessageSquare, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, SquareKanban } from "lucide-react";
+import { BookOpen, Bug, FolderTree, MessageSquare, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, SquareKanban } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 
@@ -30,6 +30,9 @@ export default function Sidebar({
   onOpenSettings,
   settingsOpen,
   onOpenGeneral,
+  artifactsOpen,
+  artifactsCount,
+  onToggleArtifacts,
   onReport,
   generalActive,
   onRename,
@@ -56,6 +59,10 @@ export default function Sidebar({
   activeTitle?: string;
   liveTitles: string[];
   onOpen: (task: BoardTask) => void;
+  /** The artifacts view (main window only): the documentation tree. */
+  artifactsOpen?: boolean;
+  artifactsCount?: number;
+  onToggleArtifacts?: () => void;
   /** Click on a history chat: adopt it as a task and open it. */
   onOpenChat?: (chat: SessionHit) => void;
   /** The board panel is open in the rail (highlights the shortcut). */
@@ -188,6 +195,7 @@ export default function Sidebar({
           )}
         </div>
       )}
+      <div className="side-nav">
       {onToggleBoard && (
         <button
           className={`side-board ${boardOpen ? "on" : ""}`}
@@ -206,6 +214,17 @@ export default function Sidebar({
           <MessageSquare size={13} /> {t("side_general")}
         </button>
       )}
+      {onToggleArtifacts && (
+        <button
+          className={`side-board ${artifactsOpen ? "on" : ""}`}
+          onClick={onToggleArtifacts}
+          title={t("side_artifacts_hint")}
+        >
+          <BookOpen size={13} /> {t("side_artifacts")}
+          {artifactsCount ? <span className="side-count">{artifactsCount}</span> : null}
+        </button>
+      )}
+      </div>
       {projects.map((p) => {
         const group = ordered.filter((t) => inProject(t, p));
         // Full Claude Code history of this project (chats not yet on the

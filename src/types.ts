@@ -110,6 +110,8 @@ export type HarkEvent =
   | { kind: "main_tab"; tab: string }
   | { kind: "focus_task"; title: string; session_id?: string | null; project?: Project }
   | { kind: "focus_project"; project: Project }
+  /** An agent wrote a page under ~/.hark/artifacts: the tree re-reads. */
+  | { kind: "artifact_written"; space: string; id: string; task_id?: string | null }
   | { kind: "hud_listen" }
   /** A permission was decided somewhere: every window resolves its card. */
   | { kind: "permission_decided"; request_id: string; allow: boolean }

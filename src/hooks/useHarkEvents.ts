@@ -49,6 +49,8 @@ type Handlers = {
   onFocusTask?: (title: string, sessionId?: string | null) => void;
   /** A project is put on screen with no task: a fresh chat there. */
   onFocusProject?: (project: import("../types").Project) => void;
+  /** An agent wrote an artifact page: whoever shows the tree re-reads it. */
+  onArtifactWritten?: (space: string, id: string) => void;
   /** The voice HUD executed something (the mother records the feed). */
   onVoiceAction?: (utterance: string, target?: string | null, status?: string) => void;
   /** A spoken turn echoed into the mother's unified thread. */
@@ -284,6 +286,8 @@ export function useHarkEvents(h: Handlers) {
         h.onFocusTask?.(ev.title, ev.session_id);
       } else if (ev.kind === "focus_project") {
         h.onFocusProject?.(ev.project);
+      } else if (ev.kind === "artifact_written") {
+        h.onArtifactWritten?.(ev.space, ev.id);
       } else if (ev.kind === "voice_action") {
         h.onVoiceAction?.(ev.utterance, ev.target, ev.status);
         h.refresh();

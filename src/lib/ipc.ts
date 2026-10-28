@@ -595,6 +595,8 @@ export const artifactsSpaces = () => invoke<import("../types").ArtifactSpace[]>(
 export const artifactsTree = (space: string) => invoke<import("../types").ArtifactTree>("artifacts_tree", { space });
 export const artifactRead = (space: string, id: string) =>
   invoke<import("../types").ArtifactPage>("artifact_read", { space, id });
+/** The page as the prompt carries it (whole while it fits, else its head). */
+export const artifactBrief = (space: string, id: string) => invoke<string>("artifact_brief", { space, id });
 export const artifactWrite = (space: string, id: string, text: string) =>
   invoke("artifact_write", { space, id, text });
 export const artifactCreate = (

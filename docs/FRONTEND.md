@@ -17,6 +17,9 @@ src/
     ipc.ts            typed wrappers for every Tauri command (the ONLY
                       place `invoke` is called)
     format.ts         pure formatting helpers (model names, directive chips)
+    scope.ts          the scope chip (all / project / chat / page), pure
+    artifacts.ts      the documentation tree flattened for painting, pure
+    outputs.ts        the files a thread produced, from its tool calls
     highlight.ts      highlight.js core + grammars for the file viewer
   hooks/
     useHarkEvents.ts   the single subscription to backend events
@@ -28,6 +31,10 @@ src/
     FileViewer.tsx    local file view/edit panel (zero tokens)
     QuickOpen.tsx     Cmd+P fuzzy file search
     Board.tsx         kanban tab
+    Artifacts.tsx     the documentation tree, a space's home, the open page
+                      (html in a sandboxed frame) and the Links rail panel
+    SessionPanel.tsx  the rail's session panel: environment, context,
+                      outputs, costs
     Reader.tsx        read-only session history
     Modals.tsx        confirm/choice/resume/summary dialogs
     Markdown.tsx      react-markdown + remark-gfm + rehype-highlight
@@ -56,6 +63,12 @@ that made several of them look like design decisions when they were not.
 6. **Zero-token features** (file viewer, quick open, board actions, task
    commands) must never spawn a `claude` process. If a feature costs money
    it goes through the gate/router flows in App.
+7. **The window runs under a CSP** (`src-tauri/tauri.conf.json`): scripts
+   only from the bundle, styles inline allowed (the components set them),
+   images from the bundle, `data:`/`blob:` and https, connections to the
+   Tauri IPC and the Vite dev server only. Anything that needs more must
+   earn its directive there, not relax the policy. Artifact HTML renders
+   in an `<iframe sandbox>` that inherits this policy and adds no origin.
 
 ## Adding a Tauri command
 

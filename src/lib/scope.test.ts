@@ -54,3 +54,11 @@ describe("colourIndex: a project's colour slot is its registration order", () =>
     expect(projColour(undefined)).toBeUndefined();
   });
 });
+
+describe("scopeOf: an open artifact page", () => {
+  it("is the scope while the page is on screen, whatever chat was focused before", () => {
+    const page = { title: "ADR 004", path: "decisoes/adr-004.md", space: "hark" };
+    expect(scopeOf({ focusedTask: { title: "Billing", sessionId: "s1" }, page })).toEqual({ kind: "page", ...page });
+    expect(breadcrumb(scopeOf({ page }))).toEqual(["hark", "ADR 004"]);
+  });
+});

@@ -88,6 +88,24 @@ impl Scope {
     }
 }
 
+/// What a `Scope::Page` contributes to the prompt: the page whole while
+/// it fits `max_chars`, else its head and a note of what was left out.
+/// The header carries the breadcrumb and the path, so the agent can both
+/// place the page and edit it. Empty for any other scope.
+pub fn page_brief(scope: &Scope, crumbs: &[&str], text: &str, max_chars: usize) -> String {
+    let Scope::Page { title, path, .. } = scope else {
+        return String::new();
+    };
+    let total = text.chars().count();
+    let body: String = if total <= max_chars {
+        text.to_string()
+    } else {
+        let head: String = text.chars().take(max_chars).collect();
+        format!("{head}\n[… {} caracteres omitidos]", total - max_chars)
+    };
+    format!("Página «{title}» ({}) — {path}\n\n{body}", crumbs.join(" › "))
+}
+
 /// The colour slot of the project a path belongs to: the project's position
 /// in the registry, stable for as long as the registry order holds. A path
 /// is inside a project when it IS the project or sits under it; a sibling
@@ -235,5 +253,29 @@ mod tests {
         assert_eq!(colour_index("/Users/x/Projects/hark-landing", &projects), None, "a sibling with the same prefix is not inside");
         assert_eq!(colour_index("/elsewhere", &projects), None);
         assert_eq!(colour_index("", &projects), None, "no workspace, no colour");
+    }
+
+    #[test]
+    fn a_page_under_budget_rides_whole_in_the_prompt() {
+        let page = Scope::Page { title: "ADR 004: janela única".into(), path: "decisoes/adr-004.md".into(), space: "hark".into() };
+        let out = page_brief(&page, &["hark", "Decisões", "ADR 004: janela única"], "# ADR 004\n\nUma janela.", 1000);
+        assert!(out.starts_with("Página «ADR 004: janela única» (hark › Decisões › ADR 004: janela única)"), "{out}");
+        assert!(out.contains("decisoes/adr-004.md"), "the path lets the agent edit it: {out}");
+        assert!(out.ends_with("# ADR 004\n\nUma janela."), "{out}");
+    }
+
+    #[test]
+    fn a_page_over_budget_keeps_its_head_and_says_so() {
+        let page = Scope::Page { title: "Longa".into(), path: "longa.md".into(), space: "hark".into() };
+        let body = "é".repeat(50);
+        let out = page_brief(&page, &["hark", "Longa"], &body, 20);
+        assert!(out.contains(&"é".repeat(20)), "{out}");
+        assert!(!out.contains(&"é".repeat(21)), "cut at the budget, on a char boundary: {out}");
+        assert!(out.contains("[… 30 caracteres omitidos]"), "{out}");
+    }
+
+    #[test]
+    fn only_a_page_scope_has_a_brief() {
+        assert_eq!(page_brief(&Scope::All, &[], "x", 10), "");
     }
 }
