@@ -11,6 +11,10 @@ import {
   Plus,
   Presentation,
   Search,
+  Share2,
+  Copy,
+  Download,
+  FolderOpen,
   ShieldCheck,
   ShieldOff,
   User,
@@ -19,6 +23,10 @@ import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
 import { childrenOf, crumbOf, recents, rows } from "../lib/artifacts";
 import FileViewer from "./FileViewer";
+import SharePopover, { type ShareRow } from "./SharePopover";
+import Markdown from "./Markdown";
+import { renderToStaticMarkup } from "react-dom/server";
+import { pageHtml } from "../lib/export";
 import type { ArtifactKind, ArtifactNode, ArtifactPage, ArtifactSpace, ArtifactTree } from "../types";
 
 /** What the artifacts view points at: a space, and a page in it or its home. */
@@ -561,6 +569,40 @@ function Page({
   const html = /\.html?$/i.test(node.path);
   const Icon = KIND_ICON[node.kind];
   const kids = childrenOf(tree, node.id);
+  const [shareOpen, setShareOpen] = useState(false);
+  const link = `hark://artifacts/${encodeURIComponent(space)}/${encodeURIComponent(node.id)}`;
+  const shareRows: ShareRow[] = [
+    {
+      icon: <Copy size={13} />,
+      label: t("share_copy_link"),
+      hint: link,
+      kbd: "⌘C",
+      run: () => navigator.clipboard.writeText(link).then(() => t("share_link_copied")),
+    },
+    {
+      icon: <FileText size={13} />,
+      label: html ? t("share_copy_source") : t("share_copy_md"),
+      hint: t("share_copy_md_hint"),
+      run: () => navigator.clipboard.writeText(page.text).then(() => t("share_copied")),
+    },
+    {
+      icon: <Download size={13} />,
+      label: t("share_export_html"),
+      hint: t("share_export_html_hint"),
+      run: async () => {
+        const body = html ? page.text : pageHtml(node.title, renderToStaticMarkup(<div className="md"><Markdown>{page.text}</Markdown></div>));
+        const abs = await ipc.exportFile(`${node.title}.html`, body);
+        await ipc.revealPath(abs).catch(() => {});
+        return t("share_exported");
+      },
+    },
+    {
+      icon: <FolderOpen size={13} />,
+      label: t("share_reveal"),
+      hint: page.abs.replace(/^\/Users\/[^/]+/, "~"),
+      run: () => ipc.revealPath(page.abs).then(() => undefined),
+    },
+  ];
   const crumbs = page.breadcrumb.slice(0, -1);
   const io = useMemo(
     () => ({
@@ -601,6 +643,12 @@ function Page({
           <button className={`pill-btn ${linksOn ? "on" : ""}`} onClick={onToggleLinks} title={t("art_links_hint")}>
             <Link2 size={11} /> {t("art_links")}
           </button>
+          <span className="share-anchor">
+            <button className={`pill-btn ${shareOpen ? "on" : ""}`} onClick={() => setShareOpen((o) => !o)} title={t("share_title")}>
+              <Share2 size={11} /> {t("share_btn")}
+            </button>
+            {shareOpen && <SharePopover title={node.title} rows={shareRows} onClose={() => setShareOpen(false)} />}
+          </span>
           <button className="pill-btn" onClick={() => void ipc.openExternal(page.abs).catch(() => {})} title={page.abs}>
             <ExternalLink size={11} />
           </button>

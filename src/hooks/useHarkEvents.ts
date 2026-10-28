@@ -51,6 +51,10 @@ type Handlers = {
   onFocusProject?: (project: import("../types").Project) => void;
   /** An agent wrote an artifact page: whoever shows the tree re-reads it. */
   onArtifactWritten?: (space: string, id: string) => void;
+  /** A `hark://` link asked for a page. */
+  onOpenPage?: (space: string, id: string) => void;
+  /** A `hark://chat` link the board could not place. */
+  onDeepLinkUnknown?: (url: string) => void;
   /** The voice HUD executed something (the mother records the feed). */
   onVoiceAction?: (utterance: string, target?: string | null, status?: string) => void;
   /** A spoken turn echoed into the mother's unified thread. */
@@ -288,6 +292,10 @@ export function useHarkEvents(h: Handlers) {
         h.onFocusProject?.(ev.project);
       } else if (ev.kind === "artifact_written") {
         h.onArtifactWritten?.(ev.space, ev.id);
+      } else if (ev.kind === "open_page") {
+        h.onOpenPage?.(ev.space, ev.id);
+      } else if (ev.kind === "deep_link_unknown") {
+        h.onDeepLinkUnknown?.(ev.url);
       } else if (ev.kind === "voice_action") {
         h.onVoiceAction?.(ev.utterance, ev.target, ev.status);
         h.refresh();

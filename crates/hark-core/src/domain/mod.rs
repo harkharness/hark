@@ -9,6 +9,7 @@ pub mod answer;
 pub mod board;
 pub mod context;
 pub mod crossref;
+pub mod deep_link;
 pub mod directives;
 pub mod file_search;
 pub mod focus;

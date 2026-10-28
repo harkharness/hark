@@ -2072,6 +2072,103 @@ fn artifact_cites(text: String) -> Result<Option<ArtifactCitesOut>, String> {
     Ok(Some(ArtifactCitesOut { titles, block }))
 }
 
+/// A page out of a task's local brief: "share with yourself" — the task
+/// becomes documentation in its project's space, tied to the chat that
+/// produced it. Zero tokens.
+#[tauri::command]
+fn artifact_from_brief(session: String, title: String, space: String, task: Option<String>) -> Result<hark_core::domain::artifacts::Node, String> {
+    let config = Config::load();
+    let brief = local_brief(&config, &session).ok_or("sem histórico local desta sessão")?;
+    let store = artifact_store();
+    let page_title = format!("Resumo: {title}");
+    let origin = hark_core::domain::artifacts::Origin { session_id: Some(session), task: task.or(Some(title.clone())) };
+    let node = hark_core::app::artifacts::create(&store, &space, None, &page_title, hark_core::domain::artifacts::Kind::Doc, Some(origin), &now_iso())
+        .map_err(|e| e.to_string())?;
+    let text = format!("# {page_title}\n\n{brief}\n");
+    hark_core::app::artifacts::write(&store, &space, &node.id, &text, &now_iso()).map_err(|e| e.to_string())?;
+    Ok(node)
+}
+
+/// Where exports land: `~/.hark/exports`, shown in the Finder afterwards.
+/// No save dialog: one known folder beats a plugin for a file you will
+/// drag somewhere anyway.
+#[tauri::command]
+fn export_file(name: String, content: String) -> Result<String, String> {
+    let ext = std::path::Path::new(&name).extension().and_then(|e| e.to_str()).unwrap_or("");
+    if !matches!(ext, "md" | "html" | "txt") {
+        return Err(format!("{name}: only .md, .html and .txt are exported"));
+    }
+    let stem = hark_core::domain::artifacts::slug(std::path::Path::new(&name).file_stem().and_then(|s| s.to_str()).unwrap_or("export"));
+    let dir = Config::load().data_dir().join("exports");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let file = dir.join(format!("{stem}.{ext}"));
+    std::fs::write(&file, content).map_err(|e| e.to_string())?;
+    Ok(file.to_string_lossy().to_string())
+}
+
+/// `open -R`: the Finder with the file selected. Only inside ~/.hark —
+/// the artifacts and the exports — never an arbitrary path.
+#[tauri::command]
+fn reveal_path(path: String) -> Result<(), String> {
+    let root = std::fs::canonicalize(Config::load().data_dir()).map_err(|e| e.to_string())?;
+    let real = std::fs::canonicalize(&path).map_err(|e| format!("{path}: {e}"))?;
+    if !real.starts_with(&root) {
+        return Err(format!("refused: {} is outside ~/.hark", real.display()));
+    }
+    std::process::Command::new("open").arg("-R").arg(&real).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// A `hark://` link opened from anywhere: the chat of a session where it
+/// lives (the board knows), or a page in the artifacts view. Unknown
+/// links say so in the general chat instead of doing nothing.
+fn follow_deep_link(app: &AppHandle, url: &str) {
+    use hark_core::domain::deep_link::{parse, Target};
+    use hark_core::ports::SessionStore;
+    let Some(target) = parse(url) else {
+        diag(app, &format!("deep link ignored: {url}"));
+        return;
+    };
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.unminimize();
+        let _ = main.set_focus();
+    }
+    match target {
+        Target::Chat { session } => {
+            let config = Config::load();
+            let task = SqliteStore::open(&config.data_dir().join("index.db"))
+                .ok()
+                .and_then(|s| s.board().ok())
+                .unwrap_or_default()
+                .into_iter()
+                .find(|t| t.session_ids.contains(&session));
+            match task {
+                Some(t) => {
+                    let projects = load_projects(&config);
+                    let project = t.workspace.as_deref().and_then(|ws| {
+                        projects.iter().find(|p| ws == p.path || ws.starts_with(&format!("{}/", p.path))).cloned()
+                    });
+                    match project {
+                        Some(p) => {
+                            let _ = open_task(app.clone(), p.name, p.path, Some(t.title), Some(session));
+                        }
+                        None => {
+                            let _ = app.emit_to("main", "hark", serde_json::json!({ "kind": "focus_task", "title": t.title, "session_id": session }));
+                        }
+                    }
+                }
+                None => {
+                    let _ = app.emit_to("main", "hark", serde_json::json!({ "kind": "deep_link_unknown", "url": url }));
+                }
+            }
+        }
+        Target::Page { space, id } => {
+            let _ = app.emit_to("main", "hark", serde_json::json!({ "kind": "open_page", "space": space, "id": id }));
+        }
+    }
+}
+
 #[tauri::command]
 fn artifact_write(space: String, id: String, text: String) -> Result<(), String> {
     hark_core::app::artifacts::write(&artifact_store(), &space, &id, &text, &now_iso()).map_err(|e| e.to_string())
@@ -5640,6 +5737,22 @@ pub fn run() {
             // The chat's soul file exists from the first boot (settings can
             // open it before the chat ever spawns).
             ensure_persona(&Config::load());
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        follow_deep_link(&handle, url.as_str());
+                    }
+                });
+                // The link that launched the app, when one did.
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    let handle = app.handle().clone();
+                    for url in urls {
+                        follow_deep_link(&handle, url.as_str());
+                    }
+                }
+            }
             // Warm whisper so the first mic use is instant. Fire and
             // forget: the mic path reports "loading" instead of waiting.
             ensure_speech_loading();
@@ -5748,6 +5861,9 @@ pub fn run() {
             artifact_read,
             artifact_brief,
             artifact_cites,
+            artifact_from_brief,
+            export_file,
+            reveal_path,
             artifact_write,
             artifact_create,
             artifact_move,
@@ -5766,6 +5882,10 @@ pub fn run() {
         // tauri.conf.json, and process::relaunch is the "restart now" click.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // `hark://` links: a copied link reopens this Hark on that chat or
+        // page. The scheme is registered by the bundle (Info.plist), so it
+        // works from the installed app; `tauri dev` does not register it.
+        .plugin(tauri_plugin_deep_link::init())
         // Global hotkey (default cmd+shift+space, config `hotkey`): from
         // ANY app, the voice button.
         .plugin(

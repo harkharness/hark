@@ -93,6 +93,19 @@ not move a page to another chat.
 
 ## Sharing
 
-Pages are files on this machine. Copying a page's folder to another
-machine's `~/.hark/artifacts` works today (the index reconciles). Shared
-spaces are a later phase; the share popover will say so until then.
+The share button on a page (and on a chat) is useful today and honest
+about tomorrow. Every row delivers something on this machine: a local link
+(`hark://artifacts/<space>/<id>`, `hark://chat/<session>`) that reopens
+this Hark in place, the markdown or source to paste, one html file in
+`~/.hark/exports` shown in the Finder, the file itself in the Finder; a
+chat also offers its `claude --resume` command, its transcript as markdown
+with tools folded, and "save brief as a page" — the task's local brief
+becomes a page in its project's space, tied to the chat.
+
+The footer says the limit of today: pages are files on this machine, and
+shared spaces with teams and permissions are a later phase, with a link to
+the GitHub discussions to follow and vote. Copying a page's folder to
+another machine's `~/.hark/artifacts` already works (the index reconciles).
+
+The `hark://` scheme is registered by the installed bundle; a `tauri dev`
+build does not register it, so links open the installed app.

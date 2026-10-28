@@ -112,6 +112,10 @@ export type HarkEvent =
   | { kind: "focus_project"; project: Project }
   /** An agent wrote a page under ~/.hark/artifacts: the tree re-reads. */
   | { kind: "artifact_written"; space: string; id: string; task_id?: string | null }
+  /** A `hark://artifacts/…` link: that page, in the artifacts view. */
+  | { kind: "open_page"; space: string; id: string }
+  /** A `hark://chat/…` link whose session the board does not know. */
+  | { kind: "deep_link_unknown"; url: string }
   | { kind: "hud_listen" }
   /** A permission was decided somewhere: every window resolves its card. */
   | { kind: "permission_decided"; request_id: string; allow: boolean }

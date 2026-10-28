@@ -600,6 +600,13 @@ export const artifactBrief = (space: string, id: string) => invoke<string>("arti
 /** The pages a text cites by title, as a context block (null = none). */
 export const artifactCites = (text: string) =>
   invoke<{ titles: string[]; block: string } | null>("artifact_cites", { text });
+/** A page out of the task's local brief, in the given space (zero tokens). */
+export const artifactFromBrief = (session: string, title: string, space: string, task?: string) =>
+  invoke<import("../types").ArtifactNode>("artifact_from_brief", { session, title, space, task: task ?? null });
+/** Writes `~/.hark/exports/<slug>.<ext>` and returns its absolute path. */
+export const exportFile = (name: string, content: string) => invoke<string>("export_file", { name, content });
+/** The Finder with the file selected (inside ~/.hark only). */
+export const revealPath = (path: string) => invoke("reveal_path", { path });
 export const artifactWrite = (space: string, id: string, text: string) =>
   invoke("artifact_write", { space, id, text });
 export const artifactCreate = (

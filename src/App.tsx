@@ -6,12 +6,14 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
-import { ExternalLink, FolderTree, PanelLeft, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
+import { Copy, Download, ExternalLink, FileText, FolderTree, PanelLeft, Share2, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import { colourIndex, projColour, scopeOf } from "./lib/scope";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import Artifacts, { ArtifactLinks, type ArtSel } from "./components/Artifacts";
 import Board, { type CardAsk } from "./components/Board";
+import SharePopover, { type ShareRow } from "./components/SharePopover";
+import { transcriptMarkdown } from "./lib/export";
 import Composer from "./components/Composer";
 import { toImagePair, type Attachment } from "./lib/composerText";
 import { FileTabs } from "./components/FilesEditor";
@@ -922,6 +924,13 @@ export default function App({
       startDraftRef.current(project);
     }, []),
     onArtifactWritten: useCallback(() => setArtTick((n) => n + 1), []),
+    onOpenPage: useCallback((space: string, id: string) => {
+      setView("artefatos");
+      setArtSel({ space, id });
+    }, []),
+    onDeepLinkUnknown: useCallback((url: string) => {
+      push({ who: "sys", text: t("share_link_unknown", { url }) });
+    }, []),
     onSessionStarted: useCallback((taskId: string, sessionId: string) => {
       // A fresh chat finally has a session: link the focused task to it.
       const label = workersRef.current[taskId]?.label;
@@ -2094,6 +2103,56 @@ export default function App({
 
   const railHas = (id: RailItem) => railOn === id;
 
+  // The task's share popover: link, resume command, transcript, brief as
+  // a page. Every row is local; the footer says so.
+  const [shareOpen, setShareOpen] = useState(false);
+  const shareRows: ShareRow[] = (() => {
+    if (!focusedTask?.sessionId) return [];
+    const session = focusedTask.sessionId;
+    const title = focusedTask.title;
+    const rows: ShareRow[] = [
+      {
+        icon: <Copy size={13} />,
+        label: t("share_copy_link"),
+        hint: `hark://chat/${session.slice(0, 8)}…`,
+        kbd: "⌘C",
+        run: () => navigator.clipboard.writeText(`hark://chat/${encodeURIComponent(session)}`).then(() => t("share_link_copied")),
+      },
+    ];
+    if (!terminalResumeFor(catalog, focusedAgent)) {
+      rows.push({
+        icon: <SquareTerminal size={13} />,
+        label: t("share_copy_resume"),
+        hint: `claude --resume ${session.slice(0, 8)}…`,
+        run: () => navigator.clipboard.writeText(`claude --resume ${session}`).then(() => t("share_copied")),
+      });
+    }
+    rows.push({
+      icon: <Download size={13} />,
+      label: t("share_export_transcript"),
+      hint: t("share_export_transcript_hint"),
+      run: async () => {
+        const out = await ipc.readTranscript(session, 5000);
+        const abs = await ipc.exportFile(`${title}.md`, transcriptMarkdown(out.session_title ?? title, out.entries));
+        await ipc.revealPath(abs).catch(() => {});
+        return t("share_exported");
+      },
+    });
+    const space = scope.kind === "chat" && scope.project ? scope.project.name : "pessoal";
+    rows.push({
+      icon: <FileText size={13} />,
+      label: t("share_save_brief"),
+      hint: t("share_save_brief_hint", { space }),
+      run: async () => {
+        const node = await ipc.artifactFromBrief(session, title, space, title);
+        setArtTick((n) => n + 1);
+        push({ who: "sys", text: t("share_brief_saved", { t: node.title, space }), task: title });
+        return t("share_brief_saved_short");
+      },
+    });
+    return rows;
+  })();
+
   /** The permission each task is waiting on right now: the board's cards
    *  answer it in place. One per task — the newest open one. */
   const askingByTask: Record<string, CardAsk> = {};
@@ -3203,6 +3262,18 @@ export default function App({
                       />
                     )}
                   </button>
+                  {focusedTask?.sessionId && (
+                    <span className="share-anchor">
+                      <button
+                        className={`chat-head-btn ${shareOpen ? "on" : ""}`}
+                        title={t("share_title")}
+                        onClick={() => setShareOpen((o) => !o)}
+                      >
+                        <Share2 size={13} />
+                      </button>
+                      {shareOpen && <SharePopover title={focusedTask.title} rows={shareRows} onClose={() => setShareOpen(false)} />}
+                    </span>
+                  )}
                   {isMain && scope.kind === "chat" && scope.project && (
                     <button
                       className="chat-head-btn"

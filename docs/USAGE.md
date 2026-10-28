@@ -120,6 +120,18 @@ Agents write pages through `HARK_ARTIFACTS_DIR`, set on every worker; a
 `Write` into that directory is caught as the page's origin, so the tree
 knows which chat produced which page. Nothing here costs tokens to browse.
 
+## Sharing
+
+The share button on a chat's title bar and on an artifact page opens the
+same popover. Every row delivers something on this machine today: a local
+link (`hark://chat/<session>`, `hark://artifacts/<space>/<page>`) that
+reopens Hark right there, the `claude --resume` command, the transcript as
+markdown, the page as markdown or as one html file in `~/.hark/exports`,
+the file in the Finder, and "save brief as a page" (the chat's local brief
+becomes a page in its project's space). The footer says the limit of
+today: nothing leaves this machine; shared spaces are a later phase, with
+a link to vote for them.
+
 ## Project windows
 
 A chat can be **detached** into a window of its own (the ↗ button in the
