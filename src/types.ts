@@ -8,6 +8,25 @@ export type Reply = {
 
 export type Project = { name: string; path: string };
 
+/** Artifacts: the documentation tree of a space (mirror of domain::artifacts). */
+export type ArtifactKind = "doc" | "slides" | "design";
+export type ArtifactOrigin = { session_id?: string | null; task?: string | null };
+export type ArtifactLink = { kind: string; session_id?: string | null; task?: string | null; node?: string | null };
+export type ArtifactNode = {
+  id: string;
+  title: string;
+  path: string;
+  parent?: string | null;
+  kind: ArtifactKind;
+  origin?: ArtifactOrigin | null;
+  links?: ArtifactLink[];
+  updated_at: string;
+  orphan?: boolean;
+};
+export type ArtifactTree = { nodes: ArtifactNode[]; order: Record<string, string[]> };
+export type ArtifactSpace = { name: string; project?: string | null; pages: number };
+export type ArtifactPage = { node: ArtifactNode; text: string; abs: string; breadcrumb: string[] };
+
 /** Where a message lands: the scope chip of the window. Mirrors the Rust
  *  `domain::scope::Scope`. "all" = nothing selected; "project" = a project
  *  but no chat; "chat" = a session; "page" = an artifact page. */

@@ -11,6 +11,8 @@ use hark_core::adapters::git_collect::GitCli;
 use hark_plugin_claude::live::ClaudeAgentsCli;
 use hark_core::adapters::memory_files::{self, HarkDir};
 use hark_core::adapters::sqlite_store::SqliteStore;
+use hark_core::adapters::artifacts_fs::FsArtifacts;
+use hark_core::ports::ArtifactStore as _;
 use hark_core::adapters::state_file;
 use hark_core::adapters::{cpal_audio::CpalMic, say_tts::SayTts, whisper_stt::WhisperStt};
 use hark_core::app::ask::{ask_with_image, AskDeps};
@@ -1209,6 +1211,20 @@ fn start_worker_titled(
                     if let Some(rec) = &recorder {
                         rec.entry(Entry { ts: record_ts(), role: Role::ToolUse, text: input.clone(), tool: Some(name.clone()), is_error: false });
                     }
+                    // A page written inside the artifacts root learns the
+                    // chat and task that wrote it; the index adopts it.
+                    let root = artifacts_root(&config);
+                    if let Some(page) = hark_core::domain::artifact_links::written_page(&name, &input, &root.to_string_lossy()) {
+                        let store = FsArtifacts::new(root);
+                        let origin = hark_core::domain::artifacts::Origin {
+                            session_id: Some(current_session.clone()).filter(|s| !s.is_empty()),
+                            task: Some(board_title.clone()),
+                        };
+                        match hark_core::app::artifacts::attach_origin(&store, &page.space, &page.path, origin, &now_iso()) {
+                            Ok(node) => emit_event(&app2, serde_json::json!({ "kind": "artifact_written", "space": page.space, "id": node.id, "task_id": task2 })),
+                            Err(err) => diag(&app2, &format!("artifact origin: {err}")),
+                        }
+                    }
                     // An APPROVED plan becomes the task's visible checklist.
                     if name == "ExitPlanMode" {
                         let plan = serde_json::from_str::<serde_json::Value>(&input)
@@ -1887,12 +1903,123 @@ pub(crate) fn worker_envs(config: &Config) -> Vec<(String, String)> {
     let settings = std::fs::read_to_string(hark_core::config::expand_home("~/.claude/settings.json"))
         .unwrap_or_default();
     let status = hark_plugin_claude::eco::detect(&settings);
-    hark_plugin_claude::eco::eco_envs(
+    let mut envs = hark_plugin_claude::eco::eco_envs(
         status,
         config.assist.ponytail.as_deref(),
         config.assist.caveman.as_deref(),
         config.assist.tokensave.as_deref(),
-    )
+    );
+    // Where the agent files a page when asked for one (the artifacts
+    // skill reads it): `<root>/<space>/<page>`.
+    envs.push(("HARK_ARTIFACTS_DIR".into(), artifacts_root(config).to_string_lossy().to_string()));
+    envs
+}
+
+/// `~/.hark/artifacts`: every space is a folder under it.
+fn artifacts_root(config: &Config) -> std::path::PathBuf {
+    config.data_dir().join("artifacts")
+}
+
+fn artifact_store() -> FsArtifacts {
+    FsArtifacts::new(artifacts_root(&Config::load()))
+}
+
+#[derive(Serialize)]
+struct ArtifactSpace {
+    name: String,
+    /// The registered project this space is named after, if any.
+    project: Option<String>,
+    pages: usize,
+}
+
+/// The spaces to show: every folder on disk, plus a space per registered
+/// project and the personal one, so the tree has somewhere to file a
+/// first page before any folder exists.
+#[tauri::command]
+fn artifacts_spaces() -> Result<Vec<ArtifactSpace>, String> {
+    let config = Config::load();
+    let store = artifact_store();
+    let on_disk = store.spaces().map_err(|e| e.to_string())?;
+    let projects = load_projects(&config);
+    let mut names: Vec<String> = projects.iter().map(|p| p.name.clone()).collect();
+    names.push("pessoal".into());
+    for s in on_disk {
+        if !names.contains(&s) {
+            names.push(s);
+        }
+    }
+    Ok(names
+        .into_iter()
+        .map(|name| {
+            let pages = store.list_pages(&name).map(|p| p.len()).unwrap_or(0);
+            let project = projects.iter().find(|p| p.name == name).map(|p| p.path.clone());
+            ArtifactSpace { name, project, pages }
+        })
+        .collect())
+}
+
+/// The tree of a space, reconciled with its files.
+#[tauri::command]
+fn artifacts_tree(space: String) -> Result<hark_core::domain::artifacts::Tree, String> {
+    hark_core::app::artifacts::load(&artifact_store(), &space, &now_iso()).map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+struct ArtifactPage {
+    node: hark_core::domain::artifacts::Node,
+    text: String,
+    /// Absolute path, for the editor and the Finder.
+    abs: String,
+    breadcrumb: Vec<String>,
+}
+
+#[tauri::command]
+fn artifact_read(space: String, id: String) -> Result<ArtifactPage, String> {
+    let store = artifact_store();
+    let tree = hark_core::app::artifacts::load(&store, &space, &now_iso()).map_err(|e| e.to_string())?;
+    let node = tree.get(&id).cloned().ok_or_else(|| format!("{id}: not found"))?;
+    let text = store.read_page(&space, &node.path).map_err(|e| e.to_string())?;
+    let abs = store.absolute(&space, &node.path).map_err(|e| e.to_string())?.to_string_lossy().to_string();
+    let breadcrumb = tree.breadcrumb(&id).into_iter().map(str::to_string).collect();
+    Ok(ArtifactPage { node, text, abs, breadcrumb })
+}
+
+#[tauri::command]
+fn artifact_write(space: String, id: String, text: String) -> Result<(), String> {
+    hark_core::app::artifacts::write(&artifact_store(), &space, &id, &text, &now_iso()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn artifact_create(
+    space: String,
+    parent: Option<String>,
+    title: String,
+    kind: hark_core::domain::artifacts::Kind,
+    session_id: Option<String>,
+    task: Option<String>,
+) -> Result<hark_core::domain::artifacts::Node, String> {
+    let origin = if session_id.is_some() || task.is_some() {
+        Some(hark_core::domain::artifacts::Origin { session_id, task })
+    } else {
+        None
+    };
+    hark_core::app::artifacts::create(&artifact_store(), &space, parent.as_deref(), &title, kind, origin, &now_iso())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn artifact_move(space: String, id: String, parent: Option<String>, at: usize) -> Result<(), String> {
+    hark_core::app::artifacts::move_to(&artifact_store(), &space, &id, parent.as_deref(), at).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn artifact_rename(space: String, id: String, title: String) -> Result<(), String> {
+    hark_core::app::artifacts::rename(&artifact_store(), &space, &id, &title).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn artifact_remove(space: String, id: String) -> Result<Vec<String>, String> {
+    hark_core::app::artifacts::remove(&artifact_store(), &space, &id).map_err(|e| e.to_string())
 }
 
 /// The ledger fingerprint of a spawn's eco set (feeds spend.outcome).
@@ -5500,6 +5627,14 @@ pub fn run() {
             task_from_session,
             open_project_window,
             open_task,
+            artifacts_spaces,
+            artifacts_tree,
+            artifact_read,
+            artifact_write,
+            artifact_create,
+            artifact_move,
+            artifact_rename,
+            artifact_remove,
             focus_main,
             subscription_limits,
             usage_report,

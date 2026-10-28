@@ -589,3 +589,31 @@ export const agentPluginEnable = (id: string, enabled: boolean) =>
 /** The agent that runs (or would run) a session — "" for a new chat. */
 export const agentForSession = (sessionId: string) =>
   invoke<string>("agent_for_session", { sessionId });
+
+// ---- artifacts: the documentation tree, local, zero tokens ----
+export const artifactsSpaces = () => invoke<import("../types").ArtifactSpace[]>("artifacts_spaces");
+export const artifactsTree = (space: string) => invoke<import("../types").ArtifactTree>("artifacts_tree", { space });
+export const artifactRead = (space: string, id: string) =>
+  invoke<import("../types").ArtifactPage>("artifact_read", { space, id });
+export const artifactWrite = (space: string, id: string, text: string) =>
+  invoke("artifact_write", { space, id, text });
+export const artifactCreate = (
+  space: string,
+  parent: string | null,
+  title: string,
+  kind: import("../types").ArtifactKind,
+  origin?: { sessionId?: string; task?: string },
+) =>
+  invoke<import("../types").ArtifactNode>("artifact_create", {
+    space,
+    parent,
+    title,
+    kind,
+    sessionId: origin?.sessionId ?? null,
+    task: origin?.task ?? null,
+  });
+export const artifactMove = (space: string, id: string, parent: string | null, at: number) =>
+  invoke("artifact_move", { space, id, parent, at });
+export const artifactRename = (space: string, id: string, title: string) =>
+  invoke("artifact_rename", { space, id, title });
+export const artifactRemove = (space: string, id: string) => invoke<string[]>("artifact_remove", { space, id });
