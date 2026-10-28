@@ -18,6 +18,7 @@ const DOT: Record<BoardTask["status"], string> = {
  */
 export default function Sidebar({
   projects,
+  colourOf,
   tasks,
   chats = [],
   activeTitle,
@@ -41,6 +42,8 @@ export default function Sidebar({
   workspaceName,
 }: {
   projects: Project[];
+  /** The project colour of a path (css token), by registry order. */
+  colourOf?: (path: string) => string | undefined;
   tasks: BoardTask[];
   /** Claude Code history of the project (index), minus adopted sessions. */
   chats?: SessionHit[];
@@ -208,8 +211,13 @@ export default function Sidebar({
         );
         // The five most recent, always. Search moved to the palette.
         const matches = projChats.slice(0, 5);
+        const colour = colourOf?.(p.path);
         return (
-          <section key={p.path} className="side-group">
+          <section
+            key={p.path}
+            className="side-group"
+            style={colour ? ({ "--proj": colour } as React.CSSProperties) : undefined}
+          >
             <div className="side-group-head">
               <span className="side-group-name" title={p.path}>
                 {/* In a project window the project name is already the

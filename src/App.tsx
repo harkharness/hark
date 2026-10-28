@@ -7,6 +7,7 @@ import {
   type ImperativePanelHandle,
 } from "react-resizable-panels";
 import { PanelLeft, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
+import { colourIndex, projColour, scopeOf } from "./lib/scope";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import Board from "./components/Board";
@@ -866,6 +867,20 @@ export default function App({
     forcedProject ??
     draftChat ??
     (focusedTask ? projectOf(board.find((t) => t.title === focusedTask.title)) : undefined);
+
+  /** Where a message lands, as ONE value: the chip on the composer and the
+   *  breadcrumb over the chat print it. It is derived from the three
+   *  states above for now; it replaces them in the single-window cut. */
+  const scope = scopeOf({
+    forcedProject,
+    draftChat,
+    focusedTask,
+    taskProject: focusedTask ? projectOf(board.find((t) => t.title === focusedTask.title)) : undefined,
+  });
+  /** Colour by REGISTRY order, not by this window's filtered list, so a
+   *  project is the same colour in every window and in the mother. */
+  const colourOf = useCallback((path?: string) => projColour(colourIndex(path, allProjects)), [allProjects]);
+  const scopeColour = colourOf(scope.kind === "chat" ? scope.project?.path : scope.kind === "project" ? scope.project.path : undefined);
 
   // Git state for the work on screen: the focused task's repository (its
   // workspace is often a subdirectory — the Rust side resolves the root)
@@ -2609,6 +2624,7 @@ export default function App({
           >
             <Sidebar
               projects={projects}
+              colourOf={colourOf}
               tasks={board}
               // A history row steps aside only for a card THIS window
               // lists: a session whose card lives in another project used
@@ -2668,7 +2684,7 @@ export default function App({
           </Panel>
           <PanelResizeHandle className="rhandle" />
           <Panel minSize={30} className="pane">
-            <div className="maincol">
+            <div className="maincol" style={scopeColour ? ({ "--proj": scopeColour } as React.CSSProperties) : undefined}>
               {/* The thread says what it is: a slim title over the prose,
                   like the Claude Code app — controls stay on the composer. */}
               {!reading && (
@@ -2679,6 +2695,16 @@ export default function App({
                           element carrying the attribute: the children that
                           cover the header must carry it too, or the title
                           bar cannot move the window. */}
+                      {/* The project before the chat, in its colour: the
+                          boundary the sidebar and the composer chip share. */}
+                      {scope.kind === "chat" && scope.project && (
+                        <>
+                          <span className="proj-dot" data-tauri-drag-region />
+                          <span className="crumb" data-tauri-drag-region>
+                            {scope.project.name} ›
+                          </span>
+                        </>
+                      )}
                       <span className="chat-title" data-tauri-drag-region>
                         {focusedTask.title}
                       </span>
@@ -2878,6 +2904,8 @@ export default function App({
                 placeholder={placeholder}
                 projects={projects}
                 activeProject={activeProject}
+                scope={scope}
+                scopeColour={scopeColour}
                 pendingPermissionId={
                   pendingPermission?.who === "permission" ? pendingPermission.requestId : undefined
                 }

@@ -8,6 +8,15 @@ export type Reply = {
 
 export type Project = { name: string; path: string };
 
+/** Where a message lands: the scope chip of the window. Mirrors the Rust
+ *  `domain::scope::Scope`. "all" = nothing selected; "project" = a project
+ *  but no chat; "chat" = a session; "page" = an artifact page. */
+export type Scope =
+  | { kind: "all" }
+  | { kind: "project"; project: Project }
+  | { kind: "chat"; title: string; sessionId?: string; project?: Project }
+  | { kind: "page"; title: string; path: string; space: string };
+
 export type TurnUsage = {
   input: number;
   output: number;

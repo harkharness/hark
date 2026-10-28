@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Mic, SendHorizontal, Square, X } from "lucide-react";
+import { Globe, Mic, SendHorizontal, Square, X } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
+import { breadcrumb } from "../lib/scope";
+import type { Scope } from "../types";
 import type { Project } from "../types";
 import {
   type Attachment,
@@ -77,6 +79,8 @@ export default function Composer({
   placeholder,
   projects,
   activeProject,
+  scope,
+  scopeColour,
   pendingPermissionId,
   onSubmit,
   onMic,
@@ -94,6 +98,11 @@ export default function Composer({
   projects: Project[];
   /** Project the thread lives in; scopes @mentions (falls back to all). */
   activeProject?: Project;
+  /** Where the message lands; drawn as the first chip of the row. */
+  scope?: Scope;
+  /** The scope's project colour (a css token), from the registry order:
+   *  the window's own project list may be filtered, the registry is not. */
+  scopeColour?: string;
   pendingPermissionId?: string;
   onSubmit: (text: string, images: Attachment[]) => void;
   onMic: () => void;
@@ -647,7 +656,10 @@ export default function Composer({
         {/* Controls live INSIDE the card (Claude Code grammar): one
             surface holds the text and its row of pills and circles. */}
         <div className="inputbar-row">
-        <div className="inputbar-chips">{children}</div>
+        <div className="inputbar-chips">
+          {scope && <ScopeChip scope={scope} colour={scopeColour} />}
+          {children}
+        </div>
         {trailing}
         <button className={`mic ${recording ? "recording" : ""}`} onClick={onMic} title={t("speak_btn")}>
           <Mic size={15} />
@@ -669,5 +681,30 @@ export default function Composer({
         </div>
       </div>
     </div>
+  );
+}
+
+/** The scope chip: a globe for "all projects", else the project's dot and
+ *  the breadcrumb (project › chat). Read-only for now: it says where the
+ *  message lands; choosing is still the sidebar's job. */
+function ScopeChip({ scope, colour }: { scope: Scope; colour?: string }) {
+  const crumbs = breadcrumb(scope);
+  if (crumbs.length === 0) {
+    return (
+      <span className="scope-chip" title={t("scope_all")}>
+        <Globe size={12} /> {t("scope_all")}
+      </span>
+    );
+  }
+  return (
+    <span className="scope-chip" style={colour ? ({ "--proj": colour } as React.CSSProperties) : undefined} title={crumbs.join(" › ")}>
+      {colour && <span className="dot" />}
+      {crumbs.map((c, i) => (
+        <span key={i}>
+          {i > 0 && <span className="sep"> › </span>}
+          {c}
+        </span>
+      ))}
+    </span>
   );
 }

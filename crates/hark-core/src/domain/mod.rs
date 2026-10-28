@@ -31,6 +31,7 @@ pub mod registry;
 pub mod repo;
 pub mod report;
 pub mod savings;
+pub mod scope;
 pub mod shell_path;
 pub mod precheck;
 pub mod snapshot;
