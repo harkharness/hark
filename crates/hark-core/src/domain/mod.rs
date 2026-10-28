@@ -1,6 +1,7 @@
 //! Pure domain logic. Nothing in this module performs I/O.
 
 pub mod agents;
+pub mod artifacts;
 pub mod address;
 pub mod answer;
 pub mod board;
