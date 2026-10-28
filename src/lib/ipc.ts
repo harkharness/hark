@@ -331,8 +331,13 @@ export const projectAdd = (path: string) => invoke<Project>("project_add", { pat
 export const projectRemove = (key: string) => invoke("project_remove", { key });
 
 /** Open (or focus) a project's own window — the VSCode model. */
-/** Open (or focus) a project window. With `task`, that task's chat is the
- *  landing screen — a card click on the global board resumes the work. */
+/** Put a task (or a project) on screen: the main window, unless the
+ *  project has a detached window open. Never opens a window by itself. */
+export const openTask = (name: string, path: string, task?: string, session?: string) =>
+  invoke("open_task", { name, path, task: task ?? null, session: session ?? null });
+
+/** DETACH: open (or focus) a project's own window. With `task`, that
+ *  task's chat is the landing screen. A deliberate act, never implied. */
 export const openProjectWindow = (
   name: string,
   path: string,

@@ -6,7 +6,7 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
-import { PanelLeft, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
+import { ExternalLink, PanelLeft, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import { colourIndex, projColour, scopeOf } from "./lib/scope";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
@@ -895,7 +895,12 @@ export default function App({
       setFocused((f) => (f === taskId ? null : f));
     }, []),
     onFocusTask: useCallback((title: string, sessionId?: string | null) => {
+      setView("chat");
       openTaskRef.current(title, sessionId ?? undefined);
+    }, []),
+    onFocusProject: useCallback((project: Project) => {
+      setView("chat");
+      startDraftRef.current(project);
     }, []),
     onSessionStarted: useCallback((taskId: string, sessionId: string) => {
       // A fresh chat finally has a session: link the focused task to it.
@@ -1465,7 +1470,7 @@ export default function App({
         refresh();
         // "abre um novo projeto": registering IS half the intent — the
         // window is the other half.
-        await ipc.openProjectWindow(cmd.title, cmd.path).catch(() => {});
+        await ipc.openTask(cmd.title, cmd.path).catch(() => {});
       } else if (cmd.kind === "project_error") {
         push({ who: "sys", text: cmd.title });
         say("Não consegui adicionar esse projeto.");
@@ -1489,7 +1494,7 @@ export default function App({
         push({ who: "sys", text: cmd.title });
         say(cmd.title);
       } else if (cmd.kind === "open_project") {
-        await ipc.openProjectWindow(cmd.title, cmd.path).catch((err) =>
+        await ipc.openTask(cmd.title, cmd.path).catch((err) =>
           push({ who: "sys", text: `janela: ${err}` }),
         );
         if (cmd.instruction) {
@@ -2270,6 +2275,8 @@ export default function App({
   pendingPermRef.current = pendingPermission;
   const answerPermissionRef = useRef(answerPermission);
   answerPermissionRef.current = answerPermission;
+  const startDraftRef = useRef(startDraftChat);
+  startDraftRef.current = startDraftChat;
   const pendingRef = useRef<Pending>(null);
   pendingRef.current = pending;
 
@@ -2715,10 +2722,10 @@ export default function App({
       const owner = allProjects.find((p) => ws === p.path || ws.startsWith(`${p.path}/`));
       if (owner) {
         await ipc
-          .openProjectWindow(owner.name, owner.path, task.title, hit.session_id)
+          .openTask(owner.name, owner.path, task.title, hit.session_id)
           .catch((err) => push({ who: "sys", text: `janela: ${err}` }));
         push({ who: "sys", text: `"${task.title}" é do projeto ${owner.name}: abri lá` });
-        say(`Essa sessão é do projeto ${owner.name}. Abri a janela dele.`);
+        say(`Essa sessão é do projeto ${owner.name}. Abri lá.`);
         refresh();
         return;
       }
@@ -3143,6 +3150,20 @@ export default function App({
                       />
                     )}
                   </div>
+                  {isMain && scope.kind === "chat" && scope.project && (
+                    <button
+                      className="chat-head-btn"
+                      title={t("detach_window")}
+                      onClick={() => {
+                        const p = scope.project!;
+                        void ipc
+                          .openProjectWindow(p.name, p.path, scope.title, scope.sessionId)
+                          .catch((err) => push({ who: "sys", text: `janela: ${err}` }));
+                      }}
+                    >
+                      <ExternalLink size={13} />
+                    </button>
+                  )}
                   <button
                     className={`chat-head-btn ${railHas("terminal") ? "on" : ""}`}
                     title={t("terminal_btn")}
@@ -3425,7 +3446,7 @@ export default function App({
           push({ who: "sys", text: `projeto ${entry.name} registrado (${entry.path})` });
           say(st("sp_project_added", { t: entry.name }));
           refresh();
-          await ipc.openProjectWindow(entry.name, entry.path).catch(() => {});
+          await ipc.openTask(entry.name, entry.path).catch(() => {});
         }}
         onCompactFirst={dispatchCompactFirst}
       />

@@ -4935,6 +4935,56 @@ fn board_archive(title: String) -> Result<(), String> {
 /// a card on the global board goes straight back to work). A window that
 /// already exists gets an event; a fresh one carries it in the URL, since
 /// its webview is not listening yet.
+/// The window label of a project's detached window.
+fn project_label(path: &str) -> String {
+    format!(
+        "proj-{}",
+        path.chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect::<String>()
+    )
+    .chars()
+    .take(60)
+    .collect()
+}
+
+/// Where a task lands when something (voice, a card, a command) wants it
+/// on screen: the main window, which holds every project, unless that
+/// project has a DETACHED window open, which then keeps receiving its own
+/// tasks. Opening a project window is a deliberate act ("destacar");
+/// nothing here does it on the user's behalf.
+#[tauri::command]
+fn open_task(
+    app: AppHandle,
+    name: String,
+    path: String,
+    task: Option<String>,
+    session: Option<String>,
+) -> Result<(), String> {
+    if app.get_webview_window(&project_label(&path)).is_some() {
+        return open_project_window(app, name, path, task, session);
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.unminimize();
+        let _ = main.set_focus();
+    }
+    let payload = match task {
+        Some(title) => serde_json::json!({
+            "kind": "focus_task",
+            "title": title,
+            "session_id": session,
+            "project": { "name": name, "path": path },
+        }),
+        None => serde_json::json!({
+            "kind": "focus_project",
+            "project": { "name": name, "path": path },
+        }),
+    };
+    let _ = app.emit_to("main", "hark", payload);
+    Ok(())
+}
+
 #[tauri::command]
 fn open_project_window(
     app: AppHandle,
@@ -4943,15 +4993,7 @@ fn open_project_window(
     task: Option<String>,
     session: Option<String>,
 ) -> Result<(), String> {
-    let label: String = format!(
-        "proj-{}",
-        path.chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .collect::<String>()
-    )
-    .chars()
-    .take(60)
-    .collect();
+    let label = project_label(&path);
     if let Some(existing) = app.get_webview_window(&label) {
         let _ = existing.unminimize();
         let _ = existing.set_focus();
@@ -5457,6 +5499,7 @@ pub fn run() {
             project_sessions,
             task_from_session,
             open_project_window,
+            open_task,
             focus_main,
             subscription_limits,
             usage_report,
@@ -5494,8 +5537,10 @@ pub fn run() {
             // Focus ledger: the OS tells us which PROJECT window the user
             // is working in; the spoken word follows it. Mother/HUD focus
             // is a no-op inside the ledger, closing falls back.
+            // The main window reports too now: it is where unaddressed
+            // speech lands unless a detached project window is in front.
             let label = window.label().to_string();
-            if label.starts_with("proj-") {
+            if label.starts_with("proj-") || label == "main" {
                 let app = window.app_handle();
                 let ctx = app.state::<voice::ActiveContext>();
                 match event {

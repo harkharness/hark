@@ -89,7 +89,8 @@ export type HarkEvent =
   | { kind: "mic"; phase: "capturing" | "transcribing" | "idle"; owner: string }
   | { kind: "hotkey_mic" }
   | { kind: "main_tab"; tab: string }
-  | { kind: "focus_task"; title: string; session_id?: string | null }
+  | { kind: "focus_task"; title: string; session_id?: string | null; project?: Project }
+  | { kind: "focus_project"; project: Project }
   | { kind: "hud_listen" }
   /** A permission was decided somewhere: every window resolves its card. */
   | { kind: "permission_decided"; request_id: string; allow: boolean }

@@ -362,7 +362,9 @@ pub fn voice_execute(
         let name = project_name.clone().unwrap_or_else(|| {
             ws.split('/').rfind(|s| !s.is_empty()).unwrap_or("projeto").to_string()
         });
-        let _ = super::open_project_window(
+        // The main window, unless this project is detached: no window
+        // opens because a sentence was spoken.
+        let _ = super::open_task(
             app.clone(),
             name,
             ws.clone(),

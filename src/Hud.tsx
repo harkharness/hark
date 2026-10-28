@@ -166,7 +166,7 @@ export default function Hud() {
     }
     const name = cand.project_name ?? ws.split("/").filter(Boolean).pop() ?? "projeto";
     await ipc
-      .openProjectWindow(name, ws, title, cand.session_id ?? undefined)
+      .openTask(name, ws, title, cand.session_id ?? undefined)
       .catch(() => {});
     record(title, "aberta");
     finish(`→ ${title} · aberta`, "ok", 1400);
@@ -193,7 +193,7 @@ export default function Hud() {
   /** Local commands the HUD can run itself (zero tokens). */
   async function runCommand(cmd: import("./types").TaskCommandResult) {
     if (cmd.kind === "open_project" || cmd.kind === "new_chat") {
-      await ipc.openProjectWindow(cmd.title, cmd.path).catch(() => {});
+      await ipc.openTask(cmd.title, cmd.path).catch(() => {});
       if (cmd.instruction) {
         await ipc.chatStart(cmd.path, cmd.instruction).catch(() => {});
         record(cmd.title, "chat iniciado");
@@ -259,7 +259,7 @@ export default function Hud() {
           finish("não consegui registrar o projeto", "warn", 2600);
           return;
         }
-        await ipc.openProjectWindow(entry.name, entry.path).catch(() => {});
+        await ipc.openTask(entry.name, entry.path).catch(() => {});
         record(entry.name, "projeto registrado");
         finish(`→ ${entry.name} · registrado e aberto`, "ok", 1500);
       } else if (verdict.kind === "deny") {
@@ -269,7 +269,7 @@ export default function Hud() {
       }
     } else if (cmd.kind === "project_added") {
       // Registering IS half the intent — the window is the other half.
-      await ipc.openProjectWindow(cmd.title, cmd.path).catch(() => {});
+      await ipc.openTask(cmd.title, cmd.path).catch(() => {});
       record(cmd.title, "projeto registrado");
       finish(`→ ${cmd.title} · registrado e aberto`, "ok", 1500);
     } else if (cmd.kind === "project_error") {
