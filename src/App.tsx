@@ -13,6 +13,8 @@ import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import Artifacts, { ArtifactLinks, type ArtSel } from "./components/Artifacts";
 import Board, { type CardAsk } from "./components/Board";
 import SharePopover, { type ShareRow } from "./components/SharePopover";
+import VoiceRound from "./components/VoiceRound";
+import { useVoiceRound } from "./hooks/useVoiceRound";
 import { transcriptMarkdown } from "./lib/export";
 import Composer from "./components/Composer";
 import { toImagePair, type Attachment } from "./lib/composerText";
@@ -931,6 +933,8 @@ export default function App({
     onDeepLinkUnknown: useCallback((url: string) => {
       push({ who: "sys", text: t("share_link_unknown", { url }) });
     }, []),
+    // The hotkey with this window in front: the composer listens, no HUD.
+    onHudListen: useCallback(() => voiceStartRef.current(), []),
     onSessionStarted: useCallback((taskId: string, sessionId: string) => {
       // A fresh chat finally has a session: link the focused task to it.
       const label = workersRef.current[taskId]?.label;
@@ -2302,6 +2306,14 @@ export default function App({
   /** ONE voice surface: every mic button opens the global HUD. It knows
    *  this window is focused (the ledger) — speech lands here anyway, and
    *  the confirm chip + candidates come along for free. */
+  // The voice round in the composer (phase 10.6): the same ear the HUD
+  // has, drawn over the text while the main window is in front. A
+  // detached project window still floats the HUD — it has no general
+  // chat to narrate into.
+  const voice = useVoiceRound({ owner: "main", onHide: () => {}, keys: true });
+  const voiceStartRef = useRef(voice.start);
+  voiceStartRef.current = voice.start;
+
   async function onMic() {
     if (heldBy) {
       push({
@@ -2310,6 +2322,10 @@ export default function App({
         task: focusedTask?.title,
       });
       say("Essa sessão está aberta no terminal. Fecha lá ou abre um fork.");
+      return;
+    }
+    if (isMain) {
+      voice.start();
       return;
     }
     await ipc.hudShow().catch((err) => push({ who: "sys", text: `voz: ${err}` }));
@@ -3462,6 +3478,11 @@ export default function App({
                 onAnswerPermission={answerPermission}
                 trailing={trailingControls}
                 banner={focusedRepo ? <RepoRuler state={focusedRepo} /> : undefined}
+                voice={
+                  isMain && voice.active ? (
+                    <VoiceRound stage={voice.stage} onPick={voice.pick} onTyped={voice.typed} onEscape={voice.escape} />
+                  ) : undefined
+                }
               >
                 <ModeSelect
                   value={currentMode}

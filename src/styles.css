@@ -2817,3 +2817,11 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .share-toast { display: flex; justify-content: center; align-items: center; gap: 5px; margin-top: 6px; color: var(--ok); font-size: 11.5px; }
 .share-error { margin-top: 6px; color: var(--err); font-size: 11.5px; }
 .chat-head-btn.on { color: var(--accent); }
+
+/* ---- the voice round inside the composer (phase 10.6) ---- */
+.voice-strip {
+  position: relative; display: flex; flex-direction: column; gap: 8px; overflow: hidden;
+  margin: 2px 4px 10px; padding: 10px 12px; border-radius: 10px;
+  background: rgba(122,162,247,.06); border: 1px solid rgba(122,162,247,.3);
+}
+.voice-strip .hud-text { white-space: normal; }

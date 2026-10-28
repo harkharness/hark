@@ -8,6 +8,9 @@ side effects concentrated in one orchestrator.
 src/
   main.tsx            entry point: the main window (every project), a
                       detached project window (?project=), or the HUD
+  Hud.tsx             the floating voice HUD window: the face of one voice
+                      round (useVoiceRound) when the main window is not
+                      in front
   App.tsx             THE orchestrator: all state, all flows, the layout;
                       the same component is the main window and a
                       detached project window (`forcedProject`)
@@ -23,6 +26,9 @@ src/
     highlight.ts      highlight.js core + grammars for the file viewer
   hooks/
     useHarkEvents.ts   the single subscription to backend events
+    useVoiceRound.ts   one voice round (hear → plan → confirm → execute),
+                       the HUD's state machine lifted so the composer runs
+                       it in place; no rendering
   components/         pure presentation, state comes in via props
     Sidebar.tsx       chats grouped by project (+ add/remove projects)
     Transcript.tsx    the visible thread (markdown, tool calls, permissions)
@@ -31,6 +37,9 @@ src/
     FileViewer.tsx    local file view/edit panel (zero tokens)
     QuickOpen.tsx     Cmd+P fuzzy file search
     Board.tsx         kanban tab
+    VoiceRound.tsx    the rows of a voice round (stages), shared by the
+                      HUD window and the composer's voice strip
+    SharePopover.tsx  share on a chat or a page: local rows, honest footer
     Artifacts.tsx     the documentation tree, a space's home, the open page
                       (html in a sandboxed frame) and the Links rail panel
     SessionPanel.tsx  the rail's session panel: environment, context,

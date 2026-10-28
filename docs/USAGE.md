@@ -49,8 +49,12 @@ interface, or the other way around. Recognition does not care either way.
 
 ## The voice loop
 
-Press the hotkey (`cmd+shift+space` by default) anywhere, in any app. A floating
-HUD opens, listens, and stops on its own after a beat of silence.
+Press the hotkey (`cmd+shift+space` by default) anywhere, in any app. With the
+main window in front, the composer itself listens: the round draws over the
+text (waveform, what it heard, the target chip) and the window stays where you
+were reading. Anywhere else a floating HUD opens instead. Either way it stops
+on its own after a beat of silence, and the mic button on the composer starts
+the same round.
 
 Before anything runs, Hark shows you two things: **what it heard** and **where
 it is going**. That second part is the whole point — a voice command that lands

@@ -55,6 +55,8 @@ type Handlers = {
   onOpenPage?: (space: string, id: string) => void;
   /** A `hark://chat` link the board could not place. */
   onDeepLinkUnknown?: (url: string) => void;
+  /** The hotkey while this window is in front: the composer listens. */
+  onHudListen?: () => void;
   /** The voice HUD executed something (the mother records the feed). */
   onVoiceAction?: (utterance: string, target?: string | null, status?: string) => void;
   /** A spoken turn echoed into the mother's unified thread. */
@@ -296,6 +298,8 @@ export function useHarkEvents(h: Handlers) {
         h.onOpenPage?.(ev.space, ev.id);
       } else if (ev.kind === "deep_link_unknown") {
         h.onDeepLinkUnknown?.(ev.url);
+      } else if (ev.kind === "hud_listen") {
+        h.onHudListen?.();
       } else if (ev.kind === "voice_action") {
         h.onVoiceAction?.(ev.utterance, ev.target, ev.status);
         h.refresh();

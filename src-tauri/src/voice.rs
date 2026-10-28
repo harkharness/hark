@@ -387,6 +387,15 @@ pub fn voice_execute(
 /// Show (or create) the floating voice HUD: bottom-center, frameless,
 /// always on top. Every show tells it to start listening.
 pub fn show_hud(app: &AppHandle) {
+    // The main window in front runs the round in its own composer (phase
+    // 10.6): same ear, no floating window over the thing you are reading.
+    // Anywhere else, the HUD floats as before.
+    if let Some(main) = app.get_webview_window("main") {
+        if main.is_focused().unwrap_or(false) {
+            let _ = app.emit_to("main", "hark", serde_json::json!({ "kind": "hud_listen" }));
+            return;
+        }
+    }
     if let Some(hud) = app.get_webview_window("hud") {
         position_hud(app, &hud);
         let _ = hud.show();

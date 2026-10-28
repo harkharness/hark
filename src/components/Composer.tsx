@@ -90,6 +90,7 @@ export default function Composer({
   children,
   trailing,
   banner,
+  voice,
   autoFocus,
 }: {
   disabled: boolean;
@@ -118,6 +119,9 @@ export default function Composer({
   trailing?: React.ReactNode;
   /** A readout pinned above the text, inside the card (the repo ruler). */
   banner?: React.ReactNode;
+  /** The voice round in place of a floating HUD: the rows of the round
+   *  over the text while it runs (main window in front). */
+  voice?: React.ReactNode;
   /** Focus the field on mount (the mother's expanded chat opens to type). */
   autoFocus?: boolean;
 }) {
@@ -532,6 +536,7 @@ export default function Composer({
   return (
     <div className="inputbar">
       <div className={`composer ${images.length > 0 ? "with-thumbs" : ""}`}>
+        {voice && <div className="voice-strip">{voice}</div>}
         {banner}
         {slash && (
           <div className="mention-pop slash-pop">
