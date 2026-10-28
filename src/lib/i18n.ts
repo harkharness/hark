@@ -722,6 +722,18 @@ const pt = {
   share_vote: "acompanhar e votar",
   share_vote_hint: "abre as discussões no GitHub",
   share_link_unknown: "o link {url} aponta para uma sessão que não está no quadro",
+  // diff panel
+  frame_diff: "Diff",
+  diff_tree: "árvore",
+  diff_files_n: "{n} arquivos",
+  diff_refresh: "reler o git",
+  diff_clean: "nada mudou desde o último commit",
+  diff_no_repo: "este chat não está num repositório git",
+  diff_binary: "binário",
+  diff_new: "novo",
+  diff_mark_seen: "marcar como visto (até o arquivo mudar de novo)",
+  diff_unseen: "visto · clique para desmarcar",
+  diff_open_file: "abrir o arquivo",
   set_data_hint: "índice, ledger e modelos ficam aqui — nada sai da máquina",
 };
 
@@ -1423,6 +1435,17 @@ const en: Record<keyof typeof pt, string> = {
   share_vote: "follow and vote",
   share_vote_hint: "opens the discussions on GitHub",
   share_link_unknown: "the link {url} points at a session that is not on the board",
+  frame_diff: "Diff",
+  diff_tree: "working tree",
+  diff_files_n: "{n} files",
+  diff_refresh: "re-read git",
+  diff_clean: "nothing changed since the last commit",
+  diff_no_repo: "this chat is not in a git repository",
+  diff_binary: "binary",
+  diff_new: "new",
+  diff_mark_seen: "mark as seen (until the file changes again)",
+  diff_unseen: "seen · click to unmark",
+  diff_open_file: "open the file",
   set_data_hint: "index, ledger and models live here — nothing leaves the machine",
 };
 

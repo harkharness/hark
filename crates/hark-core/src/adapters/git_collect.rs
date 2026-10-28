@@ -1,7 +1,7 @@
 //! Working-tree status of configured repositories via the `git` CLI.
 
 use crate::domain::prompt::RepoStatus;
-use crate::domain::repo::{parse_shortstat, parse_status_v2, RepoState};
+use crate::domain::repo::{FileChange, RepoState, parse_numstat, parse_shortstat, parse_status_v2, untracked_v2};
 use crate::ports::RepoCollector;
 
 /// Pure assembly from raw command outputs.
@@ -54,6 +54,42 @@ impl GitCli {
             state.removed = removed;
         }
         Some(state)
+    }
+}
+
+impl GitCli {
+    /// Every changed file of the repository `dir` belongs to: the diff
+    /// against HEAD plus the untracked files the status lists. Returns the
+    /// root too, so the caller can key what it caches by it.
+    pub fn changes(dir: &str) -> Option<(String, Vec<FileChange>)> {
+        let root = Self::git(dir, &["rev-parse", "--show-toplevel"])?;
+        let root = root.trim().to_string();
+        if root.is_empty() {
+            return None;
+        }
+        let mut changes = Self::git(&root, &["diff", "--numstat", "HEAD"]).map(|o| parse_numstat(&o)).unwrap_or_default();
+        if let Some(status) = Self::git(&root, &["status", "--porcelain=v2", "--branch"]) {
+            for path in untracked_v2(&status) {
+                changes.push(FileChange { path, added: 0, removed: 0, untracked: true, binary: false });
+            }
+        }
+        Some((root, changes))
+    }
+
+    /// The unified diff of one file against HEAD; an untracked file reads
+    /// whole as additions (`git diff --no-index` exits 1 when the files
+    /// differ, which here is the point, so its status is not an error).
+    pub fn diff_file(root: &str, path: &str, untracked: bool) -> Option<String> {
+        if untracked {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(["diff", "--no-index", "--", "/dev/null", path])
+                .output()
+                .ok()?;
+            return Some(String::from_utf8_lossy(&out.stdout).to_string());
+        }
+        Self::git(root, &["diff", "HEAD", "--", path])
     }
 }
 

@@ -148,6 +148,11 @@ reads like the terminal you already use:
   highlighting, tool calls folded, bursts of shell commands grouped.
 - **Deliverables** surface as file cards; CSVs open as tables; there is a real
   PTY terminal and a local file editor in the same window.
+- **The diff** of the workspace (the git-compare door in the chat's title
+  bar): every file changed since the last commit, untracked ones too, the
+  lines of the one you open, and a tick per file you have read — kept on
+  this machine, cleared when the file changes again. A readout over `git`;
+  it commits nothing.
 - **The board, filtered** to that project, plus what the project has spent.
 
 ## Dispatching work

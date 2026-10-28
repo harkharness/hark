@@ -276,6 +276,9 @@ export type RepoState = {
   removed: number;
 };
 
+/** One file of a working tree's diff against HEAD (mirror of domain::repo::FileChange). */
+export type FileChange = { path: string; added: number; removed: number; untracked: boolean; binary: boolean };
+
 export type BoardTask = {
   title: string;
   status: "backlog" | "doing" | "waiting" | "done";

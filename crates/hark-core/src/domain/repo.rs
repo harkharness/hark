@@ -83,6 +83,67 @@ pub fn parse_shortstat(out: &str) -> (u32, u32) {
     (added, removed)
 }
 
+/// One file of the working tree's diff against HEAD, as the panel lists
+/// it. Untracked files are changes too: git's diff does not list them,
+/// the status does.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileChange {
+    pub path: String,
+    pub added: u32,
+    pub removed: u32,
+    pub untracked: bool,
+    /// Git could not count lines (`-\t-`): an image, a binary.
+    pub binary: bool,
+}
+
+/// Parse `git diff --numstat HEAD`: `added\tremoved\tpath` per line, `-`
+/// for a binary, `{old => new}` inside a renamed path (kept as the new
+/// name).
+pub fn parse_numstat(out: &str) -> Vec<FileChange> {
+    out.lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(3, '\t');
+            let a = parts.next()?.trim();
+            let r = parts.next()?.trim();
+            let path = parts.next()?.trim();
+            if path.is_empty() {
+                return None;
+            }
+            let binary = a == "-" || r == "-";
+            Some(FileChange {
+                path: rename_target(path),
+                added: a.parse().unwrap_or(0),
+                removed: r.parse().unwrap_or(0),
+                untracked: false,
+                binary,
+            })
+        })
+        .collect()
+}
+
+/// `src/{old => new}/a.ts` → `src/new/a.ts`; `old => new` → `new`.
+fn rename_target(path: &str) -> String {
+    if let (Some(open), Some(close)) = (path.find('{'), path.find('}')) {
+        if open < close {
+            let inner = &path[open + 1..close];
+            if let Some((_, new)) = inner.split_once(" => ") {
+                return format!("{}{}{}", &path[..open], new, &path[close + 1..]);
+            }
+        }
+    }
+    path.split_once(" => ").map(|(_, new)| new.to_string()).unwrap_or_else(|| path.to_string())
+}
+
+/// The untracked files of `git status --porcelain=v2`: the `? path` lines.
+pub fn untracked_v2(out: &str) -> Vec<String> {
+    out.lines().filter_map(|l| l.strip_prefix("? ").map(|p| p.trim().to_string())).collect()
+}
+
+/// Lines added and removed over every change.
+pub fn totals(changes: &[FileChange]) -> (u32, u32) {
+    changes.iter().fold((0, 0), |(a, r), c| (a + c.added, r + c.removed))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,5 +206,31 @@ mod tests {
         assert_eq!(parse_shortstat(" 1 file changed, 5 insertions(+)\n"), (5, 0));
         assert_eq!(parse_shortstat(" 1 file changed, 9 deletions(-)\n"), (0, 9));
         assert_eq!(parse_shortstat(""), (0, 0));
+    }
+
+    #[test]
+    fn a_numstat_is_one_change_per_line_with_binaries_counted_as_zero() {
+        let out = "128\t0\tsrc/components/ReportDialog.tsx\n210\t19\tsrc-tauri/src/lib.rs\n-\t-\tdocs/img/shot.png\n3\t1\tsrc/{old => new}/a.ts\n";
+        let changes = parse_numstat(out);
+        assert_eq!(changes.len(), 4);
+        assert_eq!(changes[0], FileChange { path: "src/components/ReportDialog.tsx".into(), added: 128, removed: 0, untracked: false, binary: false });
+        assert_eq!(changes[2], FileChange { path: "docs/img/shot.png".into(), added: 0, removed: 0, untracked: false, binary: true });
+        assert_eq!(changes[3].path, "src/new/a.ts", "a rename shows where the file is now");
+        assert!(parse_numstat("").is_empty());
+    }
+
+    #[test]
+    fn untracked_files_come_from_the_status_and_count_as_new() {
+        let out = "# branch.head main\n1 .M N... 100644 100644 100644 aaa bbb src/main.rs\n? notes.txt\n? docs/new.md\n";
+        assert_eq!(untracked_v2(out), vec!["notes.txt", "docs/new.md"]);
+    }
+
+    #[test]
+    fn the_totals_sum_every_change() {
+        let changes = vec![
+            FileChange { path: "a".into(), added: 2, removed: 1, untracked: false, binary: false },
+            FileChange { path: "b".into(), added: 5, removed: 0, untracked: true, binary: false },
+        ];
+        assert_eq!(totals(&changes), (7, 1));
     }
 }

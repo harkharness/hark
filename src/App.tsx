@@ -6,13 +6,14 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
-import { Copy, Download, ExternalLink, FileText, FolderTree, PanelLeft, Share2, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
+import { Copy, Download, ExternalLink, FileText, FolderTree, GitCompare, PanelLeft, Share2, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import { colourIndex, projColour, scopeOf } from "./lib/scope";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
 import Artifacts, { ArtifactLinks, type ArtSel } from "./components/Artifacts";
 import Board, { type CardAsk } from "./components/Board";
 import SharePopover, { type ShareRow } from "./components/SharePopover";
+import DiffPanel from "./components/DiffPanel";
 import { transcriptMarkdown } from "./lib/export";
 import Composer from "./components/Composer";
 import { toImagePair, type Attachment } from "./lib/composerText";
@@ -64,7 +65,7 @@ import type {
   ArtifactTree,
 } from "./types";
 
-type RailItem = "sessao" | "terminal" | "arquivos" | "board" | "artefatos";
+type RailItem = "sessao" | "terminal" | "arquivos" | "board" | "artefatos" | "diff";
 
 export default function App({
   forcedProject,
@@ -273,7 +274,7 @@ export default function App({
   const [railOn, setRailOn] = useState<RailItem | null>(() => {
     try {
       const saved = window.localStorage.getItem(RAIL_KEY);
-      return saved === "sessao" || saved === "arquivos" || saved === "board" || saved === "artefatos" ? saved : null;
+      return saved === "sessao" || saved === "arquivos" || saved === "board" || saved === "artefatos" || saved === "diff" ? saved : null;
     } catch {
       return null;
     }
@@ -2958,6 +2959,26 @@ export default function App({
       />
     </PanelFrame>
   );
+  /** The diff of the workspace on screen: changed files, one at a time. */
+  const frameDiff = () => (
+    <PanelFrame
+      title={t("frame_diff")}
+      expanded={expanded === "diff"}
+      onToggleExpand={() => setExpanded((e) => (e === "diff" ? null : "diff"))}
+      onClose={() => removeRail("diff")}
+    >
+      {focusedWorkspace ? (
+        <DiffPanel
+          workspace={focusedWorkspace}
+          repo={focusedRepo}
+          tick={threadOutputs.reduce((n, o) => n + o.touches, 0)}
+          onOpenPath={openAbsolutePath}
+        />
+      ) : (
+        <div className="diff-empty">{t("diff_no_repo")}</div>
+      )}
+    </PanelFrame>
+  );
   /** The files window: the tree column, the tabs in the header, the viewer. */
   const frameArquivos = () => (
     <PanelFrame
@@ -3311,6 +3332,15 @@ export default function App({
                   >
                     <FolderTree size={13} />
                   </button>
+                  {focusedRepo && (
+                    <button
+                      className={`chat-head-btn ${railHas("diff") ? "on" : ""}`}
+                      title={t("frame_diff")}
+                      onClick={() => toggleRail("diff")}
+                    >
+                      <GitCompare size={13} />
+                    </button>
+                  )}
                   {!isMain && (
                     <button
                       className={`chat-head-btn ${railHas("board") ? "on" : ""}`}
@@ -3530,7 +3560,9 @@ export default function App({
                           ? frameBoard()
                           : railOn === "artefatos"
                             ? frameArtefatos()
-                            : frameArquivos()}
+                            : railOn === "diff"
+                              ? frameDiff()
+                              : frameArquivos()}
                   </div>
                 </div>
               </Panel>
