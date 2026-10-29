@@ -3814,6 +3814,98 @@ fn repo_diff(workspace: String, path: String) -> Result<String, String> {
     GitCli::diff_file(&root, &path, untracked).ok_or_else(|| format!("{path}: git could not diff it"))
 }
 
+// ---- the browser panel: a child webview over the rail (phase 10.7) ----
+//
+// A real page beside the chat, not an iframe: sites refuse frames, and a
+// child webview has its own origin, cookies and history. It is a webview
+// of the main window with no capability of its own, so the page never
+// reaches a Tauri command; the front only moves it around and navigates
+// it. Behind tauri's `unstable` feature (`Window::add_child`).
+
+const BROWSER_LABEL: &str = "browser";
+
+fn browser_url(raw: &str) -> Result<tauri::Url, String> {
+    let text = raw.trim();
+    if text.is_empty() {
+        return Err("empty url".into());
+    }
+    let with_scheme = if text.contains("://") { text.to_string() } else { format!("https://{text}") };
+    let url = tauri::Url::parse(&with_scheme).map_err(|e| format!("{raw}: {e}"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(format!("{raw}: only http(s) pages open here"));
+    }
+    Ok(url)
+}
+
+fn browser_rect(x: f64, y: f64, w: f64, h: f64) -> tauri::Rect {
+    tauri::Rect {
+        position: tauri::Position::Logical(tauri::LogicalPosition { x, y }),
+        size: tauri::Size::Logical(tauri::LogicalSize { width: w.max(1.0), height: h.max(1.0) }),
+    }
+}
+
+/// Open (or move and navigate) the browser webview at the given logical
+/// bounds inside the main window.
+#[tauri::command]
+fn browser_open(app: AppHandle, url: String, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    let url = browser_url(&url)?;
+    if let Some(existing) = app.get_webview(BROWSER_LABEL) {
+        existing.set_bounds(browser_rect(x, y, w, h)).map_err(|e| e.to_string())?;
+        existing.navigate(url).map_err(|e| e.to_string())?;
+        return existing.show().map_err(|e| e.to_string());
+    }
+    let main = app.get_webview_window("main").ok_or("no main window")?;
+    let window: tauri::Window = main.as_ref().window();
+    let builder = tauri::webview::WebviewBuilder::new(BROWSER_LABEL, tauri::WebviewUrl::External(url)).zoom_hotkeys_enabled(true);
+    window
+        .add_child(builder, tauri::LogicalPosition { x, y }, tauri::LogicalSize { width: w.max(1.0), height: h.max(1.0) })
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn browser_bounds(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
+    wv.set_bounds(browser_rect(x, y, w, h)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn browser_navigate(app: AppHandle, url: String) -> Result<(), String> {
+    let wv = app.get_webview(BROWSER_LABEL).ok_or("browser closed")?;
+    wv.navigate(browser_url(&url)?).map_err(|e| e.to_string())
+}
+
+/// Back, forward or reload: history lives in the page's webview.
+#[tauri::command]
+fn browser_history(app: AppHandle, action: String) -> Result<(), String> {
+    let wv = app.get_webview(BROWSER_LABEL).ok_or("browser closed")?;
+    let js = match action.as_str() {
+        "back" => "history.back()",
+        "forward" => "history.forward()",
+        "reload" => "location.reload()",
+        other => return Err(format!("{other}: unknown action")),
+    };
+    wv.eval(js).map_err(|e| e.to_string())
+}
+
+/// The page's current address, for the bar.
+#[tauri::command]
+fn browser_url_now(app: AppHandle) -> Result<Option<String>, String> {
+    Ok(app.get_webview(BROWSER_LABEL).and_then(|wv| wv.url().ok()).map(|u| u.to_string()))
+}
+
+#[tauri::command]
+fn browser_hide(app: AppHandle) -> Result<(), String> {
+    let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
+    wv.hide().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn browser_close(app: AppHandle) -> Result<(), String> {
+    let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
+    wv.close().map_err(|e| e.to_string())
+}
+
 /// Git state for a set of task workspaces, in one call.
 ///
 /// Zero tokens: three `git` reads per repository, cached for a couple of
@@ -5846,6 +5938,13 @@ pub fn run() {
             session_owners,
             repo_states,
             repo_changes,
+            browser_open,
+            browser_bounds,
+            browser_navigate,
+            browser_history,
+            browser_url_now,
+            browser_hide,
+            browser_close,
             repo_diff,
             crossref_context,
             transcript_since,

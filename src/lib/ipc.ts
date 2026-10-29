@@ -22,6 +22,14 @@ export const repoChanges = (workspace: string) =>
   invoke<{ root: string; changes: import("../types").FileChange[] }>("repo_changes", { workspace });
 /** The unified diff of one changed file (untracked = whole file as added). */
 export const repoDiff = (workspace: string, path: string) => invoke<string>("repo_diff", { workspace, path });
+// ---- the browser panel: a child webview the front only moves and steers ----
+export const browserOpen = (url: string, x: number, y: number, w: number, h: number) =>
+  invoke("browser_open", { url, x, y, w, h });
+export const browserBounds = (x: number, y: number, w: number, h: number) => invoke("browser_bounds", { x, y, w, h });
+export const browserNavigate = (url: string) => invoke("browser_navigate", { url });
+export const browserHistory = (action: "back" | "forward" | "reload") => invoke("browser_history", { action });
+export const browserUrlNow = () => invoke<string | null>("browser_url_now");
+export const browserClose = () => invoke("browser_close");
 export const repoStates = (paths: string[]) =>
   invoke<Record<string, RepoState>>("repo_states", { paths });
 

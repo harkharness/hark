@@ -734,6 +734,13 @@ const pt = {
   diff_mark_seen: "marcar como visto (até o arquivo mudar de novo)",
   diff_unseen: "visto · clique para desmarcar",
   diff_open_file: "abrir o arquivo",
+  // browser panel
+  frame_browser: "Navegador",
+  browser_back: "voltar",
+  browser_forward: "avançar",
+  browser_reload: "recarregar",
+  browser_external: "abrir no navegador do sistema",
+  browser_hint: "a página abre aqui dentro; ela não fala com o Hark",
   set_data_hint: "índice, ledger e modelos ficam aqui — nada sai da máquina",
 };
 
@@ -1446,6 +1453,12 @@ const en: Record<keyof typeof pt, string> = {
   diff_mark_seen: "mark as seen (until the file changes again)",
   diff_unseen: "seen · click to unmark",
   diff_open_file: "open the file",
+  frame_browser: "Browser",
+  browser_back: "back",
+  browser_forward: "forward",
+  browser_reload: "reload",
+  browser_external: "open in the system browser",
+  browser_hint: "the page opens in here; it cannot talk to Hark",
   set_data_hint: "index, ledger and models live here — nothing leaves the machine",
 };
 

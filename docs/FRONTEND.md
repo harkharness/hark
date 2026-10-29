@@ -42,6 +42,8 @@ src/
                       HUD window and the composer's voice strip
     SharePopover.tsx  share on a chat or a page: local rows, honest footer
     DiffPanel.tsx     the workspace diff: changed files, one open, seen ticks
+    BrowserPanel.tsx  the browser's bar; the page is a child webview the
+                      panel keeps glued to its body (browser_* commands)
     Artifacts.tsx     the documentation tree, a space's home, the open page
                       (html in a sandboxed frame) and the Links rail panel
     SessionPanel.tsx  the rail's session panel: environment, context,

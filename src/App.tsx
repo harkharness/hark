@@ -6,7 +6,7 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
-import { Copy, Download, ExternalLink, FileText, FolderTree, GitCompare, PanelLeft, Share2, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
+import { Compass, Copy, Download, ExternalLink, FileText, FolderTree, GitCompare, PanelLeft, Share2, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import { colourIndex, projColour, scopeOf } from "./lib/scope";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { setLang, setSpeechLang, st, t } from "./lib/i18n";
@@ -16,6 +16,7 @@ import SharePopover, { type ShareRow } from "./components/SharePopover";
 import VoiceRound from "./components/VoiceRound";
 import { useVoiceRound } from "./hooks/useVoiceRound";
 import DiffPanel from "./components/DiffPanel";
+import BrowserPanel from "./components/BrowserPanel";
 import { transcriptMarkdown } from "./lib/export";
 import Composer from "./components/Composer";
 import { toImagePair, type Attachment } from "./lib/composerText";
@@ -67,7 +68,7 @@ import type {
   ArtifactTree,
 } from "./types";
 
-type RailItem = "sessao" | "terminal" | "arquivos" | "board" | "artefatos" | "diff";
+type RailItem = "sessao" | "terminal" | "arquivos" | "board" | "artefatos" | "diff" | "browser";
 
 export default function App({
   forcedProject,
@@ -276,7 +277,9 @@ export default function App({
   const [railOn, setRailOn] = useState<RailItem | null>(() => {
     try {
       const saved = window.localStorage.getItem(RAIL_KEY);
-      return saved === "sessao" || saved === "arquivos" || saved === "board" || saved === "artefatos" || saved === "diff" ? saved : null;
+      return saved === "sessao" || saved === "arquivos" || saved === "board" || saved === "artefatos" || saved === "diff" || saved === "browser"
+        ? saved
+        : null;
     } catch {
       return null;
     }
@@ -2975,6 +2978,17 @@ export default function App({
       />
     </PanelFrame>
   );
+  /** A real page beside the chat (a child webview the panel steers). */
+  const frameBrowser = () => (
+    <PanelFrame
+      title={t("frame_browser")}
+      expanded={expanded === "browser"}
+      onToggleExpand={() => setExpanded((e) => (e === "browser" ? null : "browser"))}
+      onClose={() => removeRail("browser")}
+    >
+      <BrowserPanel />
+    </PanelFrame>
+  );
   /** The diff of the workspace on screen: changed files, one at a time. */
   const frameDiff = () => (
     <PanelFrame
@@ -3348,6 +3362,13 @@ export default function App({
                   >
                     <FolderTree size={13} />
                   </button>
+                  <button
+                    className={`chat-head-btn ${railHas("browser") ? "on" : ""}`}
+                    title={t("frame_browser")}
+                    onClick={() => toggleRail("browser")}
+                  >
+                    <Compass size={13} />
+                  </button>
                   {focusedRepo && (
                     <button
                       className={`chat-head-btn ${railHas("diff") ? "on" : ""}`}
@@ -3583,7 +3604,9 @@ export default function App({
                             ? frameArtefatos()
                             : railOn === "diff"
                               ? frameDiff()
-                              : frameArquivos()}
+                              : railOn === "browser"
+                                ? frameBrowser()
+                                : frameArquivos()}
                   </div>
                 </div>
               </Panel>

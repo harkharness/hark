@@ -157,6 +157,11 @@ reads like the terminal you already use:
   lines of the one you open, and a tick per file you have read — kept on
   this machine, cleared when the file changes again. A readout over `git`;
   it commits nothing.
+- **A browser** (the compass door): a real page beside the chat, in a
+  webview of its own — its own origin, cookies and history, and no way to
+  reach Hark. The bar is Hark's (back, forward, reload, the address, open
+  outside); the page is whatever you point it at. One at a time, closed
+  with the panel.
 - **The board, filtered** to that project, plus what the project has spent.
 
 ## Dispatching work

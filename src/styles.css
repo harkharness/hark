@@ -2850,3 +2850,14 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .diff-code .hljs-addition { color: var(--ok); background: rgba(158,206,106,.08); }
 .diff-code .hljs-deletion { color: var(--err); background: rgba(247,118,142,.08); }
 .diff-code .hljs-meta { color: var(--accent); }
+
+/* ---- the browser panel (phase 10.7): the bar is ours, the page is a child webview ---- */
+.browser-panel { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.browser-bar { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.browser-url {
+  flex: 1; min-width: 0; font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--border); color: var(--text); outline: none;
+}
+.browser-url:focus { border-color: var(--accent); }
+.browser-error { padding: 6px 10px; color: var(--err); font-size: 11.5px; }
+.browser-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; background: var(--bg-deep); }
