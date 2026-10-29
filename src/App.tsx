@@ -1596,7 +1596,7 @@ export default function App({
         refresh();
       } else if (cmd.kind === "not_found") {
         push({ who: "sys", text: t("sys_nothing_matches", { q: cmd.query }) });
-        say("Não achei isso no quadro.");
+        say(st("sp_not_on_board"));
       } else {
         push({ who: "sys", text: `${cmd.kind}: ${cmd.title}` });
         refresh();
