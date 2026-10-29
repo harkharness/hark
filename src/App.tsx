@@ -2136,7 +2136,6 @@ export default function App({
         icon: <Copy size={13} />,
         label: t("share_copy_link"),
         hint: `hark://chat/${session.slice(0, 8)}…`,
-        kbd: "⌘C",
         run: () => navigator.clipboard.writeText(`hark://chat/${encodeURIComponent(session)}`).then(() => t("share_link_copied")),
       },
     ];

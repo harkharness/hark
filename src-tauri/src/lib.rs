@@ -3844,29 +3844,51 @@ fn browser_rect(x: f64, y: f64, w: f64, h: f64) -> tauri::Rect {
     }
 }
 
+/// Put the webview where the panel's body is, then READ BACK where it
+/// landed: the first build (29/10) sat a bar's height above the body on
+/// macOS, and the exact cause (title-bar overlay, flipped frames) is not
+/// visible from here. A small, consistent delta is compensated on the
+/// spot; anything larger is only logged, so the diag tells the story.
+fn browser_place(app: &AppHandle, wv: &tauri::Webview, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    wv.set_bounds(browser_rect(x, y, w, h)).map_err(|e| e.to_string())?;
+    let scale = wv.window().scale_factor().unwrap_or(1.0);
+    if let Ok(pos) = wv.position() {
+        let (gx, gy) = (pos.x as f64 / scale, pos.y as f64 / scale);
+        let (dx, dy) = (gx - x, gy - y);
+        if dx.abs() > 1.0 || dy.abs() > 1.0 {
+            diag(app, &format!("browser bounds: asked ({x:.0},{y:.0} {w:.0}x{h:.0}) got ({gx:.0},{gy:.0}) scale {scale}"));
+            if dx.abs() < 120.0 && dy.abs() < 120.0 {
+                wv.set_bounds(browser_rect(x - dx, y - dy, w, h)).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Open (or move and navigate) the browser webview at the given logical
 /// bounds inside the main window.
 #[tauri::command]
 fn browser_open(app: AppHandle, url: String, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let url = browser_url(&url)?;
     if let Some(existing) = app.get_webview(BROWSER_LABEL) {
-        existing.set_bounds(browser_rect(x, y, w, h)).map_err(|e| e.to_string())?;
+        browser_place(&app, &existing, x, y, w, h)?;
         existing.navigate(url).map_err(|e| e.to_string())?;
         return existing.show().map_err(|e| e.to_string());
     }
     let main = app.get_webview_window("main").ok_or("no main window")?;
     let window: tauri::Window = main.as_ref().window();
     let builder = tauri::webview::WebviewBuilder::new(BROWSER_LABEL, tauri::WebviewUrl::External(url)).zoom_hotkeys_enabled(true);
-    window
+    let wv = window
         .add_child(builder, tauri::LogicalPosition { x, y }, tauri::LogicalSize { width: w.max(1.0), height: h.max(1.0) })
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    diag(&app, &format!("browser open: asked ({x:.0},{y:.0} {w:.0}x{h:.0})"));
+    browser_place(&app, &wv, x, y, w, h)
 }
 
 #[tauri::command]
 fn browser_bounds(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
-    wv.set_bounds(browser_rect(x, y, w, h)).map_err(|e| e.to_string())
+    browser_place(&app, &wv, x, y, w, h)
 }
 
 #[tauri::command]

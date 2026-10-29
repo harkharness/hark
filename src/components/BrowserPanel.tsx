@@ -33,14 +33,19 @@ export default function BrowserPanel() {
   // Open on mount, follow the body as it moves, close on unmount: the
   // webview lives exactly as long as this panel.
   useEffect(() => {
-    const r = rect();
-    if (!r) return;
-    ipc
-      .browserOpen(url, r.x, r.y, r.w, r.h)
-      .then(() => {
-        opened.current = true;
-      })
-      .catch((err) => setError(String(err)));
+    // One frame later: the bar has its height by then, so the body's
+    // rectangle is the one the page should fill.
+    let cancelled = false;
+    window.requestAnimationFrame(() => {
+      const r = rect();
+      if (!r || cancelled) return;
+      ipc
+        .browserOpen(url, r.x, r.y, r.w, r.h)
+        .then(() => {
+          opened.current = true;
+        })
+        .catch((err) => setError(String(err)));
+    });
     let last = "";
     const sync = () => {
       const now = rect();
@@ -73,6 +78,7 @@ export default function BrowserPanel() {
         .catch(() => {});
     }, 1000);
     return () => {
+      cancelled = true;
       ro.disconnect();
       window.clearInterval(tick);
       window.clearInterval(bar);

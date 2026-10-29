@@ -576,7 +576,6 @@ function Page({
       icon: <Copy size={13} />,
       label: t("share_copy_link"),
       hint: link,
-      kbd: "⌘C",
       run: () => navigator.clipboard.writeText(link).then(() => t("share_link_copied")),
     },
     {
