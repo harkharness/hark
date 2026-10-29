@@ -17,6 +17,11 @@ import type {
 
 /** Git state for a set of task workspaces, in one call. Cached in Rust
  *  for a few seconds, so asking on a render is cheap. */
+/** Every changed file of the repository a workspace belongs to. */
+export const repoChanges = (workspace: string) =>
+  invoke<{ root: string; changes: import("../types").FileChange[] }>("repo_changes", { workspace });
+/** The unified diff of one changed file (untracked = whole file as added). */
+export const repoDiff = (workspace: string, path: string) => invoke<string>("repo_diff", { workspace, path });
 export const repoStates = (paths: string[]) =>
   invoke<Record<string, RepoState>>("repo_states", { paths });
 

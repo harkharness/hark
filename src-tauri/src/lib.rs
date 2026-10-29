@@ -3787,6 +3787,33 @@ fn session_owners(
     Ok(owners)
 }
 
+#[derive(Serialize)]
+struct RepoChanges {
+    root: String,
+    changes: Vec<hark_core::domain::repo::FileChange>,
+}
+
+/// Every changed file of the repository a workspace belongs to: the diff
+/// panel's list. Zero tokens, two `git` reads, no cache (it is opened on
+/// purpose, and a stale list is worse than a 30 ms read).
+#[tauri::command(async)]
+fn repo_changes(workspace: String) -> Result<RepoChanges, String> {
+    let (root, changes) = GitCli::changes(&workspace).ok_or("not a repository")?;
+    Ok(RepoChanges { root, changes })
+}
+
+/// The unified diff of one changed file. The path is relative to the
+/// root and must stay inside it: a climb is refused before git sees it.
+#[tauri::command(async)]
+fn repo_diff(workspace: String, path: String) -> Result<String, String> {
+    if path.is_empty() || path.starts_with('/') || path.split('/').any(|seg| seg == "..") {
+        return Err(format!("{path}: not a path inside the repository"));
+    }
+    let (root, changes) = GitCli::changes(&workspace).ok_or("not a repository")?;
+    let untracked = changes.iter().any(|c| c.path == path && c.untracked);
+    GitCli::diff_file(&root, &path, untracked).ok_or_else(|| format!("{path}: git could not diff it"))
+}
+
 /// Git state for a set of task workspaces, in one call.
 ///
 /// Zero tokens: three `git` reads per repository, cached for a couple of
@@ -5818,6 +5845,8 @@ pub fn run() {
             read_transcript,
             session_owners,
             repo_states,
+            repo_changes,
+            repo_diff,
             crossref_context,
             transcript_since,
             find_session,

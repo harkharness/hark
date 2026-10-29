@@ -23,6 +23,7 @@ src/
     scope.ts          the scope chip (all / project / chat / page), pure
     artifacts.ts      the documentation tree flattened for painting, pure
     outputs.ts        the files a thread produced, from its tool calls
+    diff.ts           the diff panel's rules: seen per file, totals, paths
     highlight.ts      highlight.js core + grammars for the file viewer
   hooks/
     useHarkEvents.ts   the single subscription to backend events
@@ -40,6 +41,7 @@ src/
     VoiceRound.tsx    the rows of a voice round (stages), shared by the
                       HUD window and the composer's voice strip
     SharePopover.tsx  share on a chat or a page: local rows, honest footer
+    DiffPanel.tsx     the workspace diff: changed files, one open, seen ticks
     Artifacts.tsx     the documentation tree, a space's home, the open page
                       (html in a sandboxed frame) and the Links rail panel
     SessionPanel.tsx  the rail's session panel: environment, context,
