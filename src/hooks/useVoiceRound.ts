@@ -108,13 +108,13 @@ export function useVoiceRound({
 
   const execute = useCallback(
     async (plan: WorkPlan) => {
-      const target = targetLabel(plan, "novo chat");
+      const target = targetLabel(plan, t("vr_new_chat"));
       setStage({ s: "running", text: plan.instruction, target });
       try {
         await ipc.voiceExecute(plan);
-        finish(`→ ${target} · despachado`, "ok", 1400);
+        finish(t("vr_dispatched", { t: target }), "ok", 1400);
       } catch (err) {
-        finish(`falhou: ${err}`, "warn", 3200);
+        finish(t("vr_failed", { e: String(err) }), "warn", 3200);
       }
     },
     [finish],
@@ -184,13 +184,13 @@ export function useVoiceRound({
       title = task?.title ?? title;
     }
     if (!ws) {
-      finish("sessão sem projeto registrado", "warn", 2600);
+      finish(t("vr_no_project"), "warn", 2600);
       return;
     }
-    const name = cand.project_name ?? ws.split("/").filter(Boolean).pop() ?? "projeto";
+    const name = cand.project_name ?? ws.split("/").filter(Boolean).pop() ?? t("vr_project");
     await ipc.openTask(name, ws, title, cand.session_id ?? undefined).catch(() => {});
     record(title, "aberta");
-    finish(`→ ${title} · aberta`, "ok", 1400);
+    finish(t("vr_opened", { t: title }), "ok", 1400);
   }
 
   /** Show options, ask out loud, hear the pick ("a primeira", the name,
@@ -218,14 +218,14 @@ export function useVoiceRound({
       if (cmd.instruction) {
         await ipc.chatStart(cmd.path, cmd.instruction).catch(() => {});
         record(cmd.title, "chat iniciado");
-        finish(`→ ${cmd.title} · chat iniciado`, "ok", 1400);
+        finish(t("vr_chat_started", { t: cmd.title }), "ok", 1400);
       } else {
         record(cmd.title, "aberto");
-        finish(`→ ${cmd.title} · aberto`, "ok", 1200);
+        finish(t("vr_opened", { t: cmd.title }), "ok", 1200);
       }
     } else if (cmd.kind === "open_hq") {
       await ipc.focusMain(cmd.tab).catch(() => {});
-      finish(`→ ${cmd.tab} na janela principal`, "ok", 1100);
+      finish(t("vr_in_main", { t: cmd.tab }), "ok", 1100);
     } else if (cmd.kind === "open" || cmd.kind === "switch") {
       // Going (back) to a chat fronts ITS project window — never the
       // main one blindly (the old catch-all fronted the wrong window).
@@ -238,7 +238,7 @@ export function useVoiceRound({
       );
     } else if (cmd.kind === "session_candidates") {
       if (cmd.candidates.length === 0) {
-        finish(`nenhuma sessão sobre "${cmd.query}"`, "warn", 2600);
+        finish(t("sys_no_session_about", { q: cmd.query }), "warn", 2600);
         return;
       }
       await offerCandidates(
@@ -269,12 +269,12 @@ export function useVoiceRound({
         if (!path) return;
         const entry = await ipc.projectAdd(path).catch(() => null);
         if (!entry) {
-          finish("não consegui registrar o projeto", "warn", 2600);
+          finish(t("vr_project_fail"), "warn", 2600);
           return;
         }
         await ipc.openTask(entry.name, entry.path).catch(() => {});
         record(entry.name, "projeto registrado");
-        finish(`→ ${entry.name} · registrado e aberto`, "ok", 1500);
+        finish(t("vr_registered", { t: entry.name }), "ok", 1500);
       } else if (verdict.kind === "deny") {
         hide();
       } else if (verdict.kind === "instruction") {
@@ -284,17 +284,17 @@ export function useVoiceRound({
       // Registering IS half the intent — the window is the other half.
       await ipc.openTask(cmd.title, cmd.path).catch(() => {});
       record(cmd.title, "projeto registrado");
-      finish(`→ ${cmd.title} · registrado e aberto`, "ok", 1500);
+      finish(t("vr_registered", { t: cmd.title }), "ok", 1500);
     } else if (cmd.kind === "project_error") {
-      finish(`projeto: ${cmd.title}`, "warn", 3000);
+      finish(t("sys_project_err", { e: cmd.title }), "warn", 3000);
     } else if (cmd.kind === "open_settings") {
       await ipc.focusMain("settings").catch(() => {});
-      finish("→ configurações na janela principal", "ok", 1200);
+      finish(t("vr_settings_main"), "ok", 1200);
     } else if (cmd.kind === "set_mode") {
       // Mode switching needs a window's focused worker; the round has none.
-      finish("troca de modo é na janela do chat — seletor ou /modo", "warn", 2600);
+      finish(t("vr_mode_in_chat"), "warn", 2600);
     } else if (cmd.kind === "not_found") {
-      finish(`nada bate com "${cmd.query}"`, "warn", 2600);
+      finish(t("sys_nothing_matches", { q: cmd.query }), "warn", 2600);
     } else {
       // Board bookkeeping (rename/pin/archive) resolves on the backend;
       // just acknowledge.
@@ -311,10 +311,10 @@ export function useVoiceRound({
     try {
       await ipc.harkChatSend(text);
       emit("hark", { kind: "chat_echo", question: text, work: true }).catch(() => {});
-      ipc.speak("Mandei pro chat. Já te respondo.").catch(() => {});
-      finish("→ chat · despachado", "ok", 1600);
+      ipc.speak(st("sp_sent_to_chat")).catch(() => {});
+      finish(t("vr_chat_dispatched"), "ok", 1600);
     } catch (err) {
-      finish(`chat: ${err}`, "warn", 3000);
+      finish(t("sys_chat_open_err", { e: String(err) }), "warn", 3000);
     }
   }
 
@@ -326,7 +326,7 @@ export function useVoiceRound({
     try {
       plan = await ipc.planUtterance(text);
     } catch (err) {
-      finish(`não entendi: ${err}`, "warn", 2600);
+      finish(t("vr_not_understood", { e: String(err) }), "warn", 2600);
       return;
     }
     if (plan.kind === "permission_answer") {
@@ -387,7 +387,7 @@ export function useVoiceRound({
         return;
       }
       const hasWarnings = plan.warnings.length > 0;
-      const target = plan.task_title ?? `novo chat em ${plan.project_name ?? "?"}`;
+      const target = plan.task_title ?? t("hud_new_chat_in", { name: plan.project_name ?? "?" });
       const prompt = hasWarnings
         ? st("sp_confirm_warn", { target, warn: plan.warnings[0] })
         : st("sp_confirm_to", { target });
@@ -400,15 +400,15 @@ export function useVoiceRound({
       if (cancelRef.current || !verdict) return; // Enter/Esc still live
       if (verdict.kind === "confirm") await execute(plan);
       else if (verdict.kind === "action" && verdict.id === "compact_first") {
-        const target2 = targetLabel(plan, "novo chat");
+        const target2 = targetLabel(plan, t("vr_new_chat"));
         setStage({ s: "running", text: plan.instruction, target: target2 });
         try {
           await ipc.voiceExecute(plan, true);
-          finish(`→ ${target2} · compactado e despachado`, "ok", 1600);
+          finish(t("vr_compacted_dispatched", { t: target2 }), "ok", 1600);
         } catch (err) {
-          finish(`falhou: ${err}`, "warn", 3200);
+          finish(t("vr_failed", { e: String(err) }), "warn", 3200);
         }
-      } else if (verdict.kind === "deny") finish("cancelado", "warn", 1200);
+      } else if (verdict.kind === "deny") finish(t("vr_cancelled"), "warn", 1200);
       else if (verdict.kind === "instruction") await handle(verdict.text);
     } else if (plan.kind === "candidates") {
       await offerCandidates(text, plan.instruction, plan.options);
@@ -422,7 +422,7 @@ export function useVoiceRound({
         return;
       }
       if (intent && intent.kind === "dispatch" && intent.instruction && intent.session_id) {
-        await pickCandidate(intent.instruction, { title: intent.session_title ?? "sessão em foco", session_id: intent.session_id });
+        await pickCandidate(intent.instruction, { title: intent.session_title ?? t("vr_focused_session"), session_id: intent.session_id });
         return;
       }
       if (intent && intent.kind === "clarify" && intent.options.length > 0) {
@@ -440,8 +440,8 @@ export function useVoiceRound({
         await sendToGeneralChat(text);
         return;
       }
-      await ipc.speak("Não achei o alvo. Fala a task ou o projeto.").catch(() => {});
-      finish('sem alvo — "na task X" ou "no projeto Y"', "warn", 300);
+      await ipc.speak(st("sp_no_target_say")).catch(() => {});
+      finish(t("vr_no_target"), "warn", 300);
       await sleep(150);
       busyRef.current = false;
       start();

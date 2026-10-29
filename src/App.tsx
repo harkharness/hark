@@ -436,7 +436,7 @@ export default function App({
       const taskId = workerFor(taskLabel);
       if (!taskId) return;
       ipc.workerQueuedNow(taskId, msgId).catch((err) => {
-        push({ who: "sys", text: `fila: ${agentError(err)}` });
+        push({ who: "sys", text: t("sys_queue_err", { e: agentError(err) }) });
       });
     },
     [workerFor, push],
@@ -454,7 +454,7 @@ export default function App({
             old.filter((m) => !(m.who === "user" && m.msgId === msgId)),
           ),
         )
-        .catch((err) => push({ who: "sys", text: `fila: ${agentError(err)}` }));
+        .catch((err) => push({ who: "sys", text: t("sys_queue_err", { e: agentError(err) }) }));
     },
     [workerFor, push],
   );
@@ -474,7 +474,7 @@ export default function App({
     // reads like the compaction happened and produced that. It is a
     // refusal, and it says so as one.
     if (asked && !isSummary && m.text.trim().length < 200) {
-      return { who: "sys", text: `não deu para compactar: ${m.text.trim()}`, task: m.task };
+      return { who: "sys", text: t("sys_compact_fail", { e: m.text.trim() }), task: m.task };
     }
     return { who: "compact", text: m.text, task: m.task };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -651,7 +651,7 @@ export default function App({
     const title = focusedTask?.title;
     if (!title) return;
     if (heldBy && !previouslyHeld) {
-      push({ who: "sys", text: `o volante passou pro terminal (${heldBy.name})`, task: title });
+      push({ who: "sys", text: t("sys_wheel_to_terminal", { name: heldBy.name }), task: title });
     }
     if (!heldBy && previouslyHeld) {
       // One last read: the final turns land before the chat unlocks.
@@ -666,11 +666,11 @@ export default function App({
           }
           push({
             who: "sys",
-            text: `volante de volta — ${out.entries.length} entradas novas do terminal`,
+            text: t("sys_wheel_back_n", { n: out.entries.length }),
             task: title,
           });
         })
-        .catch(() => push({ who: "sys", text: "volante de volta", task: title }));
+        .catch(() => push({ who: "sys", text: t("sys_wheel_back"), task: title }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heldBy?.session_id, heldBy?.pid]);
@@ -762,7 +762,7 @@ export default function App({
                 }
               }
               compacting.current.add(label);
-              push({ who: "sys", text: `contexto em ${pct}% — compactando sozinho`, task: label });
+              push({ who: "sys", text: t("sys_auto_compact", { pct }), task: label });
               beginTurn(label);
               ipc.workerSend(taskId, "/compact", []).catch(() => endTurn(label));
             })();
@@ -898,7 +898,7 @@ export default function App({
         if (inflight && !inflight.retried && !(reason ?? "").includes("agent_auth")) {
           chatInFlightRef.current = { ...inflight, retried: true };
           push({ who: "sys", text: t("chat_crash_resend", { why: reason ? ` (${reason})` : "" }) });
-          ipc.harkChatSend(inflight.text).catch((err) => push({ who: "sys", text: `chat hark: ${err}` }));
+          ipc.harkChatSend(inflight.text).catch((err) => push({ who: "sys", text: t("sys_chat_err", { e: String(err) }) }));
         } else {
           chatInFlightRef.current = null;
         }
@@ -1109,7 +1109,7 @@ export default function App({
       say(reply.fala);
     } catch (err) {
       nudgeRef.current(err);
-      push({ who: "sys", text: `erro: ${agentError(err)}` });
+      push({ who: "sys", text: t("sys_error", { e: agentError(err) }) });
     } finally {
       endTurn(thread);
       setBusy(null);
@@ -1142,7 +1142,7 @@ export default function App({
     setBusy("despachando…");
     const from = currentThread() ?? GENERAL;
     if (!alreadyShown) {
-      push({ who: "sys", text: `dispatch: ${instruction}` });
+      push({ who: "sys", text: t("sys_dispatch", { i: instruction }) });
     }
     // Spawning a worker takes seconds before the first event: the clock
     // starts with the dispatch, not with the agent's first word.
@@ -1168,25 +1168,25 @@ export default function App({
         live = true;
       } else if (out.status === "done") {
         push({ who: "hark", text: out.summary, cost: out.cost_usd });
-        say("Tarefa concluída.");
+        say(st("sp_task_done"));
       } else if (out.status === "failed") {
-        push({ who: "sys", text: `worker falhou: ${out.summary}` });
+        push({ who: "sys", text: t("sys_worker_failed", { e: out.summary }) });
         say(st("sp_task_failed"));
       } else if (out.status === "choice") {
         setPending({ kind: "choice", instruction, candidates: out.candidates });
       } else if (out.status === "busy") {
         push({
           who: "sys",
-          text: `sessão ${out.session_id} está aberta num terminal; feche-a primeiro`,
+          text: t("sys_session_held", { s: out.session_id }),
         });
-        say("A sessão alvo está aberta num terminal.");
+        say(st("sp_target_held"));
       } else {
-        push({ who: "sys", text: "nenhuma sessão bate com essa instrução" });
-        say("Não achei sessão pra isso.");
+        push({ who: "sys", text: t("sys_no_session_match") });
+        say(st("sp_no_session_for_that"));
       }
     } catch (err) {
       nudgeRef.current(err);
-      push({ who: "sys", text: `erro: ${agentError(err)}` });
+      push({ who: "sys", text: t("sys_error", { e: agentError(err) }) });
     } finally {
       if (!live) endTurn(from);
       setBusy(null);
@@ -1198,7 +1198,7 @@ export default function App({
   async function runNewChat(project: Project, instruction: string, agent?: string) {
     setBusy("abrindo sessão nova…");
     const from = currentThread() ?? GENERAL;
-    push({ who: "sys", text: `novo chat em ${project.name}` });
+    push({ who: "sys", text: t("sys_new_chat_in", { name: project.name }) });
     beginTurn(from);
     let live = false;
     try {
@@ -1216,11 +1216,11 @@ export default function App({
         adoptWorker(out.task_id, label, out.directives, "");
         live = true;
       } else {
-        push({ who: "sys", text: `não abriu: ${JSON.stringify(out)}` });
+        push({ who: "sys", text: t("sys_not_opened", { e: JSON.stringify(out) }) });
       }
     } catch (err) {
       nudgeRef.current(err);
-      push({ who: "sys", text: `erro: ${agentError(err)}` });
+      push({ who: "sys", text: t("sys_error", { e: agentError(err) }) });
     } finally {
       if (!live) endTurn(from);
       setDraftChat(null);
@@ -1368,8 +1368,8 @@ export default function App({
         return;
       }
     }
-    push({ who: "sys", text: `nenhum arquivo bate com "${query}"` });
-    say("Não achei esse arquivo.");
+    push({ who: "sys", text: t("sys_no_file_match", { q: query }) });
+    say(st("sp_no_file"));
   }
 
   /** "hark, quanto gastei hoje?" — a vocative at the front is how you talk
@@ -1410,7 +1410,7 @@ export default function App({
       await ipc.workerSend(focused, text, []).catch((err) => {
         endTurn(labelFor(focused));
         nudgeRef.current(err);
-          push({ who: "sys", text: `worker: ${agentError(err)}` });
+          push({ who: "sys", text: t("sys_worker_err", { e: agentError(err) }) });
       });
       return;
     }
@@ -1418,7 +1418,7 @@ export default function App({
       await sendToFocusedTaskWith(focusedTask.title, focusedTask.sessionId, text);
       return;
     }
-    push({ who: "sys", text: "comandos / precisam de um chat focado" });
+    push({ who: "sys", text: t("sys_slash_needs_chat") });
   }
 
   async function submit(text: string, images: Attachment[]) {
@@ -1453,7 +1453,7 @@ export default function App({
         const flag = MODE_WORDS[args.toLowerCase()];
         push({ who: "user", text });
         if (flag) selectMode(flag);
-        else push({ who: "sys", text: "modos: manual · edições · plano · auto · ignorar" });
+        else push({ who: "sys", text: t("sys_modes_list") });
         return;
       }
       if (name === "board") {
@@ -1467,7 +1467,7 @@ export default function App({
           .usageReport(focusedTask?.sessionId ?? undefined)
           .catch(() => null);
         if (report) push({ who: "usage", report, task: focused ? labelFor(focused) : focusedTask?.title });
-        else push({ who: "sys", text: "uso indisponível (ledger vazio?)" });
+        else push({ who: "sys", text: t("sys_usage_unavailable") });
         return;
       }
       if (name === "rename" && args) {
@@ -1494,8 +1494,8 @@ export default function App({
           session = hit?.session_id;
         }
         if (!session) {
-          push({ who: "sys", text: `sem sessão para "${cmd.title}"` });
-          say("Não achei a sessão dessa task.");
+          push({ who: "sys", text: t("sys_no_session_for", { t: cmd.title }) });
+          say(st("sp_no_task_session"));
           return;
         }
         await focusTask(cmd.title, session, cmd.note);
@@ -1506,7 +1506,7 @@ export default function App({
       } else if (cmd.kind === "open_file") {
         await openFileByQuery(cmd.query, cmd.project);
       } else if (cmd.kind === "project_added") {
-        push({ who: "sys", text: `projeto ${cmd.title} adicionado (${cmd.path})` });
+        push({ who: "sys", text: t("sys_project_added", { name: cmd.title, path: cmd.path }) });
         say(st("sp_project_added", { t: cmd.title }));
         refresh();
         // "abre um novo projeto": registering IS half the intent — the
@@ -1527,7 +1527,7 @@ export default function App({
         // The focused LIVE thread moves; nothing else could.
         if (focused && liveWorkers[focused]) {
           push({ who: "sys", text: st("sp_handoff_go", { a: cmd.name }), task: labelFor(focused) });
-          await ipc.workerHandoff(focused, cmd.agent).catch((err) => push({ who: "sys", text: `handoff: ${err}` }));
+          await ipc.workerHandoff(focused, cmd.agent).catch((err) => push({ who: "sys", text: t("sys_handoff_err", { e: String(err) }) }));
         } else {
           say(st("sp_handoff_needs_thread"));
         }
@@ -1536,11 +1536,11 @@ export default function App({
         say(cmd.title);
       } else if (cmd.kind === "open_project") {
         await ipc.openTask(cmd.title, cmd.path).catch((err) =>
-          push({ who: "sys", text: `janela: ${err}` }),
+          push({ who: "sys", text: t("sys_window_err", { e: String(err) }) }),
         );
         if (cmd.instruction) {
           await ipc.chatStart(cmd.path, cmd.instruction).catch((err) =>
-            push({ who: "sys", text: `chat: ${err}` }),
+            push({ who: "sys", text: t("sys_chat_open_err", { e: String(err) }) }),
           );
           say(st("sp_opening_and_work", { t: cmd.title }));
         } else {
@@ -1560,8 +1560,8 @@ export default function App({
         // Recovering a session is a local lookup: the index already knows
         // every session on this machine. No agent, no digging, no tokens.
         if (cmd.candidates.length === 0) {
-          push({ who: "sys", text: `nenhuma sessão fala sobre "${cmd.query}"` });
-          say("Não achei sessão sobre isso.");
+          push({ who: "sys", text: t("sys_no_session_about", { q: cmd.query }) });
+          say(st("sp_no_session_about"));
         } else if (cmd.candidates.length === 1) {
           await recoverSession(cmd.candidates[0]);
         } else {
@@ -1591,11 +1591,11 @@ export default function App({
         // Closing the task you are in, from the chat. Before this the
         // words went to the agent as work: "fechamos essa task?" spent
         // real money asking a torn-down cluster whether it was gone.
-        push({ who: "sys", text: `task concluída: ${cmd.title}`, task: cmd.title });
+        push({ who: "sys", text: t("sys_task_done", { t: cmd.title }), task: cmd.title });
         say(st("sp_task_done"));
         refresh();
       } else if (cmd.kind === "not_found") {
-        push({ who: "sys", text: `nada bate com "${cmd.query}"` });
+        push({ who: "sys", text: t("sys_nothing_matches", { q: cmd.query }) });
         say("Não achei isso no quadro.");
       } else {
         push({ who: "sys", text: `${cmd.kind}: ${cmd.title}` });
@@ -1648,14 +1648,14 @@ export default function App({
         )
         .catch((err) => {
           nudgeRef.current(err);
-          push({ who: "sys", text: `fork: ${agentError(err)}` });
+          push({ who: "sys", text: t("sys_fork_err", { e: agentError(err) }) });
           return null;
         });
       if (out?.status === "started") {
         adoptWorker(out.task_id, `${draft.title} (fork)`, out.directives, "");
       } else {
         endTurn(`${draft.title} (fork)`);
-        if (out) push({ who: "sys", text: `fork não abriu: ${JSON.stringify(out)}` });
+        if (out) push({ who: "sys", text: t("sys_fork_not_opened", { e: JSON.stringify(out) }) });
       }
       return;
     }
@@ -1681,7 +1681,7 @@ export default function App({
       await sendQueued(focused, text, msgId, images.map(toImagePair)).catch((err) => {
         endTurn(labelFor(focused));
         nudgeRef.current(err);
-        push({ who: "sys", text: `worker: ${agentError(err)}` });
+        push({ who: "sys", text: t("sys_worker_err", { e: agentError(err) }) });
       });
       return;
     }
@@ -1777,7 +1777,7 @@ export default function App({
         push({ who: "user", text });
         await ipc
           .voiceExecute({ instruction: fu.instruction, session_id: offer.sessionId, new_task: false })
-          .catch((err) => push({ who: "sys", text: `dispatch: ${err}` }));
+          .catch((err) => push({ who: "sys", text: t("sys_dispatch_err", { e: String(err) }) }));
         say(st("sp_fu_doing", { t: offer.label }));
         return;
       }
@@ -1837,7 +1837,7 @@ export default function App({
       chatInFlightRef.current = null;
       endTurn(GENERAL);
       nudgeRef.current(err);
-      push({ who: "sys", text: `chat hark: ${agentError(err)}` });
+      push({ who: "sys", text: t("sys_chat_err", { e: agentError(err) }) });
     }
   }
 
@@ -1889,7 +1889,7 @@ export default function App({
           await ipc.chatStart(project.path, intent.instruction);
           say(st("sp_opening_and_work", { t: project.name }));
         } catch (err) {
-          push({ who: "sys", text: `chat: ${err}` });
+          push({ who: "sys", text: t("sys_chat_open_err", { e: String(err) }) });
         }
       } else {
         startDraftChat(project);
@@ -1902,14 +1902,14 @@ export default function App({
       if (intent.instruction) {
         await ipc
           .voiceExecute({ instruction: intent.instruction, session_id: intent.session_id, new_task: false })
-          .catch((err) => push({ who: "sys", text: `dispatch: ${err}` }));
+          .catch((err) => push({ who: "sys", text: t("sys_dispatch_err", { e: String(err) }) }));
       }
       return true;
     }
     if (intent.kind === "dispatch" && intent.instruction && intent.session_id) {
       await ipc
         .voiceExecute({ instruction: intent.instruction, session_id: intent.session_id, new_task: false })
-        .catch((err) => push({ who: "sys", text: `dispatch: ${err}` }));
+        .catch((err) => push({ who: "sys", text: t("sys_dispatch_err", { e: String(err) }) }));
       say(st("sp_confirm_to", { target: intent.session_title ?? st("sp_focused_session") }));
       return true;
     }
@@ -2004,7 +2004,7 @@ export default function App({
             old[taskId] ? { ...old, [taskId]: { ...old[taskId], directives: out.directives } } : old,
           );
         })
-        .catch((err) => push({ who: "sys", text: `modelo: ${err}`, task: labelFor(taskId) }));
+        .catch((err) => push({ who: "sys", text: t("sys_model_err", { e: String(err) }), task: labelFor(taskId) }));
       return;
     }
     defaults.setModelDefault(model);
@@ -2027,7 +2027,7 @@ export default function App({
             old[taskId] ? { ...old, [taskId]: { ...old[taskId], directives: out.directives } } : old,
           );
         })
-        .catch((err) => push({ who: "sys", text: `esforço: ${err}`, task: labelFor(taskId) }));
+        .catch((err) => push({ who: "sys", text: t("sys_effort_err", { e: String(err) }), task: labelFor(taskId) }));
       return;
     }
     defaults.setEffortDefault(effort);
@@ -2086,16 +2086,16 @@ export default function App({
           } else {
             push({
               who: "sys",
-              text: `modo ${flag} vale a partir da próxima abertura da thread`,
+              text: t("sys_mode_next_open", { m: flag }),
               task: label,
             });
           }
         })
-        .catch((err) => push({ who: "sys", text: `modo: ${err}` }));
+        .catch((err) => push({ who: "sys", text: t("sys_mode_err", { e: String(err) }) }));
       return;
     }
     defaults.setModeDefault(flag);
-    push({ who: "sys", text: `novas tasks desta janela nascem no modo ${flag}` });
+    push({ who: "sys", text: t("sys_mode_default", { m: flag }) });
   }
 
   /** Answer every permission still open in a thread. Returns how many. */
@@ -2282,7 +2282,7 @@ export default function App({
     const write = (attempt: number) => {
       ipc.termWrite(target, payload).catch((err) => {
         if (attempt === 0) setTimeout(() => write(1), 600);
-        else push({ who: "sys", text: `terminal: ${err}` });
+        else push({ who: "sys", text: t("sys_terminal_err", { e: String(err) }) });
       });
     };
     setTimeout(() => write(0), existing ? 120 : 700);
@@ -2293,7 +2293,7 @@ export default function App({
     if (!liveWorkers[taskId]) return;
     ipc
       .workerInterrupt(taskId)
-      .catch((err) => push({ who: "sys", text: `parar: ${err}`, task: labelFor(taskId) }));
+      .catch((err) => push({ who: "sys", text: t("sys_stop_err", { e: String(err) }), task: labelFor(taskId) }));
   }
 
   async function stopWorker(taskId: string) {
@@ -2322,17 +2322,17 @@ export default function App({
     if (heldBy) {
       push({
         who: "sys",
-        text: `a voz mandaria mensagem pra esta sessão, e ela está no terminal (${heldBy.name})`,
+        text: t("sys_voice_held", { name: heldBy.name }),
         task: focusedTask?.title,
       });
-      say("Essa sessão está aberta no terminal. Fecha lá ou abre um fork.");
+      say(st("sp_held_fork"));
       return;
     }
     if (isMain) {
       voice.start();
       return;
     }
-    await ipc.hudShow().catch((err) => push({ who: "sys", text: `voz: ${err}` }));
+    await ipc.hudShow().catch((err) => push({ who: "sys", text: t("sys_voice_err", { e: String(err) }) }));
   }
 
   /**
@@ -2349,7 +2349,7 @@ export default function App({
       allowAlways.current.set(key, set);
       push({
         who: "sys",
-        text: `sempre permitir ${card.tool} nesta task (vale até fechar a janela)`,
+        text: t("sys_allow_always", { tool: card.tool }),
         task: card.task,
       });
     }
@@ -2398,7 +2398,7 @@ export default function App({
   /** "compactar antes": /compact runs as its own turn, the message queues
    *  right behind it — the heavy-session warning's remedy, one click/word. */
   async function dispatchCompactFirst(instruction: string, sessionId?: string) {
-    push({ who: "sys", text: "compactando o contexto antes de despachar…" });
+    push({ who: "sys", text: t("sys_compacting_first") });
     // TWO turns run from here — the compaction and then the message —
     // and this was the last path with no clock at all: the remedy the
     // heavy-session warning offers looked exactly like a dead window.
@@ -2414,7 +2414,7 @@ export default function App({
       await ipc.workerSend(liveEntry[0], instruction, []).catch((err) => {
         endTurn(thread);
         nudgeRef.current(err);
-          push({ who: "sys", text: `worker: ${agentError(err)}` });
+          push({ who: "sys", text: t("sys_worker_err", { e: agentError(err) }) });
       });
       return;
     }
@@ -2433,11 +2433,11 @@ export default function App({
       await ipc.workerSend(out.task_id, instruction, []).catch((err) => {
         endTurn(label);
         nudgeRef.current(err);
-          push({ who: "sys", text: `worker: ${agentError(err)}` });
+          push({ who: "sys", text: t("sys_worker_err", { e: agentError(err) }) });
       });
       return;
     }
-    push({ who: "sys", text: "não consegui compactar antes; despachando direto" });
+    push({ who: "sys", text: t("sys_compact_skipped") });
     runDispatch(instruction, sessionId);
   }
   const compactFirstRef = useRef(dispatchCompactFirst);
@@ -2572,7 +2572,7 @@ export default function App({
     const task = (overview?.board ?? []).find((t) => t.title === title);
     if (task?.status === "done") {
       await ipc.boardMove(title, "doing").catch(() => {});
-      push({ who: "sys", text: `task "${title}" reativada (done → doing)`, task: title });
+      push({ who: "sys", text: t("sys_task_reopened", { t: title }), task: title });
       refresh();
     }
   }
@@ -2625,14 +2625,14 @@ export default function App({
     try {
       out = await ipc.readTranscript(task.sessionId, want);
     } catch (err) {
-      push({ who: "sys", text: `histórico: ${err}`, task: task.title });
+      push({ who: "sys", text: t("sys_history_err", { e: String(err) }), task: task.title });
       return;
     }
     const at = out.entries.findIndex((e) => entryKey(e) === state.firstKey);
     const older = at > 0 ? out.entries.slice(0, at) : [];
     if (older.length === 0) {
       setHistoryDone((old) => ({ ...old, [task.title]: true }));
-      push({ who: "sys", text: "começo do histórico", task: task.title });
+      push({ who: "sys", text: t("sys_history_start"), task: task.title });
       return;
     }
     const msgs = older.map((e) => entryToMsg(e, task.title)).filter(Boolean) as Msg[];
@@ -2680,7 +2680,7 @@ export default function App({
         setFocusedTask({ title, sessionId: hit.session_id, note });
         push({
           who: "sys",
-          text: `sessão vinculada sumiu; usando "${hit.title ?? hit.session_id.slice(0, 8)}"`,
+          text: t("sys_session_replaced", { t: hit.title ?? hit.session_id.slice(0, 8) }),
           task: title,
         });
         return ipc.readTranscript(hit.session_id, HISTORY_TAIL);
@@ -2703,11 +2703,11 @@ export default function App({
       }
       push({
         who: "sys",
-        text: `contexto de "${out.session_title ?? title}" carregado; mensagens continuam esta task`,
+        text: t("sys_context_loaded", { t: out.session_title ?? title }),
         task: title,
       });
     } catch (err) {
-      push({ who: "sys", text: `não consegui ler o histórico: ${err}`, task: title });
+      push({ who: "sys", text: t("sys_history_read_err", { e: String(err) }), task: title });
     }
   }
 
@@ -2723,7 +2723,7 @@ export default function App({
     if (ref) {
       push({
         who: "sys",
-        text: `puxei ${ref.lines} linha${ref.lines > 1 ? "s" : ""} do chat "${ref.title}"`,
+        text: t("sys_crossref_pulled", { n: ref.lines, t: ref.title }),
         task: thread,
       });
       out = `${out}\n\n${ref.block}`;
@@ -2762,7 +2762,7 @@ export default function App({
       await sendQueued(liveEntry[0], text, msgId, images.map(toImagePair)).catch((err) => {
         endTurn(title);
         nudgeRef.current(err);
-        push({ who: "sys", text: `worker: ${agentError(err)}` });
+        push({ who: "sys", text: t("sys_worker_err", { e: agentError(err) }) });
       });
       return;
     }
@@ -2774,7 +2774,7 @@ export default function App({
     leaveChat();
     push({
       who: "sys",
-      text: `novo chat em ${project.name} (${project.path}): a próxima mensagem abre a sessão`,
+      text: t("sys_draft_chat", { name: project.name, path: project.path }),
     });
   }
 
@@ -2791,7 +2791,7 @@ export default function App({
       session = hit?.session_id ?? undefined;
     }
     if (!session) {
-      push({ who: "sys", text: `nenhuma sessão encontrada para "${title}"` });
+      push({ who: "sys", text: t("sys_no_session_for", { t: title }) });
       return;
     }
     await focusTask(title, session, note);
@@ -2824,7 +2824,7 @@ export default function App({
     try {
       task = await ipc.taskFromSession(hit.session_id);
     } catch (err) {
-      push({ who: "sys", text: `não consegui registrar a sessão: ${err}` });
+      push({ who: "sys", text: t("sys_session_register_err", { e: String(err) }) });
       return;
     }
     const ws = task.workspace;
@@ -2835,7 +2835,7 @@ export default function App({
       if (owner) {
         await ipc
           .openTask(owner.name, owner.path, task.title, hit.session_id)
-          .catch((err) => push({ who: "sys", text: `janela: ${err}` }));
+          .catch((err) => push({ who: "sys", text: t("sys_window_err", { e: String(err) }) }));
         push({ who: "sys", text: t("sys_elsewhere", { t: task.title, p: owner.name }) });
         say(st("sp_elsewhere", { p: owner.name }));
         refresh();
@@ -3202,14 +3202,14 @@ export default function App({
                 ipc
                   .projectAdd(path)
                   .then((p) => {
-                    push({ who: "sys", text: `projeto ${p.name} adicionado (${p.path})` });
+                    push({ who: "sys", text: t("sys_project_added", { name: p.name, path: p.path }) });
                     refresh();
                   })
-                  .catch((err) => push({ who: "sys", text: `projeto: ${err}` }))
+                  .catch((err) => push({ who: "sys", text: t("sys_project_err", { e: String(err) }) }))
               }
               onRemoveProject={(p) =>
                 ipc.projectRemove(p.path).then(() => {
-                  push({ who: "sys", text: `projeto ${p.name} removido da lista` });
+                  push({ who: "sys", text: t("sys_project_removed", { name: p.name }) });
                   refresh();
                 })
               }
@@ -3333,7 +3333,7 @@ export default function App({
                         const p = scope.project!;
                         void ipc
                           .openProjectWindow(p.name, p.path, scope.title, scope.sessionId)
-                          .catch((err) => push({ who: "sys", text: `janela: ${err}` }));
+                          .catch((err) => push({ who: "sys", text: t("sys_window_err", { e: String(err) }) }));
                       }}
                     >
                       <ExternalLink size={13} />
@@ -3458,12 +3458,12 @@ export default function App({
                           ),
                         ),
                       )
-                      .catch((err) => push({ who: "sys", text: `teto: ${err}` }))
+                      .catch((err) => push({ who: "sys", text: t("sys_cap_err", { e: String(err) }) }))
                   }
                   onRestartLight={(taskId) =>
                     ipc
                       .workerRestartLight(taskId)
-                      .catch((err) => push({ who: "sys", text: `recomeço leve: ${err}` }))
+                      .catch((err) => push({ who: "sys", text: t("sys_light_restart_err", { e: String(err) }) }))
                   }
                 />
               )}
@@ -3579,7 +3579,7 @@ export default function App({
                   onRestartLight={(taskId) =>
                     ipc
                       .workerRestartLight(taskId)
-                      .catch((err) => push({ who: "sys", text: `recomeço leve: ${err}` }))
+                      .catch((err) => push({ who: "sys", text: t("sys_light_restart_err", { e: String(err) }) }))
                   }
                 />
               </Composer>
@@ -3657,10 +3657,10 @@ export default function App({
         onPickProject={async (path) => {
           const entry = await ipc.projectAdd(path).catch(() => null);
           if (!entry) {
-            push({ who: "sys", text: `não consegui registrar ${path}` });
+            push({ who: "sys", text: t("sys_project_register_fail", { path }) });
             return;
           }
-          push({ who: "sys", text: `projeto ${entry.name} registrado (${entry.path})` });
+          push({ who: "sys", text: t("sys_project_added", { name: entry.name, path: entry.path }) });
           say(st("sp_project_added", { t: entry.name }));
           refresh();
           await ipc.openTask(entry.name, entry.path).catch(() => {});
