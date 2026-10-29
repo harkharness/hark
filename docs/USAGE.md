@@ -70,7 +70,9 @@ at one of two speeds:
   guessed away: you get numbered candidates and pick one ("a primeira").
 
 Answers are spoken back through the system voice while the details render on
-screen.
+screen. Work sent by voice never switches what you are looking at: the chat
+it landed in pulses in the sidebar for a beat, and the general thread keeps
+one line per dispatch with "ir para o chat" on it.
 
 ## The main window
 

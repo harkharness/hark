@@ -2861,3 +2861,12 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .browser-url:focus { border-color: var(--accent); }
 .browser-error { padding: 6px 10px; color: var(--err); font-size: 11.5px; }
 .browser-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; background: var(--bg-deep); }
+
+/* ---- voice landed elsewhere: the row pulses, the line offers the way ---- */
+@keyframes side-pulse { 0%, 100% { background: transparent; } 50% { background: rgba(122,162,247,.18); } }
+.side-item.pulse { animation: side-pulse 1s ease-in-out 3; border-radius: 8px; }
+.msg.sys .goto-chat {
+  display: inline-flex; align-items: center; gap: 2px; margin-left: 8px; padding: 1px 8px; border-radius: 999px;
+  background: none; border: 1px solid var(--border); color: var(--accent); font: inherit; font-size: 11px; cursor: pointer;
+}
+.msg.sys .goto-chat:hover { border-color: var(--accent); }

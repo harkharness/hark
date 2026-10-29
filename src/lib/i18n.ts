@@ -741,6 +741,7 @@ const pt = {
   browser_reload: "recarregar",
   browser_external: "abrir no navegador do sistema",
   browser_hint: "a página abre aqui dentro; ela não fala com o Hark",
+  goto_chat: "ir para o chat",
   // system lines that used to be literals (i18n pass 29/10)
   sys_queue_err: "fila: {e}",
   sys_compact_fail: "não deu para compactar: {e}",
@@ -1534,6 +1535,7 @@ const en: Record<keyof typeof pt, string> = {
   browser_reload: "reload",
   browser_external: "open in the system browser",
   browser_hint: "the page opens in here; it cannot talk to Hark",
+  goto_chat: "go to the chat",
   sys_queue_err: "queue: {e}",
   sys_compact_fail: "could not compact: {e}",
   sys_wheel_to_terminal: "the wheel went to the terminal ({name})",

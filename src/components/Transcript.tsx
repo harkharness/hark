@@ -10,7 +10,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Check, ChevronDown, Copy, Gauge, Lock, RefreshCw, Square, Volume2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Copy, Gauge, Lock, RefreshCw, Square, Volume2, X } from "lucide-react";
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput, toolHint, toolLabel } from "./ToolCall";
 import UsageCard from "./UsageCard";
@@ -227,6 +227,8 @@ type RowProps = {
    *  chat, or restart light (a local brief, zero tokens). */
   onLiftCap?: (taskId: string) => void;
   onRestartLight?: (taskId: string) => void;
+  /** A sys line that points at a chat: open it. */
+  onGoto?: (title: string, sessionId?: string) => void;
 };
 
 /**
@@ -247,11 +249,19 @@ const Row = memo(function Row({
   onQueuedDrop,
   onLiftCap,
   onRestartLight,
+  onGoto,
 }: RowProps) {
   return (
     <div className={`msg ${m.who}`}>
       {m.who === "sys" ? (
-        <span>{m.text}</span>
+        <span>
+          {m.text}
+          {m.goto && onGoto && (
+            <button className="goto-chat" onClick={() => onGoto(m.goto!.title, m.goto!.sessionId)}>
+              {t("goto_chat")} <ChevronRight size={11} />
+            </button>
+          )}
+        </span>
       ) : m.who === "ceiling" ? (
         // Hark cut the turn at the per-turn ceiling. The card says the
         // two numbers and offers the ways on; the model pill is the
@@ -503,6 +513,7 @@ export default function Transcript({
   onQueuedDrop,
   onLiftCap,
   onRestartLight,
+  onGoto,
 }: {
   messages: Msg[];
   directivesFor: (taskLabel?: string) => Directives | undefined;
@@ -523,6 +534,8 @@ export default function Transcript({
   /** The ceiling card's ways on (see RowProps). */
   onLiftCap?: (taskId: string) => void;
   onRestartLight?: (taskId: string) => void;
+  /** A sys line that points at a chat: open it. */
+  onGoto?: (title: string, sessionId?: string) => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -649,6 +662,7 @@ export default function Transcript({
         onQueuedDrop={queueDrop}
         onLiftCap={liftCap}
         onRestartLight={restartLight}
+        onGoto={onGoto}
       />
     );
 

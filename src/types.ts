@@ -206,7 +206,14 @@ export type Msg =
   /** Hark cut a turn at the per-turn ceiling: the numbers, and the ways
    *  on from here. `lifted` once the user chose to go on without one. */
   | { who: "ceiling"; taskId: string; spent: number; cap: number; lifted?: boolean; task?: string }
-  | { who: "sys"; text: string; task?: string };
+  | {
+      who: "sys";
+      text: string;
+      task?: string;
+      /** A chat this line points at ("ir para o chat"): a voice dispatch
+       *  narrated in the general thread. */
+      goto?: { title: string; sessionId?: string };
+    };
 
 export type Directives = {
   mode?: "manual" | "acceptEdits" | "plan" | "auto" | "bypass";

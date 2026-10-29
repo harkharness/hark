@@ -23,6 +23,7 @@ export default function Sidebar({
   chats = [],
   activeTitle,
   liveTitles,
+  pulsing = [],
   onOpen,
   onOpenChat,
   boardOpen,
@@ -58,6 +59,8 @@ export default function Sidebar({
   workspaceName?: string;
   activeTitle?: string;
   liveTitles: string[];
+  /** Rows that just received work by voice: they pulse for a beat. */
+  pulsing?: string[];
   onOpen: (task: BoardTask) => void;
   /** The artifacts view (main window only): the documentation tree. */
   artifactsOpen?: boolean;
@@ -118,7 +121,7 @@ export default function Sidebar({
   const item = (task: BoardTask) => (
     <div
       key={task.title}
-      className={`side-item ${task.status} ${activeTitle === task.title ? "active" : ""}`}
+      className={`side-item ${task.status} ${activeTitle === task.title ? "active" : ""} ${pulsing.includes(task.title) ? "pulse" : ""}`}
     >
       {renaming === task.title ? (
         <input

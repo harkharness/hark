@@ -141,6 +141,8 @@ export default function App({
   // and the first worker to finish wiped the clock of every other.
   const [turns, setTurns] = useState<Record<string, TurnState>>({});
   const [recording, setRecording] = useState(false);
+  /** Sidebar rows pulsing after a voice dispatch landed on them. */
+  const [pulsing, setPulsing] = useState<string[]>([]);
   /** Capture ended, whisper still grinding — seconds of it without Metal. */
   const [transcribing, setTranscribing] = useState(false);
   // The global Esc handler must see the live value (no stale closure).
@@ -864,7 +866,18 @@ export default function App({
     // The voice feed of the mother, as one quiet line in the general thread.
     onVoiceAction: useCallback((utterance: string, target?: string | null, status?: string) => {
       if (!isMain) return;
-      push({ who: "sys", text: `${t("hud_voice_line")} “${utterance}” → ${target ?? "?"}${status ? ` · ${status}` : ""}` });
+      // The narration carries a way back to the chat the work landed in,
+      // and that chat's row pulses for a beat: voice never switched the
+      // scope, so the eye has to be told where it went.
+      push({
+        who: "sys",
+        text: `${t("hud_voice_line")} “${utterance}” → ${target ?? "?"}${status ? ` · ${status}` : ""}`,
+        goto: target ? { title: target } : undefined,
+      });
+      if (target) {
+        setPulsing((p) => [...p.filter((x) => x !== target), target]);
+        window.setTimeout(() => setPulsing((p) => p.filter((x) => x !== target)), 4000);
+      }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
     autoAllow: useCallback(
@@ -3161,6 +3174,7 @@ export default function App({
               )}
               activeTitle={focusedTask?.title}
               liveTitles={Object.values(liveWorkers).map((w) => w.label)}
+              pulsing={pulsing}
               onOpen={openTaskFromSidebar}
               onOpenChat={recoverSession}
               workspaceName={forcedProject?.name}
@@ -3438,6 +3452,10 @@ export default function App({
                   directivesFor={directivesFor}
                   onAnswerPermission={answerPermission}
                   onOpenPath={openAbsolutePath}
+                  onGoto={(title, sessionId) => {
+                    setView("chat");
+                    void openTaskByTitle(title, sessionId);
+                  }}
                   onRunCommand={runInTerminal}
                   onLoadOlder={
                     focusedTask &&
