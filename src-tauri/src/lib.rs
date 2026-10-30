@@ -3899,8 +3899,20 @@ fn browser_rect(x: f64, y: f64, w: f64, h: f64) -> tauri::Rect {
 /// visible from here. A small, consistent delta is compensated on the
 /// spot; anything larger is only logged, so the diag tells the story.
 fn browser_place(app: &AppHandle, wv: &tauri::Webview, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    let window = wv.window();
+    let scale = window.scale_factor().unwrap_or(1.0);
+    // The first real run put the page a bar's height ABOVE where the DOM
+    // measured it, and reading the position back showed no delta: the
+    // child is placed against the content area, which on macOS with the
+    // overlay title bar is the window minus its title strip, while the
+    // DOM (a full-size content view) measures from the window's top. The
+    // strip's height is outer minus inner; it goes onto y when present.
+    let pad = match (window.outer_size(), window.inner_size()) {
+        (Ok(outer), Ok(inner)) if outer.height > inner.height => (outer.height - inner.height) as f64 / scale,
+        _ => 0.0,
+    };
+    let y = y + pad;
     wv.set_bounds(browser_rect(x, y, w, h)).map_err(|e| e.to_string())?;
-    let scale = wv.window().scale_factor().unwrap_or(1.0);
     if let Ok(pos) = wv.position() {
         let (gx, gy) = (pos.x as f64 / scale, pos.y as f64 / scale);
         let (dx, dy) = (gx - x, gy - y);
@@ -3930,7 +3942,14 @@ fn browser_open(app: AppHandle, url: String, x: f64, y: f64, w: f64, h: f64) -> 
     let wv = window
         .add_child(builder, tauri::LogicalPosition { x, y }, tauri::LogicalSize { width: w.max(1.0), height: h.max(1.0) })
         .map_err(|e| e.to_string())?;
-    diag(&app, &format!("browser open: asked ({x:.0},{y:.0} {w:.0}x{h:.0})"));
+    {
+        let window = wv.window();
+        let sizes = match (window.outer_size(), window.inner_size()) {
+            (Ok(o), Ok(i)) => format!("outer {}x{} inner {}x{}", o.width, o.height, i.width, i.height),
+            _ => "sizes unknown".into(),
+        };
+        diag(&app, &format!("browser open: asked ({x:.0},{y:.0} {w:.0}x{h:.0}) window {sizes}"));
+    }
     browser_place(&app, &wv, x, y, w, h)
 }
 

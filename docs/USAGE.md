@@ -83,10 +83,11 @@ message lands: *all projects* when nothing is selected, `project › chat`
 when a chat is open. Each project owns a colour; it runs down the sidebar
 group, across the top of the chat and through the chip.
 
-**Each chat keeps its own side panel.** The terminal, the files window, the
-diff and the browser belong to the chat they were opened in: come back to a
-chat and its shell, its open file or its page is still there, and another
-chat has its own. The board and the artifacts are views of their own, with
+**Each chat keeps its own side panels, stacked.** The terminal, the files
+window, the diff and the browser open on the rail together, one over the
+other; each folds to its bar, and any one can take the whole rail. They
+belong to the chat they were opened in: come back to a chat and its shell,
+its open file or its page is still there, and another chat has its own. The board and the artifacts are views of their own, with
 no chat panels; the artifacts view has the page's links instead.
 
 **Two keys.** `Cmd+P` opens the files window with its filter ready, the

@@ -88,7 +88,12 @@ export default function ShellTerminal({
     // exists are simply gone. Idempotent on the Rust side, so remounts of
     // a live shell are a no-op. Real cols/rows: fit() already ran.
     un.then(() => {
-      if (!cancelled) ipc.termOpen(id, cwd, term.cols, term.rows).catch(() => {});
+      if (!cancelled)
+        ipc.termOpen(id, cwd, term.cols, term.rows).catch((err) => {
+          // A shell that never came up used to be a black panel (30/10):
+          // say why, in the panel itself.
+          term.write(`\r\n[hark] shell: ${String(err)}\r\n`);
+        });
     });
     const ro = new ResizeObserver(() => {
       try {

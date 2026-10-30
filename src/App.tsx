@@ -294,13 +294,17 @@ export default function App({
   // Code's app does: come back to a chat and its terminal is there, its
   // file is open. Persisted per thread; a terminal is a process, not a
   // view, so it is never reopened blind.
-  const [railByThread, setRailByThread] = useState<Record<string, RailItem>>(() => {
+  // The rail STACKS its panels (30/10, back from "one at a time"): a
+  // terminal over the files over a page, the way Claude Code's app does;
+  // each one collapses to its bar, one can take the whole rail.
+  const [railByThread, setRailByThread] = useState<Record<string, RailItem[]>>(() => {
     try {
       const raw = window.localStorage.getItem(RAIL_KEY);
-      const parsed = raw ? (JSON.parse(raw) as Record<string, string>) : {};
-      const out: Record<string, RailItem> = {};
-      for (const [k, v] of Object.entries(parsed)) {
-        if ((RAIL_ITEMS as string[]).includes(v) && v !== "terminal") out[k] = v as RailItem;
+      const parsed = raw ? (JSON.parse(raw) as Record<string, string[]>) : {};
+      const out: Record<string, RailItem[]> = {};
+      for (const [k, list] of Object.entries(parsed)) {
+        const items = (Array.isArray(list) ? list : []).filter((v) => (RAIL_ITEMS as string[]).includes(v) && v !== "terminal") as RailItem[];
+        if (items.length) out[k] = items;
       }
       return out;
     } catch {
@@ -309,23 +313,40 @@ export default function App({
   });
   useEffect(() => {
     try {
-      const keep = Object.fromEntries(Object.entries(railByThread).filter(([, v]) => v !== "terminal"));
+      const keep = Object.fromEntries(
+        Object.entries(railByThread).map(([k, list]) => [k, list.filter((v) => v !== "terminal")]).filter(([, list]) => (list as RailItem[]).length > 0),
+      );
       window.localStorage.setItem(RAIL_KEY, JSON.stringify(keep));
     } catch {
       /* private window */
     }
   }, [railByThread]);
+  /** Panels folded to their bar, per chat. */
+  const [collapsedByThread, setCollapsedByThread] = useState<Record<string, RailItem[]>>({});
+  const collapsedItems = collapsedByThread[threadKey] ?? [];
+  const toggleCollapsed = (id: RailItem) =>
+    setCollapsedByThread((m) => {
+      const cur = m[threadKey] ?? [];
+      return { ...m, [threadKey]: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] };
+    });
   // The artifacts view has its own side panel (the page's links); the
   // board and the settings have none. Only a chat has the rail.
   const [artLinksOn, setArtLinksOn] = useState(false);
-  const railOn: RailItem | null =
-    view === "chat" ? (railByThread[threadKey] ?? null) : view === "artefatos" && artLinksOn ? "artefatos" : null;
-  const setRailFor = (id: RailItem | null) =>
+  const railItems: RailItem[] =
+    view === "chat" ? (railByThread[threadKey] ?? []) : view === "artefatos" && artLinksOn ? ["artefatos"] : [];
+  const addRailItem = (id: RailItem) =>
     setRailByThread((m) => {
-      const next = { ...m };
-      if (id) next[threadKey] = id;
-      else delete next[threadKey];
-      return next;
+      const cur = m[threadKey] ?? [];
+      return cur.includes(id) ? m : { ...m, [threadKey]: [...cur, id] };
+    });
+  const dropRailItem = (id: RailItem) =>
+    setRailByThread((m) => {
+      const cur = m[threadKey] ?? [];
+      const next = cur.filter((x) => x !== id);
+      const out = { ...m };
+      if (next.length) out[threadKey] = next;
+      else delete out[threadKey];
+      return out;
     });
   // A new thread on screen starts un-expanded: the expansion was the
   // previous chat's.
@@ -2169,7 +2190,7 @@ export default function App({
     return open.length;
   }
 
-  const railHas = (id: RailItem) => railOn === id;
+  const railHas = (id: RailItem) => railItems.includes(id);
 
   // The task's share popover: link, resume command, transcript, brief as
   // a page. Every row is local; the footer says so.
@@ -2244,14 +2265,17 @@ export default function App({
       else if (!threadShells.includes(termTab)) setTermTab(threadShells[0]);
     }
     if (id === "artefatos") setArtLinksOn(true);
-    else setRailFor(id);
+    else addRailItem(id);
+    // Opening a panel unfolds it: a door that lands on a folded bar is a
+    // door to nothing.
+    setCollapsedByThread((m) => ({ ...m, [threadKey]: (m[threadKey] ?? []).filter((x) => x !== id) }));
   }
 
   ensureRailRef.current = ensureRail;
 
   function removeRail(id: RailItem) {
     if (id === "artefatos") setArtLinksOn(false);
-    else setRailByThread((m) => (m[threadKey] === id ? Object.fromEntries(Object.entries(m).filter(([k]) => k !== threadKey)) : m));
+    else dropRailItem(id);
     setExpanded((e) => (e === id ? null : e));
   }
 
@@ -2945,6 +2969,7 @@ export default function App({
       title={t("frame_session")}
       expanded={expanded === "sessao"}
       onToggleExpand={() => setExpanded((e) => (e === "sessao" ? null : "sessao"))}
+      {...collapseProps("sessao")}
       onClose={() => removeRail("sessao")}
     >
       <SessionPanel
@@ -2997,6 +3022,7 @@ export default function App({
       }
       expanded={expanded === "terminal"}
       onToggleExpand={() => setExpanded((e) => (e === "terminal" ? null : "terminal"))}
+      {...collapseProps("terminal")}
       onClose={() => removeRail("terminal")}
     >
       <TerminalPane
@@ -3014,6 +3040,7 @@ export default function App({
       title={t("frame_board")}
       expanded={expanded === "board"}
       onToggleExpand={() => setExpanded((e) => (e === "board" ? null : "board"))}
+      {...collapseProps("board")}
       onClose={() => removeRail("board")}
     >
       <Board
@@ -3038,6 +3065,7 @@ export default function App({
       title={t("frame_artifacts")}
       expanded={expanded === "artefatos"}
       onToggleExpand={() => setExpanded((e) => (e === "artefatos" ? null : "artefatos"))}
+      {...collapseProps("artefatos")}
       onClose={() => removeRail("artefatos")}
     >
       <ArtifactLinks
@@ -3057,6 +3085,7 @@ export default function App({
       title={t("frame_browser")}
       expanded={expanded === "browser"}
       onToggleExpand={() => setExpanded((e) => (e === "browser" ? null : "browser"))}
+      {...collapseProps("browser")}
       onClose={() => removeRail("browser")}
     >
       <BrowserPanel key={threadKey} storageKey={threadKey} />
@@ -3068,6 +3097,7 @@ export default function App({
       title={t("frame_diff")}
       expanded={expanded === "diff"}
       onToggleExpand={() => setExpanded((e) => (e === "diff" ? null : "diff"))}
+      {...collapseProps("diff")}
       onClose={() => removeRail("diff")}
     >
       {focusedWorkspace ? (
@@ -3082,6 +3112,24 @@ export default function App({
       )}
     </PanelFrame>
   );
+  /** One frame per rail item. */
+  const frameFor = (id: RailItem) =>
+    id === "sessao"
+      ? frameSessao()
+      : id === "terminal"
+        ? frameTerminal()
+        : id === "board"
+          ? frameBoard()
+          : id === "artefatos"
+            ? frameArtefatos()
+            : id === "diff"
+              ? frameDiff()
+              : id === "browser"
+                ? frameBrowser()
+                : frameArquivos();
+  /** The collapse control every stacked frame gets (not while expanded). */
+  const collapseProps = (id: RailItem) =>
+    expanded ? {} : { collapsed: collapsedItems.includes(id), onToggleCollapse: () => toggleCollapsed(id) };
   /** The files window: the tree column, the tabs in the header, the viewer. */
   const frameArquivos = () => (
     <PanelFrame
@@ -3106,6 +3154,7 @@ export default function App({
       }
       expanded={expanded === "arquivos"}
       onToggleExpand={() => setExpanded((e) => (e === "arquivos" ? null : "arquivos"))}
+      {...collapseProps("arquivos")}
       onClose={() => {
         // Closing the window closes THIS chat's tabs; the others keep theirs.
         setOpenFiles((old) => old.filter((f) => (f.thread ?? GENERAL) !== threadKey));
@@ -3694,27 +3743,17 @@ export default function App({
               )}
             </div>
           </Panel>
-          {railOn && (
+          {railItems.length > 0 && (
             <>
               <PanelResizeHandle className="rhandle" />
               <Panel defaultSize={42} minSize={20} className="pane">
-                {/* The rail: one panel, the whole height. */}
+                {/* The rail: the chat's panels stacked, an expanded one alone. */}
                 <div className="rail">
-                  <div className="rail-slot">
-                    {railOn === "sessao"
-                      ? frameSessao()
-                      : railOn === "terminal"
-                        ? frameTerminal()
-                        : railOn === "board"
-                          ? frameBoard()
-                          : railOn === "artefatos"
-                            ? frameArtefatos()
-                            : railOn === "diff"
-                              ? frameDiff()
-                              : railOn === "browser"
-                                ? frameBrowser()
-                                : frameArquivos()}
-                  </div>
+                  {(expanded && railItems.includes(expanded) ? [expanded] : railItems).map((id) => (
+                    <div key={id} className={`rail-slot ${!expanded && collapsedItems.includes(id) ? "collapsed" : ""}`}>
+                      {frameFor(id)}
+                    </div>
+                  ))}
                 </div>
               </Panel>
             </>
