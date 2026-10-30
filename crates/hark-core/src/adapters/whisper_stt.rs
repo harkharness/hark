@@ -23,10 +23,7 @@ impl WhisperStt {
             "whisper model not found at {} (run: hark setup)",
             model_path.display()
         );
-        let ctx = WhisperContext::new_with_params(
-            &model_path.to_string_lossy(),
-            WhisperContextParameters::default(),
-        )?;
+        let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())?;
         Ok(Self {
             ctx,
             language: language.to_string(),
@@ -76,11 +73,11 @@ impl WhisperStt {
             params.set_abort_callback_safe(cb);
         }
         state.full(params, samples)?;
-        let n = state.full_n_segments()?;
-        let text = (0..n)
-            .map(|i| state.full_get_segment_text(i))
-            .collect::<Result<Vec<_>, _>>()?
-            .join("");
+        let mut text = String::new();
+        for i in 0..state.full_n_segments() {
+            let segment = state.get_segment(i).ok_or_else(|| anyhow::anyhow!("whisper: segment {i} missing"))?;
+            text.push_str(&segment.to_str_lossy()?);
+        }
         Ok(text.trim().to_string())
     }
 }
