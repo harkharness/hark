@@ -128,9 +128,16 @@ measured for that strip: with a standard title bar the whole layout sat
 28px lower, the window's name painted over the sidebar and the chat's
 title bar lost the traffic-light row it was designed to share (29/10).
 
-## The window gutter is 6px, and it is the only one
+## There is no window gutter (since 30/10)
 
-`.app` holds a `6px` padding: every panel floats 6px off the window
+`.app` used to hold a `6px` padding so every panel floated off the window
+frame. It read as a crooked margin on every side (the user's words), so
+the panels now sit on the frame the way Claude Code's app lays them out.
+The title strip's geometry is kept by the sidebar's 28px drag slot and
+the chat title bar's 6px top margin instead. What follows describes the
+old gutter and still explains the numbers it left behind.
+
+`.app` held a `6px` padding: every panel floated 6px off the window
 frame on all four sides.
 
 The top side has a constraint the others do not. macOS paints the

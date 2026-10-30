@@ -620,7 +620,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .side-group { margin-bottom: 14px; }
 /* The group carries its project's colour on the left edge: the same
    line that runs over the chat and through the composer chip. */
-.side-group { border-left: 2px solid var(--proj, transparent); padding-left: 6px; margin-left: 2px; }
+.side-group { border-left: 2px solid var(--proj, transparent); padding-left: 4px; margin-left: 0; }
 .side-group-head {
   position: relative; display: flex; align-items: center; gap: 6px;
   padding: 14px 8px 6px;
@@ -1384,7 +1384,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .chat-title-head {
   position: relative; z-index: 8;
   flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
-  min-height: 22px; box-sizing: border-box;
+  min-height: 22px; box-sizing: border-box; margin-top: 6px;
   /* Chrome, not prose: the transcript's clamp() is a READING column and
      the title has no reason to obey it. Same 12/8 rhythm as the panel
      headers, so every bar in the app starts at the same place. */
@@ -2160,13 +2160,17 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    full-width fixed strip here — one used to sit above the rail's panel
    headers, so the terminal's × lost its hover and a click on it dragged
    the window instead (docs/CHROME.md). */
-.side-drag { height: 22px; flex: 0 0 auto; }
+.side-drag { height: 28px; flex: 0 0 auto; }
 /* Only the project window renders .app, and that window is built with an
    Overlay title bar: the strip is OURS to use, not to leave empty. The
    layout starts at the very top and the chat's own title bar occupies it
    — the way a document window puts its document's name up there. Only
    the SIDEBAR sits under the traffic lights, so only it pays the offset. */
-.app { position: relative; padding: 6px; }
+/* No gutter (30/10): the panels sit on the window frame, the way Claude
+   Code's app lays them out. The strip the traffic lights live in keeps
+   its centre line (~17px) by the sidebar's drag slot and the chat title
+   bar's top margin, not by a gutter around everything. */
+.app { position: relative; padding: 0; }
 /* The traffic lights are drawn by macOS at a FIXED spot near the top of
    the window and cannot move. So the strip they sit in has to hold still
    too: with the 6px gutter above it, the title bar keeps the same centre
@@ -2174,7 +2178,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    instead of 34 — the same small-control height the panel headers use.
    The sidebar's first row lands at the bar's baseline, 28px: .side-drag
    is those 22px, so the sidebar's own top padding must be zero. */
-.sidebar { padding-top: 0; }
+.sidebar { padding: 0 6px 8px; }
 /* Sidebar collapsed, the chat column reaches the window edge — and its
    title bar runs straight into the traffic lights and the toggle that
    closed it. The title steps aside for the chrome that is already there. */
