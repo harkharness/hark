@@ -2706,6 +2706,9 @@ export default function App({
   }
 
   async function focusTask(title: string, sessionId: string, note?: string) {
+    // Opening a chat IS leaving the board or the settings: from the board
+    // view a sidebar click used to only move the scope pill (30/10).
+    setView("chat");
     setDraftChat(null);
     setFocusedTask({ title, sessionId, note });
     if (loadedTasks.current.has(title)) {
@@ -2826,6 +2829,7 @@ export default function App({
   }
 
   function startDraftChat(project: Project) {
+    setView("chat");
     setDraftChat(project);
     leaveChat();
     push({
