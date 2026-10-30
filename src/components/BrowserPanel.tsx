@@ -12,11 +12,12 @@ const DEFAULT_URL = "https://harkharness.web.app";
  * Tauri command reaches it); this component only owns the bar and keeps
  * the webview glued to the body's rectangle as the layout moves.
  */
-export default function BrowserPanel() {
+export default function BrowserPanel({ storageKey = "" }: { storageKey?: string }) {
+  const urlKey = `${LAST_URL_KEY}.${storageKey}`;
   const bodyRef = useRef<HTMLDivElement>(null);
   const [url, setUrl] = useState(() => {
     try {
-      return window.localStorage.getItem(LAST_URL_KEY) || DEFAULT_URL;
+      return window.localStorage.getItem(urlKey) || window.localStorage.getItem(LAST_URL_KEY) || DEFAULT_URL;
     } catch {
       return DEFAULT_URL;
     }
@@ -69,7 +70,7 @@ export default function BrowserPanel() {
             setUrl(now);
             setDraft((d) => (document.activeElement?.classList.contains("browser-url") ? d : now));
             try {
-              window.localStorage.setItem(LAST_URL_KEY, now);
+              window.localStorage.setItem(urlKey, now);
             } catch {
               /* no storage */
             }

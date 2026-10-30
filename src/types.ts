@@ -489,6 +489,8 @@ export type OpenFile = {
   /** Path relative to the project root (what the UI shows). */
   rel: string;
   project: Project;
+  /** The chat this tab belongs to (phase 10.8: each chat keeps its own). */
+  thread?: string;
 };
 
 /** A local, deterministic dispatch warning with its offered actions. */

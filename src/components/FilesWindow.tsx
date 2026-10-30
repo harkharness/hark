@@ -49,12 +49,16 @@ export default function FilesWindow({
   }, [onWidth]);
 
   const activeAbs = files[active]?.abs;
-  const main =
-    files.length > 0 ? (
-      <FilesEditor files={files} active={active} onDirty={onDirty} />
-    ) : (
-      <FilesEmpty treeOpen={treeOpen} />
-    );
+  // The editor stays mounted even when THIS chat has no tab (active < 0):
+  // the tabs of other chats live in it, with their unsaved drafts.
+  const main = (
+    <>
+      {(files.length === 0 || active < 0) && <FilesEmpty treeOpen={treeOpen} />}
+      <div className="fileseditor-keep" style={{ display: files.length > 0 && active >= 0 ? "contents" : "none" }}>
+        <FilesEditor files={files} active={active} onDirty={onDirty} />
+      </div>
+    </>
+  );
 
   return (
     <div className="fileswin" ref={rootRef}>

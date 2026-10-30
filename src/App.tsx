@@ -181,6 +181,10 @@ export default function App({
     sessionId: string;
     note?: string;
   } | null>(null);
+  /** The thread on screen, as the key of everything a chat keeps for
+   *  itself: its rail panel, its shells, its file tabs, its page. The
+   *  general chat is the empty key. */
+  const threadKey = focusedTask?.title ?? GENERAL;
   // A "+" click on a project: the NEXT message opens a fresh session there.
   const [draftChat, setDraftChat] = useState<Project | null>(null);
   const [liveWorkers, setLiveWorkers] = useState<Record<string, LiveWorker>>({});
@@ -229,7 +233,14 @@ export default function App({
   const [speak, setSpeak] = useState(true);
   // "Arquivos" window: up to 5 tabs, LRU-evicted, dirty tabs protected.
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
-  const [activeFile, setActiveFile] = useState(0);
+  // The active tab is remembered per chat; every tab stays mounted so a
+  // draft in another chat's file survives the switch.
+  const [activeByThread, setActiveByThread] = useState<Record<string, number>>({});
+  const activeFile = activeByThread[threadKey] ?? 0;
+  const setActiveFile = (next: number | ((a: number) => number)) =>
+    setActiveByThread((m) => ({ ...m, [threadKey]: typeof next === "function" ? next(m[threadKey] ?? 0) : next }));
+  /** This chat's tabs, with their index in the window's list. */
+  const threadFiles = openFiles.map((f, i) => ({ f, i })).filter(({ f }) => (f.thread ?? GENERAL) === threadKey);
   const [dirtyPaths, setDirtyPaths] = useState<Set<string>>(new Set());
   const lastFocus = useRef(new Map<string, number>());
   // ...and its tree column (project trees + filter), open or folded.
@@ -275,30 +286,58 @@ export default function App({
    */
   // ONE panel at a time (phase 10.2): the rail shows the panel named
   // here or nothing at all, and the choice survives a restart.
-  const RAIL_KEY = "hark.rail";
-  const [railOn, setRailOn] = useState<RailItem | null>(() => {
+  const RAIL_KEY = "hark.rail.v2";
+  const RAIL_ITEMS: RailItem[] = ["sessao", "terminal", "arquivos", "board", "artefatos", "diff", "browser"];
+  // Each chat keeps the panel it had open (phase 10.8), the way Claude
+  // Code's app does: come back to a chat and its terminal is there, its
+  // file is open. Persisted per thread; a terminal is a process, not a
+  // view, so it is never reopened blind.
+  const [railByThread, setRailByThread] = useState<Record<string, RailItem>>(() => {
     try {
-      const saved = window.localStorage.getItem(RAIL_KEY);
-      return saved === "sessao" || saved === "arquivos" || saved === "board" || saved === "artefatos" || saved === "diff" || saved === "browser"
-        ? saved
-        : null;
+      const raw = window.localStorage.getItem(RAIL_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+      const out: Record<string, RailItem> = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        if ((RAIL_ITEMS as string[]).includes(v) && v !== "terminal") out[k] = v as RailItem;
+      }
+      return out;
     } catch {
-      return null;
+      return {};
     }
   });
   useEffect(() => {
     try {
-      // A terminal is a process, not a view: it is never reopened blind.
-      if (railOn && railOn !== "terminal") window.localStorage.setItem(RAIL_KEY, railOn);
-      else window.localStorage.removeItem(RAIL_KEY);
+      const keep = Object.fromEntries(Object.entries(railByThread).filter(([, v]) => v !== "terminal"));
+      window.localStorage.setItem(RAIL_KEY, JSON.stringify(keep));
     } catch {
       /* private window */
     }
-  }, [railOn]);
+  }, [railByThread]);
+  // The artifacts view has its own side panel (the page's links); the
+  // board and the settings have none. Only a chat has the rail.
+  const [artLinksOn, setArtLinksOn] = useState(false);
+  const railOn: RailItem | null =
+    view === "chat" ? (railByThread[threadKey] ?? null) : view === "artefatos" && artLinksOn ? "artefatos" : null;
+  const setRailFor = (id: RailItem | null) =>
+    setRailByThread((m) => {
+      const next = { ...m };
+      if (id) next[threadKey] = id;
+      else delete next[threadKey];
+      return next;
+    });
+  // A new thread on screen starts un-expanded: the expansion was the
+  // previous chat's.
+  useEffect(() => setExpanded(null), [threadKey]);
 
   // Real shell tabs (PTY ids). Owned here so hiding the pane keeps them.
   const [shells, setShells] = useState<string[]>([]);
-  const [termTab, setTermTab] = useState<string>("");
+  /** Which chat opened each shell: the panel shows the chat's own. */
+  const [shellThread, setShellThread] = useState<Record<string, string>>({});
+  const threadShells = shells.filter((id) => shellThread[id] === threadKey);
+  const [termTabByThread, setTermTabByThread] = useState<Record<string, string>>({});
+  const termTab = termTabByThread[threadKey] ?? "";
+  const setTermTab = (next: string | ((t: string) => string)) =>
+    setTermTabByThread((m) => ({ ...m, [threadKey]: typeof next === "function" ? next(m[threadKey] ?? "") : next }));
   const shellSeq = useRef(1);
   // Mirrors the sidebar panel's collapsed state (topbar toggle icon).
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -1246,11 +1285,13 @@ export default function App({
    * Open a file as an editor tab (max 5). Eviction is LRU by last focus
    * and NEVER touches a tab with unsaved edits.
    */
-  function openFile(file: OpenFile) {
+  function openFile(raw: OpenFile) {
+    const file: OpenFile = { ...raw, thread: threadKey };
     ensureRail("arquivos");
     lastFocus.current.set(file.abs, Date.now());
     setOpenFiles((old) => {
-      const existing = old.findIndex((f) => f.abs === file.abs);
+      const own = (f: OpenFile) => (f.thread ?? GENERAL) === threadKey;
+      const existing = old.findIndex((f) => f.abs === file.abs && own(f));
       if (existing >= 0) {
         setActiveFile(existing);
         // Same file, new line: the tab is reused and jumps.
@@ -1258,13 +1299,13 @@ export default function App({
           ? old.map((f, i) => (i === existing ? { ...f, line: file.line } : f))
           : old;
       }
-      if (old.length < 5) {
+      if (old.filter(own).length < 5) {
         setActiveFile(old.length);
         return [...old, file];
       }
       const evictable = old
         .map((f, i) => ({ f, i }))
-        .filter(({ f }) => !dirtyPaths.has(f.abs))
+        .filter(({ f }) => own(f) && !dirtyPaths.has(f.abs))
         .sort(
           (a, b) =>
             (lastFocus.current.get(a.f.abs) ?? 0) - (lastFocus.current.get(b.f.abs) ?? 0),
@@ -2192,14 +2233,16 @@ export default function App({
     // that is "(sem eventos ainda)": a dead panel where the user asked
     // for a prompt. The feed stays a tab, it just stops being the door.
     if (id === "terminal") {
-      if (shells.length === 0) addShell();
-      else if (!shells.includes(termTab)) setTermTab(shells[0]);
+      if (threadShells.length === 0) addShell();
+      else if (!threadShells.includes(termTab)) setTermTab(threadShells[0]);
     }
-    setRailOn(id);
+    if (id === "artefatos") setArtLinksOn(true);
+    else setRailFor(id);
   }
 
   function removeRail(id: RailItem) {
-    setRailOn((on) => (on === id ? null : on));
+    if (id === "artefatos") setArtLinksOn(false);
+    else setRailByThread((m) => (m[threadKey] === id ? Object.fromEntries(Object.entries(m).filter(([k]) => k !== threadKey)) : m));
     setExpanded((e) => (e === id ? null : e));
   }
 
@@ -2209,14 +2252,15 @@ export default function App({
   function addShell(): string {
     const id = `sh-${shellSeq.current++}-${Date.now() % 1e6}`;
     setShells((old) => [...old, id]);
+    setShellThread((m) => ({ ...m, [id]: threadKey }));
     setTermTab(id);
     return id;
   }
 
   function closeShell(id: string) {
     setShells((old) => old.filter((s) => s !== id));
-    // Closing the active shell falls back to whichever remains.
-    setTermTab((t) => (t === id ? (shells.find((s) => s !== id) ?? "") : t));
+    // Closing the active shell falls back to whichever of the chat's remains.
+    setTermTab((t) => (t === id ? (threadShells.find((s) => s !== id) ?? "") : t));
   }
 
   /**
@@ -2918,7 +2962,7 @@ export default function App({
       title={t("frame_terminal")}
       tabs={
         <TerminalTabs
-          shells={shells}
+          shells={threadShells}
           active={termTab}
           onActivate={setTermTab}
           onAddShell={addShell}
@@ -2939,9 +2983,9 @@ export default function App({
       onClose={() => removeRail("terminal")}
     >
       <TerminalPane
-        shells={shells}
+        shells={threadShells}
         active={termTab}
-        cwd={forcedProject?.path}
+        cwd={activeProject?.path ?? forcedProject?.path}
         onAddShell={addShell}
         onCloseShell={closeShell}
         onActivate={setTermTab}
@@ -2998,7 +3042,7 @@ export default function App({
       onToggleExpand={() => setExpanded((e) => (e === "browser" ? null : "browser"))}
       onClose={() => removeRail("browser")}
     >
-      <BrowserPanel />
+      <BrowserPanel key={threadKey} storageKey={threadKey} />
     </PanelFrame>
   );
   /** The diff of the workspace on screen: changed files, one at a time. */
@@ -3028,29 +3072,34 @@ export default function App({
       lead={<TreeToggle open={filesTree.open} onToggle={filesTree.toggle} />}
       tabs={
         <FileTabs
-          files={openFiles}
-          active={activeFile}
+          files={threadFiles.map((x) => x.f)}
+          active={threadFiles.findIndex((x) => x.i === activeFile)}
           dirty={dirtyPaths}
-          onActivate={(i) => {
-            setActiveFile(i);
-            const f = openFiles[i];
-            if (f) lastFocus.current.set(f.abs, Date.now());
+          onActivate={(j) => {
+            const hit = threadFiles[j];
+            if (!hit) return;
+            setActiveFile(hit.i);
+            lastFocus.current.set(hit.f.abs, Date.now());
           }}
-          onCloseTab={closeFileTab}
+          onCloseTab={(j) => {
+            const hit = threadFiles[j];
+            if (hit) closeFileTab(hit.i);
+          }}
         />
       }
       expanded={expanded === "arquivos"}
       onToggleExpand={() => setExpanded((e) => (e === "arquivos" ? null : "arquivos"))}
       onClose={() => {
-        setOpenFiles([]);
-        setDirtyPaths(new Set());
+        // Closing the window closes THIS chat's tabs; the others keep theirs.
+        setOpenFiles((old) => old.filter((f) => (f.thread ?? GENERAL) !== threadKey));
+        setDirtyPaths((d) => new Set([...d].filter((abs) => !threadFiles.some((x) => x.f.abs === abs))));
         removeRail("arquivos");
       }}
     >
       <FilesWindow
         projects={projects}
         files={openFiles}
-        active={activeFile}
+        active={threadFiles.some((x) => x.i === activeFile) ? activeFile : -1}
         initialProject={filesInitialProject}
         treeOpen={filesTree.open}
         onOpen={openFile}
@@ -3413,8 +3462,8 @@ export default function App({
                     setView("chat");
                     void openTaskByTitle(title, sessionId);
                   }}
-                  linksOn={railHas("artefatos")}
-                  onToggleLinks={() => toggleRail("artefatos")}
+                  linksOn={artLinksOn}
+                  onToggleLinks={() => setArtLinksOn((v) => !v)}
                 />
               ) : reading ? (
                 <Reader
@@ -3509,7 +3558,7 @@ export default function App({
                     <button
                       onClick={() => {
                         ensureRail("terminal");
-                        if (shells[0]) setTermTab(shells[0]);
+                        if (threadShells[0]) setTermTab(threadShells[0]);
                         else addShell();
                       }}
                     >
