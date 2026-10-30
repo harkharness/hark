@@ -121,10 +121,11 @@ a file dropped there by hand is adopted at the root on the next read.
   Markdown reads rendered and edits in place (the pencil). HTML renders in
   an isolated frame with scripts off; turn them on for a slide deck that
   needs them — even then the frame has no access to Hark.
-- **The composer follows the page.** With a page open the scope chip names
-  it and the next message goes to the general chat with the page along:
-  whole while it fits, its head past twelve thousand characters. The
-  bubble shows what you typed; the page rides in the prompt only.
+- **The view is documentation, not a chat.** There is no composer here:
+  a page reaches a chat by being named in a message ("…como ficou no ADR
+  004"), through the session panel's outputs, or by opening its file in
+  the files window. Reading and organizing happen here; talking happens
+  in the chat.
 - **Links** (the panel beside the page) says what the page is, where it
   came from and what it ties to: the origin chat, child pages, citations.
 

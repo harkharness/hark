@@ -2018,19 +2018,6 @@ fn artifact_read(space: String, id: String) -> Result<ArtifactPage, String> {
     Ok(ArtifactPage { node, text, abs, breadcrumb })
 }
 
-/// The page as the composer sends it along: whole while it fits, else its
-/// head. Twelve thousand characters is a few pages of prose, well under
-/// what a turn can carry, and the agent has the path to read the rest.
-const PAGE_BRIEF_CHARS: usize = 12_000;
-
-#[tauri::command]
-fn artifact_brief(space: String, id: String) -> Result<String, String> {
-    let page = artifact_read(space.clone(), id)?;
-    let scope = hark_core::domain::scope::Scope::Page { title: page.node.title.clone(), path: page.node.path.clone(), space };
-    let crumbs: Vec<&str> = page.breadcrumb.iter().map(String::as_str).collect();
-    Ok(hark_core::domain::scope::page_brief(&scope, &crumbs, &page.text, PAGE_BRIEF_CHARS))
-}
-
 #[derive(Serialize)]
 struct ArtifactCitesOut {
     /// The pages the text names, as "space › title".
@@ -6009,7 +5996,6 @@ pub fn run() {
             artifacts_spaces,
             artifacts_tree,
             artifact_read,
-            artifact_brief,
             artifact_cites,
             artifact_from_brief,
             export_file,

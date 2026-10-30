@@ -1118,10 +1118,6 @@ export default function App({
     draftChat,
     focusedTask,
     taskProject: focusedTask ? projectOf(board.find((t) => t.title === focusedTask.title)) : undefined,
-    page:
-      isMain && view === "artefatos" && artPage && artSel?.id
-        ? { title: artPage.node.title, path: artPage.node.path, space: artSel.space }
-        : null,
   });
   /** Colour by REGISTRY order, not by this window's filtered list, so a
    *  project is the same colour in every window and in the mother. */
@@ -1669,20 +1665,6 @@ export default function App({
     const aside = TO_HARK.exec(text);
     if (aside) text = text.slice(aside[0].length).trim() || text;
     const toHark = !!aside;
-
-    // A page in scope: the message goes to the general chat with the page
-    // along (whole while it fits, else its head — domain::scope). The
-    // bubble shows what was typed; the page rides in the prompt only.
-    if (scope.kind === "page" && artSel?.id) {
-      const brief = await ipc.artifactBrief(artSel.space, artSel.id).catch(() => "");
-      const msgId = crypto.randomUUID();
-      push({ who: "user", text, images: images.map((i) => i.dataUrl), msgId });
-      push({ who: "sys", text: t("art_sent_about", { t: scope.title }) });
-      leaveChat();
-      setView("chat");
-      await sendToChat(brief ? `${brief}\n\n---\n\n${text}` : text, images, msgId);
-      return;
-    }
 
     // A fork draft armed by the held banner: this message starts a NEW
     // session seeded with the held one's history and works there.
@@ -3537,6 +3519,10 @@ export default function App({
                   }
                 />
               )}
+              {/* The artifacts view is documentation: no composer, no turn
+                  status, no held banner — those are the chat's. */}
+              {view !== "artefatos" && (
+              <>
               {turns[focusedTask?.title ?? GENERAL] && (
                 <TurnStatus state={turns[focusedTask?.title ?? GENERAL]} />
               )}
@@ -3653,6 +3639,8 @@ export default function App({
                   }
                 />
               </Composer>
+              </>
+              )}
               </>
               )}
             </div>

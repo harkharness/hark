@@ -77,11 +77,10 @@ not move a page to another chat.
 
 ## Pages in the prompt
 
-- **A page in scope.** With a page open the composer's chip names it and
-  the next message goes to the general chat with the page along: whole
-  while it fits twelve thousand characters, else its head and a note of
-  what was left out (`domain::scope::page_brief`). The bubble shows what
-  you typed; the page rides in the prompt only.
+- **Not from the artifacts view.** That view is documentation: no
+  composer, no scope. (A "page as scope" composer existed for a day and
+  confused more than it helped, 30/10.) `domain::scope::page_brief` is
+  the budgeted body a citation carries.
 - **A page cited by title.** "…como ficou no ADR 004" in a message to a
   task attaches the cited pages (up to four thousand characters each) in
   an attributed block, the way a cited chat's lines are attached. The
