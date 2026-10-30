@@ -3753,15 +3753,27 @@ fn session_owners(
     // 0.4s of wall clock each, forever, on an idle app.
     const TTL: std::time::Duration = std::time::Duration::from_millis(3000);
 
-    // Sessions Hark is driving itself are not takeovers.
-    let ours: Vec<String> = live
-        .0
-        .lock()
-        .unwrap()
-        .values()
-        .map(|h| h.spec.session_id.clone())
-        .filter(|s| !s.is_empty())
-        .collect();
+    // Sessions Hark is driving itself are not takeovers. A spec carries
+    // the id only when it resumed one: a fresh chat's id arrives later,
+    // through SessionStarted, and lands in the registry — so the registry
+    // and the general chat's own id count too. Without them a chat opened
+    // in Hark itself read as "held at a terminal" the moment the CLI
+    // listed its own worker (30/10: `claude agents` now calls every
+    // session interactive, headless ones included).
+    let ours: Vec<String> = {
+        let handles = live.0.lock().unwrap();
+        let mut ids: Vec<String> = handles.values().map(|h| h.spec.session_id.clone()).filter(|s| !s.is_empty()).collect();
+        // Only the registry rows of workers alive NOW: a session Hark once
+        // drove and let go is somebody else's to take over.
+        let gstate = state_file::load(&Config::load().data_dir());
+        ids.extend(
+            gstate.workers.iter().filter(|w| handles.contains_key(&w.task_id)).map(|w| w.session_id.clone()).filter(|s| !s.is_empty()),
+        );
+        if handles.contains_key(HARK_CHAT_TASK) {
+            ids.extend(gstate.hark_chat_session.iter().cloned());
+        }
+        ids
+    };
 
     let cell = CACHE.get_or_init(|| std::sync::Mutex::new(None));
     let mut slot = cell.lock().unwrap();
