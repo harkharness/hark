@@ -1509,6 +1509,7 @@ export default function App({
       }
     }
 
+    let fromSlash = false;
     // "/" = explicit command: NEVER the evaluator/gate. Hark-native ones
     // run here; anything else is delivered verbatim to the focused session
     // (the CLI expands its own slash commands — /compact, customs, plugins).
@@ -1539,15 +1540,32 @@ export default function App({
       if (name === "rename" && args) {
         // Reuse the spoken path: "renomeia para X" renames the focused chat.
         text = `renomeia para ${args}`;
+        fromSlash = true;
       } else {
         await sendSlash(text);
         return;
       }
     }
 
-    // Local commands first ("abre o arquivo X", "vai pra task Y", "novo
-    // chat no projeto Z"): zero tokens, resolved on this machine.
-    const cmd = await ipc.taskCommand(text, focusedTask?.title).catch(() => null);
+    // Calling hark by name is the ONE exit from an open chat. Everything
+    // else typed into a chat belongs to that chat: you chose the target by
+    // opening it. The rule used to be "anything shaped like a question goes
+    // to hark", and a real message — "temos muitas coisas para commitar, vc
+    // pode verificar e organizar em commits semânticos?" — left the thread
+    // because of its final "?": it vanished from the chat on screen and was
+    // answered by the global ask, which has no shell and could only offer
+    // to dispatch the work back.
+    const aside = TO_HARK.exec(text);
+    if (aside) text = text.slice(aside[0].length).trim() || text;
+    const toHark = !!aside;
+    const inChat = !!(focusedTask || draftChat || forkDraft);
+
+    // Local commands ("abre o arquivo X", "vai pra task Y", "novo chat no
+    // projeto Z"): zero tokens, resolved on this machine — but only from
+    // the general chat, by name, or by a slash. Inside a chat the grammar
+    // used to run on every message and "pode renomear para home.md",
+    // meant for the agent and its file, renamed the chat instead (30/10).
+    const cmd = !inChat || toHark || fromSlash ? await ipc.taskCommand(text, focusedTask?.title).catch(() => null) : null;
     if (cmd) {
       push({ who: "user", text });
       if (cmd.kind === "open" && cmd.session_id) {
@@ -1669,18 +1687,6 @@ export default function App({
       }
       return;
     }
-
-    // Calling hark by name is the ONE exit from an open chat. Everything
-    // else typed into a chat belongs to that chat: you chose the target by
-    // opening it. The rule used to be "anything shaped like a question goes
-    // to hark", and a real message — "temos muitas coisas para commitar, vc
-    // pode verificar e organizar em commits semânticos?" — left the thread
-    // because of its final "?": it vanished from the chat on screen and was
-    // answered by the global ask, which has no shell and could only offer
-    // to dispatch the work back.
-    const aside = TO_HARK.exec(text);
-    if (aside) text = text.slice(aside[0].length).trim() || text;
-    const toHark = !!aside;
 
     // A fork draft armed by the held banner: this message starts a NEW
     // session seeded with the held one's history and works there.
