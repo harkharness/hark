@@ -188,7 +188,9 @@ body {
 .ep-orb > span:nth-child(3) { background: var(--hl-meta); }
 .ep-name { font-size: 21px; font-weight: 350; }
 .ep-sub { color: var(--dim); font-size: 12.5px; }
-.ep-doors { display: grid; grid-template-columns: repeat(2, 270px); gap: 10px; }
+/* Two doors wide while there is room, never wider than the column: at a
+   fixed 270px each the left door was cut off in a narrow window. */
+.ep-doors { display: grid; grid-template-columns: repeat(2, minmax(0, 270px)); gap: 10px; width: 100%; max-width: 580px; padding: 0 16px; box-sizing: border-box; }
 .ep-door {
   background: var(--panel); border: 1px solid rgba(255,255,255,.08);
   border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column;
@@ -1903,12 +1905,16 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .modal.report .primary { background: var(--accent); color: #0b0f1a; font-weight: 700; }
 .modal.report button:disabled { opacity: .5; cursor: default; }
 /* Report lives in the chrome's floor: an icon, the words in its tooltip. */
-.sidebar { display: flex; flex-direction: column; }
+.sidebar { display: flex; flex-direction: column; overflow: hidden; }
 .sidebar > * { flex-shrink: 0; }
+.sidebar > .side-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .sidebar > .side-rename { flex: 0 0 auto; }
+/* The foot sits OUTSIDE the scroll (Sidebar.tsx wraps the rows in
+   .side-scroll), so it never covers a row: a sticky foot read as two
+   icons floating over the chats (29/10). */
 .side-foot {
-  margin-top: auto; position: sticky; bottom: 0;
-  padding: 8px 2px 0; background: var(--bg-deep);
+  flex: 0 0 auto; display: flex; align-items: center; gap: 2px;
+  padding: 6px 2px 0; border-top: 1px solid var(--border); background: var(--bg-deep);
 }
 .gate-warning {
   color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);

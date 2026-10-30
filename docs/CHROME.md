@@ -119,6 +119,15 @@ sat indented like a paragraph; it is chrome, and chrome uses the edges.
 Every bar in the app — chat title, panel headers — starts at 12px and
 ends at 8px.
 
+## Every window has the Overlay title bar
+
+The project windows are built in Rust with `TitleBarStyle::Overlay` and
+`hidden_title`, and since the main window renders the same App (phase
+10.1) it declares the same in `tauri.conf.json`. Everything below is
+measured for that strip: with a standard title bar the whole layout sat
+28px lower, the window's name painted over the sidebar and the chat's
+title bar lost the traffic-light row it was designed to share (29/10).
+
 ## The window gutter is 6px, and it is the only one
 
 `.app` holds a `6px` padding: every panel floats 6px off the window

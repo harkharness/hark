@@ -182,6 +182,10 @@ export default function Sidebar({
           because only an element can carry the drag attribute: this is one
           of the two places that move the window (docs/CHROME.md). */}
       <div className="side-drag" data-tauri-drag-region />
+      {/* Everything but the drag slot and the foot scrolls here, so the
+          foot never floats over a row: it is the last thing, outside the
+          scroll, with the window's own bottom under it. */}
+      <div className="side-scroll">
       {workspaceName && (
         <div className="side-head">
           <span className="side-head-name" title={workspaceName}>
@@ -337,6 +341,7 @@ export default function Sidebar({
           {t("side_add_project")}
         </button>
       )}
+      </div>
       {(onReport || onOpenSettings) && (
         <div className="side-foot">
           {onReport && (

@@ -18,7 +18,9 @@
         "height": 720,
         "minWidth": 720,
         "minHeight": 480,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {
