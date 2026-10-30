@@ -86,6 +86,15 @@ Esqueleto de apresentação, para começar:
 </body></html>
 ```
 
+## Ajustar, renomear
+
+- Ajustar uma página é editar o mesmo arquivo (Edit ou Write no mesmo
+  caminho). Não escreva outro arquivo com o conteúdo novo.
+- Renomear é `mv` do arquivo, na mesma pasta, num passo só: a árvore
+  segue, e a página guarda o chat de origem e os links. Criar o novo e
+  apagar o antigo em passos separados deixa uma página órfã na árvore.
+- Mudar de pasta (de mãe) é da pessoa, arrastando na árvore.
+
 ## O que nunca fazer
 
 - Nunca edite `index.json`: é o índice do Hark, ele se reconcilia sozinho.

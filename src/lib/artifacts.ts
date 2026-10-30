@@ -61,5 +61,5 @@ export function crumbOf(tree: ArtifactTree, id: string): string[] {
 
 /** Newest touch first, at most n. */
 export function recents(tree: ArtifactTree, n: number): ArtifactNode[] {
-  return [...tree.nodes].sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0)).slice(0, n);
+  return tree.nodes.filter((n) => !n.orphan).sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0)).slice(0, n);
 }

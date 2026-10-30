@@ -154,6 +154,12 @@ export default function Artifacts({
       onPage(null, tree);
       return;
     }
+    // An orphan has no file to read: the view says so instead of the OS.
+    if (tree?.nodes.find((n) => n.id === sel.id)?.orphan) {
+      setPage(null);
+      onPage(null, tree);
+      return;
+    }
     let live = true;
     ipc
       .artifactRead(sel.space, sel.id)
@@ -231,6 +237,7 @@ export default function Artifacts({
     }
   }
 
+  const orphan = sel?.id && tree ? tree.nodes.find((n) => n.id === sel.id && n.orphan) : undefined;
   const spaceOf = (name: string) => spaces.find((s) => s.name === name);
   const spaceColour = (name: string) => colourOf(spaceOf(name)?.project ?? undefined);
 
@@ -402,6 +409,13 @@ export default function Artifacts({
             onOpen={(id) => onSel({ space: sel.space, id })}
             onNew={(kind) => setNaming({ parent: null, kind })}
           />
+        ) : orphan ? (
+          <div className="art-empty art-orphan-note">
+            <p>{t("art_orphan_body", { path: orphan.path })}</p>
+            <button className="pill-btn" onClick={() => void remove(sel.space, orphan.id)}>
+              {t("art_orphan_drop")}
+            </button>
+          </div>
         ) : page ? (
           <Page
             page={page}

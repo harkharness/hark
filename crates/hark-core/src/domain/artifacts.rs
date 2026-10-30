@@ -75,6 +75,9 @@ pub struct Reconciled {
     pub added: Vec<String>,
     /// Pages whose file vanished since the last pass.
     pub orphaned: Vec<String>,
+    /// Pages whose file was moved to a new name in one pass: same page,
+    /// same id, new path (and heading).
+    pub renamed: Vec<String>,
 }
 
 const PAGE_EXTENSIONS: [&str; 2] = ["md", "html"];
@@ -341,6 +344,27 @@ impl Tree {
     /// in the same pass as its children is there before them. Idempotent.
     pub fn reconcile(&mut self, files: &[(&str, Option<&str>)], now: &str) -> Reconciled {
         let mut out = Reconciled::default();
+        // Exactly one page vanished and exactly one new file sits beside
+        // it, same folder, same format: that is a `mv`. The page keeps its
+        // id (so its links hold), its origin and its place; the path and
+        // the heading follow the file. Anything less clear-cut is an
+        // orphan plus an adoption, for the person to sort out.
+        let gone: Vec<usize> = (0..self.nodes.len())
+            .filter(|&i| !self.nodes[i].orphan && !files.iter().any(|(f, _)| *f == self.nodes[i].path))
+            .collect();
+        let fresh: Vec<&(&str, Option<&str>)> =
+            files.iter().filter(|(f, _)| validate_path(f).is_ok() && !self.nodes.iter().any(|n| n.path == *f)).collect();
+        if let ([i], [(f, title)]) = (gone.as_slice(), fresh.as_slice()) {
+            let n = &mut self.nodes[*i];
+            if folder_of(&n.path) == folder_of(f) && ext_of(&n.path) == ext_of(f) {
+                n.path = (*f).to_string();
+                if let Some(t) = title {
+                    n.title = (*t).to_string();
+                }
+                n.updated_at = now.to_string();
+                out.renamed.push(n.id.clone());
+            }
+        }
         for n in &mut self.nodes {
             let present = files.iter().any(|(f, _)| *f == n.path);
             if !present && !n.orphan {
@@ -372,6 +396,14 @@ impl Tree {
         }
         out
     }
+}
+
+fn folder_of(path: &str) -> &str {
+    path.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
+}
+
+fn ext_of(path: &str) -> &str {
+    path.rsplit_once('.').map(|(_, e)| e).unwrap_or("")
 }
 
 /// What the head of a file says a page is called: the first `# heading`
@@ -531,6 +563,55 @@ mod tests {
         let back = found(&["decisoes/index.md", "decisoes/adr-003.md", "decisoes/adr-004.md", "visao-geral.md", "notas/reuniao.md", "fase-10.html"]);
         t.reconcile(&back, "2026-10-28T13:00:00Z");
         assert!(!t.get("decisoes").unwrap().orphan);
+    }
+
+    #[test]
+    fn a_file_gone_and_one_new_beside_it_in_the_same_pass_is_a_rename_and_the_page_keeps_its_identity() {
+        let mut t = sample();
+        let origin = Origin { session_id: Some("s1".into()), task: Some("escrever a home".into()) };
+        t.nodes.iter_mut().find(|n| n.id == "visao").unwrap().origin = Some(origin.clone());
+        // The agent did `mv visao-geral.md home.md` and changed the heading.
+        let disk = vec![
+            ("decisoes/index.md", None),
+            ("decisoes/adr-003.md", None),
+            ("decisoes/adr-004.md", None),
+            ("home.md", Some("Home do workspace")),
+        ];
+        let out = t.reconcile(&disk, "2026-10-30T17:00:00Z");
+        assert_eq!(out.renamed, vec!["visao"]);
+        assert!(out.added.is_empty() && out.orphaned.is_empty(), "{out:?}");
+        let n = t.get("visao").unwrap();
+        assert_eq!(n.path, "home.md");
+        assert_eq!(n.title, "Home do workspace", "the new heading wins");
+        assert_eq!(n.origin, Some(origin), "the chat it was born in stays");
+        assert!(!n.orphan);
+        assert_eq!(n.updated_at, "2026-10-30T17:00:00Z");
+        assert!(t.get("home").is_none(), "no second node for the same page");
+        // Without a heading the old title stays.
+        let mut t2 = sample();
+        t2.reconcile(&[("decisoes/index.md", None), ("decisoes/adr-003.md", None), ("decisoes/adr-004.md", None), ("geral.md", None)], "x");
+        assert_eq!(t2.get("visao").unwrap().title, "Visão geral");
+        assert_eq!(t2.get("visao").unwrap().path, "geral.md");
+    }
+
+    #[test]
+    fn two_files_gone_or_a_new_file_in_another_folder_is_not_a_rename() {
+        let mut t = sample();
+        // Two vanished, one new: ambiguous, no guess.
+        let out = t.reconcile(&[("decisoes/index.md", None), ("decisoes/adr-003.md", None), ("novo.md", None)], "x");
+        assert!(out.renamed.is_empty());
+        assert_eq!(out.orphaned, vec!["adr-004", "visao"]);
+        assert_eq!(out.added, vec!["novo"]);
+        // One vanished at the root, one new under decisoes: different folders.
+        let mut t = sample();
+        let out = t.reconcile(&[("decisoes/index.md", None), ("decisoes/adr-003.md", None), ("decisoes/adr-004.md", None), ("decisoes/visao.md", None)], "x");
+        assert!(out.renamed.is_empty());
+        assert_eq!(out.orphaned, vec!["visao"]);
+        // An html file is not the rename of an md page.
+        let mut t = sample();
+        let out = t.reconcile(&[("decisoes/index.md", None), ("decisoes/adr-003.md", None), ("decisoes/adr-004.md", None), ("deck.html", None)], "x");
+        assert!(out.renamed.is_empty());
+        assert_eq!(out.orphaned, vec!["visao"]);
     }
 
     /// Files as the store lists them, with no title hint.

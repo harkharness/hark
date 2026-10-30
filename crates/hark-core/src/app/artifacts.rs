@@ -33,7 +33,7 @@ pub fn load(store: &dyn ArtifactStore, space: &str, now: &str) -> anyhow::Result
         .collect();
     let refs: Vec<(&str, Option<&str>)> = heads.iter().map(|(f, t)| (f.as_str(), t.as_deref())).collect();
     let pass = tree.reconcile(&refs, now);
-    if !pass.added.is_empty() || !pass.orphaned.is_empty() {
+    if !pass.added.is_empty() || !pass.orphaned.is_empty() || !pass.renamed.is_empty() {
         save(store, space, &tree)?;
     }
     Ok(tree)

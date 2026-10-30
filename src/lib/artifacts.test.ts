@@ -60,3 +60,16 @@ describe("fold: the lowercase, accent-free haystack", () => {
     expect(fold("Decisões ÚNICA")).toBe("decisoes unica");
   });
 });
+
+describe("recents: what moved last", () => {
+  it("leaves out a page whose file is gone: there is nothing to open", () => {
+    const t: ArtifactTree = {
+      nodes: [
+        { ...node("gone", "Sumiu", null, "2026-10-30T12:00:00Z"), orphan: true },
+        node("here", "Está aqui", null, "2026-10-29T12:00:00Z"),
+      ],
+      order: { "": ["gone", "here"] },
+    };
+    expect(recents(t, 12).map((n) => n.id)).toEqual(["here"]);
+  });
+});

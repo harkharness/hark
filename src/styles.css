@@ -2904,3 +2904,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .art-body .md pre { padding: 12px 14px; border-radius: 8px; margin: 10px 0 16px; font-size: 12.5px; }
 .art-body .md blockquote { border-left: 3px solid var(--accent); padding-left: 14px; margin: 12px 0; color: var(--text); }
 .art-body .md hr { margin: 24px 0; }
+
+/* A page whose file is gone: a sentence and one way out, not an OS error. */
+.art-orphan-note { flex-direction: column; gap: 10px; max-width: 46ch; text-align: center; margin: 0 auto; }
+.art-orphan-note p { margin: 0; }

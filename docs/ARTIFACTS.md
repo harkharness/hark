@@ -32,7 +32,10 @@ page hangs its children at the root.
 task that wrote it), `links`, `updated_at`, and the children `order`. On
 every read the tree **reconciles** with the disk: a file nobody indexed is
 adopted at the root, a node whose file is gone is marked `orphan` (shown
-struck through, never deleted by Hark). Editing the index by hand is not
+struck through, never deleted by Hark; opening it offers to drop it from
+the tree). One file gone and one new file beside it, same folder and
+format, in the same pass is read as a `mv`: the page keeps its id, origin
+and links, and takes the new path and heading. Editing the index by hand is not
 needed and not advised; the agents are told never to touch it.
 
 ## The screen
