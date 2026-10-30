@@ -45,6 +45,47 @@ essa pasta e mostra tudo em árvore.
 O Hark registra sozinho qual chat escreveu a página. Depois de escrever,
 diga ao usuário o caminho e que ela aparece em Artefatos.
 
+## Como fazer uma página boa
+
+A página é lida como documento, não como resposta de chat. Capriche na
+forma tanto quanto no conteúdo:
+
+- **Documento (`.md`)**: comece com `# Título` e uma linha de abertura
+  que diga em uma frase o que a página é e para quem. Depois seções
+  curtas com `##`, uma ideia por parágrafo, listas só quando são listas,
+  tabelas para comparar coisas (duas a quatro colunas), e no fim um
+  "Ponto de partida" ou "Próximos passos" com links. Nada de despejar o
+  contexto inteiro: a página explica; o detalhe fica nas fontes linkadas.
+- **Apresentação ou design (`.html`)**: um arquivo só, CSS inline no
+  `<style>`, fontes do sistema, sem scripts externos, sem CDN, sem
+  imagens remotas; `<meta name="viewport">`, cores que funcionam em
+  claro e escuro (`prefers-color-scheme`), uma ideia por tela, texto
+  grande. A página roda isolada no Hark (iframe sem scripts por padrão),
+  então o que não for HTML+CSS puro não aparece.
+- Em qualquer formato: o título da página é o que a árvore mostra —
+  escolha um que diga o assunto ("Home do workspace", "ADR 004: janela
+  única"), não a ação ("atualizar artefato").
+
+Esqueleto de apresentação, para começar:
+
+```html
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Título</title>
+<style>
+  :root {{ color-scheme: light dark; --ink: #1f2430; --paper: #fff; --accent: #2f5fd1; }}
+  @media (prefers-color-scheme: dark) {{ :root {{ --ink: #d6dae3; --paper: #12151c; --accent: #7aa2f7; }} }}
+  body {{ margin: 0; font: 18px/1.5 -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--paper); }}
+  section {{ min-height: 100vh; padding: 8vh 10vw; box-sizing: border-box; border-bottom: 1px solid rgba(128,128,128,.25); }}
+  h1 {{ font-size: 44px; margin: 0 0 16px; letter-spacing: -.02em; }} h2 {{ font-size: 32px; margin: 0 0 12px; }}
+  .kicker {{ color: var(--accent); font-size: 14px; letter-spacing: .08em; text-transform: uppercase; }}
+</style></head>
+<body>
+<section><div class="kicker">Resumo</div><h1>Título</h1><p>Uma frase sobre o que é.</p></section>
+<section><h2>Primeira ideia</h2><p>…</p></section>
+</body></html>
+```
+
 ## O que nunca fazer
 
 - Nunca edite `index.json`: é o índice do Hark, ele se reconcilia sozinho.

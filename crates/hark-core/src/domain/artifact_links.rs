@@ -76,6 +76,21 @@ pub fn pages_block(pages: &[(&Node, Vec<&str>)], space: &str) -> String {
     out
 }
 
+/// The pages a text names by link (`hark://artifacts/<space>/<id>`), in
+/// order, each once. A chat link is not a page.
+pub fn cited_links(text: &str) -> Vec<(String, String)> {
+    use super::deep_link::{parse, Target};
+    let mut out: Vec<(String, String)> = vec![];
+    for token in text.split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == ')' || c == '(') {
+        if let Some(Target::Page { space, id }) = parse(token.trim_end_matches(['.', '!', '?'])) {
+            if !out.iter().any(|(s, i)| *s == space && *i == id) {
+                out.push((space, id));
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +181,12 @@ mod tests {
         assert!(block.starts_with("Páginas desta task no espaço «hark»"), "{block}");
         assert!(block.contains("- «ADR 004: janela única» (hark › Decisões › ADR 004: janela única) — adr-004.md"), "{block}");
         assert_eq!(pages_block(&[], "hark"), "");
+    }
+
+    #[test]
+    fn a_hark_link_in_a_text_cites_that_page_by_space_and_id() {
+        let text = "atualiza hark://artifacts/hark/adr-004 e também hark://artifacts/meu%20projeto/home, por favor";
+        assert_eq!(cited_links(text), vec![("hark".to_string(), "adr-004".to_string()), ("meu projeto".to_string(), "home".to_string())]);
+        assert!(cited_links("hark://chat/abc e nada mais").is_empty());
     }
 }

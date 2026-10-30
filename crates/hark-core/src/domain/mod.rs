@@ -42,6 +42,7 @@ pub mod snapshot;
 pub mod speech_model;
 pub mod spend;
 pub mod task_command;
+pub mod title;
 pub mod transcript;
 pub mod trust;
 pub mod usage;

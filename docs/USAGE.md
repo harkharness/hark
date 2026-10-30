@@ -128,11 +128,14 @@ a file dropped there by hand is adopted at the root on the next read.
   Markdown reads rendered and edits in place (the pencil). HTML renders in
   an isolated frame with scripts off; turn them on for a slide deck that
   needs them — even then the frame has no access to Hark.
-- **The view is documentation, not a chat.** There is no composer here:
-  a page reaches a chat by being named in a message ("…como ficou no ADR
-  004"), through the session panel's outputs, or by opening its file in
-  the files window. Reading and organizing happen here; talking happens
-  in the chat.
+- **The view is documentation, not a chat.** There is no composer here.
+  "Conversar" on a page opens the chat it was born in with the page
+  attached; a page also reaches a chat by being named in a message
+  ("…como ficou no ADR 004"), by its `hark://` link, through the session
+  panel's outputs, or by opening its file in the files window.
+- **A new chat gets a name.** The first message of a chat, when it reads
+  as a sentence, is handed to the light model for a short title (a few
+  cents, once); a short message is its own name.
 - **Links** (the panel beside the page) says what the page is, where it
   came from and what it ties to: the origin chat, child pages, citations.
 

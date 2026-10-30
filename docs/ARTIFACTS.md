@@ -77,7 +77,11 @@ not move a page to another chat.
 
 ## Pages in the prompt
 
-- **Not from the artifacts view.** That view is documentation: no
+- **"Conversar" on a page** opens the chat the page was born in (or a new
+  chat in its project) with the page's link in the field; a message that
+  carries `hark://artifacts/<space>/<id>` takes that page along, so the
+  conversation about a page lives in the chat that made it.
+- **Not from the artifacts view itself.** That view is documentation: no
   composer, no scope. (A "page as scope" composer existed for a day and
   confused more than it helped, 30/10.) `domain::scope::page_brief` is
   the budgeted body a citation carries.

@@ -92,6 +92,7 @@ export default function Composer({
   banner,
   voice,
   autoFocus,
+  prefill,
 }: {
   disabled: boolean;
   recording: boolean;
@@ -124,6 +125,9 @@ export default function Composer({
   voice?: React.ReactNode;
   /** Focus the field on mount (the mother's expanded chat opens to type). */
   autoFocus?: boolean;
+  /** Text put in the field from outside ("conversar sobre esta página"):
+   *  a new nonce applies it again even when the text is the same. */
+  prefill?: { text: string; nonce: number };
 }) {
   const [text, setText] = useState("");
   /** Caret offset — the mirror reveals markers on the caret's line. */
@@ -132,6 +136,13 @@ export default function Composer({
   const [mention, setMention] = useState<Mention | null>(null);
   const [slash, setSlash] = useState<Slash | null>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!prefill) return;
+    setText(prefill.text);
+    setCaret(prefill.text.length);
+    window.setTimeout(() => areaRef.current?.focus(), 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill?.nonce]);
   const mirrorRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<number>(0);
   /** Where the up arrow is standing in the sent history (null = typing). */

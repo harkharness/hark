@@ -247,6 +247,8 @@ export default function App({
   const filesTree = useFilesTree();
   /** Typed window taking the whole work area (menu stays). */
   const [expanded, setExpanded] = useState<RailItem | null>(null);
+  /** Text handed to the composer from outside (a page to talk about). */
+  const [composerPrefill, setComposerPrefill] = useState<{ text: string; nonce: number } | undefined>();
   /** Cmd+P: bumped so the files window focuses its filter. */
   const [filesFocusKey, setFilesFocusKey] = useState(0);
   /** The history palette (Cmd+K, or the magnifier in the sidebar head). */
@@ -3480,6 +3482,22 @@ export default function App({
                   }}
                   linksOn={artLinksOn}
                   onToggleLinks={() => setArtLinksOn((v) => !v)}
+                  onTalk={(page, space) => {
+                    // The page's chat: where it was born, else a new chat
+                    // in its project. The link goes in the field; the
+                    // message carries the page (artifact_cites).
+                    const link = `hark://artifacts/${encodeURIComponent(space)}/${encodeURIComponent(page.node.id)}`;
+                    const origin = page.node.origin?.task;
+                    const onBoard = origin ? board.find((t) => t.title === origin) : undefined;
+                    if (onBoard) {
+                      void openTaskByTitle(onBoard.title, onBoard.session_ids.at(-1));
+                    } else {
+                      const project = allProjects.find((p) => p.name === space) ?? activeProject ?? allProjects[0];
+                      if (project) startDraftChat(project);
+                      else setView("chat");
+                    }
+                    setComposerPrefill({ text: `${link} `, nonce: Date.now() });
+                  }}
                 />
               ) : reading ? (
                 <Reader
@@ -3615,6 +3633,7 @@ export default function App({
                 onAnswerPermission={answerPermission}
                 trailing={trailingControls}
                 banner={focusedRepo ? <RepoRuler state={focusedRepo} /> : undefined}
+                prefill={composerPrefill}
                 voice={
                   isMain && voice.active ? (
                     <VoiceRound stage={voice.stage} onPick={voice.pick} onTyped={voice.typed} onEscape={voice.escape} />

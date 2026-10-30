@@ -1562,6 +1562,33 @@ fn start_worker_titled(
 /// words the user opened it with — and the instruction that reached it is
 /// a terrible title, especially when dictated ("tinha um chat aberto de…").
 /// Only a brand-new session falls back to the instruction.
+/// A short name for a new chat, from the light model, or None to keep the
+/// instruction's own head. Only for messages that read as sentences.
+fn chat_title(config: &Config, instruction: &str) -> Option<String> {
+    use hark_core::domain::title;
+    if !title::needs_title(instruction) {
+        return None;
+    }
+    let runner = ask_runner(config);
+    let prompt = title::prompt(instruction);
+    let request = hark_core::ports::TurnRequest {
+        prompt: &prompt,
+        images: &[],
+        model: &config.models().light,
+        system_prompt: "Você nomeia chats de trabalho. Responda só o JSON pedido.",
+        schema: title::SCHEMA,
+        effort: "low",
+    };
+    let turn = runner.ask(&request, &mut |_| {}).ok()?;
+    record_live_spend(
+        config,
+        hark_core::domain::spend::SpendKind::Gate,
+        &hark_core::domain::spend::SpendMeta { label: Some("título do chat"), outcome: Some("title"), ..Default::default() },
+        &turn,
+    );
+    title::clean(&turn.raw)
+}
+
 fn worker_board_title(session_id: Option<&str>, instruction: &str) -> String {
     let from_session = session_id.filter(|s| !s.is_empty()).and_then(|id| {
         let config = Config::load();
@@ -1641,17 +1668,22 @@ fn chat_start(
     // is usable here; refused by name otherwise, never a quiet fallback.
     let agent = match agent.filter(|a| !a.is_empty()) {
         Some(id) => usable_agent_named(&config, &id)
-            .ok_or_else(|| format!("{id} não está pronto nesta máquina — instalado e ligado no catálogo?"))?,
+            .ok_or_else(|| ui(&format!("{id} não está pronto nesta máquina — instalado e ligado no catálogo?"), &format!("{id} is not ready on this machine — installed and enabled in the catalog?")))?,
         None => agent_for(&config, ""),
     };
     let task_id = format!("n-{}", Utc::now().format("%m%d%H%M%S"));
+    // The chat's name: the light model writes a short one from the first
+    // message when the message is a sentence (the first sixty characters
+    // of "gerei um artefato hark://…" are not a name). A failed or empty
+    // answer keeps the old rule; the cost lands in the ledger as a gate.
+    let title = chat_title(&config, &instruction);
     update_registry_and_board(
         &config,
         &agent,
         &task_id,
         &root,
         None,
-        &instruction,
+        &title.clone().unwrap_or_else(|| instruction.clone()),
         WorkerStatus::Running,
     );
 
@@ -2051,7 +2083,14 @@ fn artifact_cites(text: String) -> Result<Option<ArtifactCitesOut>, String> {
         let Ok(tree) = hark_core::app::artifacts::load(&store, &space, &now_iso()) else {
             continue;
         };
-        for id in artifact_links::cites(&text, &tree) {
+        let linked: Vec<String> = artifact_links::cited_links(&text).into_iter().filter(|(s, _)| *s == space).map(|(_, id)| id).collect();
+        let mut ids = artifact_links::cites(&text, &tree);
+        for id in linked {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        for id in ids {
             let Some(node) = tree.get(&id) else { continue };
             let Ok(body) = store.read_page(&space, &node.path) else { continue };
             let page = scope::Scope::Page { title: node.title.clone(), path: node.path.clone(), space: space.clone() };

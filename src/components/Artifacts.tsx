@@ -6,6 +6,7 @@ import {
   ExternalLink,
   FileText,
   Link2,
+  MessageSquare,
   MoreVertical,
   Palette,
   Plus,
@@ -28,6 +29,23 @@ import Markdown from "./Markdown";
 import { renderToStaticMarkup } from "react-dom/server";
 import { pageHtml } from "../lib/export";
 import type { ArtifactKind, ArtifactNode, ArtifactPage, ArtifactSpace, ArtifactTree } from "../types";
+
+/** An html page that brought no style of its own gets the reading base:
+ *  system font, a column, dark and light. A page with its own `<style>`
+ *  or stylesheet is left exactly as the author made it. */
+const BASE_STYLE = `<style>
+  :root { color-scheme: light dark; }
+  body { max-width: 820px; margin: 40px auto; padding: 0 24px; font: 15px/1.6 -apple-system, "Segoe UI", sans-serif; color: #1f2430; background: #fff; }
+  h1 { font-size: 28px; letter-spacing: -.01em; margin: 0 0 8px; } h2 { font-size: 20px; margin-top: 28px; } h3 { font-size: 16px; }
+  p, li { max-width: 72ch; } table { border-collapse: collapse; } td, th { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+  pre { background: #f4f5f8; padding: 12px; border-radius: 8px; overflow: auto; font-size: 13px; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: .92em; }
+  a { color: #2f5fd1; }
+  @media (prefers-color-scheme: dark) { body { background: #12151c; color: #d6dae3; } pre { background: #1b1f29; } td, th { border-color: #333; } a { color: #7aa2f7; } }
+</style>`;
+function withBaseStyle(html: string): string {
+  return /<style[\s>]|<link[^>]+stylesheet/i.test(html) ? html : BASE_STYLE + html;
+}
 
 /** What the artifacts view points at: a space, and a page in it or its home. */
 export type ArtSel = { space: string; id: string | null };
@@ -74,6 +92,7 @@ export default function Artifacts({
   onOpenTask,
   linksOn,
   onToggleLinks,
+  onTalk,
 }: {
   sel: ArtSel | null;
   onSel: (sel: ArtSel | null) => void;
@@ -86,6 +105,8 @@ export default function Artifacts({
   onOpenTask: (title: string, sessionId?: string) => void;
   linksOn: boolean;
   onToggleLinks: () => void;
+  /** "Conversar": open the page's chat with the page attached. */
+  onTalk: (page: ArtifactPage, space: string) => void;
 }) {
   const [spaces, setSpaces] = useState<ArtifactSpace[]>([]);
   const [trees, setTrees] = useState<Record<string, ArtifactTree>>({});
@@ -397,6 +418,7 @@ export default function Artifacts({
             onOpenTask={onOpenTask}
             onNewChild={() => setNaming({ parent: page.node.id, kind: "doc" })}
             onSaved={() => void load()}
+            onTalk={() => onTalk(page, sel.space)}
           />
         ) : (
           <div className="art-empty dim">…</div>
@@ -549,6 +571,7 @@ function Page({
   onOpenTask,
   onNewChild,
   onSaved,
+  onTalk,
 }: {
   page: ArtifactPage;
   tree: ArtifactTree;
@@ -564,6 +587,7 @@ function Page({
   onOpenTask: (title: string, sessionId?: string) => void;
   onNewChild: () => void;
   onSaved: () => void;
+  onTalk: () => void;
 }) {
   const { node } = page;
   const html = /\.html?$/i.test(node.path);
@@ -639,6 +663,9 @@ function Page({
               )}
             </>
           )}
+          <button className="pill-btn" onClick={onTalk} title={t("art_talk_hint")}>
+            <MessageSquare size={11} /> {t("art_talk")}
+          </button>
           <button className={`pill-btn ${linksOn ? "on" : ""}`} onClick={onToggleLinks} title={t("art_links_hint")}>
             <Link2 size={11} /> {t("art_links")}
           </button>
@@ -673,7 +700,7 @@ function Page({
             className="art-frame"
             title={node.title}
             sandbox={scripts ? "allow-scripts" : ""}
-            srcDoc={page.text}
+            srcDoc={withBaseStyle(page.text)}
           />
         ) : (
           <FileViewer file={{ abs: page.abs, rel: node.path, project: { name: space, path: "" } }} io={io} />
