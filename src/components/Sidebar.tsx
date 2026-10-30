@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, Bug, FolderTree, MessageSquare, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, SquareKanban } from "lucide-react";
+import { BookOpen, Bug, FolderTree, MessageSquarePlus, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, SquareKanban } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 
@@ -203,22 +203,18 @@ export default function Sidebar({
         </div>
       )}
       <div className="side-nav">
-      {onToggleBoard && (
-        <button
-          className={`side-board ${boardOpen ? "on" : ""}`}
-          onClick={onToggleBoard}
-          title={t("side_board_hint")}
-        >
-          <SquareKanban size={13} /> {t("side_board")}
-        </button>
-      )}
       {onOpenGeneral && (
         <button
           className={`side-board ${generalActive ? "on" : ""}`}
           onClick={onOpenGeneral}
           title={t("side_general_hint")}
         >
-          <MessageSquare size={13} /> {t("side_general")}
+          <MessageSquarePlus size={13} /> {t("side_general")}
+        </button>
+      )}
+      {onSearchChats && (
+        <button className="side-board" onClick={onSearchChats} title={t("side_search_hint")}>
+          <Search size={13} /> {t("side_search_row")}
         </button>
       )}
       {onToggleArtifacts && (
@@ -229,6 +225,15 @@ export default function Sidebar({
         >
           <BookOpen size={13} /> {t("side_artifacts")}
           {artifactsCount ? <span className="side-count">{artifactsCount}</span> : null}
+        </button>
+      )}
+      {onToggleBoard && (
+        <button
+          className={`side-board ${boardOpen ? "on" : ""}`}
+          onClick={onToggleBoard}
+          title={t("side_board_hint")}
+        >
+          <SquareKanban size={13} /> {t("side_board")}
         </button>
       )}
       </div>

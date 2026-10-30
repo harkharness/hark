@@ -456,7 +456,7 @@ fn project_add(path: String) -> Result<hark_core::domain::project::Project, Stri
         .canonicalize()
         .map_err(|_| format!("diretório não existe: {expanded}"))?;
     if !root.is_dir() {
-        return Err(format!("não é um diretório: {}", root.display()));
+        return Err(ui(&format!("não é um diretório: {}", root.display()), &format!("not a directory: {}", root.display())));
     }
     let config = Config::load();
     let path_str = root.display().to_string();
@@ -509,7 +509,7 @@ fn guard_project_path(path: &str) -> Result<std::path::PathBuf, String> {
     if allowed {
         Ok(target)
     } else {
-        Err("arquivo fora dos projetos registrados".into())
+        Err(ui("arquivo fora dos projetos registrados", "file outside the registered projects"))
     }
 }
 
@@ -1602,7 +1602,7 @@ fn update_registry_and_board(
             let updates = [hark_core::domain::board::BoardUpdate {
                 titulo: worker_board_title(session_id, instruction),
                 status: hark_core::domain::board::TaskStatus::Doing,
-                nota: Some("worker conversacional ativo".into()),
+                nota: Some(ui("worker conversacional ativo", "conversational worker running")),
                 sessao: None,
             }];
             let merged = hark_core::domain::board::apply_updates(
@@ -1635,7 +1635,7 @@ fn chat_start(
     let config = Config::load();
     let root = std::path::PathBuf::from(hark_core::config::expand_home(&project_path));
     if !root.is_dir() {
-        return Err(format!("diretório não existe: {}", root.display()));
+        return Err(ui(&format!("diretório não existe: {}", root.display()), &format!("directory does not exist: {}", root.display())));
     }
     // "abre um chat gemini no hark": a named agent opens the chat when it
     // is usable here; refused by name otherwise, never a quiet fallback.
@@ -1715,7 +1715,7 @@ fn worker_send(
         .unwrap()
         .get(&task_id)
         .cloned()
-        .ok_or("worker não está mais ativo")?;
+        .ok_or_else(|| ui("worker não está mais ativo", "worker is no longer running"))?;
 
     let msg = hark_core::domain::outbox::Held {
         // The window names its own bubble: the id it pushed and the id in
@@ -1768,7 +1768,7 @@ fn deliver(
         .unwrap()
         .get(task_id)
         .cloned()
-        .ok_or("worker não está mais ativo")?;
+        .ok_or_else(|| ui("worker não está mais ativo", "worker is no longer running"))?;
 
     let asked = hark_core::domain::directives::parse(&msg.text);
     let mut next = handle.spec.directives.clone();
@@ -1794,7 +1794,7 @@ fn deliver(
     emit_event(
         app,
         serde_json::json!({ "kind": "status",
-            "text": format!("reabrindo a thread com {}", describe(&next)) }),
+            "text": ui(&format!("reabrindo a thread com {}", describe(&next)), &format!("reopening the thread with {}", describe(&next))) }),
     );
     handle.session.shutdown();
     // Limits carry over from the original spec (`..clone()`).
@@ -1866,7 +1866,7 @@ fn board_subtask_toggle(title: String, index: usize, done: bool) -> Result<(), S
     let task = tasks
         .iter_mut()
         .find(|t| t.title == title)
-        .ok_or("task não está no quadro")?;
+        .ok_or_else(|| ui("task não está no quadro", "task is not on the board"))?;
     let sub = task.subtasks.get_mut(index).ok_or("passo fora do checklist")?;
     sub.done = done;
     task.updated_at = now_iso();
@@ -1950,6 +1950,14 @@ pub(crate) fn worker_envs(config: &Config) -> Vec<(String, String)> {
 }
 
 /// `~/.hark/artifacts`: every space is a folder under it.
+/// A line the screen will show, in the interface language. The window
+/// translates what it says itself; this is for what the shell says —
+/// errors and status lines — so the English screen is English all the
+/// way down.
+fn ui(pt: &str, en: &str) -> String {
+    Config::load().lang().pick(pt, en).to_string()
+}
+
 fn artifacts_root(config: &Config) -> std::path::PathBuf {
     config.data_dir().join("artifacts")
 }
@@ -2065,7 +2073,7 @@ fn artifact_cites(text: String) -> Result<Option<ArtifactCitesOut>, String> {
 #[tauri::command]
 fn artifact_from_brief(session: String, title: String, space: String, task: Option<String>) -> Result<hark_core::domain::artifacts::Node, String> {
     let config = Config::load();
-    let brief = local_brief(&config, &session).ok_or("sem histórico local desta sessão")?;
+    let brief = local_brief(&config, &session).ok_or_else(|| ui("sem histórico local desta sessão", "no local history for this session"))?;
     let store = artifact_store();
     let page_title = format!("Resumo: {title}");
     let origin = hark_core::domain::artifacts::Origin { session_id: Some(session), task: task.or(Some(title.clone())) };
@@ -2383,7 +2391,7 @@ fn agent_registry_refresh() -> Result<serde_json::Value, String> {
     let text = registry_fetch::fetch_registry(registry_fetch::REGISTRY_URL).map_err(|e| e.to_string())?;
     let published = hark_core::domain::registry::parse(&text, &registry_fetch::platform_key());
     if published.is_empty() {
-        return Err("registry.json veio vazio ou ilegível".into());
+        return Err(ui("registry.json veio vazio ou ilegível", "registry.json came back empty or unreadable"));
     }
     let mut gstate = state_file::load(&config.data_dir());
     gstate.registry = Some(state_file::RegistrySnapshot { checked_at: now_iso(), published });
@@ -2404,10 +2412,10 @@ fn agent_plugin_select(id: String) -> Result<(), String> {
     // is switched off, unknown, or simply not installed.
     let entry = agents::resolve(&entries, &id).ok_or_else(|| format!("agente desconhecido: {id}"))?;
     if !entry.enabled {
-        return Err(format!("agente desligado na config: {id}"));
+        return Err(ui(&format!("agente desligado na config: {id}"), &format!("agent disabled in the config: {id}")));
     }
     if !detected.contains(&id) {
-        return Err(format!("{} não encontrado nesta máquina ({})", entry.name, entry.cmd));
+        return Err(ui(&format!("{} não encontrado nesta máquina ({})", entry.name, entry.cmd), &format!("{} not found on this machine ({})", entry.name, entry.cmd)));
     }
     let path = hark_core::config::config_path();
     if let Some(dir) = path.parent() {
@@ -2865,7 +2873,7 @@ fn worker_restart_light(
         .unwrap()
         .get(&task_id)
         .cloned()
-        .ok_or("worker não está mais ativo")?;
+        .ok_or_else(|| ui("worker não está mais ativo", "worker is no longer running"))?;
     let config = Config::load();
     // The session actually backing this task now (registry beats spawn).
     let session = state_file::load(&config.data_dir())
@@ -2883,7 +2891,7 @@ fn worker_restart_light(
             .session_path(&session)
             .ok()
             .flatten()
-            .ok_or("sessão sem arquivo indexado")?;
+            .ok_or_else(|| ui("sessão sem arquivo indexado", "session with no indexed file"))?;
         let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
         let entries = hark_core::domain::transcript::tail_entries(text.lines(), 400);
         hark_core::domain::transcript::brief(&entries, 1500)
@@ -2893,7 +2901,7 @@ fn worker_restart_light(
     emit_event(
         &app,
         serde_json::json!({ "kind": "status",
-            "text": format!("recomeçando \"{title}\" leve: sessão nova com resumo local") }),
+            "text": ui(&format!("recomeçando \"{title}\" leve: sessão nova com resumo local"), &format!("restarting \"{title}\" light: a new session with a local brief")) }),
     );
     handle.session.shutdown();
     let spec = SessionSpec {
@@ -2945,7 +2953,7 @@ fn worker_handoff(
 ) -> Result<(), String> {
     use hark_core::domain::agents;
     if task_id == HARK_CHAT_TASK {
-        return Err("o chat da mãe segue o agente selecionado nas configurações".into());
+        return Err(ui("o chat geral segue o agente selecionado nas configurações", "the general chat follows the agent selected in the settings"));
     }
     let handle = live
         .0
@@ -2953,17 +2961,17 @@ fn worker_handoff(
         .unwrap()
         .get(&task_id)
         .cloned()
-        .ok_or("worker não está mais ativo")?;
+        .ok_or_else(|| ui("worker não está mais ativo", "worker is no longer running"))?;
     let config = Config::load();
     let entries = agents::merge(&config.agents);
     let target = agents::resolve(&entries, &agent)
         .cloned()
         .ok_or_else(|| format!("agente desconhecido: {agent}"))?;
     if usable_agent_named(&config, &target.id).is_none() {
-        return Err(format!("{} não está pronto nesta máquina — instalado e ligado no catálogo?", target.name));
+        return Err(ui(&format!("{} não está pronto nesta máquina — instalado e ligado no catálogo?", target.name), &format!("{} is not ready on this machine — installed and enabled in the catalog?", target.name)));
     }
     if target.id == handle.spec.agent {
-        return Err(format!("essa thread já roda no {}", target.name));
+        return Err(ui(&format!("essa thread já roda no {}", target.name), &format!("this thread already runs on {}", target.name)));
     }
     let from = agents::resolve(&entries, &handle.spec.agent)
         .map(|e| e.name.clone())
@@ -2981,8 +2989,11 @@ fn worker_handoff(
     emit_event(
         &app,
         serde_json::json!({ "kind": "status", "task_id": task_id,
-            "text": format!("passando \"{title}\" do {from} pro {}: sessão nova{}", target.name,
-                if brief.is_some() { " com resumo local" } else { ", sem histórico local desta sessão" }) }),
+            "text": ui(
+                &format!("passando \"{title}\" do {from} pro {}: sessão nova{}", target.name,
+                    if brief.is_some() { " com resumo local" } else { ", sem histórico local desta sessão" }),
+                &format!("handing \"{title}\" from {from} to {}: a new session{}", target.name,
+                    if brief.is_some() { " with a local brief" } else { ", no local history of this session" })) }),
     );
     // The record moves first: where it has been, and who runs it now.
     let mut gstate = state_file::load(&config.data_dir());
@@ -3010,8 +3021,8 @@ fn worker_handoff(
 
 fn describe(d: &hark_core::domain::directives::Directives) -> String {
     [
-        d.mode.map(|m| format!("modo {}", m.label())),
-        d.effort.map(|e| format!("esforço {}", e.as_flag())),
+        d.mode.map(|m| ui(&format!("modo {}", m.label()), &format!("mode {}", m.label()))),
+        d.effort.map(|e| ui(&format!("esforço {}", e.as_flag()), &format!("effort {}", e.as_flag()))),
         d.model.clone(),
     ]
     .into_iter()
@@ -3051,7 +3062,7 @@ fn switch_directives(
         .unwrap()
         .get(task_id)
         .cloned()
-        .ok_or("worker não está mais ativo")?;
+        .ok_or_else(|| ui("worker não está mais ativo", "worker is no longer running"))?;
     let mut next = handle.spec.directives.clone();
     if !change(&mut next) {
         return Ok(SetModeOut { directives: next, restarted: false });
@@ -3079,7 +3090,7 @@ fn switch_directives(
                 missing.push("esforço");
             }
             if !missing.is_empty() {
-                return Err(format!("o agente {} não oferece: {}", handle.spec.agent, missing.join(", ")));
+                return Err(ui(&format!("o agente {} não oferece: {}", handle.spec.agent, missing.join(", ")), &format!("the agent {} does not offer: {}", handle.spec.agent, missing.join(", "))));
             }
             live.0.lock().unwrap().insert(
                 task_id.to_string(),
@@ -3092,7 +3103,7 @@ fn switch_directives(
             );
             emit_event(
                 app,
-                serde_json::json!({ "kind": "status", "text": format!("{} — aplicado na sessão, sem reabrir", describe(&next)) }),
+                serde_json::json!({ "kind": "status", "text": ui(&format!("{} — aplicado na sessão, sem reabrir", describe(&next)), &format!("{} — applied to the session, no reopen", describe(&next))) }),
             );
             return Ok(SetModeOut { directives: next, restarted: false });
         }
@@ -3116,7 +3127,7 @@ fn switch_directives(
     emit_event(
         app,
         serde_json::json!({ "kind": "status",
-            "text": format!("reabrindo a thread com {}", describe(&next)) }),
+            "text": ui(&format!("reabrindo a thread com {}", describe(&next)), &format!("reopening the thread with {}", describe(&next))) }),
     );
     handle.session.shutdown();
     let spec = SessionSpec { directives: next.clone(), ..handle.spec.clone() };
@@ -3135,7 +3146,7 @@ fn worker_set_mode(
     mode: String,
 ) -> Result<SetModeOut, String> {
     let Some(mode) = hark_core::domain::directives::Mode::from_flag(&mode) else {
-        return Err(format!("modo desconhecido: {mode}"));
+        return Err(ui(&format!("modo desconhecido: {mode}"), &format!("unknown mode: {mode}")));
     };
     switch_directives(
         &app,
@@ -3191,7 +3202,7 @@ fn worker_set_effort(
 ) -> Result<SetModeOut, String> {
     let target = hark_core::domain::directives::Effort::from_flag(&effort);
     if target.is_none() && !effort.is_empty() {
-        return Err(format!("esforço desconhecido: {effort}"));
+        return Err(ui(&format!("esforço desconhecido: {effort}"), &format!("unknown effort: {effort}")));
     }
     switch_directives(
         &app,
@@ -3227,7 +3238,7 @@ fn worker_interrupt(
         .unwrap()
         .get(&task_id)
         .cloned()
-        .ok_or("worker não está mais ativo")?;
+        .ok_or_else(|| ui("worker não está mais ativo", "worker is no longer running"))?;
     // Marked BEFORE the write: the result can come back faster than this
     // function returns, and it is the result that reads the flag.
     app.state::<Interrupting>().0.lock().unwrap().insert(task_id.clone());
@@ -3266,7 +3277,7 @@ fn worker_queued_now(
         .get_mut(&task_id)
         .is_some_and(|o| o.promote(&id));
     if !promoted {
-        return Err("essa mensagem não está mais na fila".into());
+        return Err(ui("essa mensagem não está mais na fila", "that message is no longer queued"));
     }
     worker_interrupt(app, live, task_id)
 }
@@ -3282,7 +3293,7 @@ fn worker_queued_drop(app: AppHandle, task_id: String, id: String) -> Result<(),
         .get_mut(&task_id)
         .is_some_and(|o| o.discard(&id));
     if !dropped {
-        return Err("essa mensagem não está mais na fila".into());
+        return Err(ui("essa mensagem não está mais na fila", "that message is no longer queued"));
     }
     Ok(())
 }
@@ -3290,7 +3301,7 @@ fn worker_queued_drop(app: AppHandle, task_id: String, id: String) -> Result<(),
 /// End the conversation: EOF + kill, board moves to waiting.
 #[tauri::command]
 fn worker_stop(live: State<'_, LiveWorkers>, task_id: String) -> Result<(), String> {
-    let worker = live.0.lock().unwrap().remove(&task_id).ok_or("worker não encontrado")?;
+    let worker = live.0.lock().unwrap().remove(&task_id).ok_or_else(|| ui("worker não encontrado", "worker not found"))?;
     worker.session.shutdown();
     let config = Config::load();
     let mut gstate = state_file::load(&config.data_dir());
@@ -3351,7 +3362,7 @@ fn dispatch_text(
     );
     emit_event(
         &app,
-        serde_json::json!({ "kind": "status", "text": format!("{task_id}: retomando {} em {}", planned.session.session_id, planned.workspace_root.display()) }),
+        serde_json::json!({ "kind": "status", "text": ui(&format!("{task_id}: retomando {} em {}", planned.session.session_id, planned.workspace_root.display()), &format!("{task_id}: resuming {} in {}", planned.session.session_id, planned.workspace_root.display())) }),
     );
 
     let brief = format!(
@@ -3701,7 +3712,7 @@ fn session_stats(session_id: String) -> Result<SessionStats, String> {
     let path = store
         .session_path(&session_id)
         .map_err(|e| e.to_string())?
-        .ok_or("sessão não está no índice")?;
+        .ok_or_else(|| ui("sessão não está no índice", "session is not in the index"))?;
     let (title, last_ts) = store
         .file_state(&path)
         .map_err(|e| e.to_string())?
@@ -4059,7 +4070,7 @@ fn transcript_since(session_id: String, offset: u64) -> Result<MirrorOut, String
     let path = store
         .session_path(&session_id)
         .map_err(|e| e.to_string())?
-        .ok_or("sessão não está no índice")?;
+        .ok_or_else(|| ui("sessão não está no índice", "session is not in the index"))?;
     let mut file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
     let len = file.metadata().map_err(|e| e.to_string())?.len();
     // Truncated or replaced under us: start over rather than read garbage.
@@ -4099,7 +4110,7 @@ fn read_transcript(session_id: String, limit: Option<usize>) -> Result<Transcrip
     let path = store
         .session_path(&session_id)
         .map_err(|e| e.to_string())?
-        .ok_or("sessão não está no índice (rode: hark index)")?;
+        .ok_or_else(|| ui("sessão não está no índice (rode: hark index)", "session is not in the index (run: hark index)"))?;
     let (session_title, _, _) = store
         .file_state(&path)
         .map_err(|e| e.to_string())?

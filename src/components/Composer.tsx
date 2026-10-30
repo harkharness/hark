@@ -61,10 +61,10 @@ function pushHistory(scope: string, line: string): string[] {
 /** Commands Hark resolves itself; everything else in the palette is the
  *  CLI's own list (from the session's init event) sent verbatim. */
 const NATIVE_SLASH: SlashHit[] = [
-  { name: "modo", desc: "modo de permissão: manual · edições · plano · auto · ignorar" },
-  { name: "rename", desc: "renomeia o chat focado" },
-  { name: "board", desc: "abre/fecha o quadro" },
-  { name: "usage", desc: "uso da sessão, últimas 24h e limites da assinatura" },
+  { name: "modo", desc: t("slash_modo") },
+  { name: "rename", desc: t("slash_rename") },
+  { name: "board", desc: t("slash_board") },
+  { name: "usage", desc: t("slash_usage") },
 ];
 
 /**

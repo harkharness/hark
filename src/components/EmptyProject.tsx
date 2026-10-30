@@ -58,7 +58,7 @@ export default function EmptyProject({
     .replace(/shift/i, "⇧")
     .replace(/alt|option/i, "⌥")
     .replace(/\+/g, "")
-    .replace(/space/i, "Espaço");
+    .replace(/space/i, t("key_space"));
 
   return (
     <div className="empty-project">

@@ -3,6 +3,7 @@
  * total is made of) and a legend row (name, share, absolute value). Numbers
  * alone don't answer "where did it go?" — proportion does.
  */
+import { t } from "../lib/i18n";
 
 export type Segment = {
   label: string;
@@ -213,11 +214,10 @@ export function ContextRing({
       className="ctx-ring"
       title={
         unknown
-          ? unsupported ??
-            "janela de contexto — sem leitura ainda; a primeira resposta desta sessão traz o número"
+          ? unsupported ?? t("ring_none")
           : trusted
-          ? `janela de contexto · ${Math.round(used * 100)}% de ${win}${on}`
-          : `prompt de ${tokens ? k(tokens) : "?"} tokens${on} — não bate com a janela informada (${win}), então a janela real é outra e a porcentagem seria inventada`
+          ? t("ring_window", { pct: Math.round(used * 100), win, on })
+          : t("ring_mismatch", { tokens: tokens ? k(tokens) : "?", on, win })
       }
     >
       <svg width="14" height="14" viewBox="0 0 16 16">
