@@ -2840,11 +2840,15 @@ export default function App({
   }
 
   /** Sidebar click: open the task. Always — clicking the chat you are
-   *  already in never takes you somewhere else. */
-  const openTaskFromSidebar = (t: BoardTask) =>
-    focusedTask?.title === t.title
-      ? Promise.resolve()
-      : openTaskByTitle(t.title, t.session_ids.at(-1), t.note);
+   *  already in never takes you somewhere else, but it does bring the
+   *  chat back on screen when a view (board, settings) is covering it. */
+  const openTaskFromSidebar = (t: BoardTask) => {
+    if (focusedTask?.title === t.title) {
+      setView("chat");
+      return Promise.resolve();
+    }
+    return openTaskByTitle(t.title, t.session_ids.at(-1), t.note);
+  };
 
   /** Back to the window's general chat with hark (the sidebar's own row).
    *  Refs first: state arrives a render later and push() reads the refs. */
