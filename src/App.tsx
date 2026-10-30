@@ -29,8 +29,7 @@ import ModeSelect from "./components/ModeSelect";
 import ModelSelect from "./components/ModelSelect";
 import EffortSelect from "./components/EffortSelect";
 import PanelFrame from "./components/PanelFrame";
-import QuickOpen from "./components/QuickOpen";
-import ChatPalette from "./components/ChatPalette";
+import SearchPalette from "./components/SearchPalette";
 import Reader from "./components/Reader";
 import SessionPanel from "./components/SessionPanel";
 import { collectOutputs } from "./lib/outputs";
@@ -248,7 +247,8 @@ export default function App({
   const filesTree = useFilesTree();
   /** Typed window taking the whole work area (menu stays). */
   const [expanded, setExpanded] = useState<RailItem | null>(null);
-  const [quickOpen, setQuickOpen] = useState(false);
+  /** Cmd+P: bumped so the files window focuses its filter. */
+  const [filesFocusKey, setFilesFocusKey] = useState(0);
   /** The history palette (Cmd+K, or the magnifier in the sidebar head). */
   const [chatPalette, setChatPalette] = useState(false);
   // Standing "sempre permitir" rules: task label → tools auto-approved.
@@ -1004,11 +1004,14 @@ export default function App({
   // Esc cuts the voice, double-Esc aborts the focused worker.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      // Cmd+P is the files window with its filter ready, the way Claude
+      // Code's app does it; Cmd+K is "Procurar" over everything.
       if ((e.metaKey || e.ctrlKey) && e.key === "p") {
         e.preventDefault();
-        setQuickOpen((q) => !q);
+        filesTree.set(true);
+        ensureRailRef.current("arquivos");
+        setFilesFocusKey((n) => n + 1);
       }
-      // Cmd+P is files; Cmd+K is this project's chat history.
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setChatPalette((q) => !q);
@@ -2209,6 +2212,7 @@ export default function App({
   const scopeProject = scope.kind === "chat" ? scope.project ?? null : scope.kind === "project" ? scope.project : null;
 
   /** Show a rail panel; whatever was there steps aside. */
+  const ensureRailRef = useRef((_id: RailItem) => {});
   function ensureRail(id: RailItem) {
     // The terminal opens on a REAL shell. It used to land on the feed,
     // which is a log of the agent's tool calls — and on a fresh thread
@@ -2221,6 +2225,8 @@ export default function App({
     if (id === "artefatos") setArtLinksOn(true);
     else setRailFor(id);
   }
+
+  ensureRailRef.current = ensureRail;
 
   function removeRail(id: RailItem) {
     if (id === "artefatos") setArtLinksOn(false);
@@ -3095,6 +3101,7 @@ export default function App({
         onOpen={openFile}
         onDirty={onFileDirty}
         onWidth={filesTree.onWidth}
+        focusKey={filesFocusKey}
       />
     </PanelFrame>
   );
@@ -3678,26 +3685,30 @@ export default function App({
       )}
 
       {chatPalette && (
-        <ChatPalette
+        <SearchPalette
+          tasks={board}
           chats={chats}
-          onPick={(chat) => {
-            recoverSession(chat);
-            setChatPalette(false);
+          projects={allProjects}
+          attention={new Set(Object.keys(askingByTask))}
+          onOpenTask={openTaskFromSidebar}
+          onOpenChat={(chat) => void recoverSession(chat)}
+          onOpenProject={startDraftChat}
+          onOpenPage={(space, id) => {
+            setView("artefatos");
+            setArtSel({ space, id });
+          }}
+          onAction={(id) => {
+            if (id === "new-chat") {
+              if (activeProject) startDraftChat(activeProject);
+              else if (allProjects[0]) startDraftChat(allProjects[0]);
+            } else if (id === "board") setView("board");
+            else if (id === "artifacts") setView("artefatos");
+            else openSettings();
           }}
           onClose={() => setChatPalette(false)}
         />
       )}
 
-      {quickOpen && (
-        <QuickOpen
-          projects={projects}
-          onPick={(file) => {
-            openFile(file);
-            setQuickOpen(false);
-          }}
-          onClose={() => setQuickOpen(false)}
-        />
-      )}
 
       <ReportDialog
         open={reportOpen}

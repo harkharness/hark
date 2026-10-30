@@ -22,6 +22,7 @@ export default function FilesWindow({
   onOpen,
   onDirty,
   onWidth,
+  focusKey,
 }: {
   projects: Project[];
   files: OpenFile[];
@@ -33,6 +34,8 @@ export default function FilesWindow({
   onDirty: (abs: string, dirty: boolean) => void;
   /** The frame's own width, for the tree's default (rail vs full screen). */
   onWidth?: (px: number) => void;
+  /** Bumped by Cmd+P: the tree's filter takes focus. */
+  focusKey?: number;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -70,6 +73,7 @@ export default function FilesWindow({
               initialProject={initialProject}
               activeAbs={activeAbs}
               onOpen={onOpen}
+              focusKey={focusKey}
             />
           </Panel>
           <PanelResizeHandle className="rhandle" />

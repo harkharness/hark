@@ -89,6 +89,13 @@ chat and its shell, its open file or its page is still there, and another
 chat has its own. The board and the artifacts are views of their own, with
 no chat panels; the artifacts view has the page's links instead.
 
+**Two keys.** `Cmd+P` opens the files window with its filter ready, the
+way Claude Code's app does; `Cmd+K` (or the magnifier) opens **Procurar**,
+one palette over everything the window knows — chats, artifact pages,
+projects, the Claude Code history, a few actions — with a tab per kind.
+Before you type it shows what needs you, what moved last and what you can
+do. Local index, zero tokens.
+
 **The general chat** (nothing selected) is a persistent chat backed by one
 long-lived agent session carrying your full settings — MCP servers, tools,
 skills, memory file. It has a name, a personality, and a memory file it

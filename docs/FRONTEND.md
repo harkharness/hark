@@ -36,7 +36,8 @@ src/
     Composer.tsx      textarea, @file autocomplete, paste, y/n shortcuts
     WorkerChips.tsx   live worker chips row
     FileViewer.tsx    local file view/edit panel (zero tokens)
-    QuickOpen.tsx     Cmd+P fuzzy file search
+    SearchPalette.tsx "Procurar" (Cmd+K): chats, pages, projects, history
+                      and actions, with a tab per kind; lib/search.ts rules
     Board.tsx         kanban tab
     VoiceRound.tsx    the rows of a voice round (stages), shared by the
                       HUD window and the composer's voice strip
@@ -62,7 +63,7 @@ that made several of them look like design decisions when they were not.
 
 1. **Components never call `invoke`.** Everything goes through `lib/ipc.ts`,
    so command names/payloads have one home. (Exceptions: none. Composer and
-   QuickOpen import ipc for file search, which is still ipc.)
+   SearchPalette import ipc for file/page search, which is still ipc.)
 2. **State lives in App.** Components receive data + callbacks. If a
    component needs its own transient UI state (open menu, draft text),
    that's fine — anything another component reads must live in App.
@@ -72,7 +73,8 @@ that made several of them look like design decisions when they were not.
    branch there and a variant in `types.ts` (`HarkEvent`).
 5. **Panels**: `react-resizable-panels` v2 (`PanelGroup/Panel/
    PanelResizeHandle`), layout persisted via `autoSaveId`. Sidebar
-   collapses with Cmd+B; quick-open on Cmd+P.
+   collapses with Cmd+B; Cmd+P opens the files window with its filter
+   focused; Cmd+K opens "Procurar".
 6. **Zero-token features** (file viewer, quick open, board actions, task
    commands) must never spawn a `claude` process. If a feature costs money
    it goes through the gate/router flows in App.

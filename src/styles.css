@@ -2876,3 +2876,12 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   background: none; border: 1px solid var(--border); color: var(--accent); font: inherit; font-size: 11px; cursor: pointer;
 }
 .msg.sys .goto-chat:hover { border-color: var(--accent); }
+
+/* ---- "Procurar" (SearchPalette.tsx): tabs over the field, grouped hits ---- */
+.search-pal { width: min(720px, 92vw); }
+.search-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 2px 2px 8px; }
+.search-group-head { color: var(--dim); font-size: 11px; padding: 8px 10px 4px; }
+.quickopen-list button:has(.pal-title) > svg { flex: 0 0 auto; color: var(--dim); }
+.pal-sub { color: var(--dim); font-size: 11.5px; }
+.pal-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex: 0 0 auto; }
+.search-foot { display: flex; gap: 16px; padding: 8px 10px 2px; font-size: 11px; border-top: 1px solid var(--border); margin-top: 6px; }

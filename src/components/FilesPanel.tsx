@@ -24,6 +24,7 @@ export default function FilesPanel({
   initialProject,
   activeAbs,
   onOpen,
+  focusKey,
 }: {
   projects: Project[];
   /** Project expanded when the panel opens (sidebar folder click). */
@@ -31,6 +32,8 @@ export default function FilesPanel({
   /** Absolute path of the tab in front. */
   activeAbs?: string;
   onOpen: (file: OpenFile) => void;
+  /** Bumped by Cmd+P: focus the filter. */
+  focusKey?: number;
 }) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Hit[]>([]);
@@ -83,6 +86,10 @@ export default function FilesPanel({
     setQuery("");
     inputRef.current?.focus();
   }
+  // Cmd+P lands here: the window opens with the filter ready to type in.
+  useEffect(() => {
+    if (focusKey) inputRef.current?.focus();
+  }, [focusKey]);
 
   return (
     <div className="filespanel">
