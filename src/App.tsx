@@ -1096,6 +1096,19 @@ export default function App({
     !!forcedProject &&
     (workspace === forcedProject.path || workspace.startsWith(`${forcedProject.path}/`));
   const board = (overview?.board ?? []).filter((t) => !forcedProject || inForced(t.workspace));
+  /** The board as the sidebar and the search order it: a task's time is
+   *  the last message of its session when the local index knows a later
+   *  one. The card's own `updated_at` only moves when the card moves, so
+   *  a chat kept alive in a terminal or in Claude Code's app sat under
+   *  cards nobody touched for weeks (30/10). */
+  const touchedBoard = board.map((task) => {
+    const latest = chats
+      .filter((c) => c.last_ts && task.session_ids.includes(c.session_id))
+      .map((c) => c.last_ts as string)
+      .sort()
+      .at(-1);
+    return latest && latest > task.updated_at ? { ...task, updated_at: latest } : task;
+  });
 
   /** Project a board task lives in (by workspace prefix). */
   const projectOf = useCallback(
@@ -3210,7 +3223,7 @@ export default function App({
             <Sidebar
               projects={projects}
               colourOf={colourOf}
-              tasks={board}
+              tasks={touchedBoard}
               // A history row steps aside only for a card THIS window
               // lists: a session whose card lives in another project used
               // to drop out of both lists (25/09).
@@ -3686,7 +3699,7 @@ export default function App({
 
       {chatPalette && (
         <SearchPalette
-          tasks={board}
+          tasks={touchedBoard}
           chats={chats}
           projects={allProjects}
           attention={new Set(Object.keys(askingByTask))}
