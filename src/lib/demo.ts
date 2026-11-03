@@ -133,7 +133,7 @@ const JOURNAL: JournalTurn[] = [
 ];
 
 const SPACES: ArtifactSpace[] = [
-  { name: "webhook-api", project: P["webhook-api"].path, pages: 5 },
+  { name: "webhook-api", project: P["webhook-api"].path, pages: 6 },
   { name: "infra", project: P.infra.path, pages: 2 },
   { name: "mobile-app", project: P["mobile-app"].path, pages: 0 },
   { name: "pessoal", project: null, pages: 1 },
@@ -149,8 +149,9 @@ const TREES: Record<string, ArtifactTree> = {
       node("adr-003-spend-ceiling", "ADR 003: one ceiling per turn", "decisions/adr-003-spend-ceiling.md", "doc", "decisions", 2000, { session_id: "s-idem", task: "Idempotency keys on retries" }),
       node("adr-004-one-window", "ADR 004: one window, every project", "decisions/adr-004-one-window.md", "doc", "decisions", 12, { session_id: "s-billing", task: "Billing endpoint v2" }),
       node("billing-v2-rollout", "Billing v2 · rollout deck", "billing-v2-rollout.html", "slides", null, 70, { session_id: "s-billing", task: "Billing endpoint v2" }),
+      node("cells-design", "Cells · how a region is wired", "cells-design.html", "design", null, 240, { session_id: "s-keys", task: "Webhook signing keys: rotation plan" }),
     ],
-    order: { "": ["overview", "decisions", "billing-v2-rollout"], decisions: ["adr-003-spend-ceiling", "adr-004-one-window"] },
+    order: { "": ["overview", "decisions", "billing-v2-rollout", "cells-design"], decisions: ["adr-003-spend-ceiling", "adr-004-one-window"] },
   },
   infra: {
     nodes: [
@@ -206,6 +207,15 @@ Postgres, one queue. Owned by the payments team; paged through infra.
   runbooks: `# Runbooks\n\nWhat to do at 3 a.m., one page per failure mode.\n`,
   "incident-14-02": `# Incident: the 14:02 deploy\n\nThree alerts correlated with the deploy at 14:02. Rolled back in 11 minutes; no customer impact beyond retries.\n`,
   "reading-list": `# Reading list\n\n- The Mythical Man-Month, again\n- Designing Data-Intensive Applications, ch. 11\n`,
+  "cells-design": `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="hark-kind" content="design"><meta name="hark-canvas" content="1600x1000"><title>Cells</title>
+<style>body{margin:0;width:1600px;height:1000px;background:#fff;color:#1f2430;font:16px/1.4 -apple-system,"Segoe UI",sans-serif}.cell{position:absolute;width:300px;height:170px;border:2px solid #2f5fd1;border-radius:14px;padding:18px;box-sizing:border-box;background:#f4f7ff}.cell h3{margin:0 0 6px;font-size:18px}.cell small{color:#5b6475}.edge{position:absolute;top:120px;left:120px;width:1360px;height:90px;border:2px dashed #e0af68;border-radius:14px;padding:16px;box-sizing:border-box;background:#fff8ea}h1{position:absolute;left:120px;top:40px;margin:0;font-size:32px}</style></head>
+<body><h1>Cells: how a region is wired</h1><div class="edge"><b>Edge</b> · DNS → load balancer → gateway. One hostname grammar: &lt;service&gt;.&lt;cell&gt;.example</div>
+<div class="cell" style="left:120px;top:300px"><h3>us · global core</h3><small>shared control plane</small><p>api-east, api-west; the only writer.</p></div>
+<div class="cell" style="left:470px;top:300px"><h3>ph · Philippines</h3><small>regional cell</small><p>Reads locally, writes through the core.</p></div>
+<div class="cell" style="left:820px;top:300px"><h3>mx · Mexico</h3><small>regional cell</small><p>Same shape as ph.</p></div>
+<div class="cell" style="left:1170px;top:300px"><h3>eu · Europe</h3><small>dedicated cell</small><p>Own writer, own keys.</p></div>
+<div class="cell" style="left:120px;top:560px;width:1350px;height:300px;background:#f6f6f6;border-color:#9aa3b2"><h3>What every cell carries</h3><p>Gateway, queue, a Postgres with its own keys, the metrics agent. Nothing crosses a cell but the control plane's replication.</p></div>
+</body></html>`,
   "billing-v2-rollout": `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Billing v2 · rollout</title>
 <style>:root{color-scheme:light dark;--ink:#1f2430;--paper:#fff;--accent:#2f5fd1}@media(prefers-color-scheme:dark){:root{--ink:#d6dae3;--paper:#12151c;--accent:#7aa2f7}}body{margin:0;font:18px/1.5 -apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--paper)}section{min-height:100vh;padding:8vh 10vw;box-sizing:border-box;border-bottom:1px solid rgba(128,128,128,.25)}h1{font-size:44px;margin:0 0 16px;letter-spacing:-.02em}h2{font-size:32px;margin:0 0 12px}.kicker{color:var(--accent);font-size:14px;letter-spacing:.08em;text-transform:uppercase}</style></head>
 <body><section><div class="kicker">Rollout</div><h1>Billing v2</h1><p>One week behind a flag, then the old route answers 410.</p></section><section><h2>Who calls v1 today</h2><p>Dashboard, worker, and nobody else.</p></section></body></html>`,

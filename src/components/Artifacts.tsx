@@ -1,26 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  ChevronDown,
-  ChevronRight,
-  Code2,
-  ExternalLink,
-  FileText,
-  Link2,
-  MessageSquare,
-  MoreVertical,
-  Palette,
-  Plus,
-  Presentation,
-  Search,
-  Share2,
-  Copy,
-  Download,
-  FolderOpen,
-  ShieldCheck,
-  ShieldOff,
-  User,
-} from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, Download, ExternalLink, FileText, FolderOpen, Link2, Maximize2, MessageSquare, Minimize2, MoreVertical, Palette, Plus, Presentation, Search, Share2, ShieldCheck, ShieldOff, User } from "lucide-react";
 import * as ipc from "../lib/ipc";
+import { STAGE_H, STAGE_W, ZOOMS, canvasSize, deckDocument, fitZoom, hasOwnScript, slideCount } from "../lib/artifactView";
 import { t } from "../lib/i18n";
 import { childrenOf, crumbOf, recents, rows } from "../lib/artifacts";
 import FileViewer from "./FileViewer";
@@ -569,16 +550,103 @@ function Home({
   );
 }
 
-/** The stage every deck is written for. */
-const STAGE_W = 1280;
-const STAGE_H = 720;
-
 /**
- * A deck is written for a fixed 16:9 stage, and a frame the size of the
- * column showed one corner of it (03/11). The stage keeps its size and
- * scales to whatever room the page has, the way a slide viewer does.
+ * Hark's deck viewer: the 1280×720 stage scaled to the room, Hark's
+ * pager under it (arrows, n/N, a filmstrip, present), the arrow keys.
+ * The page only brings the slides; a deck that brought its own pager
+ * keeps it and gets the stage alone (lib/artifactView).
  */
-function Stage({ title, html, scripts }: { title: string; html: string; scripts: boolean }) {
+function DeckViewer({ title, html, scripts }: { title: string; html: string; scripts: boolean }) {
+  const own = hasOwnScript(html);
+  const doc = useMemo(() => (scripts ? deckDocument(html) : html), [html, scripts]);
+  const count = useMemo(() => slideCount(html), [html]);
+  const [at, setAt] = useState(0);
+  const [strip, setStrip] = useState(false);
+  const [present, setPresent] = useState(false);
+  const frame = useRef<HTMLIFrameElement>(null!);
+  const go = (n: number) => frame.current?.contentWindow?.postMessage({ hark: "slide", n }, "*");
+  // The frame says where it is (and how many it has); Esc leaves present.
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      const m = e.data as { hark?: string; at?: number } | null;
+      if (!m || e.source !== frame.current?.contentWindow) return;
+      if (m.hark === "slide" && typeof m.at === "number") setAt(m.at);
+      if (m.hark === "escape") setPresent(false);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+  useEffect(() => {
+    if (!present) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPresent(false);
+      if (e.key === "ArrowRight") go(at + 1);
+      if (e.key === "ArrowLeft") go(at - 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [present, at]);
+  const navigable = scripts && !own && count > 0;
+  return (
+    <div className={`art-deck ${present ? "present" : ""}`}>
+      <Stage title={title} html={doc} scripts={scripts} frameRef={frame} />
+      <div className="art-deck-bar">
+        {navigable ? (
+          <>
+            <button className="frame-ctl" title={t("deck_prev")} onClick={() => go(at - 1)} disabled={at <= 0}>
+              <ChevronLeft size={13} />
+            </button>
+            <span className="mono">
+              {at + 1} / {count}
+            </span>
+            <button className="frame-ctl" title={t("deck_next")} onClick={() => go(at + 1)} disabled={at >= count - 1}>
+              <ChevronRight size={13} />
+            </button>
+            <button className={`pill-btn ${strip ? "on" : ""}`} onClick={() => setStrip((s) => !s)}>
+              {t("deck_strip")}
+            </button>
+          </>
+        ) : (
+          <span className="dim">{own ? t("deck_own_pager") : scripts ? t("deck_no_slides") : t("deck_scripts_off")}</span>
+        )}
+        <span className="grow" />
+        <button className="pill-btn" onClick={() => setPresent((p) => !p)} title={t("deck_present_hint")}>
+          {present ? <Minimize2 size={11} /> : <Maximize2 size={11} />} {present ? t("deck_leave") : t("deck_present")}
+        </button>
+      </div>
+      {strip && navigable && (
+        <div className="art-strip">
+          {Array.from({ length: count }, (_, i) => (
+            <button key={i} className={`art-strip-slide ${i === at ? "on" : ""}`} onClick={() => go(i)} title={`${i + 1}`}>
+              <iframe
+                className="art-strip-frame"
+                title={`${title} ${i + 1}`}
+                sandbox="allow-scripts"
+                srcDoc={doc}
+                tabIndex={-1}
+                onLoad={(e) => e.currentTarget.contentWindow?.postMessage({ hark: "slide", n: i }, "*")}
+              />
+              <span>{i + 1}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The 1280×720 stage scaled to the room it has, centred. */
+function Stage({
+  title,
+  html,
+  scripts,
+  frameRef,
+}: {
+  title: string;
+  html: string;
+  scripts: boolean;
+  frameRef?: React.RefObject<HTMLIFrameElement>;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   useEffect(() => {
@@ -586,7 +654,7 @@ function Stage({ title, html, scripts }: { title: string; html: string; scripts:
     if (!el) return;
     const fit = () => {
       const r = el.getBoundingClientRect();
-      setScale(Math.max(0.05, Math.min(r.width / STAGE_W, r.height / STAGE_H)));
+      setScale(fitZoom(r.width, r.height, STAGE_W, STAGE_H));
     };
     fit();
     const ro = new ResizeObserver(fit);
@@ -596,12 +664,87 @@ function Stage({ title, html, scripts }: { title: string; html: string; scripts:
   return (
     <div className="art-stage" ref={ref}>
       <iframe
+        ref={frameRef}
         className="art-stage-frame"
         title={title}
         sandbox={scripts ? "allow-scripts" : ""}
         srcDoc={html}
         style={{ width: STAGE_W, height: STAGE_H, transform: `translate(-50%, -50%) scale(${scale})` }}
       />
+    </div>
+  );
+}
+
+/**
+ * Hark's canvas for a design: the page at its own size (meta hark-canvas,
+ * 1440×900 by default) on a dotted board, zoomed from a pill (fit, 25%…
+ * 200%) or Cmd+wheel, panned by dragging the board. The page is only
+ * the artwork.
+ */
+function CanvasViewer({ title, html, scripts }: { title: string; html: string; scripts: boolean }) {
+  const size = useMemo(() => canvasSize(html), [html]);
+  const ref = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState<number | null>(null); // null = fit
+  const [room, setRoom] = useState({ w: 0, h: 0 });
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setRoom({ w: r.width, h: r.height });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const z = zoom ?? fitZoom(room.w - 24, room.h - 24, size.w, size.h);
+  return (
+    <div className="art-canvas">
+      <div className="art-canvas-bar">
+        <span className="mono dim">
+          {size.w}×{size.h}
+        </span>
+        <span className="grow" />
+        <button className={`pill-btn ${zoom == null ? "on" : ""}`} onClick={() => { setZoom(null); setPan({ x: 0, y: 0 }); }}>
+          {t("canvas_fit")}
+        </button>
+        {ZOOMS.map((v) => (
+          <button key={v} className={`pill-btn ${zoom === v ? "on" : ""}`} onClick={() => setZoom(v)}>
+            {Math.round(v * 100)}%
+          </button>
+        ))}
+      </div>
+      <div
+        className="art-canvas-board"
+        ref={ref}
+        onMouseDown={(e) => {
+          drag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
+        }}
+        onMouseMove={(e) => {
+          const d = drag.current;
+          if (!d) return;
+          setPan({ x: d.px + (e.clientX - d.x), y: d.py + (e.clientY - d.y) });
+        }}
+        onMouseUp={() => {
+          drag.current = null;
+        }}
+        onMouseLeave={() => {
+          drag.current = null;
+        }}
+        onWheel={(e) => {
+          if (!e.metaKey && !e.ctrlKey) return;
+          e.preventDefault();
+          const next = Math.min(4, Math.max(0.1, z * (e.deltaY < 0 ? 1.1 : 0.9)));
+          setZoom(Number(next.toFixed(2)));
+        }}
+      >
+        <div className="art-canvas-sheet" style={{ width: size.w, height: size.h, transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${z})` }}>
+          <iframe className="art-canvas-frame" title={title} sandbox={scripts ? "allow-scripts" : ""} srcDoc={html} style={{ width: size.w, height: size.h }} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -788,7 +931,9 @@ function Page({
       </div>
       <div className="art-body">
         {html && !source && node.kind === "slides" ? (
-          <Stage title={node.title} html={withBaseStyle(page.text)} scripts={scripts} />
+          <DeckViewer title={node.title} html={page.text} scripts={scripts} />
+        ) : html && !source && node.kind === "design" ? (
+          <CanvasViewer title={node.title} html={withBaseStyle(page.text)} scripts={scripts} />
         ) : html && !source ? (
           <iframe
             className="art-frame"

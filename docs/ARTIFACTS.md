@@ -56,9 +56,12 @@ breadcrumb, kind, last touch and the chat it was born in (the chip opens
 that chat). Markdown renders and edits in place; HTML renders in an
 `<iframe sandbox>`: a document opens with scripts off, a deck or a design
 with its own scripts on (a pager needs them); either way the frame has
-no origin and no access to Hark. A deck renders on a fixed 1280×720 stage
-scaled to the room it has, so a narrow window shows the whole slide, not
-a corner of it. "Fonte" edits the source. **Ligações**, the rail panel beside a page, lists
+no origin and no access to Hark. The viewer is Hark's, by kind: a deck is
+a run of `<section>`s on a 1280×720 stage scaled to the room, with Hark's
+pager, filmstrip, arrow keys and present mode (a deck that brought its own
+pager keeps it and gets the stage alone); a design is a canvas at its own
+size (`<meta name="hark-canvas" content="WxH">`) on a board Hark zooms and
+pans; a document is a reading column. "Fonte" edits the source. **Ligações**, the rail panel beside a page, lists
 the origin chat, child pages and citations.
 
 ## How the agents use pages

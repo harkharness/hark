@@ -62,9 +62,13 @@ forma tanto quanto no conteúdo:
   claro e escuro (`prefers-color-scheme`), uma ideia por tela, texto
   grande. Diga o que a página é com
   `<meta name="hark-kind" content="slides">` (ou `design`, ou `doc` para
-  uma página html que é documento): é isso que dá o ícone e o modo de
-  abrir. Script inline próprio pode (um paginador de slides, por
-  exemplo): a página roda num iframe isolado, sem acesso ao Hark; um
+  uma página html que é documento): é isso que dá o ícone e o visor.
+  **Apresentação**: cada slide é um `<section>` direto no `<body>`,
+  desenhado para 1280×720; não escreva paginador, nem teclas, nem
+  contador: o Hark põe o palco, as setas, as miniaturas e o modo
+  apresentar. **Design**: uma tela só, com o tamanho dito em
+  `<meta name="hark-canvas" content="1440x900">`; o Hark dá o zoom e o
+  arrasto. A página roda num iframe isolado, sem acesso ao Hark; um
   documento html abre com scripts desligados.
 - Em qualquer formato: o título da página é o que a árvore mostra —
   escolha um que diga o assunto ("Home do workspace", "ADR 004: janela
