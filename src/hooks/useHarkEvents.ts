@@ -270,7 +270,7 @@ export function useHarkEvents(h: Handlers) {
           (ev.exit_code != null && ev.exit_code !== 0 ? `exit ${ev.exit_code}` : null);
         h.push({
           who: "sys",
-          text: `worker ${h.labelFor(ev.task_id)} encerrado${why ? ` — ${why}` : ""}`,
+          text: t("sys_worker_exit", { t: h.labelFor(ev.task_id), why: why ? ` — ${why}` : "" }),
           task: h.labelFor(ev.task_id),
         });
         h.onWorkerExit(ev.task_id, ev.reason);

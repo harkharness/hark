@@ -1211,7 +1211,7 @@ export default function App({
   );
 
   async function runAsk(question: string, images: Attachment[], noProject = false) {
-    setBusy("perguntando…");
+    setBusy(t("busy_asking"));
     const thread = currentThread() ?? GENERAL;
     beginTurn();
     try {
@@ -1254,7 +1254,7 @@ export default function App({
    * and there the echo is the only record of what was sent.
    */
   async function runDispatch(instruction: string, sessionId?: string, alreadyShown = false) {
-    setBusy("despachando…");
+    setBusy(t("busy_dispatching"));
     const from = currentThread() ?? GENERAL;
     if (!alreadyShown) {
       push({ who: "sys", text: t("sys_dispatch", { i: instruction }) });
@@ -1311,7 +1311,7 @@ export default function App({
 
   /** First message of a "+" draft: opens a brand-new session in the project. */
   async function runNewChat(project: Project, instruction: string, agent?: string) {
-    setBusy("abrindo sessão nova…");
+    setBusy(t("busy_new_session"));
     const from = currentThread() ?? GENERAL;
     push({ who: "sys", text: t("sys_new_chat_in", { name: project.name }) });
     beginTurn(from);
@@ -1377,7 +1377,7 @@ export default function App({
       if (!victim) {
         push({
           who: "sys",
-          text: "5 abas com edição não salva: salva alguma (Cmd+S) antes de abrir outro arquivo",
+          text: t("sys_tabs_unsaved"),
         });
         return old;
       }
@@ -1549,7 +1549,7 @@ export default function App({
       if (verdict?.kind === "confirm") {
         push({ who: "user", text, task: pendingPermission.task });
         await answerPermission(pendingPermission.requestId, true, verdict.always);
-        say(verdict.always ? "Permitido, e não pergunto mais nesta task." : st("sp_allowed"));
+        say(verdict.always ? st("sp_allowed_always") : st("sp_allowed"));
         return;
       }
       if (verdict?.kind === "deny") {
@@ -3229,7 +3229,7 @@ export default function App({
       )}
       <button
         className={`scope ${speak ? "on" : ""}`}
-        title={speak ? "voz ligada (Esc corta a fala)" : "voz desligada"}
+        title={speak ? t("speak_on") : t("speak_off")}
         onClick={() => setSpeak((s) => !s)}
       >
         {speak ? <Volume2 size={13} /> : <VolumeX size={13} />}

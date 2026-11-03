@@ -191,6 +191,8 @@ pub fn adopt_session(
     now: &str,
     cwd: Option<&str>,
     session_id: &str,
+    // The note a fresh card carries, in the window's language ("session recovered").
+    note: &str,
 ) -> (Vec<Task>, Task) {
     let covers = |ws: &str, dir: &str| {
         let ws = ws.trim_end_matches('/');
@@ -220,7 +222,7 @@ pub fn adopt_session(
         workspace: cwd.map(String::from),
         session_ids: vec![session_id.to_string()],
         updated_at: now.to_string(),
-        note: Some("sessão recuperada".into()),
+        note: Some(note.to_string()),
         pinned: false,
         subtasks: Vec::new(),
     };
@@ -371,7 +373,7 @@ mod tests {
         // in neither list of its own window. Only the session id may
         // match a recovered session.
         let board = vec![linked("deploy phase 8 production", "/home/dev/other", "s-old")];
-        let (tasks, card) = adopt_session(board, "deploy-phase-9-production", NOW, Some("/home/dev/ws"), "s-9");
+        let (tasks, card) = adopt_session(board, "deploy-phase-9-production", NOW, Some("/home/dev/ws"), "s-9", "sessão recuperada");
         assert_eq!(card.title, "deploy-phase-9-production");
         assert_eq!(card.workspace.as_deref(), Some("/home/dev/ws"));
         assert_eq!(card.session_ids, vec!["s-9".to_string()]);
@@ -383,7 +385,7 @@ mod tests {
     #[test]
     fn a_session_already_on_a_card_reopens_that_card() {
         let board = vec![linked("Renomeado pelo usuário", "/home/dev/ws", "s-9")];
-        let (tasks, card) = adopt_session(board, "deploy-phase-9-production", NOW, Some("/home/dev/ws"), "s-9");
+        let (tasks, card) = adopt_session(board, "deploy-phase-9-production", NOW, Some("/home/dev/ws"), "s-9", "sessão recuperada");
         assert_eq!(tasks.len(), 1);
         assert_eq!(card.title, "Renomeado pelo usuário", "the card keeps the name it was given");
         assert_eq!(card.updated_at, NOW);
@@ -392,11 +394,11 @@ mod tests {
     #[test]
     fn a_card_outside_the_sessions_folder_follows_the_session() {
         let board = vec![linked("chat", "/home/dev/other", "s-9")];
-        let (_, moved) = adopt_session(board, "chat", NOW, Some("/home/dev/ws"), "s-9");
+        let (_, moved) = adopt_session(board, "chat", NOW, Some("/home/dev/ws"), "s-9", "sessão recuperada");
         assert_eq!(moved.workspace.as_deref(), Some("/home/dev/ws"));
         // A card on the project root already covers a session in a subfolder.
         let board = vec![linked("chat", "/home/dev/ws", "s-9")];
-        let (_, kept) = adopt_session(board, "chat", NOW, Some("/home/dev/ws/apps/game"), "s-9");
+        let (_, kept) = adopt_session(board, "chat", NOW, Some("/home/dev/ws/apps/game"), "s-9", "sessão recuperada");
         assert_eq!(kept.workspace.as_deref(), Some("/home/dev/ws"));
     }
 
@@ -404,7 +406,7 @@ mod tests {
     fn a_new_card_never_takes_a_title_already_on_the_board() {
         // The title is the board's key: a clash would fail the save.
         let board = vec![linked("deploy", "/home/dev/ws", "s-1")];
-        let (tasks, card) = adopt_session(board, "deploy", NOW, Some("/home/dev/ws"), "s-2");
+        let (tasks, card) = adopt_session(board, "deploy", NOW, Some("/home/dev/ws"), "s-2", "sessão recuperada");
         assert_eq!(card.title, "deploy (2)");
         assert_eq!(tasks.len(), 2);
     }

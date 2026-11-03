@@ -642,7 +642,7 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
         add_dirs: vec![config.data_dir().join("artifacts")],
     };
     if !spawn.project_settings {
-        eprintln!("{}", hark_plugin_claude::trust::untrusted_note(&planned.workspace_root));
+        eprintln!("{}", hark_plugin_claude::trust::untrusted_note(&planned.workspace_root, config.lang().pick("pt", "en")));
     }
     let result = worker::run(
         &spawn,

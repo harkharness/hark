@@ -57,8 +57,10 @@ impl AgentBackend for ClaudeBackend {
     }
 
     fn spawn_note(&self, spec: &SessionSpec) -> Option<String> {
+        // The window's language rides on the worker's env (HARK_UI_LANGUAGE).
+        let lang = spec.envs.iter().find(|(k, _)| k == "HARK_UI_LANGUAGE").map(|(_, v)| v.as_str()).unwrap_or("pt");
         (crate::trust::project_sources(&spec.cwd) == Sources::UserOnly)
-            .then(|| crate::trust::untrusted_note(&spec.cwd))
+            .then(|| crate::trust::untrusted_note(&spec.cwd, lang))
     }
 
     fn runner(&self) -> Box<dyn AgentRunner + Send + Sync> {

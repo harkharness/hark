@@ -27,10 +27,19 @@ pub fn project_sources(cwd: &Path) -> Sources {
     )
 }
 
-/// Said in the chat when a worker opens without the folder's settings.
-pub fn untrusted_note(cwd: &Path) -> String {
-    format!(
-        "configurações do projeto não carregadas: {} traz hooks, permissões, env ou MCP que ainda não foram confiados. Abra `claude` uma vez nessa pasta e aceite a confiança; o próximo chat carrega tudo.",
-        cwd.display()
-    )
+/// Said in the chat when a worker opens without the folder's settings,
+/// in the window's language (`lang` is the ui_language code; anything
+/// but "en" reads as Portuguese, the way the rest of the UI does).
+pub fn untrusted_note(cwd: &Path, lang: &str) -> String {
+    if lang == "en" {
+        format!(
+            "project settings not loaded: {} carries hooks, permissions, env or MCP servers that were never trusted. Open `claude` once in that folder and accept the trust prompt; the next chat loads everything.",
+            cwd.display()
+        )
+    } else {
+        format!(
+            "configurações do projeto não carregadas: {} traz hooks, permissões, env ou MCP que ainda não foram confiados. Abra `claude` uma vez nessa pasta e aceite a confiança; o próximo chat carrega tudo.",
+            cwd.display()
+        )
+    }
 }

@@ -1995,6 +1995,9 @@ pub(crate) fn worker_envs(config: &Config) -> Vec<(String, String)> {
     // Where the agent files a page when asked for one (the artifacts
     // skill reads it): `<root>/<space>/<page>`.
     envs.push(("HARK_ARTIFACTS_DIR".into(), artifacts_root(config).to_string_lossy().to_string()));
+    // The language the window speaks, for the notes a plugin writes into
+    // the chat on its own (the untrusted-folder note).
+    envs.push(("HARK_UI_LANGUAGE".into(), config.lang().pick("pt", "en").to_string()));
     envs
 }
 
@@ -4383,6 +4386,7 @@ fn task_from_session(session_id: String) -> Result<serde_json::Value, String> {
         &now_iso(),
         summary.cwd.as_deref(),
         &session_id,
+        &ui("sessão recuperada", "session recovered"),
     );
     store.save_board(&merged).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
