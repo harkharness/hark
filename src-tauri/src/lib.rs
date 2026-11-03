@@ -2286,6 +2286,17 @@ fn artifact_rename(space: String, id: String, title: String) -> Result<(), Strin
 }
 
 #[tauri::command]
+fn artifact_set_kind(space: String, id: String, kind: String) -> Result<(), String> {
+    let kind = match kind.as_str() {
+        "doc" => hark_core::domain::artifacts::Kind::Doc,
+        "slides" => hark_core::domain::artifacts::Kind::Slides,
+        "design" => hark_core::domain::artifacts::Kind::Design,
+        other => return Err(format!("{other}: not a kind")),
+    };
+    hark_core::app::artifacts::set_kind(&artifact_store(), &space, &id, kind).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn artifact_remove(space: String, id: String) -> Result<Vec<String>, String> {
     hark_core::app::artifacts::remove(&artifact_store(), &space, &id).map_err(|e| e.to_string())
 }
@@ -6161,6 +6172,7 @@ pub fn run() {
             artifact_create,
             artifact_move,
             artifact_rename,
+            artifact_set_kind,
             artifact_remove,
             focus_main,
             subscription_limits,

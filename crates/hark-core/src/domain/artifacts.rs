@@ -280,6 +280,14 @@ impl Tree {
         gone
     }
 
+    /// What a page is (document, deck, design), set by hand: the tree's
+    /// guess from the file is a guess.
+    pub fn set_kind(&mut self, id: &str, kind: Kind) -> Result<(), String> {
+        let n = self.nodes.iter_mut().find(|n| n.id == id).ok_or_else(|| format!("{id}: not found"))?;
+        n.kind = kind;
+        Ok(())
+    }
+
     pub fn rename(&mut self, id: &str, title: &str) -> Result<(), String> {
         match self.get_mut(id) {
             Some(n) => {
@@ -422,6 +430,35 @@ fn folder_of(path: &str) -> &str {
 
 fn ext_of(path: &str) -> &str {
     path.rsplit_once('.').map(|(_, e)| e).unwrap_or("")
+}
+
+/// What a page is, from its file. Markdown is a document. An html page
+/// says so with `<meta name="hark-kind" content="doc|slides|design">`
+/// (the skill asks agents for it); without the tag, a run of two or more
+/// slides (`class="slide"`, `data-slide`) is a deck, anything else a
+/// document. The old default (every html a deck) made the project's home
+/// page and a real deck wear the same icon (03/11).
+pub fn page_kind(path: &str, text: &str) -> Kind {
+    if !path.to_ascii_lowercase().ends_with(".html") {
+        return Kind::Doc;
+    }
+    let lower = text.to_ascii_lowercase();
+    if let Some(at) = lower.find("name=\"hark-kind\"").or_else(|| lower.find("name='hark-kind'")) {
+        let tag = &lower[at..lower[at..].find('>').map(|e| at + e).unwrap_or(lower.len())];
+        for (needle, kind) in [("slides", Kind::Slides), ("design", Kind::Design), ("doc", Kind::Doc)] {
+            if tag.contains(&format!("content=\"{needle}\"")) || tag.contains(&format!("content='{needle}'")) {
+                return kind;
+            }
+        }
+    }
+    let slides = lower.matches("class=\"slide").count()
+        + lower.matches("class='slide").count()
+        + lower.matches("data-slide").count();
+    if slides >= 2 {
+        Kind::Slides
+    } else {
+        Kind::Doc
+    }
 }
 
 /// What the head of a file says a page is called: the first `# heading`
@@ -650,6 +687,29 @@ mod tests {
         assert_eq!(out.added, vec!["visao"]);
         let n = t.get("visao").unwrap();
         assert_eq!((n.path.as_str(), n.parent.as_deref()), ("decisoes/visao.md", Some("decisoes")));
+    }
+
+    #[test]
+    fn an_html_page_says_what_it_is_or_is_read_from_its_shape() {
+        // The meta tag wins: the agent (or the person) said so.
+        assert_eq!(page_kind("x.html", "<html><head><meta name=\"hark-kind\" content=\"design\"></head>"), Kind::Design);
+        assert_eq!(page_kind("x.html", "<meta name='hark-kind' content='slides'>"), Kind::Slides);
+        assert_eq!(page_kind("x.html", "<meta name=\"hark-kind\" content=\"doc\"><section class=\"slide\"></section><section class=\"slide\">"), Kind::Doc);
+        // No tag: a deck is a run of slides; anything else is a document.
+        assert_eq!(page_kind("deck.html", "<body><section class=\"slide active\">1</section><section class=\"slide\">2</section></body>"), Kind::Slides);
+        assert_eq!(page_kind("deck.html", "<div data-slide>1</div><div data-slide>2</div>"), Kind::Slides);
+        assert_eq!(page_kind("home.html", "<body><h1>Home</h1><section class=\"slide\">one</section></body>"), Kind::Doc);
+        assert_eq!(page_kind("home.html", "<body><h1>Home</h1><p>prose</p></body>"), Kind::Doc);
+        // Markdown is always a document.
+        assert_eq!(page_kind("notes.md", "<section class=\"slide\"></section><section class=\"slide\">"), Kind::Doc);
+    }
+
+    #[test]
+    fn a_page_s_kind_can_be_set_by_hand_and_a_missing_page_is_refused() {
+        let mut t = sample();
+        t.set_kind("visao", Kind::Design).unwrap();
+        assert_eq!(t.get("visao").unwrap().kind, Kind::Design);
+        assert!(t.set_kind("nope", Kind::Doc).unwrap_err().contains("not found"));
     }
 
     /// Files as the store lists them, with no title hint.

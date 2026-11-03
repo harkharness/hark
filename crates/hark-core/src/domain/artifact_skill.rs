@@ -60,8 +60,12 @@ forma tanto quanto no conteúdo:
   `<style>`, fontes do sistema, sem scripts externos, sem CDN, sem
   imagens remotas; `<meta name="viewport">`, cores que funcionam em
   claro e escuro (`prefers-color-scheme`), uma ideia por tela, texto
-  grande. A página roda isolada no Hark (iframe sem scripts por padrão),
-  então o que não for HTML+CSS puro não aparece.
+  grande. Diga o que a página é com
+  `<meta name="hark-kind" content="slides">` (ou `design`, ou `doc` para
+  uma página html que é documento): é isso que dá o ícone e o modo de
+  abrir. Script inline próprio pode (um paginador de slides, por
+  exemplo): a página roda num iframe isolado, sem acesso ao Hark; um
+  documento html abre com scripts desligados.
 - Em qualquer formato: o título da página é o que a árvore mostra —
   escolha um que diga o assunto ("Home do workspace", "ADR 004: janela
   única"), não a ação ("atualizar artefato").
@@ -72,6 +76,7 @@ Esqueleto de apresentação, para começar:
 <!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Título</title>
+<meta name="hark-kind" content="slides">
 <style>
   :root {{ color-scheme: light dark; --ink: #1f2430; --paper: #fff; --accent: #2f5fd1; }}
   @media (prefers-color-scheme: dark) {{ :root {{ --ink: #d6dae3; --paper: #12151c; --accent: #7aa2f7; }} }}

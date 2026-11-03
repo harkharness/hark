@@ -456,6 +456,7 @@ const C: Record<string, (a: Args) => unknown> = {
   artifact_create: (a) => node(String(a?.title).toLowerCase().replace(/\W+/g, "-"), String(a?.title), `${String(a?.title).toLowerCase().replace(/\W+/g, "-")}.md`, "doc", (a?.parent as string) ?? null, 0),
   artifact_move: () => undefined,
   artifact_rename: () => undefined,
+  artifact_set_kind: () => undefined,
   artifact_remove: () => [],
   export_file: (a) => `/Users/ana/.hark/exports/${String(a?.name)}`,
   reveal_path: () => undefined,

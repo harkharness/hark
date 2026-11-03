@@ -2743,7 +2743,11 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .art-node:hover { background: rgba(255,255,255,.05); }
 .art-node.on { background: rgba(187,154,247,.14); color: var(--text-strong); }
 .art-caret { background: none; border: none; color: var(--dim); padding: 0; width: 14px; display: inline-flex; align-items: center; cursor: pointer; }
-.art-kind { color: var(--purple, #bb9af7); flex: 0 0 auto; }
+/* One colour per kind, the same on the row, the card and the page: a
+   document is the accent, a deck is warm, a design is purple. */
+.art-kind { flex: 0 0 auto; color: var(--accent); }
+.art-kind.slides { color: var(--warn); }
+.art-kind.design { color: var(--purple, #bb9af7); }
 .art-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .art-inline { flex: 1; min-width: 0; background: var(--panel); border: 1px solid var(--accent); border-radius: 4px; color: var(--text); font: inherit; font-size: 12px; padding: 0 4px; outline: none; }
 .art-node-btn { background: none; border: none; color: var(--dim); padding: 0 2px; display: none; align-items: center; cursor: pointer; }
@@ -2782,6 +2786,8 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .art-thumb { height: 96px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1a2234, #0f131b); }
 .art-thumb.slides { background: linear-gradient(135deg, #1e3a8a, #0f131b); }
 .art-thumb.design { background: linear-gradient(135deg, #3b2a6b, #0f131b); }
+.art-thumb-frame { position: absolute; left: 0; top: 0; width: 400%; height: 400%; transform: scale(.25); transform-origin: 0 0; border: 0; pointer-events: none; background: var(--bg); }
+.art-thumb { overflow: hidden; position: relative; }
 .art-thumb-sheet { width: 62%; height: 72%; background: var(--panel-2); border: 1px solid var(--border-strong, var(--border)); border-radius: 6px; padding: 8px; font-size: 9px; color: var(--dim); overflow: hidden; }
 .art-thumb-sheet b { color: var(--text-strong); font-size: 10px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .art-card-foot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; min-width: 0; }

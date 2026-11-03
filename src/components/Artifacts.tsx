@@ -160,6 +160,10 @@ export default function Artifacts({
       .then((p) => {
         if (!live) return;
         setPage(p);
+        // A deck or a design is built with its own script more often than
+        // not (a pager, a tab strip): it runs, still inside the sandbox
+        // with no origin. A document opens with scripts off.
+        setScripts(p.node.kind !== "doc" && p.node.path.endsWith(".html"));
         onPage(p, tree);
       })
       .catch((err) => {
@@ -205,6 +209,15 @@ export default function Artifacts({
     if (!clean) return;
     try {
       await ipc.artifactRename(space, id, clean);
+      await load();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+  async function setKind(space: string, id: string, kind: ArtifactKind) {
+    setMenu(null);
+    try {
+      await ipc.artifactSetKind(space, id, kind);
       await load();
     } catch (err) {
       setError(String(err));
@@ -310,7 +323,7 @@ export default function Artifacts({
                       >
                         {open.has(node.id) ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
                       </button>
-                      <Icon size={13} className="art-kind" />
+                      <Icon size={13} className={`art-kind ${node.kind}`} />
                       {renaming?.id === node.id ? (
                         <input
                           className="art-inline"
@@ -365,6 +378,14 @@ export default function Artifacts({
                           >
                             {t("art_new_child")}
                           </button>
+                          {node.path.endsWith(".html") &&
+                            (["doc", "slides", "design"] as ArtifactKind[])
+                              .filter((k) => k !== node.kind)
+                              .map((k) => (
+                                <button key={k} onClick={() => void setKind(sp.name, node.id, k)}>
+                                  {t("art_mark_as", { k: kindLabel(k) })}
+                                </button>
+                              ))}
                           <button className="danger" onClick={() => void remove(sp.name, node.id)}>
                             {t("art_remove")}
                           </button>
@@ -529,13 +550,9 @@ function Home({
             const crumb = crumbOf(tree, n.id).slice(0, -1);
             return (
               <button key={n.id} className="art-card" onClick={() => onOpen(n.id)} title={n.path}>
-                <div className={`art-thumb ${n.kind}`}>
-                  <div className="art-thumb-sheet">
-                    <b>{n.title}</b>
-                  </div>
-                </div>
+                <Thumb space={space?.name ?? ""} node={n} />
                 <div className="art-card-foot">
-                  <Icon size={14} className="art-kind" />
+                  <Icon size={14} className={`art-kind ${n.kind}`} />
                   <div className="art-card-text">
                     <span className="art-card-title">{n.title}</span>
                     <span className="dim">
@@ -546,6 +563,45 @@ function Home({
               </button>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A card's picture is the page itself: an html page renders small in a
+ * sandboxed frame (scripts on, so a deck shows its first slide; no
+ * origin, no reach into Hark); a markdown page shows its opening lines.
+ */
+function Thumb({ space, node }: { space: string; node: ArtifactNode }) {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    ipc
+      .artifactRead(space, node.id)
+      .then((p) => {
+        if (live) setText(p.text);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [space, node.id, node.updated_at]);
+  const html = node.path.endsWith(".html");
+  return (
+    <div className={`art-thumb ${node.kind}`}>
+      {text == null ? null : html ? (
+        <iframe className="art-thumb-frame" title={node.title} sandbox="allow-scripts" srcDoc={withBaseStyle(text)} tabIndex={-1} />
+      ) : (
+        <div className="art-thumb-sheet">
+          <b>{node.title}</b>
+          {text
+            .replace(/^---[\s\S]*?---/, "")
+            .split("\n")
+            .filter((l) => l.trim() && !l.startsWith("#"))
+            .slice(0, 6)
+            .join(" ")}
         </div>
       )}
     </div>
@@ -681,7 +737,7 @@ function Page({
         </span>
       </div>
       <div className="art-meta">
-        <Icon size={12} className="art-kind" /> {kindLabel(node.kind)} · {t("art_edited", { when: ago(node.updated_at) })}
+        <Icon size={12} className={`art-kind ${node.kind}`} /> {kindLabel(node.kind)} · {t("art_edited", { when: ago(node.updated_at) })}
         {node.origin?.task && (
           <>
             {" · "}
@@ -711,7 +767,7 @@ function Page({
           const KIcon = KIND_ICON[k.kind];
           return (
             <button key={k.id} className="pill-btn" onClick={() => onOpen(k.id)}>
-              <KIcon size={11} className="art-kind" /> {k.title}
+              <KIcon size={11} className={`art-kind ${k.kind}`} /> {k.title}
             </button>
           );
         })}

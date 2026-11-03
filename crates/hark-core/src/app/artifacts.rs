@@ -33,10 +33,29 @@ pub fn load(store: &dyn ArtifactStore, space: &str, now: &str) -> anyhow::Result
         .collect();
     let refs: Vec<(&str, Option<&str>)> = heads.iter().map(|(f, t)| (f.as_str(), t.as_deref())).collect();
     let pass = tree.reconcile(&refs, now);
+    // An html page just adopted or rewritten says what it is in its own
+    // text (meta tag or shape); the reconcile only saw the file name.
+    for id in pass.added.iter().chain(pass.renamed.iter()) {
+        let Some(path) = tree.get(id).map(|n| n.path.clone()) else { continue };
+        if !path.to_ascii_lowercase().ends_with(".html") {
+            continue;
+        }
+        if let Ok(text) = store.read_page(space, &path) {
+            let kind = crate::domain::artifacts::page_kind(&path, &text);
+            let _ = tree.set_kind(id, kind);
+        }
+    }
     if !pass.added.is_empty() || !pass.dropped.is_empty() || !pass.renamed.is_empty() {
         save(store, space, &tree)?;
     }
     Ok(tree)
+}
+
+/// The person says what a page is: document, deck or design.
+pub fn set_kind(store: &dyn ArtifactStore, space: &str, id: &str, kind: Kind) -> anyhow::Result<()> {
+    let mut tree = load(store, space, "")?;
+    tree.set_kind(id, kind).map_err(anyhow::Error::msg)?;
+    save(store, space, &tree)
 }
 
 /// What a fresh page holds: a heading for a document, a shell for the

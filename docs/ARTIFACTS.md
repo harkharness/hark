@@ -23,7 +23,11 @@ first page. Hidden folders and symlinks are never spaces.
 
 A **page** is a `.md` or `.html` file inside a space, at any depth. Its
 `id` is the slug of its path; its title is the first `# heading` of a
-markdown page, or the file name. Folders are not nodes: a page's parent is
+markdown page, or the file name. Its **kind** (`doc`, `slides`, `design`)
+decides the icon and how it opens: markdown is a document; an html page
+says what it is with `<meta name="hark-kind" content="slides">`, and
+without the tag a run of `class="slide"` sections reads as a deck,
+anything else as a document. The `⋯` on a row changes it by hand. Folders are not nodes: a page's parent is
 the page whose slug names the folder it sits in, and a folder with no such
 page hangs its children at the root.
 
@@ -50,9 +54,9 @@ twice.
 The home of a space shows what moved last. A page opens with its
 breadcrumb, kind, last touch and the chat it was born in (the chip opens
 that chat). Markdown renders and edits in place; HTML renders in an
-`<iframe sandbox>` with scripts off, and "fonte" edits the source. Turn
-scripts on for a deck that needs them: even then the frame has no origin
-and no access to Hark. **Ligações**, the rail panel beside a page, lists
+`<iframe sandbox>`: a document opens with scripts off, a deck or a design
+with its own scripts on (a pager needs them); either way the frame has
+no origin and no access to Hark. "Fonte" edits the source. **Ligações**, the rail panel beside a page, lists
 the origin chat, child pages and citations.
 
 ## How the agents use pages
