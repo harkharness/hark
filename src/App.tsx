@@ -52,6 +52,7 @@ import Onboarding from "./components/Onboarding";
 import { checkForUpdate, restartIntoUpdate } from "./lib/updater";
 import * as ipc from "./lib/ipc";
 import { alreadyShown } from "./lib/transcript";
+import { staleTurns } from "./lib/turns";
 import { terminalPayload } from "./lib/terminalPayload";
 import type {
   BoardTask,
@@ -140,6 +141,8 @@ export default function App({
   // "1m 35s · quase terminando de pensar…" above every chat you opened,
   // and the first worker to finish wiped the clock of every other.
   const [turns, setTurns] = useState<Record<string, TurnState>>({});
+  const turnsRef = useRef(turns);
+  turnsRef.current = turns;
   const [recording, setRecording] = useState(false);
   /** Sidebar rows pulsing after a voice dispatch landed on them. */
   const [pulsing, setPulsing] = useState<string[]>([]);
@@ -568,6 +571,22 @@ export default function App({
         setOverview(o);
         // Code-surface theme (chat blocks, editor, terminal) via CSS vars.
         document.documentElement.dataset.theme = o.theme;
+        // A clock with no turn behind it ends here, whatever event was
+        // missed: the backend's list of turns in flight is the truth.
+        const ft = focusedTaskRef.current;
+        const sessionOf = (key: string): string | null => {
+          if (ft && ft.title === key) return ft.sessionId ?? null;
+          const task = o.board.find((b) => b.title === key);
+          return task?.session_ids.find((s) => (o.in_flight ?? []).some((w) => w.session_id === s)) ?? task?.session_ids[0] ?? null;
+        };
+        const stale = staleTurns(turnsRef.current, o.in_flight ?? [], sessionOf, GENERAL);
+        if (stale.length) {
+          setTurns((old) => {
+            const next = { ...old };
+            for (const k of stale) delete next[k];
+            return next;
+          });
+        }
       })
       .catch(() => {});
     // Full Claude Code history of this project (local index): the sidebar
@@ -577,6 +596,14 @@ export default function App({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // While a clock runs, ask the backend every few seconds whether the
+  // turn is still there: the reconcile in refresh ends the ones that are not.
+  const turnsOpen = Object.keys(turns).length > 0;
+  useEffect(() => {
+    if (!turnsOpen) return;
+    const id = window.setInterval(refresh, 5000);
+    return () => window.clearInterval(id);
+  }, [turnsOpen, refresh]);
   // The main window lists every project's history: one query per
   // registered project, merged. Refreshed with the project list.
   const projectPaths = (overview?.projects ?? []).map((p) => p.path).join("\n");
@@ -2407,6 +2434,10 @@ export default function App({
 
   /** Cut the turn in flight; the conversation stays open. */
   function interruptWorker(taskId: string) {
+    // The clock stops the moment stop is pressed: if a turn really runs,
+    // its (stopped) result lands anyway; if none does, nothing else would
+    // ever stop the clock.
+    endTurn(currentThread(), taskId);
     if (!liveWorkers[taskId]) return;
     ipc
       .workerInterrupt(taskId)

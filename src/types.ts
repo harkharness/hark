@@ -383,6 +383,8 @@ export type Overview = {
   assistant_name: string;
   /** The human's first name (from $USER), for the greeting. */
   user_name: string;
+  /** Tasks with a turn in flight right now, and their sessions. */
+  in_flight: { task_id: string; session_id: string }[];
 };
 
 /** One aggregated bucket of the persistent spend ledger. */

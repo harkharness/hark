@@ -343,6 +343,7 @@ const OVERVIEW: Overview = {
   language: "en",
   assistant_name: "Hark",
   user_name: "Ana",
+  in_flight: [],
 };
 
 const CONFIG: ConfigSnapshot = {

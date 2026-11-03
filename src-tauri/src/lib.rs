@@ -372,6 +372,16 @@ struct Overview {
     assistant_name: String,
     /// The human's first name (from $USER), for the greeting.
     user_name: String,
+    /// Tasks with a turn in flight right now, with their sessions: the
+    /// window reconciles its clocks against this, so a lost event never
+    /// leaves one running for an hour (03/11).
+    in_flight: Vec<InFlight>,
+}
+
+#[derive(Serialize, Clone)]
+struct InFlight {
+    task_id: String,
+    session_id: String,
 }
 
 /// The editable project list. First run seeds it from what the machine
@@ -409,10 +419,28 @@ fn load_projects(config: &Config) -> Vec<hark_core::domain::project::Project> {
 }
 
 #[tauri::command]
-fn overview() -> Overview {
+fn overview(live: State<'_, LiveWorkers>, outboxes: State<'_, Outboxes>) -> Overview {
     use hark_core::ports::SessionStore;
     let config = Config::load();
     let state = state_file::load(&config.data_dir());
+    let in_flight: Vec<InFlight> = {
+        let boxes = outboxes.0.lock().unwrap();
+        let handles = live.0.lock().unwrap();
+        boxes
+            .iter()
+            .filter(|(_, o)| o.in_flight())
+            .map(|(task_id, _)| InFlight {
+                task_id: task_id.clone(),
+                session_id: handles
+                    .get(task_id)
+                    .map(|h| h.spec.session_id.clone())
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| state.workers.iter().find(|w| &w.task_id == task_id).map(|w| w.session_id.clone()))
+                    .or_else(|| (task_id == HARK_CHAT_TASK).then(|| state.hark_chat_session.clone().unwrap_or_default()))
+                    .unwrap_or_default(),
+            })
+            .collect()
+    };
     let mut workers = state.workers;
     workers.reverse(); // newest first
     workers.truncate(12);
@@ -442,6 +470,7 @@ fn overview() -> Overview {
                     .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
             })
             .unwrap_or_default(),
+        in_flight,
         default_mode: config.worker_mode,
         default_model: config.worker_model,
         default_effort: config.worker_effort,
