@@ -2803,6 +2803,9 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .art-body { flex: 1; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg); }
 .art-body .viewer { flex: 1; min-height: 0; }
 .art-frame { flex: 1; width: 100%; border: none; background: #fff; }
+/* A deck's stage: fixed size, scaled to fit, centred. */
+.art-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; background: var(--bg-deep); }
+.art-stage-frame { position: absolute; left: 50%; top: 50%; transform-origin: center center; border: 0; background: #fff; box-shadow: 0 12px 40px rgba(0,0,0,.45); }
 .art-children { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
 
 /* ---- the global board (phase 10.4): pills over the columns ---- */

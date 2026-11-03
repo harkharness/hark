@@ -569,6 +569,43 @@ function Home({
   );
 }
 
+/** The stage every deck is written for. */
+const STAGE_W = 1280;
+const STAGE_H = 720;
+
+/**
+ * A deck is written for a fixed 16:9 stage, and a frame the size of the
+ * column showed one corner of it (03/11). The stage keeps its size and
+ * scales to whatever room the page has, the way a slide viewer does.
+ */
+function Stage({ title, html, scripts }: { title: string; html: string; scripts: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      const r = el.getBoundingClientRect();
+      setScale(Math.max(0.05, Math.min(r.width / STAGE_W, r.height / STAGE_H)));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div className="art-stage" ref={ref}>
+      <iframe
+        className="art-stage-frame"
+        title={title}
+        sandbox={scripts ? "allow-scripts" : ""}
+        srcDoc={html}
+        style={{ width: STAGE_W, height: STAGE_H, transform: `translate(-50%, -50%) scale(${scale})` }}
+      />
+    </div>
+  );
+}
+
 /**
  * A card's picture is the page itself: an html page renders small in a
  * sandboxed frame (scripts on, so a deck shows its first slide; no
@@ -750,7 +787,9 @@ function Page({
         <span className="mono">{node.path}</span>
       </div>
       <div className="art-body">
-        {html && !source ? (
+        {html && !source && node.kind === "slides" ? (
+          <Stage title={node.title} html={withBaseStyle(page.text)} scripts={scripts} />
+        ) : html && !source ? (
           <iframe
             className="art-frame"
             title={node.title}

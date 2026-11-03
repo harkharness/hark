@@ -56,7 +56,9 @@ breadcrumb, kind, last touch and the chat it was born in (the chip opens
 that chat). Markdown renders and edits in place; HTML renders in an
 `<iframe sandbox>`: a document opens with scripts off, a deck or a design
 with its own scripts on (a pager needs them); either way the frame has
-no origin and no access to Hark. "Fonte" edits the source. **Ligações**, the rail panel beside a page, lists
+no origin and no access to Hark. A deck renders on a fixed 1280×720 stage
+scaled to the room it has, so a narrow window shows the whole slide, not
+a corner of it. "Fonte" edits the source. **Ligações**, the rail panel beside a page, lists
 the origin chat, child pages and citations.
 
 ## How the agents use pages
