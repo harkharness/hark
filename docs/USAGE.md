@@ -180,8 +180,8 @@ reads like the terminal you already use:
 - **A browser** (the compass door): a real page beside the chat, in a
   webview of its own — its own origin, cookies and history, and no way to
   reach Hark. The bar is Hark's (back, forward, reload, the address, open
-  outside); the page is whatever you point it at. One at a time, closed
-  with the panel.
+  outside); the page is whatever you point it at. One page per window,
+  remembered per chat, closed with the panel.
 - **The board, filtered** to that project, plus what the project has spent.
 
 ## Dispatching work

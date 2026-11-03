@@ -30,8 +30,8 @@ shape before you spend a weekend on it.
 ## Setup
 
 You need macOS 12+, the Xcode command line tools, Rust (stable; CI pins
-1.98.0), Node 22 and npm, and at least one agent CLI logged in — Claude Code
-gives the richest experience.
+1.98.0 and runs on `macos-15`), Node 22 and npm, and at least one agent CLI
+logged in — Claude Code gives the richest experience.
 
 ```bash
 git clone https://github.com/harkharness/hark && cd hark

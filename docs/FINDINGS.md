@@ -147,6 +147,9 @@ without a TTY. Good for the "what are you executing?" snapshot.
 ## Spike 2: whisper-rs pt-BR
 
 Build: `whisper-rs 0.14`, feature `metal`, compiles clean on Apple Silicon.
+(0.16 since 30/10/2026: the ggml bundled with the older `-sys` crate did not
+build on the clang of Xcode 16.4 when the host has no `i8mm`, which is what
+GitHub's macos-15 runners are.)
 
 Test audio: `say -v Luciana` (pt-BR) rendered to 16kHz mono wav via `afconvert`
 (no microphone needed to test STT quality).

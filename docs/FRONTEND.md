@@ -24,6 +24,14 @@ src/
     artifacts.ts      the documentation tree flattened for painting, pure
     outputs.ts        the files a thread produced, from its tool calls
     diff.ts           the diff panel's rules: seen per file, totals, paths
+    search.ts         "Procurar": the index of everything, sections, kinds
+    board.ts          the board's derived state (columns, idle, attention)
+    export.ts         a chat as markdown, a page as one html file (share)
+    voice.ts          a voice round's words: confirm speed, target label
+    transcript.ts     whether a log line read back is one the thread shows
+    settle.ts         keepIfSame: a poll that says nothing new returns the
+                      old reference, so React does not render
+    filesTree.ts      the files window's tree, open tabs and filter, pure
     highlight.ts      highlight.js core + grammars for the file viewer
   hooks/
     useHarkEvents.ts   the single subscription to backend events
@@ -36,6 +44,12 @@ src/
     Composer.tsx      textarea, @file autocomplete, paste, y/n shortcuts
     WorkerChips.tsx   live worker chips row
     FileViewer.tsx    local file view/edit panel (zero tokens)
+    FilesWindow.tsx   the files panel of the rail: tree, tabs, editor
+    FilesPanel.tsx    (FilesPanel/FilesEditor/FileTree are its parts)
+    ShellTerminal.tsx the PTY terminal (xterm) and TerminalPane, its frame
+    PanelFrame.tsx    one rail panel: title bar, fold, expand, close
+    TurnStatus.tsx    the clock under the composer while a turn runs
+    Meter.tsx         the subscription rings and the ledger pill
     SearchPalette.tsx "Procurar" (Cmd+K): chats, pages, projects, history
                       and actions, with a tab per kind; lib/search.ts rules
     Board.tsx         kanban tab
@@ -68,7 +82,14 @@ that made several of them look like design decisions when they were not.
    component needs its own transient UI state (open menu, draft text),
    that's fine — anything another component reads must live in App.
 3. **Threads are keyed by task LABEL** (`Msg.task`), not task_id, because
-   the transcript survives worker restarts and the label is stable.
+   the transcript survives worker restarts and the label is stable. The
+   worker's label and the chat's title can differ (a chat titled after
+   its first prompt), so a turn's end also clears the clock of every chat
+   on that session, found by session id. A line read back from the
+   session file (the mirror, a catch-up) goes through `push(msg,
+   {replay: true})`, which drops it when the thread already shows it
+   (`lib/transcript.ts`): the live events and the file describe the same
+   turn, and it must appear once.
 4. **Backend events arrive only via `useHarkEvents`.** New event kinds get a
    branch there and a variant in `types.ts` (`HarkEvent`).
 5. **Panels**: `react-resizable-panels` v2 (`PanelGroup/Panel/

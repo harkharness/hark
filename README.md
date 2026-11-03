@@ -90,11 +90,28 @@ tokens, or by a bare one-shot ask that costs cents.
 
 <img src="docs/img/code.png" width="820" alt="A project window: transcript, tool calls, files and an embedded terminal">
 
-**Project windows that read like Claude Code.** Full session history in the
-sidebar, markdown transcripts with folded tool calls and grouped command bursts,
-deliverable file cards, a CSV-as-table viewer, a real PTY terminal and a local
-file editor. Every privileged tool call renders as an inline permission card you
-can answer by click, keyboard or voice.
+**Chats that read like Claude Code.** Full session history in the sidebar,
+markdown transcripts with folded tool calls and grouped command bursts,
+deliverable file cards, a CSV-as-table viewer. Every privileged tool call
+renders as an inline permission card you can answer by click, keyboard or
+voice. Beside the chat, a rail of panels that belong to that chat and stack:
+a real PTY terminal, the files window with its editor, the workspace diff
+(every file changed since the last commit, a tick per file you have read)
+and a browser in a webview of its own. Come back to a chat and its shell,
+its open file and its page are still there.
+
+**Two keys, zero tokens.** `Cmd+P` opens the files window with its filter
+ready; `Cmd+K` opens *Procurar*, one palette over everything the window
+knows — chats, pages, projects, the Claude Code history, a few actions —
+with a tab per kind, answered from the local index.
+
+**Artifacts: the documentation of this machine.** Pages you and the agents
+write, kept as a tree the way a wiki keeps them: one space per project plus
+a personal one, markdown or a single HTML file (a slide deck, a design)
+rendered in an isolated frame. The agent writes a page through a skill Hark
+installs, the tree adopts it and remembers which chat it was born in, and
+"conversar" on a page reopens that chat with the page attached. Plain files
+under `~/.hark/artifacts`; nothing costs tokens to browse.
 
 <img src="docs/img/board.png" width="820" alt="A kanban board where every card is a live agent session">
 
@@ -173,7 +190,8 @@ the system `say` voice for text to speech.
 
 | | |
 |---|---|
-| [Usage](docs/USAGE.md) | First run, the voice loop, dispatch, permissions, the board, the CLI |
+| [Usage](docs/USAGE.md) | First run, the voice loop, the main window, artifacts, sharing, dispatch, permissions, the board, the CLI |
+| [Artifacts](docs/ARTIFACTS.md) | The documentation tree: where pages live, how agents write them, `hark://` links |
 | [Configuration](docs/CONFIG.md) | Every key in `config.toml`, with defaults |
 | [Plugins](docs/PLUGINS.md) | How agent backends plug in, what ships today, what comes next |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Gatekeeper, microphone, missing CLI, uninstall |
@@ -218,6 +236,8 @@ cost ledger is the one neutral ruler across all of them.
 - The speech model runs **locally**; audio never leaves the machine.
 - The local index and the spend ledger contain fragments of your prompts and
   session titles. They live in your user data directory and stay there.
+- Artifact pages are plain files under `~/.hark/artifacts`, yours to copy,
+  version or delete; the share menu only ever writes to this machine.
 - No telemetry, no analytics, no account, nothing phones home.
 
 ## FAQ
@@ -234,6 +254,12 @@ written by Hark, so their chats are searchable and resumable inside Hark too.
 
 **Is it free?** Yes. Hark is open source under MIT or Apache-2.0 and costs
 nothing beyond the agent subscriptions you already have.
+
+**Where do the pages the agent writes go?** Into `~/.hark/artifacts/<space>/`,
+as markdown or html files you can open with anything. Hark keeps an
+`index.json` beside them for the tree order and the origin chat, and
+reconciles it with the disk on every read: a file you drop there by hand
+becomes a page, a file you delete leaves the tree.
 
 ## Contributing
 
