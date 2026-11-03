@@ -467,6 +467,7 @@ const C: Record<string, (a: Args) => unknown> = {
   artifact_move: () => undefined,
   artifact_rename: () => undefined,
   artifact_set_kind: () => undefined,
+  artifact_strip_pager: () => true,
   artifact_remove: () => [],
   export_file: (a) => `/Users/ana/.hark/exports/${String(a?.name)}`,
   reveal_path: () => undefined,

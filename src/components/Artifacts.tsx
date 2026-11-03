@@ -556,7 +556,18 @@ function Home({
  * The page only brings the slides; a deck that brought its own pager
  * keeps it and gets the stage alone (lib/artifactView).
  */
-function DeckViewer({ title, html, scripts }: { title: string; html: string; scripts: boolean }) {
+function DeckViewer({
+  title,
+  html,
+  scripts,
+  onStripPager,
+}: {
+  title: string;
+  html: string;
+  scripts: boolean;
+  /** Take the page's own pager out of its file (Hark's does the job). */
+  onStripPager: () => Promise<unknown>;
+}) {
   const own = hasOwnScript(html);
   const doc = useMemo(() => (scripts ? deckDocument(html) : html), [html, scripts]);
   const count = useMemo(() => slideCount(html), [html]);
@@ -586,7 +597,7 @@ function DeckViewer({ title, html, scripts }: { title: string; html: string; scr
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [present, at]);
-  const navigable = scripts && !own && count > 0;
+  const navigable = scripts && count > 0;
   return (
     <div className={`art-deck ${present ? "present" : ""}`}>
       <Stage title={title} html={doc} scripts={scripts} frameRef={frame} />
@@ -607,7 +618,12 @@ function DeckViewer({ title, html, scripts }: { title: string; html: string; scr
             </button>
           </>
         ) : (
-          <span className="dim">{own ? t("deck_own_pager") : scripts ? t("deck_no_slides") : t("deck_scripts_off")}</span>
+          <span className="dim">{scripts ? t("deck_no_slides") : t("deck_scripts_off")}</span>
+        )}
+        {own && (
+          <button className="pill-btn" title={t("deck_strip_file_hint")} onClick={() => void onStripPager().catch(() => {})}>
+            {t("deck_strip_file")}
+          </button>
         )}
         <span className="grow" />
         <button className="pill-btn" onClick={() => setPresent((p) => !p)} title={t("deck_present_hint")}>
@@ -931,7 +947,7 @@ function Page({
       </div>
       <div className="art-body">
         {html && !source && node.kind === "slides" ? (
-          <DeckViewer title={node.title} html={page.text} scripts={scripts} />
+          <DeckViewer title={node.title} html={page.text} scripts={scripts} onStripPager={() => ipc.artifactStripPager(space, node.id).then(onSaved)} />
         ) : html && !source && node.kind === "design" ? (
           <CanvasViewer title={node.title} html={withBaseStyle(page.text)} scripts={scripts} />
         ) : html && !source ? (

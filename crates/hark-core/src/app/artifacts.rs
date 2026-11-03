@@ -51,6 +51,20 @@ pub fn load(store: &dyn ArtifactStore, space: &str, now: &str) -> anyhow::Result
     Ok(tree)
 }
 
+/// A deck's own pager out of its file; true when the file changed.
+pub fn strip_pager(store: &dyn ArtifactStore, space: &str, id: &str) -> anyhow::Result<bool> {
+    let tree = load(store, space, "")?;
+    let path = tree.get(id).map(|n| n.path.clone()).ok_or_else(|| anyhow::anyhow!("{id}: not found"))?;
+    let text = store.read_page(space, &path)?;
+    match crate::domain::artifacts::strip_own_pager(&text) {
+        Some(clean) => {
+            store.write_page(space, &path, &clean)?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
 /// The person says what a page is: document, deck or design.
 pub fn set_kind(store: &dyn ArtifactStore, space: &str, id: &str, kind: Kind) -> anyhow::Result<()> {
     let mut tree = load(store, space, "")?;

@@ -461,6 +461,141 @@ pub fn page_kind(path: &str, text: &str) -> Kind {
     }
 }
 
+/// A deck that brought its own pager (a script, a bar of arrows and a
+/// counter, a progress strip) with the pager taken out: the slides and
+/// the styles stay. None when there was nothing to take. Hark turns the
+/// pages itself, so the page's own chrome only gets in the way.
+pub fn strip_own_pager(html: &str) -> Option<String> {
+    let no_scripts = remove_tag_blocks(html, "script");
+    let out = remove_body_chrome(&no_scripts);
+    (out != html).then_some(out)
+}
+
+/// Every `<tag …>…</tag>` block, gone (case-insensitive).
+fn remove_tag_blocks(html: &str, tag: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    let open = format!("<{tag}");
+    let close = format!("</{tag}>");
+    let mut out = String::with_capacity(html.len());
+    let mut at = 0;
+    while let Some(rel) = lower[at..].find(&open) {
+        let start = at + rel;
+        let Some(end_rel) = lower[start..].find(&close) else { break };
+        let end = start + end_rel + close.len();
+        out.push_str(&html[at..start]);
+        at = end;
+    }
+    out.push_str(&html[at..]);
+    out
+}
+
+/// The body's top-level elements that are not slides and look like a
+/// pager — by class or id (nav, pager, controls, progress, counter, dots,
+/// arrows) or by a "n / m" counter in their text — removed.
+fn remove_body_chrome(html: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    let Some(b0) = lower.find("<body") else { return html.to_string() };
+    let Some(body_open_end) = lower[b0..].find('>') else { return html.to_string() };
+    let body_start = b0 + body_open_end + 1;
+    let body_end = lower.rfind("</body>").unwrap_or(html.len());
+    let body = &html[body_start..body_end];
+    let mut keep = String::with_capacity(body.len());
+    let mut i = 0;
+    while i < body.len() {
+        let Some(rel) = body[i..].find('<') else {
+            keep.push_str(&body[i..]);
+            break;
+        };
+        keep.push_str(&body[i..i + rel]);
+        let tag_at = i + rel;
+        match element_at(body, tag_at) {
+            Some((name, end)) => {
+                let element = &body[tag_at..end];
+                if name == "section" || !looks_like_pager(element) {
+                    keep.push_str(element);
+                }
+                i = end;
+            }
+            None => {
+                keep.push('<');
+                i = tag_at + 1;
+            }
+        }
+    }
+    format!("{}{}{}", &html[..body_start], keep, &html[body_end..])
+}
+
+const VOID_TAGS: [&str; 8] = ["br", "hr", "img", "input", "meta", "link", "source", "wbr"];
+
+/// The element opening at `at` (a `<tag`): its name and where it ends,
+/// matching nested tags of the same name. Comments and void tags are
+/// one token. None when the text is not an element start.
+fn element_at(s: &str, at: usize) -> Option<(String, usize)> {
+    if s[at..].starts_with("<!--") {
+        return s[at..].find("-->").map(|e| ("!--".to_string(), at + e + 3));
+    }
+    let name: String = s[at + 1..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-').collect::<String>().to_ascii_lowercase();
+    if name.is_empty() {
+        return None;
+    }
+    let gt = at + s[at..].find('>')?;
+    if VOID_TAGS.contains(&name.as_str()) || s[..gt].ends_with('/') {
+        return Some((name, gt + 1));
+    }
+    let lower = s.to_ascii_lowercase();
+    let open = format!("<{name}");
+    let close = format!("</{name}>");
+    let mut depth = 1;
+    let mut pos = gt + 1;
+    while depth > 0 {
+        let next_open = lower[pos..].find(&open).map(|r| pos + r);
+        let next_close = lower[pos..].find(&close).map(|r| pos + r)?;
+        match next_open {
+            Some(o) if o < next_close && !lower[o + open.len()..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '-') => {
+                depth += 1;
+                pos = o + open.len();
+            }
+            _ => {
+                depth -= 1;
+                pos = next_close + close.len();
+            }
+        }
+    }
+    Some((name, pos))
+}
+
+fn looks_like_pager(element: &str) -> bool {
+    let lower = element.to_ascii_lowercase();
+    let head_end = lower.find('>').unwrap_or(lower.len());
+    let head = &lower[..head_end];
+    const WORDS: [&str; 8] = ["nav", "pager", "control", "progress", "counter", "dots", "arrow", "toolbar"];
+    if (head.contains("class=") || head.contains("id=")) && WORDS.iter().any(|w| head.contains(w)) {
+        return true;
+    }
+    // "1 / 10" in its text, tags stripped.
+    let mut text = String::new();
+    let mut in_tag = false;
+    for c in lower.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => text.push(c),
+            _ => {}
+        }
+    }
+    let t: Vec<char> = text.chars().collect();
+    for (i, c) in t.iter().enumerate() {
+        if *c == '/' {
+            let left = t[..i].iter().rev().find(|c| !c.is_whitespace()).is_some_and(|c| c.is_ascii_digit());
+            let right = t[i + 1..].iter().find(|c| !c.is_whitespace()).is_some_and(|c| c.is_ascii_digit());
+            if left && right {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// What the head of a file says a page is called: the first `# heading`
 /// of markdown (front matter skipped), the `<title>` or first `<h1>` of
 /// html, else the file name.
@@ -710,6 +845,26 @@ mod tests {
         t.set_kind("visao", Kind::Design).unwrap();
         assert_eq!(t.get("visao").unwrap().kind, Kind::Design);
         assert!(t.set_kind("nope", Kind::Doc).unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn a_deck_s_own_pager_comes_out_of_the_file_and_the_slides_stay() {
+        let deck = r#"<!doctype html><html><head><title>D</title><style>.slide{opacity:0}.slide.active{opacity:1}</style></head>
+<body>
+<section class="slide active"><h1>One</h1></section>
+<section class="slide"><h2>Two</h2><p>2 of 3 things</p></section>
+<div class="nav"><button id="prev">←</button><span id="counter">1 / 2</span><button id="next">→</button></div>
+<div class="progress"><div class="bar"></div></div>
+<script>let i = 0; function go(n) { }</script>
+</body></html>"#;
+        let out = strip_own_pager(deck).expect("there was a pager to strip");
+        assert!(!out.contains("<script"), "{out}");
+        assert!(!out.contains("id=\"counter\""), "{out}");
+        assert!(!out.contains("class=\"progress\""), "{out}");
+        assert!(out.contains("<h1>One</h1>") && out.contains("<p>2 of 3 things</p>"), "slides untouched: {out}");
+        assert!(out.contains("<style>"), "its styles stay: {out}");
+        // Nothing to strip: the file is left alone.
+        assert!(strip_own_pager("<html><body><section>a</section><section>b</section></body></html>").is_none());
     }
 
     /// Files as the store lists them, with no title hint.

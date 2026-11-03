@@ -12,14 +12,17 @@ describe("a deck is sections; Hark turns the pages", () => {
     expect(slideCount(ownPager)).toBe(2);
     expect(slideCount("<html><body><h1>no slides</h1></body></html>")).toBe(0);
   });
-  it("injects the runtime into a deck with no script of its own, and leaves one with a pager alone", () => {
+  it("runs Hark's runtime in every deck and never the page's own script", () => {
     expect(hasOwnScript(plainDeck)).toBe(false);
     expect(hasOwnScript(ownPager)).toBe(true);
     const doc = deckDocument(plainDeck);
     expect(doc).toContain("hark-deck");
     expect(doc).toContain("postMessage");
-    expect(doc.indexOf("hark-deck")).toBeLessThan(doc.indexOf("</head>"));
-    expect(deckDocument(ownPager)).toBe(ownPager);
+    expect(doc.indexOf("hark-deck")).toBeLessThan(doc.indexOf("</body>"));
+    const own = deckDocument(ownPager);
+    expect(own).toContain("hark-deck");
+    expect(own).not.toContain("let i=0");
+    expect(own).toContain('<section class="slide">2</section>');
   });
 });
 

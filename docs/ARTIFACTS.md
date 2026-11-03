@@ -58,8 +58,10 @@ that chat). Markdown renders and edits in place; HTML renders in an
 with its own scripts on (a pager needs them); either way the frame has
 no origin and no access to Hark. The viewer is Hark's, by kind: a deck is
 a run of `<section>`s on a 1280×720 stage scaled to the room, with Hark's
-pager, filmstrip, arrow keys and present mode (a deck that brought its own
-pager keeps it and gets the stage alone); a design is a canvas at its own
+pager, filmstrip, arrow keys and present mode — always Hark's: the page's
+own scripts never run in the frame and whatever is not a slide is hidden,
+and a deck that brought a pager of its own offers to have it stripped from
+the file; a design is a canvas at its own
 size (`<meta name="hark-canvas" content="WxH">`) on a board Hark zooms and
 pans; a document is a reading column. "Fonte" edits the source. **Ligações**, the rail panel beside a page, lists
 the origin chat, child pages and citations.

@@ -2286,6 +2286,11 @@ fn artifact_rename(space: String, id: String, title: String) -> Result<(), Strin
 }
 
 #[tauri::command]
+fn artifact_strip_pager(space: String, id: String) -> Result<bool, String> {
+    hark_core::app::artifacts::strip_pager(&artifact_store(), &space, &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn artifact_set_kind(space: String, id: String, kind: String) -> Result<(), String> {
     let kind = match kind.as_str() {
         "doc" => hark_core::domain::artifacts::Kind::Doc,
@@ -6173,6 +6178,7 @@ pub fn run() {
             artifact_move,
             artifact_rename,
             artifact_set_kind,
+            artifact_strip_pager,
             artifact_remove,
             focus_main,
             subscription_limits,

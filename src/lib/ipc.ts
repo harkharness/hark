@@ -645,6 +645,8 @@ export const artifactMove = (space: string, id: string, parent: string | null, a
 export const artifactRename = (space: string, id: string, title: string) =>
   invoke("artifact_rename", { space, id, title });
 export const artifactRemove = (space: string, id: string) => invoke<string[]>("artifact_remove", { space, id });
+/** A deck's own pager (script, arrows, counter) out of its file. */
+export const artifactStripPager = (space: string, id: string) => invoke<boolean>("artifact_strip_pager", { space, id });
 /** What a page is, said by the person: document, deck or design. */
 export const artifactSetKind = (space: string, id: string, kind: import("../types").ArtifactKind) =>
   invoke("artifact_set_kind", { space, id, kind });
