@@ -1,5 +1,5 @@
+import * as ipc from "../lib/ipc";
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput } from "./ToolCall";
 import type { TranscriptEntry } from "../types";
@@ -28,10 +28,8 @@ export default function Reader({
     setEntries(null);
     setSessionTitle(null);
     setError(null);
-    invoke<{ session_title: string | null; entries: TranscriptEntry[] }>(
-      "read_transcript",
-      { sessionId, limit: 200 },
-    )
+    ipc
+      .readTranscript(sessionId, 200)
       .then((out) => {
         setEntries(out.entries);
         setSessionTitle(out.session_title);

@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import Hud from "./Hud";
 import "./styles.css";
+import { seedDemo, startDemo } from "./lib/demo";
 
 // One bundle, two window kinds: the main window is the cabin (every
 // project, the general chat, board, costs and settings as views); project
@@ -18,6 +19,8 @@ const taskSession = params.get("session");
 
 // The frameless voice HUD paints on a transparent window.
 if (params.get("hud")) document.documentElement.classList.add("hud-window");
+// `?demo=<scene>`: the real window over invented data, for screenshots.
+seedDemo();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -35,3 +38,4 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     )}
   </React.StrictMode>,
 );
+void startDemo();

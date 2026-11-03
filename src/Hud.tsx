@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "./lib/events";
 import * as ipc from "./lib/ipc";
 import { setLang, setSpeechLang } from "./lib/i18n";
 import { useVoiceRound } from "./hooks/useVoiceRound";

@@ -3,7 +3,7 @@
 // the main window can run the same round in place: the stage is the
 // same, only the face differs. No rendering here.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { emit, listen } from "@tauri-apps/api/event";
+import { emit, listen } from "../lib/events";
 import * as ipc from "../lib/ipc";
 import { st, t } from "../lib/i18n";
 import { agentError, echoReply, isAuthError } from "../lib/format";

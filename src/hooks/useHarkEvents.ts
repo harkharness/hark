@@ -3,7 +3,7 @@
 // translates them into transcript messages and worker-chip state.
 
 import { useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "../lib/events";
 import * as ipc from "../lib/ipc";
 import { st, t } from "../lib/i18n";
 import { costLabel, isAuthError } from "../lib/format";

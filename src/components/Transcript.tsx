@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "../lib/events";
 import { Check, ChevronDown, ChevronRight, Copy, Gauge, Lock, RefreshCw, Square, Volume2, X } from "lucide-react";
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput, toolHint, toolLabel } from "./ToolCall";
@@ -332,11 +332,17 @@ const Row = memo(function Row({
               m.prodRisk ? "prod" : ""
             }`}
           >
-            <div className="perm-title">
-              <Lock size={13} /> <b className="perm-who">{m.label ?? m.task ?? t("perm_worker")}</b>{" "}
-              {t("perm_asks")} <b>{toolLabel(m.tool).label}</b>
-              <span className="tool-hint">{toolHint(m.tool, m.input)}</span>
+            {/* A quiet card: a kicker that says what it is, the ask in one
+                sentence, the payload, three small buttons at the right.
+                Colour only where it means something — the stripe, the
+                allow button, red when production is at stake. */}
+            <div className="perm-head">
+              <span className="perm-kicker">
+                <Lock size={12} /> {t("perm_kicker")} · <b>{toolLabel(m.tool).label}</b>
+              </span>
+              <span className="perm-who">{m.label ?? m.task ?? t("perm_worker")}</span>
             </div>
+            <div className="perm-ask">{toolHint(m.tool, m.input) || t("perm_asks_generic")}</div>
             {m.prodRisk && (
               <div className="perm-prod">⚠ {t("perm_prod", { reason: m.prodRisk })}</div>
             )}
@@ -344,30 +350,26 @@ const Row = memo(function Row({
             {m.expired ? (
               <div className="perm-expired">{t("perm_expired")}</div>
             ) : (
-            <div className="perm-actions">
-              <span className="perm-voice-hint">{t("perm_voice_hint")}</span>
-              <button
-                className="deny"
-                onClick={() => onAnswerPermission(m.requestId, false)}
-              >
-                {t("perm_deny")} <kbd>n</kbd>
-              </button>
-              {!m.prodRisk && (
-                <button
-                  className="always"
-                  title={t("perm_always_hint", { tool: m.tool })}
-                  onClick={() => onAnswerPermission(m.requestId, true, true)}
-                >
-                  {t("perm_always")} <kbd>a</kbd>
-                </button>
-              )}
-              <button
-                className="allow"
-                onClick={() => onAnswerPermission(m.requestId, true)}
-              >
-                {t("perm_once")} <kbd>y</kbd>
-              </button>
-            </div>
+              <div className="perm-foot">
+                <span className="perm-voice-hint">{t("perm_voice_hint")}</span>
+                <div className="perm-actions">
+                  <button className="deny" onClick={() => onAnswerPermission(m.requestId, false)}>
+                    {t("perm_deny")} <kbd>n</kbd>
+                  </button>
+                  {!m.prodRisk && (
+                    <button
+                      className="always"
+                      title={t("perm_always_hint", { tool: m.tool })}
+                      onClick={() => onAnswerPermission(m.requestId, true, true)}
+                    >
+                      {t("perm_always")} <kbd>a</kbd>
+                    </button>
+                  )}
+                  <button className="allow" onClick={() => onAnswerPermission(m.requestId, true)}>
+                    {t("perm_once")} <kbd>y</kbd>
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )

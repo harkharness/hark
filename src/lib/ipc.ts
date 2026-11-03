@@ -2,7 +2,12 @@
 // `invoke` directly: this file is the single seam between the React UI
 // and the Rust shell, so command names/payloads live in one place.
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { demoInvoke, isDemo } from "./demo";
+
+/** The seam itself: the Rust shell, or the demo's fixtures (`?demo=`). */
+const invoke = <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> =>
+  isDemo() ? demoInvoke<T>(cmd, args) : tauriInvoke<T>(cmd, args);
 import type {
   DispatchOutcome,
   Directives,

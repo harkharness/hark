@@ -18,7 +18,12 @@ src/
   styles.css          single stylesheet, CSS variables for the palette
   lib/
     ipc.ts            typed wrappers for every Tauri command (the ONLY
-                      place `invoke` is called)
+                      place `invoke` is called); the seam routes to the
+                      demo's fixtures under `?demo=`
+    events.ts         the ONLY place `listen`/`emit` come from: Tauri, or
+                      the demo's local bus under `?demo=`
+    demo.ts           demo mode: invented projects, chats, pages, spend
+                      and a script per scene, for the screenshots
     format.ts         pure formatting helpers (model names, directive chips)
     scope.ts          the scope chip (all / project / chat / page), pure
     artifacts.ts      the documentation tree flattened for painting, pure
@@ -91,7 +96,8 @@ that made several of them look like design decisions when they were not.
    (`lib/transcript.ts`): the live events and the file describe the same
    turn, and it must appear once.
 4. **Backend events arrive only via `useHarkEvents`.** New event kinds get a
-   branch there and a variant in `types.ts` (`HarkEvent`).
+   branch there and a variant in `types.ts` (`HarkEvent`). `listen` and
+   `emit` are imported from `lib/events.ts`, never from the Tauri API.
 5. **Panels**: `react-resizable-panels` v2 (`PanelGroup/Panel/
    PanelResizeHandle`), layout persisted via `autoSaveId`. Sidebar
    collapses with Cmd+B; Cmd+P opens the files window with its filter
@@ -105,6 +111,19 @@ that made several of them look like design decisions when they were not.
    Tauri IPC and the Vite dev server only. Anything that needs more must
    earn its directive there, not relax the policy. Artifact HTML renders
    in an `<iframe sandbox>` that inherits this policy and adds no origin.
+
+## Demo mode: the real window, invented data
+
+`npm run dev`, then `http://localhost:1420/?demo=<scene>` in any browser:
+every Tauri command is answered from `lib/demo.ts` and every event comes
+from the scene's script, so the window runs with no backend at all. The
+scenes are `home` (the general chat with a voice round over the
+composer), `task` (a chat with a permission card and the rail), `board`,
+`docs` (a page open in the artifacts view) and `costs`. The README's and
+the site's screenshots are taken here, at 1440×900 and 2× — nothing on
+them is a real project, session or name. `demo.test.ts` fails when a
+command the seam knows has no answer, so a new command lands in the demo
+the day it lands in `ipc.ts`.
 
 ## Adding a Tauri command
 

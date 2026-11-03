@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "../lib/events";
 import { Check, ChevronLeft, Download, Mic } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import PluginsPanel from "./PluginsPanel";

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "../lib/events";
 import * as ipc from "../lib/ipc";
 import { keepIfSame } from "../lib/settle";
 import { toCatalog, type Catalog } from "../lib/support";

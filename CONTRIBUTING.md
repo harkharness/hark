@@ -41,6 +41,10 @@ npm run tauri dev
 
 The first run downloads the speech model (~500MB) and asks for the microphone.
 
+To look at the window without a backend (and to take screenshots):
+`npm run dev`, then `http://localhost:1420/?demo=home` — see "Demo mode"
+in [docs/FRONTEND.md](docs/FRONTEND.md).
+
 ## Checks
 
 Everything CI runs, runnable locally:

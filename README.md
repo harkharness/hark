@@ -80,7 +80,7 @@ and how a release is cut.
 
 ## What it looks like
 
-<img src="docs/img/mother.png" width="820" alt="The main window: every project in the sidebar, the general chat, the board, costs and settings as views">
+<img src="docs/img/home.png" width="820" alt="The main window: every project in the sidebar, the general chat in front, and a voice round over the composer showing what it heard and where it goes">
 
 **One window that is your assistant.** A persistent chat backed by a long-lived
 Claude Code session with your full settings — MCP servers and tools included. It
@@ -88,7 +88,7 @@ has a name, a personality file it maintains itself, and it speaks its answers.
 Cheap questions never reach it: they are answered from the local index for zero
 tokens, or by a bare one-shot ask that costs cents.
 
-<img src="docs/img/code.png" width="820" alt="A project window: transcript, tool calls, files and an embedded terminal">
+<img src="docs/img/task.png" width="820" alt="A chat with its rail: the transcript with a permission card, and the files window, the diff and a terminal stacked beside it">
 
 **Chats that read like Claude Code.** Full session history in the sidebar,
 markdown transcripts with folded tool calls and grouped command bursts,
@@ -104,6 +104,8 @@ its open file and its page are still there.
 ready; `Cmd+K` opens *Procurar*, one palette over everything the window
 knows — chats, pages, projects, the Claude Code history, a few actions —
 with a tab per kind, answered from the local index.
+
+<img src="docs/img/artifacts.png" width="820" alt="The artifacts view: one tree per space on the left, a decision record open with the chat it was born in">
 
 **Artifacts: the documentation of this machine.** Pages you and the agents
 write, kept as a tree the way a wiki keeps them: one space per project plus
@@ -133,8 +135,8 @@ deletes, package publishes — are never auto-approved: standing rules are
 ignored, the card turns red, and in bypass mode the infra CLIs are blocked
 outright.
 
-<sup>Interface mockups with synthetic data. The real windows carry your own
-projects, sessions and spend.</sup>
+<sup>Screenshots of the real window in its demo mode (`?demo=`), over invented
+projects, sessions and spend. Yours carry your own.</sup>
 
 ## Token efficiency by design
 
