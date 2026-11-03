@@ -552,17 +552,22 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 /* Shell code blocks in the chat: a COMMAND, visibly — prompt glyph,
    accent edge, and the run/insert/copy actions always present (full
    strength on hover). Hidden-until-hover read as "just a gray line". */
+/* Every fenced block: a copy button in the corner, over a padding that
+   keeps it off the text. A SHELL block adds the prompt, the accent edge
+   and the run/insert pair. */
 .codeblock { position: relative; }
-.codeblock > pre {
+.codeblock > pre { padding-right: 40px; }
+.codeblock.shell > pre {
   border-left: 2px solid var(--accent);
   padding-left: 12px;
   padding-right: 88px; /* the actions never sit on top of the command */
 }
-.codeblock > pre > code::before {
+.codeblock.shell > pre > code::before {
   content: "❯ ";
   color: var(--ok);
   user-select: none;
 }
+.codeblock .code-actions button.done { color: var(--ok); border-color: var(--ok); }
 .codeblock .code-actions {
   position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
   opacity: .5; transition: opacity .12s ease;

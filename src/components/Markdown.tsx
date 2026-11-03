@@ -1,9 +1,9 @@
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { Copy, Play, SquareTerminal } from "lucide-react";
+import { Check, Copy, Play, SquareTerminal } from "lucide-react";
 import bash from "highlight.js/lib/languages/bash";
 import json from "highlight.js/lib/languages/json";
 import yaml from "highlight.js/lib/languages/yaml";
@@ -47,10 +47,35 @@ function textOf(node: ReactNode): string {
   return "";
 }
 
+/** One block's copy button: the icon says "done" for a beat, then not. */
+function CopyBlock({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    if (!done) return;
+    const id = window.setTimeout(() => setDone(false), 1400);
+    return () => window.clearTimeout(id);
+  }, [done]);
+  return (
+    <button
+      className={done ? "done" : ""}
+      title={done ? t("code_copied") : t("code_copy")}
+      onClick={() => {
+        navigator.clipboard
+          .writeText(text)
+          .then(() => setDone(true))
+          .catch(() => {});
+      }}
+    >
+      {done ? <Check size={12} /> : <Copy size={12} />}
+    </button>
+  );
+}
+
 /**
- * Assistant prose rendered like a real markdown document. Shell code
- * blocks grow action buttons: run in the terminal, insert without
- * running, copy — the Claude Code flow.
+ * Assistant prose rendered like a real markdown document. Every fenced
+ * block can be copied on its own (a prompt to paste elsewhere, a config
+ * snippet); shell blocks also run in the terminal or land in it typed
+ * but not run — the Claude Code flow.
  */
 function Markdown({
   children,
@@ -131,31 +156,22 @@ function Markdown({
             } | null;
             const lang = child?.props?.className ?? "";
             const isShell = /language-(bash|sh|shell|zsh|console)/.test(lang);
-            if (!isShell) return <pre {...props} />;
-            const cmd = textOf(child?.props?.children ?? null).trim();
+            const text = textOf(child?.props?.children ?? null).trim();
             return (
-              <div className="codeblock">
+              <div className={`codeblock ${isShell ? "shell" : ""}`}>
                 <pre {...props} />
                 <div className="code-actions">
-                  {onRun && (
+                  {isShell && onRun && (
                     <>
-                      <button title={t("code_run")} onClick={() => onRun(cmd, true)}>
+                      <button title={t("code_run")} onClick={() => onRun(text, true)}>
                         <Play size={12} />
                       </button>
-                      <button
-                        title={t("code_insert")}
-                        onClick={() => onRun(cmd, false)}
-                      >
+                      <button title={t("code_insert")} onClick={() => onRun(text, false)}>
                         <SquareTerminal size={12} />
                       </button>
                     </>
                   )}
-                  <button
-                    title={t("code_copy")}
-                    onClick={() => navigator.clipboard.writeText(cmd).catch(() => {})}
-                  >
-                    <Copy size={12} />
-                  </button>
+                  <CopyBlock text={text} />
                 </div>
               </div>
             );
