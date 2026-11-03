@@ -53,9 +53,6 @@ pub struct Node {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<Link>,
     pub updated_at: String,
-    /// The index names it but the file is gone: shown, never read.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub orphan: bool,
 }
 
 /// The tree of one space: the nodes, and the manual order of each
@@ -73,8 +70,9 @@ pub struct Tree {
 pub struct Reconciled {
     /// Files the index did not know, now pages at the root.
     pub added: Vec<String>,
-    /// Pages whose file vanished since the last pass.
-    pub orphaned: Vec<String>,
+    /// Pages whose file is gone: they left the tree (their children, whose
+    /// files are still there, moved up to where their folder puts them).
+    pub dropped: Vec<String>,
     /// Pages whose file was moved to a new name in one pass: same page,
     /// same id, new path (and heading).
     pub renamed: Vec<String>,
@@ -339,24 +337,26 @@ impl Tree {
     /// Bring the index in line with the files on disk: a file the index
     /// does not know becomes a page — titled by its head when it has one,
     /// under the page whose file names its folder when one does, else at
-    /// the root for the person to file; a page whose file is gone is
-    /// flagged, never deleted. Shallow files go first, so a parent written
+    /// the root for the person to file; a page whose file is gone leaves
+    /// the tree, and its children (files still there) move up to where
+    /// their folder puts them. Shallow files go first, so a parent written
     /// in the same pass as its children is there before them. Idempotent.
     pub fn reconcile(&mut self, files: &[(&str, Option<&str>)], now: &str) -> Reconciled {
         let mut out = Reconciled::default();
+        let on_disk = |path: &str| files.iter().any(|(f, _)| *f == path);
         // Exactly one page vanished and exactly one new file sits beside
-        // it, same folder, same format: that is a `mv`. The page keeps its
-        // id (so its links hold), its origin and its place; the path and
-        // the heading follow the file. Anything less clear-cut is an
-        // orphan plus an adoption, for the person to sort out.
-        let gone: Vec<usize> = (0..self.nodes.len())
-            .filter(|&i| !self.nodes[i].orphan && !files.iter().any(|(f, _)| *f == self.nodes[i].path))
-            .collect();
+        // it, same folder: that is a `mv`, or the page rewritten in the
+        // other format ("make the home an html page"). The page keeps its
+        // id (so its links hold), its origin and its place; the path, the
+        // heading and the kind follow the file. Anything less clear-cut
+        // is a page gone plus a page adopted, for the person to sort out.
+        let gone: Vec<usize> = (0..self.nodes.len()).filter(|&i| !on_disk(&self.nodes[i].path)).collect();
         let fresh: Vec<&(&str, Option<&str>)> =
             files.iter().filter(|(f, _)| validate_path(f).is_ok() && !self.nodes.iter().any(|n| n.path == *f)).collect();
         if let ([i], [(f, title)]) = (gone.as_slice(), fresh.as_slice()) {
             let n = &mut self.nodes[*i];
-            if folder_of(&n.path) == folder_of(f) && ext_of(&n.path) == ext_of(f) {
+            if folder_of(&n.path) == folder_of(f) {
+                n.kind = kind_for(f, n.kind);
                 n.path = (*f).to_string();
                 if let Some(t) = title {
                     n.title = (*t).to_string();
@@ -365,12 +365,18 @@ impl Tree {
                 out.renamed.push(n.id.clone());
             }
         }
-        for n in &mut self.nodes {
-            let present = files.iter().any(|(f, _)| *f == n.path);
-            if !present && !n.orphan {
-                out.orphaned.push(n.id.clone());
+        // What is still gone leaves the tree. Its children keep their
+        // files, so they keep their pages: moved up, never dropped.
+        let dropped: Vec<String> = self.nodes.iter().filter(|n| !on_disk(&n.path)).map(|n| n.id.clone()).collect();
+        for id in dropped {
+            let kids: Vec<String> = self.children(Some(&id)).iter().map(|n| n.id.clone()).collect();
+            let up = self.get(&id).and_then(|n| n.parent.clone());
+            for kid in kids {
+                let at = self.children(up.as_deref()).len();
+                let _ = self.move_to(&kid, up.as_deref(), at);
             }
-            n.orphan = !present;
+            self.remove(&id);
+            out.dropped.push(id);
         }
         let mut fresh: Vec<&(&str, Option<&str>)> =
             files.iter().filter(|(f, _)| validate_path(f).is_ok() && !self.nodes.iter().any(|n| n.path == *f)).collect();
@@ -384,17 +390,29 @@ impl Tree {
                 title,
                 path: (*f).to_string(),
                 parent: parent.clone(),
-                kind: if f.ends_with(".md") { Kind::Doc } else { Kind::Slides },
+                kind: kind_for(f, Kind::Doc),
                 origin: None,
                 links: vec![],
                 updated_at: now.to_string(),
-                orphan: false,
             };
             if self.insert(node, None).is_ok() {
                 out.added.push(id);
             }
         }
         out
+    }
+}
+
+/// The kind a file's format allows: markdown is a document; html is a
+/// deck unless the page was already one of the html kinds (a design stays
+/// a design through a rewrite).
+fn kind_for(path: &str, was: Kind) -> Kind {
+    if ext_of(path).eq_ignore_ascii_case("md") {
+        Kind::Doc
+    } else if was == Kind::Doc {
+        Kind::Slides
+    } else {
+        was
     }
 }
 
@@ -455,7 +473,6 @@ mod tests {
             origin: None,
             links: vec![],
             updated_at: "2026-10-28T10:00:00Z".into(),
-            orphan: false,
         }
     }
 
@@ -544,25 +561,32 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_adopts_files_the_index_does_not_know_and_flags_the_ones_that_vanished() {
+    fn reconcile_adopts_files_the_index_does_not_know_and_drops_the_pages_whose_file_is_gone() {
         let mut t = sample();
         let on_disk = found(&["decisoes/adr-003.md", "decisoes/adr-004.md", "visao-geral.md", "notas/reuniao.md", "fase-10.html"]);
         let out = t.reconcile(&on_disk, "2026-10-28T11:00:00Z");
         assert_eq!(out.added, vec!["fase-10", "reuniao"], "shallow first");
-        assert_eq!(out.orphaned, vec!["decisoes"]);
+        assert_eq!(out.dropped, vec!["decisoes"], "its file is gone: the page leaves the tree");
+        assert!(t.get("decisoes").is_none());
         let reuniao = t.get("reuniao").unwrap();
         assert_eq!(reuniao.title, "reuniao");
         assert_eq!(reuniao.parent, None, "no page named the folder: the root, and the person files it");
         assert_eq!(reuniao.kind, Kind::Doc);
         assert_eq!(t.get("fase-10").unwrap().kind, Kind::Slides, "html adopted is a deck until the index says otherwise");
-        assert!(t.get("decisoes").unwrap().orphan);
+        // The children whose files are still there stay pages, at the root
+        // now that nothing names their folder.
+        assert_eq!(t.get("adr-003").unwrap().parent, None);
+        assert_eq!(t.get("adr-004").unwrap().parent, None);
+        let roots: Vec<&str> = t.children(None).iter().map(|n| n.id.as_str()).collect();
+        assert!(roots.contains(&"adr-003") && roots.contains(&"adr-004"), "{roots:?}");
         // Running it again changes nothing.
         let again = t.reconcile(&on_disk, "2026-10-28T12:00:00Z");
-        assert!(again.added.is_empty() && again.orphaned.is_empty());
-        // The file is back: no longer an orphan.
+        assert!(again.added.is_empty() && again.dropped.is_empty() && again.renamed.is_empty(), "{again:?}");
+        // The file is back: a page again, adopted fresh.
         let back = found(&["decisoes/index.md", "decisoes/adr-003.md", "decisoes/adr-004.md", "visao-geral.md", "notas/reuniao.md", "fase-10.html"]);
-        t.reconcile(&back, "2026-10-28T13:00:00Z");
-        assert!(!t.get("decisoes").unwrap().orphan);
+        let out = t.reconcile(&back, "2026-10-28T13:00:00Z");
+        assert_eq!(out.added, vec!["index"]);
+        assert_eq!(t.get("index").unwrap().path, "decisoes/index.md");
     }
 
     #[test]
@@ -579,12 +603,11 @@ mod tests {
         ];
         let out = t.reconcile(&disk, "2026-10-30T17:00:00Z");
         assert_eq!(out.renamed, vec!["visao"]);
-        assert!(out.added.is_empty() && out.orphaned.is_empty(), "{out:?}");
+        assert!(out.added.is_empty() && out.dropped.is_empty(), "{out:?}");
         let n = t.get("visao").unwrap();
         assert_eq!(n.path, "home.md");
         assert_eq!(n.title, "Home do workspace", "the new heading wins");
         assert_eq!(n.origin, Some(origin), "the chat it was born in stays");
-        assert!(!n.orphan);
         assert_eq!(n.updated_at, "2026-10-30T17:00:00Z");
         assert!(t.get("home").is_none(), "no second node for the same page");
         // Without a heading the old title stays.
@@ -595,23 +618,38 @@ mod tests {
     }
 
     #[test]
+    fn a_page_rewritten_in_the_other_format_is_still_that_page_and_changes_kind() {
+        // "make the home an html page": the agent wrote home.html and
+        // deleted home.md. Same page, now a deck; the link still holds.
+        let mut t = sample();
+        let out = t.reconcile(&[("decisoes/index.md", None), ("decisoes/adr-003.md", None), ("decisoes/adr-004.md", None), ("home.html", Some("Home"))], "x");
+        assert_eq!(out.renamed, vec!["visao"]);
+        let n = t.get("visao").unwrap();
+        assert_eq!((n.path.as_str(), n.kind), ("home.html", Kind::Slides));
+        // And back to markdown: a document again.
+        let out = t.reconcile(&[("decisoes/index.md", None), ("decisoes/adr-003.md", None), ("decisoes/adr-004.md", None), ("home.md", None)], "y");
+        assert_eq!(out.renamed, vec!["visao"]);
+        assert_eq!(t.get("visao").unwrap().kind, Kind::Doc);
+    }
+
+    #[test]
     fn two_files_gone_or_a_new_file_in_another_folder_is_not_a_rename() {
         let mut t = sample();
         // Two vanished, one new: ambiguous, no guess.
         let out = t.reconcile(&[("decisoes/index.md", None), ("decisoes/adr-003.md", None), ("novo.md", None)], "x");
         assert!(out.renamed.is_empty());
-        assert_eq!(out.orphaned, vec!["adr-004", "visao"]);
+        assert_eq!(out.dropped, vec!["adr-004", "visao"]);
         assert_eq!(out.added, vec!["novo"]);
         // One vanished at the root, one new under decisoes: different folders.
         let mut t = sample();
         let out = t.reconcile(&[("decisoes/index.md", None), ("decisoes/adr-003.md", None), ("decisoes/adr-004.md", None), ("decisoes/visao.md", None)], "x");
         assert!(out.renamed.is_empty());
-        assert_eq!(out.orphaned, vec!["visao"]);
-        // An html file is not the rename of an md page.
-        let mut t = sample();
-        let out = t.reconcile(&[("decisoes/index.md", None), ("decisoes/adr-003.md", None), ("decisoes/adr-004.md", None), ("deck.html", None)], "x");
-        assert!(out.renamed.is_empty());
-        assert_eq!(out.orphaned, vec!["visao"]);
+        assert_eq!(out.dropped, vec!["visao"]);
+        // The id is free again, so the adopted file takes it: a new page
+        // under "decisoes", not the old one moved.
+        assert_eq!(out.added, vec!["visao"]);
+        let n = t.get("visao").unwrap();
+        assert_eq!((n.path.as_str(), n.parent.as_deref()), ("decisoes/visao.md", Some("decisoes")));
     }
 
     /// Files as the store lists them, with no title hint.

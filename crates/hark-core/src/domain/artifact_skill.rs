@@ -91,8 +91,10 @@ Esqueleto de apresentação, para começar:
 - Ajustar uma página é editar o mesmo arquivo (Edit ou Write no mesmo
   caminho). Não escreva outro arquivo com o conteúdo novo.
 - Renomear é `mv` do arquivo, na mesma pasta, num passo só: a árvore
-  segue, e a página guarda o chat de origem e os links. Criar o novo e
-  apagar o antigo em passos separados deixa uma página órfã na árvore.
+  segue, e a página guarda o chat de origem e os links. Trocar o formato
+  (`home.md` → `home.html`) é escrever o novo e apagar o antigo, na mesma
+  pasta: continua a mesma página. Uma página cujo arquivo some sai da
+  árvore.
 - Mudar de pasta (de mãe) é da pessoa, arrastando na árvore.
 
 ## O que nunca fazer

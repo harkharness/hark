@@ -154,12 +154,6 @@ export default function Artifacts({
       onPage(null, tree);
       return;
     }
-    // An orphan has no file to read: the view says so instead of the OS.
-    if (tree?.nodes.find((n) => n.id === sel.id)?.orphan) {
-      setPage(null);
-      onPage(null, tree);
-      return;
-    }
     let live = true;
     ipc
       .artifactRead(sel.space, sel.id)
@@ -237,7 +231,6 @@ export default function Artifacts({
     }
   }
 
-  const orphan = sel?.id && tree ? tree.nodes.find((n) => n.id === sel.id && n.orphan) : undefined;
   const spaceOf = (name: string) => spaces.find((s) => s.name === name);
   const spaceColour = (name: string) => colourOf(spaceOf(name)?.project ?? undefined);
 
@@ -291,7 +284,7 @@ export default function Artifacts({
                   return (
                     <div
                       key={node.id}
-                      className={`art-node ${on ? "on" : ""} ${node.orphan ? "orphan" : ""}`}
+                      className={`art-node ${on ? "on" : ""}`}
                       style={{ paddingLeft: 6 + depth * 14 }}
                       draggable
                       onDragStart={() => {
@@ -305,7 +298,7 @@ export default function Artifacts({
                         if (id && id !== node.id) void moveTo(sp.name, id, node.id);
                       }}
                       onClick={() => onSel({ space: sp.name, id: node.id })}
-                      title={node.orphan ? t("art_orphan") : node.path}
+                      title={node.path}
                     >
                       <button
                         className="art-caret"
@@ -409,13 +402,6 @@ export default function Artifacts({
             onOpen={(id) => onSel({ space: sel.space, id })}
             onNew={(kind) => setNaming({ parent: null, kind })}
           />
-        ) : orphan ? (
-          <div className="art-empty art-orphan-note">
-            <p>{t("art_orphan_body", { path: orphan.path })}</p>
-            <button className="pill-btn" onClick={() => void remove(sel.space, orphan.id)}>
-              {t("art_orphan_drop")}
-            </button>
-          </div>
         ) : page ? (
           <Page
             page={page}
@@ -706,7 +692,6 @@ function Page({
         )}
         {" · "}
         <span className="mono">{node.path}</span>
-        {node.orphan && <span className="pill-kind edited"> {t("art_orphan")}</span>}
       </div>
       <div className="art-body">
         {html && !source ? (

@@ -51,6 +51,7 @@ import Settings, { type Section as SettingsSection } from "./components/Settings
 import Onboarding from "./components/Onboarding";
 import { checkForUpdate, restartIntoUpdate } from "./lib/updater";
 import * as ipc from "./lib/ipc";
+import { alreadyShown } from "./lib/transcript";
 import { terminalPayload } from "./lib/terminalPayload";
 import type {
   BoardTask,
@@ -372,6 +373,8 @@ export default function App({
   workersRef.current = liveWorkers;
   const focusedTaskRef = useRef(focusedTask);
   focusedTaskRef.current = focusedTask;
+  const overviewRef = useRef(overview);
+  overviewRef.current = overview;
   const focusedRef = useRef(focused);
   focusedRef.current = focused;
   // stopWorker is declared below (hoisted); the ref keeps the Esc handler fresh.
@@ -419,7 +422,7 @@ export default function App({
   const runInTerminalRef = useRef<(cmd: string, execute: boolean) => void>(() => {});
 
   const push = useCallback(
-    (m: Msg) => {
+    (m: Msg, opts?: { replay?: boolean }) => {
       // ONCE: asCompaction consumes the "we asked for it" flag, so calling
       // it a second time would see a compaction as ordinary prose.
       const folded = asCompaction(m);
@@ -437,7 +440,11 @@ export default function App({
           return id ? { ...old, [id]: { ...old[id], context_pct: null } } : old;
         });
       }
-      return setMessages((old) => [
+      return setMessages((old) => {
+        // A line read back from the session file that the live events
+        // already showed: same thread, same role, same text — not twice.
+        if (opts?.replay && alreadyShown(old, folded)) return old;
+        return [
         ...old,
         {
           ...folded,
@@ -450,7 +457,8 @@ export default function App({
             ? { ts: Date.now() }
             : {}),
         },
-      ]);
+      ];
+      });
     },
     [currentThread],
   );
@@ -695,7 +703,7 @@ export default function App({
           mirror.current.set(task.title, out.offset);
           for (const e of out.entries) {
             const msg = entryToMsg(e, task.title);
-            if (msg) push(msg);
+            if (msg) push(msg, { replay: true });
           }
         })
         .catch(() => {});
@@ -726,7 +734,7 @@ export default function App({
           mirror.current.set(title, out.offset);
           for (const e of out.entries) {
             const msg = entryToMsg(e, title);
-            if (msg) push(msg);
+            if (msg) push(msg, { replay: true });
           }
           push({
             who: "sys",
@@ -790,6 +798,26 @@ export default function App({
         agent?: string | null,
       ) => {
         endTurn(label, taskId);
+        // The clock on screen is keyed by the chat's title, the event by
+        // the worker's label, and the two can differ (a chat titled later
+        // than its first prompt): the session says which chats are done.
+        // Their mirror moves to the end of the file too, so a later
+        // catch-up does not read this turn back.
+        if (session) {
+          const ft = focusedTaskRef.current;
+          const titles = new Set<string>();
+          if (ft?.sessionId === session) titles.add(ft.title);
+          for (const tk of overviewRef.current?.board ?? []) {
+            if (tk.session_ids.includes(session)) titles.add(tk.title);
+          }
+          for (const title of titles) {
+            endTurn(title);
+            ipc
+              .transcriptSince(session, mirror.current.get(title) ?? 0)
+              .then((out) => mirror.current.set(title, out.offset))
+              .catch(() => {});
+          }
+        }
         // Auth death is fatal and identical on retry: the remedy is the
         // terminal, so open it with `claude` typed (once per window).
         if (errorCode === "agent_auth") nudgeRef.current("agent_auth:turn");
@@ -2755,7 +2783,7 @@ export default function App({
             mirror.current.set(title, out.offset);
             for (const e of out.entries) {
               const msg = entryToMsg(e, title);
-              if (msg) push(msg);
+              if (msg) push(msg, { replay: true });
             }
           })
           .catch(() => {});

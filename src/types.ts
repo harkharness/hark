@@ -21,7 +21,6 @@ export type ArtifactNode = {
   origin?: ArtifactOrigin | null;
   links?: ArtifactLink[];
   updated_at: string;
-  orphan?: boolean;
 };
 export type ArtifactTree = { nodes: ArtifactNode[]; order: Record<string, string[]> };
 export type ArtifactSpace = { name: string; project?: string | null; pages: number };

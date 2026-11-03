@@ -1220,10 +1220,26 @@ fn start_worker_titled(
                             session_id: Some(current_session.clone()).filter(|s| !s.is_empty()),
                             task: Some(board_title.clone()),
                         };
-                        match hark_core::app::artifacts::attach_origin(&store, &page.space, &page.path, origin, &now_iso()) {
-                            Ok(node) => emit_event(&app2, serde_json::json!({ "kind": "artifact_written", "space": page.space, "id": node.id, "task_id": task2 })),
-                            Err(err) => diag(&app2, &format!("artifact origin: {err}")),
-                        }
+                        // The tool_use arrives before the tool ran: the
+                        // file lands a moment later (longer when a prompt
+                        // sits in between). Retried off this thread, so
+                        // the page gets its origin instead of a diag line.
+                        let (app3, task3) = (app2.clone(), task2.clone());
+                        std::thread::spawn(move || {
+                            for attempt in 0..10 {
+                                match hark_core::app::artifacts::attach_origin(&store, &page.space, &page.path, origin.clone(), &now_iso()) {
+                                    Ok(node) => {
+                                        emit_event(&app3, serde_json::json!({ "kind": "artifact_written", "space": page.space, "id": node.id, "task_id": task3 }));
+                                        return;
+                                    }
+                                    Err(err) if attempt == 9 || !err.to_string().contains("not a page") => {
+                                        diag(&app3, &format!("artifact origin: {err}"));
+                                        return;
+                                    }
+                                    Err(_) => std::thread::sleep(std::time::Duration::from_millis(500)),
+                                }
+                            }
+                        });
                     }
                     // An APPROVED plan becomes the task's visible checklist.
                     if name == "ExitPlanMode" {
@@ -1533,7 +1549,8 @@ fn start_worker_titled(
                     "exit_code": exit_code,
                     "reason": (!reason.is_empty()).then_some(reason.as_str()) }),
             );
-            app2.state::<LiveWorkers>().0.lock().unwrap().remove(&task2);
+            let gone = app2.state::<LiveWorkers>().0.lock().unwrap().remove(&task2);
+            release_session(gone.as_ref().map(|h| h.spec.session_id.as_str()), &task2);
             // Whatever was still waiting will never be sent by this
             // worker. The window has to say so on the messages themselves
             // — text you typed does not get to disappear quietly.
@@ -3341,6 +3358,7 @@ fn worker_queued_drop(app: AppHandle, task_id: String, id: String) -> Result<(),
 #[tauri::command]
 fn worker_stop(live: State<'_, LiveWorkers>, task_id: String) -> Result<(), String> {
     let worker = live.0.lock().unwrap().remove(&task_id).ok_or_else(|| ui("worker não encontrado", "worker not found"))?;
+    release_session(Some(worker.spec.session_id.as_str()), &task_id);
     worker.session.shutdown();
     let config = Config::load();
     let mut gstate = state_file::load(&config.data_dir());
@@ -3777,6 +3795,29 @@ fn session_stats(session_id: String) -> Result<SessionStats, String> {
 /// same question while a takeover is on screen, so the answer is shared
 /// for a beat. The listing is the whole signal: a session that ended
 /// leaves it.
+/// Sessions our workers released recently (domain::owner::Released).
+fn released() -> &'static std::sync::Mutex<hark_core::domain::owner::Released> {
+    static CELL: std::sync::OnceLock<std::sync::Mutex<hark_core::domain::owner::Released>> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| std::sync::Mutex::new(hark_core::domain::owner::Released::default()))
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// A worker is gone: its session stays "ours" for the grace period. A
+/// fresh chat's spec carries no id; the registry row has it.
+fn release_session(from_spec: Option<&str>, task_id: &str) {
+    let sid = from_spec
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| state_file::load(&Config::load().data_dir()).workers.iter().find(|w| w.task_id == task_id).map(|w| w.session_id.clone()))
+        .filter(|s| !s.is_empty());
+    if let Some(sid) = sid {
+        released().lock().unwrap().release(&sid, now_ms());
+    }
+}
+
 #[tauri::command(async)]
 fn session_owners(
     live: State<'_, LiveWorkers>,
@@ -3811,6 +3852,8 @@ fn session_owners(
         if handles.contains_key(HARK_CHAT_TASK) {
             ids.extend(gstate.hark_chat_session.iter().cloned());
         }
+        // And the ones our workers let go seconds ago: the listing lags.
+        ids.extend(released().lock().unwrap().still_ours(now_ms(), hark_core::domain::owner::GRACE_MS));
         ids
     };
 

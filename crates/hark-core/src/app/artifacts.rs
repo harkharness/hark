@@ -33,7 +33,7 @@ pub fn load(store: &dyn ArtifactStore, space: &str, now: &str) -> anyhow::Result
         .collect();
     let refs: Vec<(&str, Option<&str>)> = heads.iter().map(|(f, t)| (f.as_str(), t.as_deref())).collect();
     let pass = tree.reconcile(&refs, now);
-    if !pass.added.is_empty() || !pass.orphaned.is_empty() || !pass.renamed.is_empty() {
+    if !pass.added.is_empty() || !pass.dropped.is_empty() || !pass.renamed.is_empty() {
         save(store, space, &tree)?;
     }
     Ok(tree)
@@ -73,7 +73,6 @@ pub fn create(
         origin,
         links: vec![],
         updated_at: now.to_string(),
-        orphan: false,
     };
     tree.insert(node.clone(), None).map_err(anyhow::Error::msg)?;
     store.write_page(space, &path, &seed(&node.title, kind))?;
@@ -88,7 +87,6 @@ pub fn write(store: &dyn ArtifactStore, space: &str, id: &str, text: &str, now: 
     store.write_page(space, &path, text)?;
     if let Some(n) = tree.nodes.iter_mut().find(|n| n.id == id) {
         n.updated_at = now.to_string();
-        n.orphan = false;
     }
     save(store, space, &tree)
 }
@@ -132,7 +130,6 @@ pub fn attach_origin(store: &dyn ArtifactStore, space: &str, path: &str, origin:
         node.origin = Some(origin);
     }
     node.updated_at = now.to_string();
-    node.orphan = false;
     let out = node.clone();
     save(store, space, &tree)?;
     Ok(out)

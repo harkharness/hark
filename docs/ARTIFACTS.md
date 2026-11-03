@@ -31,11 +31,12 @@ page hangs its children at the root.
 `parent`, `kind` (`doc`, `slides`, `design`), `origin` (the session and
 task that wrote it), `links`, `updated_at`, and the children `order`. On
 every read the tree **reconciles** with the disk: a file nobody indexed is
-adopted at the root, a node whose file is gone is marked `orphan` (shown
-struck through, never deleted by Hark; opening it offers to drop it from
-the tree). One file gone and one new file beside it, same folder and
-format, in the same pass is read as a `mv`: the page keeps its id, origin
-and links, and takes the new path and heading. Editing the index by hand is not
+adopted at the root, a node whose file is gone leaves the tree (its
+children, whose files are still there, move up to where their folder puts
+them; Hark never deletes a file by itself). One file gone and one new file
+beside it, same folder, in the same pass is read as a `mv` — or as the page
+rewritten in the other format (`home.md` → `home.html`): the page keeps its
+id, origin and links, and takes the new path, heading and kind. Editing the index by hand is not
 needed and not advised; the agents are told never to touch it.
 
 ## The screen

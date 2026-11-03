@@ -137,7 +137,7 @@ mod tests {
         let mut t = Tree::default();
         for (id, title) in [("adr-004", "ADR 004: janela única"), ("retry", "Retry"), ("visao", "Visão geral")] {
             t.insert(
-                Node { id: id.into(), title: title.into(), path: format!("{id}.md"), parent: None, kind: Kind::Doc, origin: None, links: vec![], updated_at: String::new(), orphan: false },
+                Node { id: id.into(), title: title.into(), path: format!("{id}.md"), parent: None, kind: Kind::Doc, origin: None, links: vec![], updated_at: String::new() },
                 None,
             )
             .unwrap();
@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn the_pages_of_a_task_are_the_ones_it_wrote_or_tied() {
         let mut t = Tree::default();
-        let page = |id: &str, origin: Option<Origin>, links: Vec<Link>| Node { id: id.into(), title: id.into(), path: format!("{id}.md"), parent: None, kind: Kind::Doc, origin, links, updated_at: String::new(), orphan: false };
+        let page = |id: &str, origin: Option<Origin>, links: Vec<Link>| Node { id: id.into(), title: id.into(), path: format!("{id}.md"), parent: None, kind: Kind::Doc, origin, links, updated_at: String::new() };
         t.insert(page("adr-004", Some(Origin { session_id: Some("s1".into()), task: Some("Billing".into()) }), vec![]), None).unwrap();
         t.insert(page("retry", None, vec![]), None).unwrap();
         t.insert(page("visao", None, vec![Link { kind: "cita".into(), session_id: None, task: Some("Billing".into()), node: None }]), None).unwrap();

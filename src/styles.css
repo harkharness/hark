@@ -2718,7 +2718,6 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .art-node:hover { background: rgba(255,255,255,.05); }
 .art-node.on { background: rgba(187,154,247,.14); color: var(--text-strong); }
-.art-node.orphan .art-title { color: var(--dim); text-decoration: line-through; }
 .art-caret { background: none; border: none; color: var(--dim); padding: 0; width: 14px; display: inline-flex; align-items: center; cursor: pointer; }
 .art-kind { color: var(--purple, #bb9af7); flex: 0 0 auto; }
 .art-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -2904,7 +2903,3 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .art-body .md pre { padding: 12px 14px; border-radius: 8px; margin: 10px 0 16px; font-size: 12.5px; }
 .art-body .md blockquote { border-left: 3px solid var(--accent); padding-left: 14px; margin: 12px 0; color: var(--text); }
 .art-body .md hr { margin: 24px 0; }
-
-/* A page whose file is gone: a sentence and one way out, not an OS error. */
-.art-orphan-note { flex-direction: column; gap: 10px; max-width: 46ch; text-align: center; margin: 0 auto; }
-.art-orphan-note p { margin: 0; }

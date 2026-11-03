@@ -18,6 +18,41 @@ pub struct Owner {
     pub started_at: Option<i64>,
 }
 
+/// How long a session our worker just let go still counts as ours: the
+/// CLI's listing lags its process by a few seconds.
+pub const GRACE_MS: u64 = 15_000;
+
+/// Sessions our workers let go recently. `claude agents` keeps listing a
+/// session for a few seconds after its process is gone; read as a
+/// takeover, that lag switched the chat to mirror mode and replayed the
+/// turn it had just shown (02/11).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Released {
+    rows: Vec<(String, u64)>,
+}
+
+impl Released {
+    /// Our worker on `session` exited at `at_ms`. Releasing again moves
+    /// its clock; what expired already is pruned on the way.
+    pub fn release(&mut self, session: &str, at_ms: u64) {
+        self.rows.retain(|(s, t)| s != session && at_ms.saturating_sub(*t) <= GRACE_MS);
+        self.rows.push((session.to_string(), at_ms));
+    }
+
+    /// The sessions still inside their grace at `now_ms`.
+    pub fn still_ours(&self, now_ms: u64, grace_ms: u64) -> Vec<String> {
+        self.rows.iter().filter(|(_, t)| now_ms.saturating_sub(*t) <= grace_ms).map(|(s, _)| s.clone()).collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+}
+
 /// Sessions held by a human at a terminal — ours, another app's, tmux, it
 /// makes no difference. Two things are deliberately NOT owners: a headless
 /// run (Hark's own workers appear in the same listing) and a session Hark
@@ -55,6 +90,25 @@ pub fn is_machinery_cwd(cwd: Option<&str>, data_dir: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_our_worker_just_let_go_is_still_ours_for_a_grace_period() {
+        // `claude agents` keeps listing a session for a few seconds after
+        // its process is gone: reading that lag as a takeover switched the
+        // chat to mirror mode and replayed the turn it had just shown.
+        let mut r = Released::default();
+        r.release("s1", 10_000);
+        assert_eq!(r.still_ours(12_000, 15_000), vec!["s1"]);
+        assert!(r.still_ours(30_000, 15_000).is_empty());
+        // A new release prunes what already expired.
+        r.release("s2", 40_000);
+        assert_eq!(r.still_ours(41_000, 15_000), vec!["s2"]);
+        assert_eq!(r.len(), 1);
+        // Releasing the same session again moves its clock.
+        r.release("s2", 50_000);
+        assert_eq!(r.still_ours(64_000, 15_000), vec!["s2"]);
+    }
+
 
     #[test]
     fn harks_own_machinery_sessions_are_never_catalog_material() {
