@@ -116,8 +116,10 @@ meant "$N for the conversation, then every message fails"; Hark passes it
 only to one-shot runs. `0` disables the ceiling — do that knowingly.
 
 **`worker_mode`.** The permission posture new workers start in when the
-instruction does not say otherwise. Empty means the CLI's own default: ask about
-everything. Note that no mode, including `bypass`, disables the production
+instruction does not say otherwise. Empty means `manual`: ask about
+everything — and it is sent to the CLI as a flag either way, so a resumed
+session cannot carry on in the mode it last ran in (an agent's plan mode,
+say) under a pill that says otherwise. Note that no mode, including `bypass`, disables the production
 floor — commands that touch live infrastructure always ask. `bypass` itself is
 Claude Code's (its deny list is a Claude Code flag); on any other agent it opens
 the thread in `acceptEdits` and says so.

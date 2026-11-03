@@ -56,10 +56,13 @@ impl WorkerSpawn {
     /// CLI flags for the current directives.
     fn directive_args(&self) -> Vec<String> {
         let mut args = Vec::new();
-        if let Some(mode) = self.directives.mode {
-            args.push("--permission-mode".into());
-            args.push(mode.as_flag().into());
-        }
+        // Always a flag: `--resume` restores whatever mode the session
+        // last ran in (an agent's EnterPlanMode included), and the user's
+        // settings.json may default new sessions elsewhere. The pill shows
+        // "Manual" when nothing is picked, so manual is what runs.
+        let mode = self.directives.mode.unwrap_or(hark_core::domain::directives::Mode::Manual);
+        args.push("--permission-mode".into());
+        args.push(mode.as_flag().into());
         if let Some(effort) = self.directives.effort {
             args.push("--effort".into());
             args.push(effort.as_flag().into());
@@ -405,6 +408,19 @@ mod tests {
         let mut fresh = spawn("", Directives::default());
         fresh.fork = true;
         assert!(!fresh.cli_args(true).contains(&"--fork-session".to_string()));
+    }
+
+    #[test]
+    fn no_mode_picked_means_manual_said_out_loud_so_a_resumed_session_cannot_keep_plan_mode() {
+        // `--resume` restores the mode the session last ran in, and a
+        // session an agent once put in plan mode stayed there under a
+        // pill that said "Manual" (03/11). The pill is the truth: no
+        // choice is manual, and manual is sent as a flag.
+        let args = spawn("s-1", Directives::default()).cli_args(true);
+        let at = args.iter().position(|a| a == "--permission-mode").expect("the flag is always sent");
+        assert_eq!(args[at + 1], "manual");
+        let fresh = spawn("", Directives::default()).cli_args(false);
+        assert!(fresh.windows(2).any(|w| w[0] == "--permission-mode" && w[1] == "manual"));
     }
 
     #[test]
