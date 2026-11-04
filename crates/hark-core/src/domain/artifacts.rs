@@ -489,9 +489,10 @@ fn remove_tag_blocks(html: &str, tag: &str) -> String {
     out
 }
 
-/// The body's top-level elements that are not slides and look like a
+/// The body's top-level elements that hold no slide and look like a
 /// pager — by class or id (nav, pager, controls, progress, counter, dots,
-/// arrows) or by a "n / m" counter in their text — removed.
+/// arrows) or by a short "n / m" counter as their text — removed. A
+/// viewport around the slides stays, whatever it is called.
 fn remove_body_chrome(html: &str) -> String {
     let lower = html.to_ascii_lowercase();
     let Some(b0) = lower.find("<body") else { return html.to_string() };
@@ -511,7 +512,7 @@ fn remove_body_chrome(html: &str) -> String {
         match element_at(body, tag_at) {
             Some((name, end)) => {
                 let element = &body[tag_at..end];
-                if name == "section" || !looks_like_pager(element) {
+                if name == "section" || holds_slide(element) || !looks_like_pager(element) {
                     keep.push_str(element);
                 }
                 i = end;
@@ -564,6 +565,17 @@ fn element_at(s: &str, at: usize) -> Option<(String, usize)> {
     Some((name, pos))
 }
 
+/// An element with a slide somewhere inside: a deck's viewport or stage.
+/// Whatever it is called and whatever its text says, it stays.
+fn holds_slide(element: &str) -> bool {
+    let lower = element.to_ascii_lowercase();
+    lower.contains("<section") || lower.contains("data-slide") || lower.contains("class=\"slide") || lower.contains("class='slide")
+}
+
+/// A short "n / m" counter in the element's text — not a date in a
+/// sentence.
+const COUNTER_MAX_CHARS: usize = 16;
+
 fn looks_like_pager(element: &str) -> bool {
     let lower = element.to_ascii_lowercase();
     let head_end = lower.find('>').unwrap_or(lower.len());
@@ -583,7 +595,10 @@ fn looks_like_pager(element: &str) -> bool {
             _ => {}
         }
     }
-    let t: Vec<char> = text.chars().collect();
+    let t: Vec<char> = text.trim().chars().collect();
+    if t.len() > COUNTER_MAX_CHARS {
+        return false;
+    }
     for (i, c) in t.iter().enumerate() {
         if *c == '/' {
             let left = t[..i].iter().rev().find(|c| !c.is_whitespace()).is_some_and(|c| c.is_ascii_digit());
@@ -865,6 +880,30 @@ mod tests {
         assert!(out.contains("<style>"), "its styles stay: {out}");
         // Nothing to strip: the file is left alone.
         assert!(strip_own_pager("<html><body><section>a</section><section>b</section></body></html>").is_none());
+    }
+
+    #[test]
+    fn a_wrapper_that_holds_the_slides_stays_whatever_its_text_says() {
+        // The slides live inside a viewport; a date in one of them is not a
+        // "n / m" counter, and a long footer with a date is not a pager.
+        let deck = r#"<html><head><style>.slide{}</style></head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="viewport"><div class="stage">
+<section class="slide"><h1>One</h1><p>Entrega 28/10</p></section>
+<section class="slide"><h2>Two</h2></section>
+</div></div>
+<div class="arrow left">‹</div>
+<div class="foot">Revisão de 28/10 com o time, antes da fase um</div>
+<div id="counter">1 / 10</div>
+<script>go()</script>
+</body></html>"#;
+        let out = strip_own_pager(deck).expect("there was a pager to strip");
+        assert_eq!(out.matches("<section").count(), 2, "{out}");
+        assert!(out.contains("class=\"viewport\"") && out.contains("Entrega 28/10"), "{out}");
+        assert!(out.contains("Revisão de 28/10"), "a long footer is not a counter: {out}");
+        assert!(!out.contains("id=\"progress\"") && !out.contains("class=\"arrow left\""), "{out}");
+        assert!(!out.contains("id=\"counter\"") && !out.contains("<script"), "{out}");
     }
 
     /// Files as the store lists them, with no title hint.
