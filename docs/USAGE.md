@@ -103,18 +103,18 @@ projects, the Claude Code history, a few actions — with a tab per kind.
 Before you type it shows what needs you, what moved last and what you can
 do. Local index, zero tokens.
 
-**The general chat** (Início › Hoje) is a persistent chat backed by one
-long-lived agent session carrying your full settings — MCP servers, tools,
-skills, memory file. It has a name, a personality, and a memory file it
-maintains itself: tell it "remember that I prefer short answers" and it
-writes that down, durably, through the normal permission flow.
-
-That session is expensive, so Hark protects it. Questions it can answer from the
+**Início › Hoje is Hark itself**, not an agent session: one chat over every
+project, kept in a local journal with the days before it listed in the
+sidebar (click one to read it back). Nothing you type there opens a
+long-lived worker. Questions it can answer from the
 local index — what is on the board, which workers are running, what you spent
 today — never reach a model at all. Questions that only need rephrasing go to a
-light model with a small context. Only real reasoning pays full price. A
-sentence that is work ("continua a migração do webhook") is resolved against
-every project and confirmed before it runs; it never opens a window.
+light model with a small context (`models.inicio` in `config.toml` names
+that model; the light tier by default). Only real reasoning pays full
+price. A sentence that is work ("continua a migração do webhook") is
+resolved against every project and confirmed before it runs; it never
+opens a window. Work with no chat to land in gets a hint, not a session:
+name the chat, or create one in Code › Criar.
 
 ## Artifacts
 

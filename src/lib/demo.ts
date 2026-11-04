@@ -127,6 +127,10 @@ const TRANSCRIPTS: Record<string, TranscriptEntry[]> = {
 };
 
 const JOURNAL: JournalTurn[] = [
+  // The days before today: rows in the Início sidebar, read back on click.
+  { ts: ago(3 * 24 * 60 + 90), question: "what's blocked across the projects?", fala: "Two things: the retry queue waits on a review, and the offline mode has no owner yet.", body: "" },
+  { ts: ago(24 * 60 + 150), question: "sum up yesterday", fala: "Billing v2 shipped to staging; the alerts cleanup ran its first batch; nothing failed.", body: "" },
+  { ts: ago(24 * 60 + 40), question: "what did the dashboard team answer?", fala: "They took the v2 route on their side; the worker's patch is theirs to review.", body: "" },
   { ts: ago(120), question: "how much did I spend today?", fala: "$0.42 today, across two chats. Nothing failed.", body: "" },
   { ts: ago(118), question: "what's running?", fala: "Two workers: Billing endpoint v2 in webhook-api, Alerts cleanup in infra. Both on their last steps.", body: "" },
   { ts: ago(45), question: "read the alerts thread and draft the incident summary", fala: "Draft ready. Three alerts correlate with the deploy at 14:02; the summary is on the board as a page.", body: "" },

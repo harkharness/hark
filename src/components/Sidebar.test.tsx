@@ -58,6 +58,15 @@ describe("the two doors of the sidebar", () => {
     expect(onDoor).toHaveBeenCalledWith("code");
   });
 
+  it("Início lists the days before today, and a day opens on click", () => {
+    const onOpenDay = vi.fn();
+    const day = { date: "2026-11-03", label: "ontem · ter 03", count: 2, first: "status do billing" };
+    const { getByText } = render(<Sidebar {...base} door="inicio" days={[day]} onOpenDay={onOpenDay} />);
+    expect(getByText(t("side_days"))).toBeTruthy();
+    fireEvent.click(getByText("ontem · ter 03"));
+    expect(onOpenDay).toHaveBeenCalledWith(day);
+  });
+
   it("Criar asks the app to create, not to open the general chat", () => {
     const onCreate = vi.fn();
     const onOpenGeneral = vi.fn();

@@ -74,7 +74,7 @@ pub fn ask_with_image(
     let (prompt, model, outcome) = match &plan {
         crate::domain::answer::AnswerPlan::MiniFormat { context: mini } => (
             crate::domain::answer::mini_prompt(mini, question),
-            deps.config.models().light,
+            deps.config.inicio_model(),
             Some("mini_format"),
         ),
         _ => {

@@ -23,6 +23,7 @@ light    = "haiku"               #   each agent says them in its own names below
 standard = "sonnet"
 heavy    = "sonnet"
 max      = "opus"
+# inicio = "sonnet"               # the model behind Início (Hark's chat); light if unset
 
 # --- other agents ------------------------------------------------------------
 # Every agent Hark knows is one entry. The built-ins (claude, gemini, codex,

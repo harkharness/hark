@@ -9,7 +9,8 @@ import {
 import { Compass, Copy, Download, ExternalLink, FileText, FolderTree, GitCompare, PanelLeft, Share2, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import { colourIndex, projColour, scopeOf } from "./lib/scope";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
-import { setLang, setSpeechLang, st, t } from "./lib/i18n";
+import { lang, setLang, setSpeechLang, st, t } from "./lib/i18n";
+import { dayOf, days as journalDays } from "./lib/inicio";
 import Artifacts, { ArtifactLinks, type ArtSel } from "./components/Artifacts";
 import Board, { type CardAsk } from "./components/Board";
 import SharePopover, { type ShareRow } from "./components/SharePopover";
@@ -191,6 +192,14 @@ export default function App({
   const threadKey = focusedTask?.title ?? GENERAL;
   // A "+" click on a project: the NEXT message opens a fresh session there.
   const [draftChat, setDraftChat] = useState<Project | null>(null);
+  // Hark's own chat, across restarts: the journal (local, zero tokens). Today
+  // is the thread; the days before are rows in the Início sidebar, and one
+  // of them can be on screen instead of today.
+  const [journal, setJournal] = useState<import("./types").JournalTurn[]>([]);
+  const [dayShown, setDayShown] = useState<string | null>(null);
+  const reloadJournal = useCallback(() => {
+    ipc.journalRecent(400).then(setJournal).catch(() => {});
+  }, []);
   // The two doors of the main window (docs/CHROME.md): Início is Hark's one
   // chat; Code is projects › chats. Remembered per machine.
   const [door, setDoor] = useState<Door>(() => {
@@ -664,29 +673,23 @@ export default function App({
     };
     void poll();
     const id = setInterval(poll, 6 * 60 * 60 * 1000);
-    // The general chat is CONTINUOUS across restarts, visually too: the
-    // journal (ask turns) and the hark-chat transcript (work turns), one
-    // timeline. Local, zero tokens.
+    // Hark's chat is CONTINUOUS across restarts: today's journal turns
+    // repaint the thread. Local, zero tokens. The days before are rows in
+    // the sidebar (journalDays), not part of today.
     void (async () => {
-      const [stt, journal] = await Promise.all([
-        ipc.harkChatStatus().catch(() => null),
-        ipc.journalRecent(12).catch(() => [] as import("./types").JournalTurn[]),
-      ]);
+      const journal = await ipc.journalRecent(400).catch(() => [] as import("./types").JournalTurn[]);
+      if (!alive) return;
+      setJournal(journal);
+      const today = new Date().toDateString();
       const hist: (Msg & { ts?: number })[] = [];
       for (const turn of journal) {
-        const ts = Date.parse(turn.ts) || undefined;
+        const at = new Date(turn.ts);
+        if (Number.isNaN(at.getTime()) || at.toDateString() !== today) continue;
+        const ts = at.getTime();
         hist.push({ who: "user", text: turn.question, ts });
         hist.push({ who: "hark", text: turn.fala, detalhes: turn.body || undefined, ts });
       }
-      if (stt?.session_id) {
-        const tr = await ipc.readTranscript(stt.session_id, 30).catch(() => null);
-        for (const e of tr?.entries ?? []) {
-          if (e.role !== "user" && e.role !== "assistant") continue;
-          hist.push({ who: e.role === "user" ? "user" : "hark", text: e.text, ts: Date.parse(e.ts) || undefined });
-        }
-      }
-      hist.sort((x, y) => (x.ts ?? 0) - (y.ts ?? 0));
-      if (hist.length && alive) setMessages((old) => [...hist, ...old].slice(-80));
+      if (hist.length) setMessages((old) => [...hist.slice(-80), ...old]);
     })();
     return () => {
       alive = false;
@@ -1278,6 +1281,7 @@ export default function App({
       endTurn(thread);
       setBusy(null);
       refresh();
+      reloadJournal();
     }
   }
 
@@ -1946,7 +1950,6 @@ export default function App({
       }
     }
     const route = await ipc.routeText(text).catch(() => "ask");
-    const lane = await ipc.askLane(text).catch(() => "lean");
     const msgId = crypto.randomUUID();
     push({ who: "user", text, images: images.map((i) => i.dataUrl), msgId });
     if (route === "dispatch") {
@@ -1966,37 +1969,17 @@ export default function App({
         say(st("sp_found_dests", { n: plan.options.length }));
         return;
       }
-      if (lane === "work") {
-        await sendToChat(text, images, msgId);
-        return;
-      }
       if (await tryIntent(text)) return;
       push({ who: "sys", text: t("no_target_hint") });
       say(st("sp_no_target"));
       return;
     }
-    if (lane === "work") {
-      await sendToChat(text, images, msgId);
-      return;
-    }
+    // Início is Hark itself, not a CLI session (decision 1, 04/11): work
+    // without a target is placed against the catalog by the light model;
+    // what is not work is answered from the local index, the light model
+    // or the full ask — never by a long-lived worker of its own.
     if (await tryIntent(text)) return;
     runAsk(text, images, true);
-  }
-
-  /** Hand real work to the persistent general chat; its turns stream back
-   *  into the GENERAL thread as events (task id "hark-chat"). */
-  async function sendToChat(text: string, images: Attachment[], msgId?: string) {
-    beginTurn(GENERAL);
-    try {
-      chatInFlightRef.current = { text, retried: false };
-      const out = await ipc.harkChatSend(text, images.map(toImagePair), msgId);
-      if (out.queued && msgId) markQueued(msgId, { state: "waiting" });
-    } catch (err) {
-      chatInFlightRef.current = null;
-      endTurn(GENERAL);
-      nudgeRef.current(err);
-      push({ who: "sys", text: t("sys_chat_err", { e: agentError(err) }) });
-    }
   }
 
   /**
@@ -3031,15 +3014,29 @@ export default function App({
   /** What this thread produced: the session panel's "Saídas". */
   const threadOutputs = useMemo(() => collectOutputs(messages, focusedTitle), [messages, focusedTitle]);
   const visibleMessages = useMemo(
-    () =>
-      messages.filter((m) => {
+    () => {
+      // A past day of Hark's chat, read back from the journal: the thread
+      // of today stays as it is underneath.
+      if (dayShown && !focusedTitle) {
+        return journal.flatMap((turn): Msg[] => {
+          if (dayOf(turn.ts) !== dayShown) return [];
+          const ts = new Date(turn.ts).getTime();
+          return [
+            { who: "user", text: turn.question, ts },
+            { who: "hark", text: turn.fala, detalhes: turn.body || undefined, ts },
+          ];
+        });
+      }
+      return messages.filter((m) => {
         // The general thread is the empty label: the persistent general
         // chat's events arrive tagged with it, typed asks with none.
         const thread = "task" in m && m.task ? m.task : null;
         return thread === focusedTitle;
-      }),
-    [messages, focusedTitle],
+      });
+    },
+    [messages, focusedTitle, dayShown, journal],
   );
+  const pastDays = useMemo(() => journalDays(journal, new Date(), lang()), [journal]);
 
   // Typed windows, shared by the tiled layout and the expanded mode.
   /** Drag-to-reorder wiring for a rail panel's header. */
@@ -3389,9 +3386,17 @@ export default function App({
               } : () => projects[0] && startDraftChat(projects[0])}
               onOpenGeneral={() => {
                 leaveChat();
+                setDayShown(null);
                 setView("chat");
               }}
-              generalActive={!focusedTask && !draftChat && view === "chat"}
+              generalActive={!focusedTask && !draftChat && !dayShown && view === "chat"}
+              days={pastDays}
+              dayShown={dayShown}
+              onOpenDay={(d) => {
+                leaveChat();
+                setView("chat");
+                setDayShown(d.date);
+              }}
               artifactsOpen={isMain && view === "artefatos"}
               artifactsCount={artCount}
               onToggleArtifacts={isMain ? () => setView((v) => (v === "artefatos" ? "chat" : "artefatos")) : undefined}
@@ -3507,6 +3512,12 @@ export default function App({
                   like the Claude Code app — controls stay on the composer. */}
               {!reading && view !== "artefatos" && (
                 <div className="chat-title-head" data-tauri-drag-region>
+                  {/* A past day of Hark's chat, read back: the title says which. */}
+                  {!focusedTask && dayShown && (
+                    <span className="chat-title" data-tauri-drag-region>
+                      {pastDays.find((d) => d.date === dayShown)?.label ?? dayShown}
+                    </span>
+                  )}
                   {focusedTask && (
                     <>
                       {/* Tauri drags only when the mousedown lands ON an

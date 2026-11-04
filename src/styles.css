@@ -676,6 +676,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   border-radius: 6px;
 }
 .side-chat:hover { background: rgba(255,255,255,.06); color: var(--text); }
+.side-chat.on { background: rgba(255,255,255,.07); color: var(--text-strong); }
 .side-chat .side-title {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }

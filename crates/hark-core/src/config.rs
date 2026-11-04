@@ -137,6 +137,9 @@ pub struct ModelsTable {
     pub standard: Option<String>,
     pub heavy: Option<String>,
     pub max: Option<String>,
+    /// The model that writes the answers of Início (Hark's own chat). Light
+    /// by default; whoever wants more intelligence there names a model.
+    pub inicio: Option<String>,
 }
 
 fn default_stt() -> String {
@@ -383,6 +386,11 @@ impl Config {
             heavy: self.models.heavy.clone().unwrap_or(defaults.heavy),
             max: self.models.max.clone().unwrap_or(defaults.max),
         }
+    }
+
+    /// The model behind Início: `models.inicio`, else the light tier.
+    pub fn inicio_model(&self) -> String {
+        self.models.inicio.clone().unwrap_or_else(|| self.models().light)
     }
 
     /// Resolve the Claude binary. A bare "claude" is dangerous under GUI
@@ -652,6 +660,14 @@ name = "Codex"
         .unwrap();
         let parsed: Config = toml::from_str(&out).unwrap();
         assert_eq!(parsed.models.light.as_deref(), Some("haiku"));
+    }
+
+    #[test]
+    fn the_inicio_model_is_the_light_one_unless_the_person_says_otherwise() {
+        let cfg: Config = toml::from_str("[models]\nlight = \"haiku\"\n").unwrap();
+        assert_eq!(cfg.inicio_model(), "haiku");
+        let cfg: Config = toml::from_str("[models]\nlight = \"haiku\"\ninicio = \"sonnet\"\n").unwrap();
+        assert_eq!(cfg.inicio_model(), "sonnet");
     }
 
     #[test]

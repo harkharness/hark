@@ -2,6 +2,7 @@ import { useState } from "react";
 import { BookOpen, Bug, Code2, FolderTree, Home, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, Sparkles, SquareKanban } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
+import type { Day } from "../lib/inicio";
 
 const DOT: Record<BoardTask["status"], string> = {
   doing: "◍",
@@ -24,6 +25,9 @@ export default function Sidebar({
   door = "code",
   onDoor,
   onCreate,
+  days = [],
+  dayShown,
+  onOpenDay,
   projects,
   colourOf,
   tasks,
@@ -59,6 +63,10 @@ export default function Sidebar({
   onDoor?: (door: Door) => void;
   /** "Criar" in the Code door: a new chat in a project (never the general chat). */
   onCreate?: () => void;
+  /** The days before today of Hark's chat (Início door), newest first. */
+  days?: Day[];
+  dayShown?: string | null;
+  onOpenDay?: (day: Day) => void;
   projects: Project[];
   /** The project colour of a path (css token), by registry order. */
   colourOf?: (path: string) => string | undefined;
@@ -275,6 +283,24 @@ export default function Sidebar({
         </button>
       )}
       </div>
+      {inicio && days.length > 0 && (
+        <section className="side-group">
+          <div className="side-group-head">
+            <span className="side-group-name">{t("side_days")}</span>
+          </div>
+          {days.map((d) => (
+            <button
+              key={d.date}
+              className={`side-chat ${dayShown === d.date ? "on" : ""}`}
+              title={d.first}
+              onClick={() => onOpenDay?.(d)}
+            >
+              <span className="side-title">{d.label}</span>
+              <span className="side-chat-ts">{d.count}</span>
+            </button>
+          ))}
+        </section>
+      )}
       {!inicio && projects.map((p) => {
         const group = ordered.filter((t) => inProject(t, p));
         // Full Claude Code history of this project (chats not yet on the
