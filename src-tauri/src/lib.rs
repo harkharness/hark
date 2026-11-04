@@ -308,6 +308,7 @@ fn build_deps<'a>(
         projects: state.projects,
         active_project,
         workers: state.workers,
+        demands: Vec::new(),
         journal: &HarkDir,
         store,
         live,

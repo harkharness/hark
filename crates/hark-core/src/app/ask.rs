@@ -21,6 +21,9 @@ pub struct AskDeps<'a> {
     pub active_project: Option<crate::domain::project::Project>,
     /// Machine-wide dispatched workers (loaded from global state).
     pub workers: Vec<crate::domain::memory::WorkerRecord>,
+    /// The list of the day, gathered by the shell (board, permissions
+    /// waiting, pages, requests): "o que eu tenho hoje" answers from it.
+    pub demands: Vec<crate::domain::demands::Demand>,
     pub store: &'a mut dyn SessionStore,
     pub live: &'a dyn LiveSessions,
     pub repos: &'a dyn RepoCollector,
@@ -60,6 +63,7 @@ pub fn ask_with_image(
         let facts = crate::domain::answer::LocalFacts {
             board: &board,
             workers: &deps.workers,
+            demands: &deps.demands,
             spend_day_usd: spent_since(deps, 24),
             spend_week_usd: spent_since(deps, 24 * 7),
             lang: deps.config.lang(),

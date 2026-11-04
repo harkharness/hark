@@ -80,6 +80,8 @@ pub fn lane(text: &str) -> AskLane {
 pub struct LocalFacts<'a> {
     pub board: &'a [Task],
     pub workers: &'a [WorkerRecord],
+    /// The list of the day (demands::collect): what asks for the person.
+    pub demands: &'a [crate::domain::demands::Demand],
     pub spend_day_usd: Option<f64>,
     pub spend_week_usd: Option<f64>,
     /// The language the answer is written in. Recognition takes both;
@@ -112,6 +114,9 @@ pub fn plan_answer(question: &str, facts: &LocalFacts) -> AnswerPlan {
     }
     if asks_spend(&q) {
         return AnswerPlan::Local(spend_reply(&q, facts));
+    }
+    if asks_today(&q) {
+        return AnswerPlan::Local(demands_reply(facts.demands, facts.lang));
     }
 
     // Layer 2: pure phrasing over data Hark already holds.
@@ -184,6 +189,49 @@ fn asks_spend(q: &str) -> bool {
         || q.contains("what did i spend")
         || q.contains("spend today")
         || q.contains("spent today")
+}
+
+/// "O que eu tenho hoje?", "what's pending?": the list of the day.
+fn asks_today(q: &str) -> bool {
+    q.contains("o que eu tenho")
+        || q.contains("o que tenho")
+        || q.contains("que tenho hoje")
+        || q.contains("demandas")
+        // The plural is the list of the day; "o que ficou pendente no
+        // projeto X" is about one project's sessions and stays a real ask.
+        || q.contains("pendencias")
+        || q.contains("what do i have")
+        || q.contains("what's on today")
+        || q.contains("what is on today")
+        || q.contains("what's pending")
+        || q.contains("what is pending")
+        || q.contains("my demands")
+}
+
+fn demands_reply(demands: &[crate::domain::demands::Demand], lang: Lang) -> VoiceReply {
+    use crate::domain::demands::Urgency;
+    let n = demands.len();
+    let you = demands.iter().filter(|d| d.urgency == Urgency::NeedsYou).count();
+    let fala = match (n, you) {
+        (0, _) => lang.pick("Nada pede você hoje.", "Nothing asks for you today.").to_string(),
+        (n, 0) => format!("{n} {}", lang.pick("demandas, nenhuma parada em você.", "demands, none stopped on you.")),
+        (n, you) => format!(
+            "{n} {} {you} {}",
+            lang.pick("demandas.", "demands."),
+            lang.pick("pedem você; as outras andam ou esperam.", "need you; the rest move or wait.")
+        ),
+    };
+    VoiceReply {
+        fala,
+        detalhes: lang
+            .pick(
+                "Por urgência: parado em você, hoje, parado, revisar, lembrete.",
+                "By urgency: stopped on you, today, stalled, review, reminder.",
+            )
+            .into(),
+        itens: demands.iter().map(|d| format!("{} — {}", d.title, d.why)).collect(),
+        board: Vec::new(),
+    }
 }
 
 fn asks_mini_summary(q: &str) -> bool {
@@ -373,10 +421,37 @@ mod tests {
         }
     }
 
+    #[test]
+    fn what_do_i_have_today_lists_the_demands_from_the_local_index() {
+        use crate::domain::demands::{Demand, Source, Urgency};
+        let demands = vec![
+            Demand { id: "task:Billing v2".into(), source: Source::Board, project: Some("/p/hark".into()), title: "Billing v2".into(), why: "parou numa permissão".into(), urgency: Urgency::NeedsYou, link: None, at: "2026-11-04T09:50:00-03:00".into() },
+            Demand { id: "req:r1".into(), source: Source::Request, project: None, title: "responder o contador".into(), why: "você pediu ontem, 18:10".into(), urgency: Urgency::Reminder, link: None, at: "2026-11-03T18:10:00-03:00".into() },
+        ];
+        let f = LocalFacts { board: &[], workers: &[], demands: &demands, spend_day_usd: None, spend_week_usd: None, lang: Lang::Pt };
+        match plan_answer("bom dia, o que eu tenho hoje?", &f) {
+            AnswerPlan::Local(reply) => {
+                assert!(reply.fala.starts_with("2 demandas"), "{}", reply.fala);
+                assert_eq!(reply.itens, vec!["Billing v2 — parou numa permissão", "responder o contador — você pediu ontem, 18:10"]);
+            }
+            other => panic!("not local: {other:?}"),
+        }
+        let none = LocalFacts { board: &[], workers: &[], demands: &[], spend_day_usd: None, spend_week_usd: None, lang: Lang::En };
+        match plan_answer("what do I have today?", &none) {
+            AnswerPlan::Local(reply) => assert_eq!(reply.fala, "Nothing asks for you today."),
+            other => panic!("not local: {other:?}"),
+        }
+        // "hoje" alone is not the question: spend today still goes to spend.
+        assert!(matches!(plan_answer("quanto gastei hoje?", &none), AnswerPlan::Local(_)));
+        // The plural is the list of the day (it used to need the full ask).
+        assert!(matches!(plan_answer("quais as pendências de hoje?", &none), AnswerPlan::Local(_)));
+    }
+
     fn facts<'a>(board: &'a [Task], workers: &'a [WorkerRecord]) -> LocalFacts<'a> {
         LocalFacts {
             board,
             workers,
+            demands: &[],
             spend_day_usd: Some(0.42),
             spend_week_usd: Some(3.10),
             lang: Lang::Pt,
@@ -453,7 +528,6 @@ mod tests {
     fn real_questions_fall_through_to_full_ask() {
         let board = vec![task("Migração Carteira", TaskStatus::Doing)];
         for q in [
-            "quais as pendências de hoje?",
             "por que a task do webhook travou?",
             "o que ficou pendente no projeto nu?",
             "como faço pra migrar o DNS?",
@@ -577,6 +651,7 @@ mod bilingual {
         LocalFacts {
             board: &[],
             workers: &[],
+            demands: &[],
             spend_day_usd: Some(0.42),
             spend_week_usd: Some(3.41),
             lang: crate::domain::lang::Lang::En,

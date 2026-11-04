@@ -335,6 +335,7 @@ fn cmd_ask(question: &str) -> i32 {
             projects: state.projects,
             active_project: None,
             workers: state.workers,
+            demands: Vec::new(),
             journal: &hark_core::adapters::memory_files::HarkDir,
             store: &mut store,
             live: &ClaudeAgentsCli {
@@ -396,6 +397,7 @@ fn cmd_prompt(question: &str) -> i32 {
             projects: state.projects,
             active_project: None,
             workers: state.workers,
+            demands: Vec::new(),
             journal: &hark_core::adapters::memory_files::HarkDir,
             store: &mut store,
             live: &ClaudeAgentsCli {
@@ -460,6 +462,7 @@ fn cmd_sessions() -> i32 {
             projects: state.projects,
             active_project: None,
             workers: state.workers,
+            demands: Vec::new(),
             journal: &hark_core::adapters::memory_files::HarkDir,
             store: &mut store,
             live: &ClaudeAgentsCli {
@@ -517,6 +520,7 @@ fn cmd_dispatch(instruction: &str, session_override: Option<&str>) -> i32 {
             projects: state.projects,
             active_project: None,
             workers: state.workers,
+            demands: Vec::new(),
             journal: &hark_core::adapters::memory_files::HarkDir,
             store: &mut store,
             live: &ClaudeAgentsCli {
@@ -971,6 +975,7 @@ fn cmd_ask_spoken(question: &str, tts: &impl hark_core::ports::Tts) -> i32 {
             projects: state.projects,
             active_project: None,
             workers: state.workers,
+            demands: Vec::new(),
             journal: &hark_core::adapters::memory_files::HarkDir,
             store: &mut store,
             live: &ClaudeAgentsCli {

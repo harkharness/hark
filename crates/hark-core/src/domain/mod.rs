@@ -16,6 +16,7 @@ pub mod focus;
 pub mod funnel;
 pub mod followup;
 pub mod gate;
+pub mod demands;
 pub mod dispatch;
 pub mod external;
 pub mod project;
