@@ -34,6 +34,7 @@ export default function Sidebar({
   unreadTitles = [],
   notifCount = 0,
   onOpenNotifs,
+  onDropLink,
   projects,
   colourOf,
   tasks,
@@ -81,6 +82,8 @@ export default function Sidebar({
   unreadTitles?: string[];
   notifCount?: number;
   onOpenNotifs?: () => void;
+  /** A page dragged from the artifacts tree onto a chat: its link lands there. */
+  onDropLink?: (task: BoardTask, link: string) => void;
   projects: Project[];
   /** The project colour of a path (css token), by registry order. */
   colourOf?: (path: string) => string | undefined;
@@ -157,6 +160,16 @@ export default function Sidebar({
     <div
       key={task.title}
       className={`side-item ${task.status} ${activeTitle === task.title ? "active" : ""} ${pulsing.includes(task.title) ? "pulse" : ""} ${unreadTitles.includes(task.title) ? "unread" : ""}`}
+      onDragOver={(e) => {
+        if (onDropLink && e.dataTransfer.types.includes("text/hark-artifact")) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        const link = e.dataTransfer.getData("text/hark-artifact");
+        if (link && onDropLink) {
+          e.preventDefault();
+          onDropLink(task, link);
+        }
+      }}
     >
       {renaming === task.title ? (
         <input

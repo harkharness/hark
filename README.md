@@ -112,7 +112,8 @@ write, kept as a tree the way a wiki keeps them: one space per project plus
 a personal one, markdown or a single HTML file (a slide deck, a design)
 rendered in an isolated frame. The agent writes a page through a skill Hark
 installs, the tree adopts it and remembers which chat it was born in, and
-"conversar" on a page reopens that chat with the page attached. Plain files
+"levar para…" on a page takes it into any chat — Hark, the one it was born
+in, a recent one or a new one — with the page attached. Plain files
 under `~/.hark/artifacts`; nothing costs tokens to browse.
 
 <img src="docs/img/board.png" width="820" alt="A kanban board where every card is a live agent session">

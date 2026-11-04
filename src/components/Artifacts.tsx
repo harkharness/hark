@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, Download, ExternalLink, FileText, FolderOpen, Link2, Maximize2, MessageSquare, Minimize2, MoreVertical, Palette, Plus, Presentation, Search, Share2, ShieldCheck, ShieldOff, User } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, Download, ExternalLink, FileText, FolderOpen, Link2, Maximize2, MessageSquare, Minimize2, MoreVertical, Palette, Plus, Presentation, Search, Share2, ShieldCheck, ShieldOff, Sparkles, User } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { STAGE_H, STAGE_W, ZOOMS, canvasSize, deckDocument, fitZoom, hasOwnScript, slideCount } from "../lib/artifactView";
 import { t } from "../lib/i18n";
@@ -7,9 +7,11 @@ import { childrenOf, crumbOf, recents, rows } from "../lib/artifacts";
 import FileViewer from "./FileViewer";
 import SharePopover, { type ShareRow } from "./SharePopover";
 import Markdown from "./Markdown";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { pageHtml } from "../lib/export";
 import type { ArtifactKind, ArtifactNode, ArtifactPage, ArtifactSpace, ArtifactTree } from "../types";
+import { destinations, type Destination, type RecentChat } from "../lib/takeTo";
 
 /** An html page that brought no style of its own gets the reading base:
  *  system font, a column, dark and light. A page with its own `<style>`
@@ -73,7 +75,8 @@ export default function Artifacts({
   onOpenTask,
   linksOn,
   onToggleLinks,
-  onTalk,
+  onTakeTo,
+  recentChats = [],
 }: {
   sel: ArtSel | null;
   onSel: (sel: ArtSel | null) => void;
@@ -87,7 +90,11 @@ export default function Artifacts({
   linksOn: boolean;
   onToggleLinks: () => void;
   /** "Conversar": open the page's chat with the page attached. */
-  onTalk: (page: ArtifactPage, space: string) => void;
+  /** "Levar para…": the page goes to Hark, its origin chat, another chat
+   *  or a new one — the person picks, never a silent default. */
+  onTakeTo: (page: ArtifactPage, space: string, dest: Destination) => void;
+  /** The chats the menu offers besides the origin, newest first. */
+  recentChats?: RecentChat[];
 }) {
   const [spaces, setSpaces] = useState<ArtifactSpace[]>([]);
   const [trees, setTrees] = useState<Record<string, ArtifactTree>>({});
@@ -281,8 +288,11 @@ export default function Artifacts({
                       className={`art-node ${on ? "on" : ""}`}
                       style={{ paddingLeft: 6 + depth * 14 }}
                       draggable
-                      onDragStart={() => {
+                      onDragStart={(e) => {
                         dragId.current = node.id;
+                        // Dropped on a chat in the sidebar, the page's link
+                        // lands in that chat's composer.
+                        e.dataTransfer.setData("text/hark-artifact", `hark://artifacts/${encodeURIComponent(sp.name)}/${encodeURIComponent(node.id)}`);
                       }}
                       onDragOver={(e) => dragId.current && dragId.current !== node.id && e.preventDefault()}
                       onDrop={(e) => {
@@ -420,7 +430,8 @@ export default function Artifacts({
             onOpenTask={onOpenTask}
             onNewChild={() => setNaming({ parent: page.node.id, kind: "doc" })}
             onSaved={() => void load()}
-            onTalk={() => onTalk(page, sel.space)}
+            onTakeTo={(dest) => onTakeTo(page, sel.space, dest)}
+            recentChats={recentChats}
           />
         ) : (
           <div className="art-empty dim">…</div>
@@ -823,7 +834,8 @@ function Page({
   onOpenTask,
   onNewChild,
   onSaved,
-  onTalk,
+  onTakeTo,
+  recentChats,
 }: {
   page: ArtifactPage;
   tree: ArtifactTree;
@@ -839,14 +851,37 @@ function Page({
   onOpenTask: (title: string, sessionId?: string) => void;
   onNewChild: () => void;
   onSaved: () => void;
-  onTalk: () => void;
+  onTakeTo: (dest: Destination) => void;
+  recentChats: RecentChat[];
 }) {
   const { node } = page;
   const html = /\.html?$/i.test(node.path);
   const Icon = KIND_ICON[node.kind];
   const kids = childrenOf(tree, node.id);
   const [shareOpen, setShareOpen] = useState(false);
+  const [takeOpen, setTakeOpen] = useState(false);
   const link = `hark://artifacts/${encodeURIComponent(space)}/${encodeURIComponent(node.id)}`;
+  const takeRows: ShareRow[] = destinations(node.origin?.task ?? undefined, recentChats, space).map((dest) => {
+    const row = (icon: ReactNode, label: string, hint: string): ShareRow => ({
+      icon,
+      label,
+      hint,
+      run: () => {
+        setTakeOpen(false);
+        onTakeTo(dest);
+      },
+    });
+    switch (dest.kind) {
+      case "hark":
+        return row(<Sparkles size={13} />, t("art_take_hark"), t("art_take_hark_hint"));
+      case "origin":
+        return row(<MessageSquare size={13} />, t("art_take_origin"), dest.title);
+      case "chat":
+        return row(<MessageSquare size={13} />, dest.title, t("art_take_other_hint"));
+      case "new":
+        return row(<Plus size={13} />, t("art_take_new", { name: dest.project }), t("art_take_new_hint"));
+    }
+  });
   const shareRows: ShareRow[] = [
     {
       icon: <Copy size={13} />,
@@ -915,9 +950,12 @@ function Page({
               )}
             </>
           )}
-          <button className="pill-btn" onClick={onTalk} title={t("art_talk_hint")}>
-            <MessageSquare size={11} /> {t("art_talk")}
-          </button>
+          <span className="share-anchor">
+            <button className={`pill-btn ${takeOpen ? "on" : ""}`} onClick={() => setTakeOpen((o) => !o)} title={t("art_take_to_hint")}>
+              <MessageSquare size={11} /> {t("art_take_to")}
+            </button>
+            {takeOpen && <SharePopover title={t("art_take_title")} rows={takeRows} onClose={() => setTakeOpen(false)} soon={false} />}
+          </span>
           <button className={`pill-btn ${linksOn ? "on" : ""}`} onClick={onToggleLinks} title={t("art_links_hint")}>
             <Link2 size={11} /> {t("art_links")}
           </button>

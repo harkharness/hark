@@ -163,8 +163,10 @@ a file dropped there by hand is adopted at the root on the next read.
   an isolated frame with scripts off; turn them on for a slide deck that
   needs them — even then the frame has no access to Hark.
 - **The view is documentation, not a chat.** There is no composer here.
-  "Conversar" on a page opens the chat it was born in with the page
-  attached; a page also reaches a chat by being named in a message
+  "Levar para…" on a page offers Hark, the chat it was born in, recent
+  chats or a new one, and puts the page's link in that chat's field;
+  dragging a page onto a chat in the sidebar does the same. A page also
+  reaches a chat by being named in a message
   ("…como ficou no ADR 004"), by its `hark://` link, through the session
   panel's outputs, or by opening its file in the files window.
 - **A new chat gets a name.** The first message of a chat, when it reads

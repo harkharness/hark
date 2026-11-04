@@ -22,7 +22,9 @@ export type ShareRow = {
  * reopens Hark in place, markdown, a file, the Finder); the footer says
  * the limit of today and where to vote for shared spaces. No dead button.
  */
-export default function SharePopover({ title, rows, onClose }: { title: string; rows: ShareRow[]; onClose: () => void }) {
+/** `soon`: the "with people" footer of sharing; a menu that only moves a
+ *  page between chats leaves it out. */
+export default function SharePopover({ title, rows, onClose, soon = true }: { title: string; rows: ShareRow[]; onClose: () => void; soon?: boolean }) {
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   async function fire(row: ShareRow) {
@@ -55,6 +57,7 @@ export default function SharePopover({ title, rows, onClose }: { title: string; 
             {row.kbd && <kbd>{row.kbd}</kbd>}
           </button>
         ))}
+        {soon && (
         <div className="share-foot">
           <b>{t("share_soon_title")}</b> {t("share_soon_body")}
           <div className="share-foot-row">
@@ -64,6 +67,7 @@ export default function SharePopover({ title, rows, onClose }: { title: string; 
             <span className="dim">{t("share_vote_hint")}</span>
           </div>
         </div>
+        )}
         {toast && (
           <div className="share-toast">
             <Check size={11} /> {toast}

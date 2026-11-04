@@ -3169,6 +3169,15 @@ export default function App({
     [messages, inicioFocus],
   );
   const pastDays = useMemo(() => journalDays(journal, new Date(), lang()), [journal]);
+  /** The chats "levar para…" offers: the board, newest first, done ones out. */
+  const recentChats = useMemo(
+    () =>
+      [...board]
+        .filter((tk) => tk.status !== "done")
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+        .map((tk) => ({ title: tk.title, sessionId: tk.session_ids.at(-1) })),
+    [board],
+  );
   // What the bell shows: the unread, minus the chat on screen.
   const unreadNotifs = useMemo(
     () => notifRows.filter((n) => !n.read_at && !(n.target.kind === "chat" && n.target.title === focusedTask?.title)),
@@ -3551,6 +3560,10 @@ export default function App({
                 setView("chat");
               }}
               generalActive={!focusedTask && !draftChat && !dayShown && view === "chat"}
+              onDropLink={(task, link) => {
+                void openTaskByTitle(task.title, task.session_ids.at(-1));
+                setComposerPrefill({ text: `${link} `, nonce: Date.now() });
+              }}
               unreadTitles={unreadTitles}
               notifCount={unreadNotifs.length}
               onOpenNotifs={isMain ? () => setNotifOpen((o) => !o) : undefined}
@@ -3908,17 +3921,21 @@ export default function App({
                   }}
                   linksOn={artLinksOn}
                   onToggleLinks={() => setArtLinksOn((v) => !v)}
-                  onTalk={(page, space) => {
-                    // The page's chat: where it was born, else a new chat
-                    // in its project. The link goes in the field; the
-                    // message carries the page (artifact_cites).
+                  recentChats={recentChats}
+                  onTakeTo={(page, space, dest) => {
+                    // The link goes in the chosen chat's field; the message
+                    // carries the page (artifact_cites). Decision 5: the
+                    // person picks the chat, never a silent default.
                     const link = `hark://artifacts/${encodeURIComponent(space)}/${encodeURIComponent(page.node.id)}`;
-                    const origin = page.node.origin?.task;
-                    const onBoard = origin ? board.find((t) => t.title === origin) : undefined;
-                    if (onBoard) {
-                      void openTaskByTitle(onBoard.title, onBoard.session_ids.at(-1));
+                    if (dest.kind === "hark") {
+                      leaveFocus();
+                      leaveChat();
+                      setDoor("inicio");
+                      setView("chat");
+                    } else if (dest.kind === "origin" || dest.kind === "chat") {
+                      void openTaskByTitle(dest.title, dest.sessionId);
                     } else {
-                      const project = allProjects.find((p) => p.name === space) ?? activeProject ?? allProjects[0];
+                      const project = allProjects.find((p) => p.name === dest.project) ?? activeProject ?? allProjects[0];
                       if (project) startDraftChat(project);
                       else setView("chat");
                     }

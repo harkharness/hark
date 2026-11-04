@@ -73,6 +73,16 @@ describe("the two doors of the sidebar", () => {
     expect(getByText("Billing v2").closest(".side-item")?.className).toContain("unread");
   });
 
+  it("a page dropped on a chat hands the chat and the link over", () => {
+    const onDropLink = vi.fn();
+    const task = { title: "Billing v2", status: "doing" as const, workspace: "/p/vox", session_ids: [], updated_at: "2026-11-04T10:00:00Z", pinned: false, subtasks: [] };
+    const { getByText } = render(<Sidebar {...base} door="code" tasks={[task]} onDropLink={onDropLink} />);
+    const row = getByText("Billing v2").closest(".side-item")!;
+    const dataTransfer = { types: ["text/hark-artifact"], getData: () => "hark://artifacts/vox/deck" };
+    fireEvent.drop(row, { dataTransfer });
+    expect(onDropLink).toHaveBeenCalledWith(task, "hark://artifacts/vox/deck");
+  });
+
   it("Início lists the days before today, and a day opens on click", () => {
     const onOpenDay = vi.fn();
     const day = { date: "2026-11-03", label: "ontem · ter 03", count: 2, first: "status do billing" };
