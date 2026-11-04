@@ -91,9 +91,12 @@ One window holds every project, behind two doors at the top of the
 sidebar, as in the Claude Code app. **Início** is Hark's own chat, one
 conversation over every project (*Hoje*), with the artifacts beside it.
 **Code** is where the work lives: **Criar** starts a new chat (the project
-comes first; a folder not yet registered becomes a project; the CLI's own
-sessions can be imported), then **Procurar**, **artifacts**, the **board**
-and the projects with their chats. Settings (costs inside) sit at the
+comes first; a folder not yet registered becomes a project; folders the
+CLI worked in that are no project yet are listed there, one click each),
+then **Procurar**, **artifacts**, the **board** and the projects with
+their chats. A project group folds to one line (the chevron, remembered)
+and its menu holds the rest: new chat, files, every chat of it in the
+palette, collapse, remove. Settings (costs inside) sit at the
 foot of either door. The door is remembered; opening a chat brings Code
 along. The composer carries a scope chip that says where the next
 message lands: *all projects* in Início, `project › chat` when a chat is

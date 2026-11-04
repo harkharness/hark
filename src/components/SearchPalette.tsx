@@ -50,6 +50,7 @@ export default function SearchPalette({
   onOpenPage,
   onAction,
   onClose,
+  initialQuery = "",
 }: {
   tasks: BoardTask[];
   chats: SessionHit[];
@@ -62,8 +63,10 @@ export default function SearchPalette({
   onOpenPage: (space: string, id: string) => void;
   onAction: (id: "new-chat" | "board" | "artifacts" | "settings") => void;
   onClose: () => void;
+  /** What the field starts with (a project's name from "ver todos os chats"). */
+  initialQuery?: string;
 }) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [tab, setTab] = useState<SearchKind | "all">("all");
   const [sel, setSel] = useState(0);
   const [pages, setPages] = useState<SearchItem[]>([]);

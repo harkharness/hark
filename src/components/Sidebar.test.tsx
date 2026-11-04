@@ -73,6 +73,20 @@ describe("the two doors of the sidebar", () => {
     expect(getByText("Billing v2").closest(".side-item")?.className).toContain("unread");
   });
 
+  it("a project group folds to one line and remembers it; its menu offers every chat", () => {
+    const onMoreChats = vi.fn();
+    const task = { title: "Billing v2", status: "doing" as const, workspace: "/p/vox", session_ids: [], updated_at: "2026-11-04T10:00:00Z", pinned: false, subtasks: [] };
+    const { getByText, queryByText, getAllByTitle } = render(<Sidebar {...base} door="code" tasks={[task]} onMoreChats={onMoreChats} />);
+    expect(getByText("Billing v2")).toBeTruthy();
+    fireEvent.click(getAllByTitle(t("side_collapse"))[0]);
+    expect(queryByText("Billing v2")).toBeNull();
+    expect(JSON.parse(localStorage.getItem("hark.side.collapsed") ?? "[]")).toEqual(["/p/vox"]);
+    fireEvent.click(getAllByTitle(t("side_actions"))[0]);
+    fireEvent.click(getByText(t("side_menu_all", { n: 0 })));
+    expect(onMoreChats).toHaveBeenCalledWith(vox);
+    localStorage.removeItem("hark.side.collapsed");
+  });
+
   it("a page dropped on a chat hands the chat and the link over", () => {
     const onDropLink = vi.fn();
     const task = { title: "Billing v2", status: "doing" as const, workspace: "/p/vox", session_ids: [], updated_at: "2026-11-04T10:00:00Z", pinned: false, subtasks: [] };

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bell, BookOpen, Bug, Code2, FolderTree, Home, Inbox, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, Sparkles, SquareKanban } from "lucide-react";
+import { Bell, BookOpen, Bug, ChevronDown, ChevronRight, Code2, Home, Inbox, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, Sparkles, SquareKanban } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 import type { Day } from "../lib/inicio";
@@ -35,6 +35,7 @@ export default function Sidebar({
   notifCount = 0,
   onOpenNotifs,
   onDropLink,
+  onMoreChats,
   projects,
   colourOf,
   tasks,
@@ -84,6 +85,8 @@ export default function Sidebar({
   onOpenNotifs?: () => void;
   /** A page dragged from the artifacts tree onto a chat: its link lands there. */
   onDropLink?: (task: BoardTask, link: string) => void;
+  /** "Ver todos os chats" of a project: the palette, filtered to it. */
+  onMoreChats?: (project: Project) => void;
   projects: Project[];
   /** The project colour of a path (css token), by registry order. */
   colourOf?: (path: string) => string | undefined;
@@ -133,6 +136,26 @@ export default function Sidebar({
   const [adding, setAdding] = useState(false);
   const [projMenu, setProjMenu] = useState<string | null>(null);
   const inicio = door === "inicio";
+  // Folded groups, remembered per machine: a project you are not in today
+  // takes one line.
+  const [collapsed, setCollapsed] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem("hark.side.collapsed");
+      return raw ? (JSON.parse(raw) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const toggleCollapsed = (path: string) =>
+    setCollapsed((old) => {
+      const next = old.includes(path) ? old.filter((p) => p !== path) : [...old, path];
+      try {
+        localStorage.setItem("hark.side.collapsed", JSON.stringify(next));
+      } catch {
+        /* private window */
+      }
+      return next;
+    });
   // The chat search open right now: which project and what was typed.
   // Empty query = the 5 most recent; typing digs through the whole index.
 
@@ -355,6 +378,7 @@ export default function Sidebar({
         // The five most recent, always. Search moved to the palette.
         const matches = projChats.slice(0, 5);
         const colour = colourOf?.(p.path);
+        const folded = collapsed.includes(p.path);
         return (
           <section
             key={p.path}
@@ -362,11 +386,20 @@ export default function Sidebar({
             style={colour ? ({ "--proj": colour } as React.CSSProperties) : undefined}
           >
             <div className="side-group-head">
-              <span className="side-group-name" title={p.path}>
+              <button
+                className="side-group-caret"
+                onClick={() => toggleCollapsed(p.path)}
+                title={folded ? t("side_expand") : t("side_collapse")}
+                aria-expanded={!folded}
+              >
+                {folded ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+              </button>
+              <span className="side-group-name" title={p.path} onClick={() => toggleCollapsed(p.path)}>
                 {/* In a project window the project name is already the
                     window title, so the group says what the rows ARE. */}
                 {projects.length === 1 ? t("side_chats", { n: projChats.length }) : p.name}
               </span>
+              {folded && group.length > 0 && <span className="side-count">{group.length}</span>}
               <button
                 className="side-group-add"
                 title={t("side_new_chat", { name: p.name })}
@@ -375,20 +408,26 @@ export default function Sidebar({
                 <Plus size={12} />
               </button>
               <button
-                className="side-group-add"
-                title={t("side_files")}
-                onClick={() => onOpenFiles(p)}
-              >
-                <FolderTree size={12} />
-              </button>
-              <button
                 className="side-menu-btn"
+                title={t("side_actions")}
                 onClick={() => setProjMenu(projMenu === p.path ? null : p.path)}
               >
                 <MoreVertical size={13} />
               </button>
               {projMenu === p.path && (
                 <div className="side-menu">
+                  <button onClick={() => { setProjMenu(null); onNewChat(p); }}>{t("side_menu_new")}</button>
+                  <button onClick={() => { setProjMenu(null); onOpenFiles(p); }}>{t("side_menu_files")}</button>
+                  {onMoreChats && (
+                    <button onClick={() => { setProjMenu(null); onMoreChats(p); }}>
+                      {t("side_menu_all", { n: projChats.length })}
+                    </button>
+                  )}
+                  <div className="side-menu-sep" />
+                  <button onClick={() => { setProjMenu(null); toggleCollapsed(p.path); }}>
+                    {folded ? t("side_expand") : t("side_collapse")}
+                  </button>
+                  <div className="side-menu-sep" />
                   <button
                     className="danger"
                     onClick={() => { setProjMenu(null); onRemoveProject(p); }}
@@ -398,28 +437,32 @@ export default function Sidebar({
                 </div>
               )}
             </div>
-            {group.length === 0 && projChats.length === 0 && (
-              <div className="side-empty">{t("side_empty")}</div>
-            )}
-            {group.map(item)}
+            {!folded && (
+              <>
+                {group.length === 0 && projChats.length === 0 && (
+                  <div className="side-empty">{t("side_empty")}</div>
+                )}
+                {group.map(item)}
 
-            {/* The sidebar shows the RECENT chats; digging through the
-                whole history is the palette's job (the magnifier up top),
-                which gets the window's attention instead of a dropdown
-                inside a 260px rail. */}
-            {matches.map((c) => (
-              <button
-                key={c.session_id}
-                className="side-chat"
-                title={c.last_prompt ?? c.title}
-                onClick={() => onOpenChat?.(c)}
-              >
-                <span className="side-title">{c.title}</span>
-                <span className="side-chat-ts">
-                  {c.last_ts ? c.last_ts.slice(5, 10).replace("-", "/") : ""}
-                </span>
-              </button>
-            ))}
+                {/* The sidebar shows the RECENT chats; digging through the
+                    whole history is the palette's job (the magnifier up top),
+                    which gets the window's attention instead of a dropdown
+                    inside a 260px rail. */}
+                {matches.map((c) => (
+                  <button
+                    key={c.session_id}
+                    className="side-chat"
+                    title={c.last_prompt ?? c.title}
+                    onClick={() => onOpenChat?.(c)}
+                  >
+                    <span className="side-title">{c.title}</span>
+                    <span className="side-chat-ts">
+                      {c.last_ts ? c.last_ts.slice(5, 10).replace("-", "/") : ""}
+                    </span>
+                  </button>
+                ))}
+              </>
+            )}
           </section>
         );
       })}

@@ -639,6 +639,13 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   color: var(--dim); font: inherit; cursor: pointer; padding: 0 6px; line-height: 1.4;
 }
 .side-group-add:hover { color: var(--accent); background: var(--panel-2); }
+.side-group-caret {
+  background: none; border: none; color: var(--dim); cursor: pointer; padding: 0 2px;
+  display: inline-flex; align-items: center;
+}
+.side-group-caret:hover { color: var(--text); }
+.side-group-name { cursor: pointer; }
+.side-menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
 .side-group-head .side-menu-btn { opacity: 0; }
 .side-group-head:hover .side-menu-btn { opacity: 1; }
 /* A footer action, not a dropzone: the dashed box read as "drag

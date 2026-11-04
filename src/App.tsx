@@ -327,6 +327,7 @@ export default function App({
   const [filesFocusKey, setFilesFocusKey] = useState(0);
   /** The history palette (Cmd+K, or the magnifier in the sidebar head). */
   const [chatPalette, setChatPalette] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
   // Standing "sempre permitir" rules: task label → tools auto-approved.
   // Window-scoped by design: closing the window forgets every rule.
   const allowAlways = useRef<Map<string, Set<string>>>(new Map());
@@ -3586,6 +3587,10 @@ export default function App({
                 setView("chat");
               }}
               generalActive={!focusedTask && !draftChat && !dayShown && view === "chat"}
+              onMoreChats={(p) => {
+                setPaletteQuery(p.name);
+                setChatPalette(true);
+              }}
               onDropLink={(task, link) => {
                 void openTaskByTitle(task.title, task.session_ids.at(-1));
                 setComposerPrefill({ text: `${link} `, nonce: Date.now() });
@@ -4239,7 +4244,11 @@ export default function App({
             else if (id === "artifacts") setView("artefatos");
             else openSettings();
           }}
-          onClose={() => setChatPalette(false)}
+          initialQuery={paletteQuery}
+          onClose={() => {
+            setChatPalette(false);
+            setPaletteQuery("");
+          }}
         />
       )}
 
