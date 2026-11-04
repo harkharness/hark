@@ -57,3 +57,16 @@ export function days(turns: JournalTurn[], now: Date, lang = "pt"): Day[] {
       return { date, label, count: v.count, first: v.first };
     });
 }
+
+const GREET: Record<string, [string, string, string]> = {
+  pt: ["Bom dia", "Boa tarde", "Boa noite"],
+  en: ["Good morning", "Good afternoon", "Good evening"],
+};
+
+/** The line that opens the day: by the hour, with the name when known. */
+export function greeting(now: Date, name: string, lang = "pt"): string {
+  const h = now.getHours();
+  const words = GREET[lang] ?? GREET.pt;
+  const word = h < 12 ? words[0] : h < 18 ? words[1] : words[2];
+  return name ? `${word}, ${name}` : word;
+}

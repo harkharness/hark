@@ -117,9 +117,10 @@ that made several of them look like design decisions when they were not.
 `npm run dev`, then `http://localhost:1420/?demo=<scene>` in any browser:
 every Tauri command is answered from `lib/demo.ts` and every event comes
 from the scene's script, so the window runs with no backend at all. The
-scenes are `home` (the general chat with a voice round over the
-composer), `task` (a chat with a permission card and the rail), `board`,
-`docs` (a page open in the artifacts view) and `costs`. The README's and
+scenes are `home` (Hark's chat with a voice round over the composer),
+`inicio` (the same day with no chat yet: Hoje opens with the brief),
+`task` (a chat with a permission card and the rail), `board`, `docs` (a
+page open in the artifacts view) and `costs`. The README's and
 the site's screenshots are taken here, at 1440×900 and 2× — nothing on
 them is a real project, session or name. `demo.test.ts` fails when a
 command the seam knows has no answer, so a new command lands in the demo

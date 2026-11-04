@@ -39,6 +39,7 @@ import CreateChat from "./components/CreateChat";
 import Demands from "./components/Demands";
 import Mirror from "./components/Mirror";
 import Notifications from "./components/Notifications";
+import InicioBrief from "./components/InicioBrief";
 import { Bell } from "lucide-react";
 import { condense } from "./lib/mirror";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
@@ -3979,6 +3980,29 @@ export default function App({
                       });
                     })
                   }
+                />
+              ) : visibleMessages.length === 0 && isMain && door === "inicio" && !inicioFocus && !dayShown ? (
+                // Hoje with no chat yet: the day opens with the brief, not
+                // with an invitation to start something (04/11).
+                <InicioBrief
+                  userName={overview?.user_name ?? ""}
+                  demands={demandsOrdered}
+                  colourOf={(key) => colourOf(key.startsWith("/") ? key : allProjects.find((p) => p.name === key)?.path)}
+                  onGo={(d) => {
+                    const page = d.link?.match(/^hark:\/\/artifacts\/([^/]+)\/(.+)$/);
+                    if (page) {
+                      setView("artefatos");
+                      setArtSel({ space: decodeURIComponent(page[1]), id: decodeURIComponent(page[2]) });
+                    } else if (d.source === "board") {
+                      setView("chat");
+                      void openTaskByTitle(d.title);
+                    }
+                  }}
+                  onDone={(d) => ipc.requestDone(d.id).then(reloadDemands).catch(() => {})}
+                  onLater={(d) => setLater((old) => (old.includes(d.id) ? old : [...old, d.id]))}
+                  onFocus={(d) => void enterFocus(d.title)}
+                  onAll={() => setView("demandas")}
+                  onAsk={(text) => setComposerPrefill({ text, nonce: Date.now() })}
                 />
               ) : visibleMessages.length === 0 ? (
                 <EmptyProject

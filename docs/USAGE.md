@@ -141,6 +141,10 @@ them too. A read row leaves the panel ten minutes later; an unread one
 never does; "ver anteriores" brings the history back from the local
 index. The same line lands in Hoje, with "ir" beside it.
 
+**Hoje opens with the day.** With no chat yet, Início greets you and shows
+the list of the day and three ways in; the first message is still yours.
+Once the day has a chat, Hoje is that chat.
+
 **Início › Hoje is Hark itself**, not an agent session: one chat over every
 project, kept in a local journal with the days before it listed in the
 sidebar (click one to read it back). Nothing you type there opens a

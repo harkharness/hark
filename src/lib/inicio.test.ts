@@ -33,3 +33,13 @@ describe("the days before today in the Início sidebar", () => {
     expect(days([turn("garbage", "x")], new Date("2026-11-04T12:00:00-03:00"))).toEqual([]);
   });
 });
+
+describe("the greeting that opens the day", () => {
+  it("says good morning, afternoon or evening, with the name", async () => {
+    const { greeting } = await import("./inicio");
+    expect(greeting(new Date("2026-11-04T08:00:00"), "Ana", "pt")).toBe("Bom dia, Ana");
+    expect(greeting(new Date("2026-11-04T15:00:00"), "Ana", "pt")).toBe("Boa tarde, Ana");
+    expect(greeting(new Date("2026-11-04T21:00:00"), "Ana", "en")).toBe("Good evening, Ana");
+    expect(greeting(new Date("2026-11-04T08:00:00"), "", "en")).toBe("Good morning");
+  });
+});
