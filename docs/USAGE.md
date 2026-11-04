@@ -76,12 +76,18 @@ one line per dispatch with "ir para o chat" on it.
 
 ## The main window
 
-One window holds every project. The sidebar lists each registered project
-with its chats, and the global views: the **board**, **artifacts** and
-**settings** (costs live inside settings). The composer carries a scope chip that says where the next
-message lands: *all projects* when nothing is selected, `project › chat`
-when a chat is open. Each project owns a colour; it runs down the sidebar
-group, across the top of the chat and through the chip.
+One window holds every project, behind two doors at the top of the
+sidebar, as in the Claude Code app. **Início** is Hark's own chat, one
+conversation over every project (*Hoje*), with the artifacts beside it.
+**Code** is where the work lives: **Criar** starts a new chat (the project
+comes first; a folder not yet registered becomes a project; the CLI's own
+sessions can be imported), then **Procurar**, **artifacts**, the **board**
+and the projects with their chats. Settings (costs inside) sit at the
+foot of either door. The door is remembered; opening a chat brings Code
+along. The composer carries a scope chip that says where the next
+message lands: *all projects* in Início, `project › chat` when a chat is
+open. Each project owns a colour; it runs down the sidebar group, across
+the top of the chat and through the chip.
 
 **Each chat keeps its own side panels, stacked.** The terminal, the files
 window, the diff and the browser open on the rail together, one over the
@@ -97,7 +103,7 @@ projects, the Claude Code history, a few actions — with a tab per kind.
 Before you type it shows what needs you, what moved last and what you can
 do. Local index, zero tokens.
 
-**The general chat** (nothing selected) is a persistent chat backed by one
+**The general chat** (Início › Hoje) is a persistent chat backed by one
 long-lived agent session carrying your full settings — MCP servers, tools,
 skills, memory file. It has a name, a personality, and a memory file it
 maintains itself: tell it "remember that I prefer short answers" and it

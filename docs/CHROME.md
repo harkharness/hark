@@ -202,6 +202,17 @@ meant to back up could not drag at all because its children covered it.
 A strip that spans the window covers whatever moves into the strip. Rail
 headers drag PANELS (reorder), not the window.
 
+## Two doors, one sidebar
+
+The sidebar opens with a segmented control under the drag slot: **Início**
+and **Code**, the two doors of the Claude Code app. The control is the
+only thing the doors share; everything under it belongs to one door.
+Início lists Hoje (Hark's chat) and the artifacts; Code lists Criar,
+Procurar, artifacts, board and the project groups. Criar is a row like the
+others, painted as the one primary action of its door (`--panel-2`,
+bold), never a coloured button: the accent stays with the chat that is
+live. A project window has no toggle: it is Code, always.
+
 ## Panel headers
 
 One bar: grip, name, the panel's tabs, its actions, then collapse,

@@ -34,6 +34,7 @@ import Reader from "./components/Reader";
 import SessionPanel from "./components/SessionPanel";
 import { collectOutputs } from "./lib/outputs";
 import Sidebar, { type Door } from "./components/Sidebar";
+import CreateChat from "./components/CreateChat";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
@@ -101,7 +102,7 @@ export default function App({
   /** No forced project = the main window: every project, the general chat
    *  backed by the persistent worker, board/costs/settings as views. */
   const isMain = !forcedProject;
-  type View = "chat" | "board" | "ajustes" | "artefatos";
+  type View = "chat" | "board" | "ajustes" | "artefatos" | "criar";
   const [view, setView] = useState<View>("chat");
   // The artifacts view: the space and page on screen, the page's data
   // (for the composer's scope and the rail) and a tick that re-reads the
@@ -3382,9 +3383,10 @@ export default function App({
                   setView("chat");
                 }
               } : undefined}
-              // Until the project picker lands (11.1b): one project creates
-              // there, more than one asks the palette.
-              onCreate={() => (projects.length === 1 ? startDraftChat(projects[0]) : setChatPalette(true))}
+              onCreate={isMain ? () => {
+                leaveChat();
+                setView("criar");
+              } : () => projects[0] && startDraftChat(projects[0])}
               onOpenGeneral={() => {
                 leaveChat();
                 setView("chat");
@@ -3473,6 +3475,31 @@ export default function App({
               ) : isMain && view === "ajustes" ? (
                 <div className="view-wide">
                   <Settings initialSection={settingsSection} />
+                </div>
+              ) : isMain && view === "criar" ? (
+                <div className="view-wide">
+                  <div className="chat-title-head" data-tauri-drag-region>
+                    <span className="chat-title" data-tauri-drag-region>{t("create_title")}</span>
+                  </div>
+                  <CreateChat
+                    projects={projects}
+                    colourOf={colourOf}
+                    onPick={startDraftChat}
+                    onAddProject={(path) =>
+                      ipc
+                        .projectAdd(path)
+                        .then((p) => {
+                          push({ who: "sys", text: t("sys_project_added", { name: p.name, path: p.path }) });
+                          refresh();
+                          startDraftChat(p);
+                        })
+                        .catch((err) => push({ who: "sys", text: t("sys_project_err", { e: String(err) }) }))
+                    }
+                    onImport={() => {
+                      setView("chat");
+                      setChatPalette(true);
+                    }}
+                  />
                 </div>
               ) : (
               <>
