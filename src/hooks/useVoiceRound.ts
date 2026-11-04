@@ -306,18 +306,6 @@ export function useVoiceRound({
   /** Real work with no project target → the general chat's persistent
    *  session. The reply comes back as a worker turn: the main window
    *  draws it in the thread and SPEAKS its first sentence. */
-  async function sendToGeneralChat(text: string) {
-    setStage({ s: "running", text, target: "chat" });
-    try {
-      await ipc.harkChatSend(text);
-      emit("hark", { kind: "chat_echo", question: text, work: true }).catch(() => {});
-      ipc.speak(st("sp_sent_to_chat")).catch(() => {});
-      finish(t("vr_chat_dispatched"), "ok", 1600);
-    } catch (err) {
-      finish(t("sys_chat_open_err", { e: String(err) }), "warn", 3000);
-    }
-  }
-
   /** Route one utterance (fresh capture, a spoken rephrase, dictation). */
   async function handle(text: string) {
     lastText.current = text;
@@ -341,17 +329,18 @@ export function useVoiceRound({
       const said = plan.allow ? (plan.always ? st("sp_allowed_always") : st("sp_allowed")) : st("sp_denied");
       finish(`${plan.allow ? "✓" : "✗"} ${plan.tool} · ${plan.label}`, "ok", 1600);
       ipc.speak(said).catch(() => {});
+    } else if (plan.kind === "attention") {
+      // The main window moves the focus; the HUD only says so.
+      emit("hark", { kind: "attention", attention: plan.attention }).catch(() => {});
+      const said = plan.attention.kind === "leave" ? st("sp_focus_left") : st("sp_focus_on", { t: plan.attention.target || t("vr_focus_this") });
+      finish(said, "ok", 1600);
+      ipc.speak(said).catch(() => {});
     } else if (plan.kind === "command") {
       await runCommand(plan.command);
     } else if (plan.kind === "question") {
-      // Surface router: needs external tools or produces content → the
-      // general chat (full settings + MCP). The bare ask has neither —
-      // sending Slack work there was the 21/08 incident.
-      const lane = await ipc.askLane(text).catch(() => "lean");
-      if (lane === "work") {
-        await sendToGeneralChat(text);
-        return;
-      }
+      // Início is Hark itself (decision 1): the ask trail answers, local
+      // first, the light model next, the full ask last. No worker of its
+      // own any more.
       setStage({ s: "asking", text });
       try {
         const reply = await ipc.askText(plan.question);
@@ -433,13 +422,9 @@ export function useVoiceRound({
         );
         return;
       }
-      // No project target: work that needs tools still has a home — the
-      // general chat (the Slack case). Only then admit "no target".
-      const lane = await ipc.askLane(text).catch(() => "lean");
-      if (lane === "work") {
-        await sendToGeneralChat(text);
-        return;
-      }
+      // No project target: say so. Work goes to a chat, never to a worker
+      // of Início's own (decision 1); "foca no X" or Code › Criar gives
+      // it a home.
       await ipc.speak(st("sp_no_target_say")).catch(() => {});
       finish(t("vr_no_target"), "warn", 300);
       await sleep(150);

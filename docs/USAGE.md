@@ -74,6 +74,17 @@ screen. Work sent by voice never switches what you are looking at: the chat
 it landed in pulses in the sidebar for a beat, and the general thread keeps
 one line per dispatch with "ir para o chat" on it.
 
+**Four spoken verbs** move Hark's attention, the whole sentence and nothing
+else: "foca no billing" (or "calma, vamos focar nessa") pins Início to
+that chat, "volta" or "pausa" releases it. In a focus, a sentence with no
+verb goes to the chat in focus; with no focus, Hark finds the target as
+above, and work with no home gets a hint instead of a session of its own.
+
+**When Hark speaks on its own.** Never with the window in front: text does
+that job. Behind the window, a chat finishing its turn is said aloud as
+before, unless you are in a focus — then only the chat in focus ending is
+said, and everything else waits behind the bell.
+
 ## The main window
 
 One window holds every project, behind two doors at the top of the

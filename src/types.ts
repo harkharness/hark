@@ -24,6 +24,9 @@ export type Demand = {
   at: string;
 };
 
+/** The words that move Hark's attention (domain::attention). */
+export type Attention = { kind: "focus"; target: string } | { kind: "leave" };
+
 /** One row behind the bell (domain::notifications). */
 export type Notification = {
   id: string;
@@ -151,6 +154,7 @@ export type HarkEvent =
   | { kind: "artifact_written"; space: string; id: string; task_id?: string | null }
   | { kind: "demands_changed" }
   | { kind: "notification"; notification: Notification }
+  | { kind: "attention"; attention: Attention }
   | { kind: "notifications_changed" }
   /** A `hark://artifacts/…` link: that page, in the artifacts view. */
   | { kind: "open_page"; space: string; id: string }
@@ -571,6 +575,8 @@ export type VoicePlan =
   | { kind: "candidates"; instruction: string; options: VoiceCandidate[] }
   | { kind: "question"; question: string }
   | { kind: "no_target"; instruction: string }
+  /** "Foca no billing" / "volta": the main window enters or leaves the focus. */
+  | { kind: "attention"; attention: Attention }
   /** A clean yes/no while a permission card waits anywhere. */
   | {
       kind: "permission_answer";

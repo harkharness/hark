@@ -53,6 +53,10 @@ type Handlers = {
   onArtifactWritten?: (space: string, id: string) => void;
   /** A request was added or done: the list of the day changed. */
   onDemandsChanged?: () => void;
+  /** "Foca no billing" / "volta" spoken: the main window moves the focus. */
+  onAttention?: (attention: import("../types").Attention) => void;
+  /** Whether a finished turn may be said aloud right now (domain::notifications::may_speak). */
+  maySpeak?: (label: string) => boolean;
   /** A new row behind the bell; and the bell's list changed (read marks). */
   onNotification?: (n: import("../types").Notification) => void;
   onNotificationsChanged?: () => void;
@@ -247,7 +251,7 @@ export function useHarkEvents(h: Handlers) {
           ev.model,
           ev.agent,
         );
-        if (h.announce && h.speakRef.current) {
+        if (h.announce && h.speakRef.current && (h.maySpeak?.(ev.label ?? label) ?? true)) {
           const spoken = ev.label ?? label;
           const custom = h.turnSpeech?.(ev.task_id, ev.text, ev.is_error, spoken);
           ipc.speak(
@@ -303,6 +307,8 @@ export function useHarkEvents(h: Handlers) {
         h.onDemandsChanged?.();
       } else if (ev.kind === "notification") {
         h.onNotification?.(ev.notification);
+      } else if (ev.kind === "attention") {
+        h.onAttention?.(ev.attention);
       } else if (ev.kind === "notifications_changed") {
         h.onNotificationsChanged?.();
       } else if (ev.kind === "open_page") {

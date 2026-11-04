@@ -1128,6 +1128,25 @@ export default function App({
     onArtifactWritten: useCallback(() => setArtTick((n) => n + 1), []),
     onDemandsChanged: reloadDemands,
     onNotificationsChanged: reloadNotifs,
+    // Spoken "foca no billing" / "volta": the main window moves the focus.
+    onAttention: useCallback((att: import("./types").Attention) => {
+      if (!isMain) return;
+      if (att.kind === "leave") {
+        leaveFocus();
+        return;
+      }
+      const target = resolveFocusTarget(att.target);
+      if (target) void enterFocus(target);
+      else push({ who: "sys", text: t("sys_focus_not_found") });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+    // domain::notifications::may_speak, on this side of the bridge: never
+    // with the window in front; behind it, a focus is not interrupted
+    // unless it is the chat in focus that ended.
+    maySpeak: useCallback((label: string) => {
+      const focus = inicioFocusRef.current;
+      return !document.hasFocus() && (!focus || focus.title === label);
+    }, []),
     // A new row behind the bell: the list refreshes, and Hoje gets the
     // same line (the chat in focus already said so in its own words).
     onNotification: useCallback((n: import("./types").Notification) => {

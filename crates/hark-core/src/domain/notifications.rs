@@ -221,10 +221,12 @@ pub enum Moment {
     Other,
 }
 
-/// Never in the middle of a turn, never with the window in front (text
-/// does that job): only behind, and only at a return moment or on schedule.
-pub fn may_speak(window_front: bool, moment: Moment) -> bool {
-    !window_front && matches!(moment, Moment::Return | Moment::Scheduled)
+/// Never with the window in front (text does that job). Behind it, a
+/// return moment or a scheduled line is always said; anything else only
+/// when no focus is on — a focus is a turn the person asked not to
+/// interrupt, and the bell holds the rest.
+pub fn may_speak(window_front: bool, focused: bool, moment: Moment) -> bool {
+    !window_front && (matches!(moment, Moment::Return | Moment::Scheduled) || !focused)
 }
 
 #[cfg(test)]
@@ -289,10 +291,11 @@ mod tests {
     }
 
     #[test]
-    fn hark_speaks_only_at_a_return_moment_or_on_schedule_and_only_behind() {
-        assert!(may_speak(false, Moment::Return));
-        assert!(may_speak(false, Moment::Scheduled));
-        assert!(!may_speak(false, Moment::Other));
-        assert!(!may_speak(true, Moment::Return), "the window in front shows text, never speaks");
+    fn hark_speaks_only_behind_the_window_and_never_into_a_focus() {
+        assert!(may_speak(false, true, Moment::Return));
+        assert!(may_speak(false, true, Moment::Scheduled));
+        assert!(!may_speak(false, true, Moment::Other), "a focus is not interrupted: the bell holds it");
+        assert!(may_speak(false, false, Moment::Other), "no focus, window behind: the old announcement stands");
+        assert!(!may_speak(true, false, Moment::Return), "the window in front shows text, never speaks");
     }
 }

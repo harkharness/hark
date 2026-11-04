@@ -350,8 +350,7 @@ export const notificationsRead = (ids: string[]) => invoke<void>("notifications_
 export const notificationsReadChat = (title: string) => invoke<void>("notifications_read_chat", { title });
 export const notificationsReadAll = () => invoke<void>("notifications_read_all");
 /** "Foca no billing" / "volta": the words that move Hark's attention, or null. */
-export const attention = (text: string) =>
-  invoke<{ kind: "focus"; target: string } | { kind: "leave" } | null>("attention_command", { text });
+export const attention = (text: string) => invoke<import("../types").Attention | null>("attention_command", { text });
 
 export const boardMove = (title: string, status: string) =>
   invoke("board_move", { title, status });

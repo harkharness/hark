@@ -933,6 +933,7 @@ const pt = {
   vr_cancelled: "cancelado",
   vr_no_target: "sem alvo — \"na task X\" ou \"no projeto Y\"",
   vr_new_chat: "novo chat",
+  vr_focus_this: "a demanda da vez",
   vr_project: "projeto",
   vr_focused_session: "sessão em foco",
   set_data_hint: "índice, ledger e modelos ficam aqui — nada sai da máquina",
@@ -1843,6 +1844,7 @@ const en: Record<keyof typeof pt, string> = {
   vr_cancelled: "cancelled",
   vr_no_target: "no target — \"in task X\" or \"in project Y\"",
   vr_new_chat: "new chat",
+  vr_focus_this: "the demand on screen",
   vr_project: "project",
   vr_focused_session: "focused session",
   set_data_hint: "index, ledger and models live here — nothing leaves the machine",
@@ -1875,6 +1877,8 @@ export function t(key: keyof typeof pt, vars?: Record<string, string | number>):
 const spt = {
   sp_found_n_which: "Achei {n}. Qual delas?",
   sp_no_target: "Não achei o alvo. Fala a task ou o projeto.",
+  sp_focus_on: "Foco em {t}.",
+  sp_focus_left: "Foco desfeito.",
   sp_sent_chat: "Mandei pro chat. Já te respondo.",
   sp_allowed: "Permitido.",
   sp_allowed_always: "Permitido, sempre.",
@@ -1968,6 +1972,8 @@ const spt = {
 const sen: Record<keyof typeof spt, string> = {
   sp_found_n_which: "Found {n}. Which one?",
   sp_no_target: "No target found. Say the task or the project.",
+  sp_focus_on: "Focus on {t}.",
+  sp_focus_left: "Focus released.",
   sp_sent_chat: "Sent to the chat. Back in a moment.",
   sp_allowed: "Allowed.",
   sp_allowed_always: "Allowed, always.",

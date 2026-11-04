@@ -39,6 +39,9 @@ pub fn set_active_context(
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum VoicePlan {
+    /// "Foca no billing" / "volta": Hark's attention moves; the main window
+    /// enters or leaves the focus (domain::attention), zero tokens.
+    Attention { attention: hark_core::domain::attention::Attention },
     /// A local command (open project, recover session, board…): the HUD
     /// executes it straight away, zero tokens.
     Command { command: serde_json::Value },
@@ -141,6 +144,12 @@ pub fn plan_utterance(app: AppHandle, text: String) -> Result<VoicePlan, String>
         if let Some((allow, always)) = hark_core::domain::verdict::interpret_permission(&text) {
             return Ok(VoicePlan::PermissionAnswer { request_id, label, tool, allow, always });
         }
+    }
+
+    // 0b. The words that move Hark's attention: the whole sentence, so a
+    //     verb inside a longer order never triggers them.
+    if let Some(attention) = hark_core::domain::attention::parse(&text) {
+        return Ok(VoicePlan::Attention { attention });
     }
 
     // 1. Local commands win (open project, recover session, rename…).
