@@ -2235,6 +2235,20 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .side-board.on { color: var(--accent); background: rgba(122,162,247,.1); }
 /* The nav rows end where the groups begin. */
 .side-nav { margin-bottom: 12px; }
+/* The two doors: a segmented control under the drag slot, as in Claude Code. */
+.side-door {
+  display: flex; gap: 3px; padding: 3px; margin: 0 0 10px;
+  background: rgba(255,255,255,.04); border-radius: 10px;
+}
+.side-door-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
+  background: none; border: 1px solid transparent; border-radius: 8px;
+  color: var(--dim); font: inherit; font-size: 12px; padding: 5px 0; cursor: pointer;
+}
+.side-door-btn:hover { color: var(--text); }
+.side-door-btn.on { color: var(--text); background: var(--panel-2); border-color: var(--border-strong, rgba(255,255,255,.13)); }
+.side-create { color: var(--text); background: var(--panel-2); font-weight: 600; margin-bottom: 6px; }
+.side-create:hover { background: var(--panel-2); filter: brightness(1.15); }
 .side-count { margin-left: auto; font-size: 10.5px; color: var(--dim); }
 .side-board.on .side-count { color: inherit; }
 

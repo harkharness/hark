@@ -33,7 +33,7 @@ import SearchPalette from "./components/SearchPalette";
 import Reader from "./components/Reader";
 import SessionPanel from "./components/SessionPanel";
 import { collectOutputs } from "./lib/outputs";
-import Sidebar from "./components/Sidebar";
+import Sidebar, { type Door } from "./components/Sidebar";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
@@ -190,6 +190,27 @@ export default function App({
   const threadKey = focusedTask?.title ?? GENERAL;
   // A "+" click on a project: the NEXT message opens a fresh session there.
   const [draftChat, setDraftChat] = useState<Project | null>(null);
+  // The two doors of the main window (docs/CHROME.md): Início is Hark's one
+  // chat; Code is projects › chats. Remembered per machine.
+  const [door, setDoor] = useState<Door>(() => {
+    try {
+      return localStorage.getItem("hark.door") === "code" ? "code" : "inicio";
+    } catch {
+      return "inicio";
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("hark.door", door);
+    } catch {
+      /* private window: the door is not remembered */
+    }
+  }, [door]);
+  // A task on screen belongs to Code: voice, a deep link or the palette
+  // opening one brings that door along.
+  useEffect(() => {
+    if (focusedTask || draftChat) setDoor("code");
+  }, [focusedTask, draftChat]);
   const [liveWorkers, setLiveWorkers] = useState<Record<string, LiveWorker>>({});
   const [focused, setFocused] = useState<string | null>(null);
   // Which agent answers the focused task: the owner of its session, or the
@@ -3353,6 +3374,17 @@ export default function App({
               onOpenChat={recoverSession}
               workspaceName={forcedProject?.name}
               onSearchChats={() => setChatPalette(true)}
+              door={isMain ? door : "code"}
+              onDoor={isMain ? (d) => {
+                setDoor(d);
+                if (d === "inicio") {
+                  leaveChat();
+                  setView("chat");
+                }
+              } : undefined}
+              // Until the project picker lands (11.1b): one project creates
+              // there, more than one asks the palette.
+              onCreate={() => (projects.length === 1 ? startDraftChat(projects[0]) : setChatPalette(true))}
               onOpenGeneral={() => {
                 leaveChat();
                 setView("chat");

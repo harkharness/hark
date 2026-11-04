@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, Bug, FolderTree, MessageSquarePlus, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, SquareKanban } from "lucide-react";
+import { BookOpen, Bug, Code2, FolderTree, Home, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, Sparkles, SquareKanban } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 
@@ -11,12 +11,19 @@ const DOT: Record<BoardTask["status"], string> = {
 };
 
 /** Accent/case-insensitive haystack ("migração" matches "migracao"). */
+/** The two doors of the window, as in Claude Code: Início is the one
+ *  chat of Hark over every project; Code is projects › chats. */
+export type Door = "inicio" | "code";
+
 /**
  * Chats grouped by project, like a session sidebar. Clicking a task loads
  * its context into the chat; each project header can spawn a fresh chat;
  * the footer registers new project directories.
  */
 export default function Sidebar({
+  door = "code",
+  onDoor,
+  onCreate,
   projects,
   colourOf,
   tasks,
@@ -47,6 +54,11 @@ export default function Sidebar({
   onSearchChats,
   workspaceName,
 }: {
+  /** Which door is open; the toggle at the top switches it. */
+  door?: Door;
+  onDoor?: (door: Door) => void;
+  /** "Criar" in the Code door: a new chat in a project (never the general chat). */
+  onCreate?: () => void;
   projects: Project[];
   /** The project colour of a path (css token), by registry order. */
   colourOf?: (path: string) => string | undefined;
@@ -95,6 +107,7 @@ export default function Sidebar({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [projMenu, setProjMenu] = useState<string | null>(null);
+  const inicio = door === "inicio";
   // The chat search open right now: which project and what was typed.
   // Empty query = the 5 most recent; typing digs through the whole index.
 
@@ -186,6 +199,26 @@ export default function Sidebar({
           foot never floats over a row: it is the last thing, outside the
           scroll, with the window's own bottom under it. */}
       <div className="side-scroll">
+      {onDoor && (
+        <div className="side-door" role="tablist">
+          <button
+            role="tab"
+            className={`side-door-btn ${door === "inicio" ? "on" : ""}`}
+            onClick={() => onDoor("inicio")}
+            title={t("door_inicio_hint")}
+          >
+            <Home size={12} /> {t("door_inicio")}
+          </button>
+          <button
+            role="tab"
+            className={`side-door-btn ${door === "code" ? "on" : ""}`}
+            onClick={() => onDoor("code")}
+            title={t("door_code_hint")}
+          >
+            <Code2 size={12} /> {t("door_code")}
+          </button>
+        </div>
+      )}
       {workspaceName && (
         <div className="side-head">
           <span className="side-head-name" title={workspaceName}>
@@ -203,16 +236,21 @@ export default function Sidebar({
         </div>
       )}
       <div className="side-nav">
-      {onOpenGeneral && (
+      {inicio && onOpenGeneral && (
         <button
           className={`side-board ${generalActive ? "on" : ""}`}
           onClick={onOpenGeneral}
-          title={t("side_general_hint")}
+          title={t("side_today_hint")}
         >
-          <MessageSquarePlus size={13} /> {t("side_general")}
+          <Sparkles size={13} /> {t("side_today")}
         </button>
       )}
-      {onSearchChats && (
+      {!inicio && onCreate && (
+        <button className="side-board side-create" onClick={onCreate} title={t("side_create_hint")}>
+          <Plus size={13} /> {t("side_create")}
+        </button>
+      )}
+      {!inicio && onSearchChats && (
         <button className="side-board" onClick={onSearchChats} title={t("side_search_hint")}>
           <Search size={13} /> {t("side_search_row")}
         </button>
@@ -227,7 +265,7 @@ export default function Sidebar({
           {artifactsCount ? <span className="side-count">{artifactsCount}</span> : null}
         </button>
       )}
-      {onToggleBoard && (
+      {!inicio && onToggleBoard && (
         <button
           className={`side-board ${boardOpen ? "on" : ""}`}
           onClick={onToggleBoard}
@@ -237,7 +275,7 @@ export default function Sidebar({
         </button>
       )}
       </div>
-      {projects.map((p) => {
+      {!inicio && projects.map((p) => {
         const group = ordered.filter((t) => inProject(t, p));
         // Full Claude Code history of this project (chats not yet on the
         // board), reachable through the search box — like `claude --resume`,
@@ -317,7 +355,7 @@ export default function Sidebar({
         );
       })}
 
-      {leftovers.length > 0 && (
+      {!inicio && leftovers.length > 0 && (
         <section className="side-group">
           <div className="side-group-head">
             <span className="side-group-name">{t("side_others")}</span>
@@ -326,7 +364,7 @@ export default function Sidebar({
         </section>
       )}
 
-      {adding ? (
+      {inicio ? null : adding ? (
         <input
           className="side-rename"
           autoFocus
