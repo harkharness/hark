@@ -176,13 +176,22 @@ pub fn build_budgeted(
     // The chat is continuous: the journal tail ALWAYS rides along (a long
     // question is still a follow-up — incident 30/08). The budget, not a
     // word-count heuristic, is what keeps it small.
+    // The sessions are what the question is about: they keep a share of
+    // the budget whatever the board and the journal weigh. The journal
+    // shrinks to what is left above that share.
+    let question_section = format!("Pergunta do usuario (por voz):\n{question}");
+    let fixed_len: usize = fixed.iter().map(|s| s.chars().count()).sum::<usize>() + question_section.chars().count();
+    let reserve = budget.max_chars * SESSIONS_SHARE_PERCENT / 100;
+    let journal_cap = JOURNAL_SECTION_MAX
+        .min(budget.max_chars.saturating_sub(fixed_len + reserve))
+        .max(JOURNAL_MIN_CHARS);
     let tail_sections = [
-        journal_section(&clip_journal(&snapshot.journal, JOURNAL_SECTION_MAX)),
-        format!("Pergunta do usuario (por voz):\n{question}"),
+        journal_section(&clip_journal(&snapshot.journal, journal_cap)),
+        question_section,
     ];
 
     let spent: usize = fixed.iter().chain(tail_sections.iter()).map(|s| s.chars().count()).sum();
-    let room = budget.max_chars.saturating_sub(spent);
+    let room = budget.max_chars.saturating_sub(spent).max(reserve);
 
     // Topical sessions first, then the recent window, into the budget.
     let ordered = sorted_sessions(snapshot, topical_ids);
@@ -253,12 +262,26 @@ fn board_section(board: &str) -> String {
     )
 }
 
+/// Dispatched workers shown in full: the newest running ones. The rest
+/// is a count, so a long trail of old dispatches never crowds the
+/// sessions the question is about.
+pub const MAX_WORKER_LINES: usize = 8;
+
 fn workers_section(workers: &[WorkerRecord]) -> String {
     if workers.is_empty() {
         return String::new();
     }
-    let lines: Vec<String> = workers
+    let mut ordered: Vec<&WorkerRecord> = workers.iter().collect();
+    ordered.sort_by(|a, b| {
+        let running = |w: &WorkerRecord| matches!(w.status, crate::domain::memory::WorkerStatus::Running);
+        running(b)
+            .cmp(&running(a))
+            .then_with(|| b.started_at.cmp(&a.started_at))
+    });
+    let rest = ordered.len().saturating_sub(MAX_WORKER_LINES);
+    let mut lines: Vec<String> = ordered
         .iter()
+        .take(MAX_WORKER_LINES)
         .map(|w| {
             let status = serde_json::to_string(&w.status).unwrap_or_default();
             format!(
@@ -273,6 +296,14 @@ fn workers_section(workers: &[WorkerRecord]) -> String {
             )
         })
         .collect();
+    if rest > 0 {
+        let done = ordered
+            .iter()
+            .skip(MAX_WORKER_LINES)
+            .filter(|w| !matches!(w.status, crate::domain::memory::WorkerStatus::Running))
+            .count();
+        lines.push(format!("- … e mais {rest} antigas ({done} concluidas)"));
+    }
     format!(
         "Tarefas despachadas pelo Hark (todos os workspaces):\n{}",
         lines.join("\n")
@@ -282,6 +313,10 @@ fn workers_section(workers: &[WorkerRecord]) -> String {
 /// Journal entries now carry answer bodies; cap the section so memory
 /// never crowds out the sessions the question is actually about.
 const JOURNAL_SECTION_MAX: usize = 3200;
+/// Share of the budget the session blocks keep, whatever else weighs.
+const SESSIONS_SHARE_PERCENT: usize = 40;
+/// The journal never vanishes: at least the head of the turn before.
+const JOURNAL_MIN_CHARS: usize = 600;
 
 fn journal_section(journal: &[String]) -> String {
     if journal.is_empty() {
@@ -304,6 +339,15 @@ fn clip_journal(entries: &[String], max_chars: usize) -> Vec<String> {
         }
         used += len;
         kept.push(entry.clone());
+    }
+    // A single entry fatter than the cap: keep its head rather than
+    // forgetting the turn before entirely.
+    if kept.is_empty() {
+        if let Some(newest) = entries.last() {
+            if max_chars > 0 {
+                kept.push(compact(newest, max_chars));
+            }
+        }
     }
     kept.reverse();
     kept
@@ -437,6 +481,68 @@ mod tests {
         // A session without a reply yet says nothing about one.
         let old = text.split("sessao new1").next().unwrap();
         assert!(!old.contains("ultima resposta"), "{old}");
+    }
+
+    #[test]
+    fn sessions_keep_their_share_when_workers_and_journal_are_fat() {
+        // The real prompt of 04/11: 22 dispatched workers (6.5k chars) and
+        // a long journal ate the 12k budget and NOT ONE session block was
+        // left, topical or not. The question summoned those sessions; they
+        // get a reserved share, and the journal and the workers shrink.
+        let mut snap = snapshot();
+        snap.workers = (0..22)
+            .map(|i| WorkerRecord {
+                agent: "claude".into(),
+                task_id: format!("t-{i}"),
+                context: "beta".into(),
+                workspace: "/home/dev/beta".into(),
+                session_id: format!("w{i}"),
+                status: if i < 18 { WorkerStatus::Running } else { WorkerStatus::Done },
+                started_at: format!("2026-08-{:02}T11:30:00Z", 1 + i),
+                summary: "x".repeat(200),
+                lineage: Vec::new(),
+            })
+            .collect();
+        snap.journal = (0..8)
+            .map(|i| format!("2026-11-04T0{i}:00:00Z\nQ: pergunta {i}\nA: {}", "y".repeat(3000)))
+            .collect();
+        snap.board = format!("[doing]\n- {}", "z".repeat(4500));
+        // The session the question is about is a real one: five requests
+        // and a closing reply.
+        snap.sessions[1].recent_prompts = (0..5)
+            .map(|i| RecentPrompt { ts: format!("2026-08-14T1{i}:00:00.000Z"), text: "p".repeat(200) })
+            .collect();
+        snap.sessions[1].last_reply = Some(RecentPrompt { ts: "2026-08-14T16:00:00.000Z".into(), text: "r".repeat(600) });
+        let budget = PromptBudget { max_chars: 12_000 };
+        let text = build_budgeted("status do webhook?", &snap, &["new1".to_string()], &budget);
+        assert!(text.contains("sessao new1"), "topical session dropped:\n{text}");
+        assert!(text.contains("ultima resposta do agente"), "{text}");
+        assert!(text.contains("Conversa recente"), "the journal still rides along, clipped");
+        assert!(text.contains("pergunta 7"), "newest journal entry survives, clipped");
+        assert!(text.contains("Pergunta do usuario"));
+        assert!(text.chars().count() < 18_000, "nothing was clipped: {}", text.chars().count());
+    }
+
+    #[test]
+    fn workers_section_lists_the_newest_running_and_counts_the_rest() {
+        let workers: Vec<WorkerRecord> = (0..22)
+            .map(|i| WorkerRecord {
+                agent: "claude".into(),
+                task_id: format!("t-{i}"),
+                context: "beta".into(),
+                workspace: "/home/dev/beta".into(),
+                session_id: format!("w{i}"),
+                status: if i < 18 { WorkerStatus::Running } else { WorkerStatus::Done },
+                started_at: format!("2026-08-{:02}T11:30:00Z", 1 + i),
+                summary: format!("work {i}"),
+                lineage: Vec::new(),
+            })
+            .collect();
+        let text = workers_section(&workers);
+        let lines: Vec<&str> = text.lines().filter(|l| l.starts_with("- ")).collect();
+        assert_eq!(lines.len(), MAX_WORKER_LINES + 1, "{text}");
+        assert!(lines[0].starts_with("- t-17 "), "newest running first: {}", lines[0]);
+        assert!(lines.last().unwrap().contains("mais 14"), "{text}");
     }
 
     #[test]
