@@ -60,6 +60,44 @@ pub fn add(mut projects: Vec<Project>, name: &str, path: &str) -> (Vec<Project>,
 }
 
 /// Remove a project by path or name.
+/// A folder the agent CLI worked in that is no project of Hark's yet.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Folder {
+    /// The cwd; empty when the sessions carried none.
+    pub path: String,
+    pub sessions: usize,
+    pub last_ts: Option<String>,
+}
+
+/// Sessions by folder, outside every registered project (a folder under a
+/// project belongs to it). Biggest first, then newest; the folderless ones
+/// last. Pure: the shell drops folders that no longer exist.
+pub fn folders_outside(sessions: &[(Option<&str>, Option<&str>)], projects: &[Project]) -> Vec<Folder> {
+    let inside = |cwd: &str| projects.iter().any(|p| cwd == p.path || cwd.starts_with(&format!("{}/", p.path.trim_end_matches('/'))));
+    let mut out: Vec<Folder> = Vec::new();
+    for (cwd, ts) in sessions {
+        let path = cwd.unwrap_or("");
+        if !path.is_empty() && inside(path) {
+            continue;
+        }
+        match out.iter_mut().find(|f| f.path == path) {
+            Some(f) => {
+                f.sessions += 1;
+                if ts.map(str::to_string) > f.last_ts {
+                    f.last_ts = ts.map(str::to_string);
+                }
+            }
+            None => out.push(Folder { path: path.to_string(), sessions: 1, last_ts: ts.map(str::to_string) }),
+        }
+    }
+    out.sort_by(|a, b| {
+        a.path.is_empty().cmp(&b.path.is_empty())
+            .then_with(|| b.sessions.cmp(&a.sessions))
+            .then_with(|| b.last_ts.cmp(&a.last_ts))
+    });
+    out
+}
+
 pub fn remove(projects: Vec<Project>, key: &str) -> Vec<Project> {
     projects
         .into_iter()
@@ -305,5 +343,22 @@ mod tests {
             find_spoken(&projects, "abre o hark docs").unwrap().path,
             "/p/voxdocs"
         );
+    }
+
+    #[test]
+    fn folders_with_sessions_outside_the_registered_projects_are_listed_biggest_first() {
+        let projects = vec![Project { name: "vox".into(), path: "/p/vox".into() }];
+        let sessions = vec![
+            (Some("/p/hark"), Some("2026-11-04T10:00:00Z")),
+            (Some("/p/hark"), Some("2026-11-03T10:00:00Z")),
+            (Some("/p/hark/sub"), Some("2026-11-01T10:00:00Z")),
+            (Some("/p/vox"), Some("2026-11-04T10:00:00Z")),
+            (Some("/p/vox/crates/x"), Some("2026-11-04T10:00:00Z")),
+            (None, Some("2026-11-02T10:00:00Z")),
+            (Some("/p/lab"), None),
+        ];
+        let out = folders_outside(&sessions, &projects);
+        assert_eq!(out.iter().map(|f| (f.path.as_str(), f.sessions)).collect::<Vec<_>>(), vec![("/p/hark", 2), ("/p/hark/sub", 1), ("/p/lab", 1), ("", 1)]);
+        assert_eq!(out[0].last_ts.as_deref(), Some("2026-11-04T10:00:00Z"));
     }
 }

@@ -29,6 +29,12 @@ max      = "opus"
 # Every agent Hark knows is one entry. The built-ins (claude, gemini, codex,
 # claude-acp, deepseek, kiro, antigravity) can be overridden field by field;
 # a new id adds an agent — anything that speaks the Agent Client Protocol.
+[agents.claude]
+history  = "all"                 # the CLI's own logs (~/.claude/projects): "all" indexes
+                                 #   everything and offers folders that are no project yet
+                                 #   in Criar; "projects" shows registered projects only;
+                                 #   "off" never reads them (and drops what was indexed)
+
 [agents.gemini]
 enabled     = true               # off = never offered, detected or not
 cmd         = "gemini"           # the binary Hark looks for and spawns

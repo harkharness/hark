@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { FolderOpen, Terminal } from "lucide-react";
+import type { CliFolder } from "../types";
 import { t } from "../lib/i18n";
 import type { Project } from "../types";
 
@@ -15,12 +16,16 @@ export default function CreateChat({
   onPick,
   onAddProject,
   onImport,
+  folders = [],
 }: {
   projects: Project[];
   colourOf?: (path: string) => string | undefined;
   onPick: (project: Project) => void;
   onAddProject: (path: string) => void;
+  /** The palette over every session, for the one you remember by topic. */
   onImport: () => void;
+  /** Folders the CLI worked in that are no project yet: one click registers. */
+  folders?: CliFolder[];
 }) {
   const [adding, setAdding] = useState(false);
   return (
@@ -62,10 +67,19 @@ export default function CreateChat({
         )}
       </div>
       <div className="create-card">
+        <div className="create-kicker">{t("create_import")}</div>
+        {folders.length === 0 && <div className="create-empty">{t("create_import_none")}</div>}
+        {folders.map((f) => (
+          <button key={f.path} className="create-row" onClick={() => onAddProject(f.path)} title={t("create_import_hint")}>
+            <Terminal size={13} />
+            <span className="create-name">{f.path.split("/").filter(Boolean).pop() ?? f.path}</span>
+            <span className="create-path">{t("create_import_n", { n: f.sessions })} · {f.path}</span>
+          </button>
+        ))}
         <button className="create-row" onClick={onImport}>
-          <Terminal size={13} />
-          <span className="create-name">{t("create_import")}</span>
-          <span className="create-path">~/.claude/projects</span>
+          <FolderOpen size={13} />
+          <span className="create-name">{t("create_import_search")}</span>
+          <span className="create-path">Cmd+K</span>
         </button>
       </div>
     </div>

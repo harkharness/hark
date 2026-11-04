@@ -38,6 +38,11 @@ pub struct AgentEntry {
     /// company LiteLLM (`ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`) as
     /// a second entry. Values are the user's own config; never logged.
     pub env: BTreeMap<String, String>,
+    /// What Hark does with this agent's own session history on disk
+    /// (`~/.claude/projects` for claude): "all" indexes everything and
+    /// offers the folders that are no project yet; "projects" indexes but
+    /// shows only registered projects; "off" never reads it. None = all.
+    pub history: Option<String>,
 }
 
 impl Default for AgentEntry {
@@ -54,6 +59,7 @@ impl Default for AgentEntry {
             models: BTreeMap::new(),
             registry: None,
             env: BTreeMap::new(),
+            history: None,
         }
     }
 }
@@ -210,6 +216,9 @@ pub fn merge(user: &BTreeMap<String, AgentEntry>) -> Vec<AgentEntry> {
                 }
                 if over.registry.is_some() {
                     base.registry = over.registry;
+                }
+                if over.history.is_some() {
+                    base.history = over.history;
                 }
                 for (tier, model) in over.models {
                     base.models.insert(tier, model);
@@ -372,6 +381,15 @@ pub fn model_id(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_history_switch_of_a_built_in_comes_from_the_user_s_table() {
+        let table = user(&[("claude", AgentEntry { history: Some("off".into()), ..Default::default() })]);
+        let merged = merge(&table);
+        assert_eq!(resolve(&merged, "claude").unwrap().history.as_deref(), Some("off"));
+        assert_eq!(resolve(&merged, "claude").unwrap().plugin, "claude", "the rest of the entry is still the built-in");
+        assert!(resolve(&merge(&BTreeMap::new()), "claude").unwrap().history.is_none());
+    }
 
     fn user(entries: &[(&str, AgentEntry)]) -> BTreeMap<String, AgentEntry> {
         entries.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()

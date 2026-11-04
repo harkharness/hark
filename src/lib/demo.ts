@@ -437,6 +437,10 @@ const C: Record<string, (a: Args) => unknown> = {
   request_add: () => null,
   request_done: () => undefined,
   attention_command: () => null,
+  cli_folders: () => [
+    { path: "/Users/ana/code/tulipafin", sessions: 7, last_ts: ago(26 * 60) },
+    { path: "/Users/ana/code/scratch", sessions: 2, last_ts: ago(9 * 24 * 60) },
+  ],
   notifications: () => ({ rows: NOTIFS, groups: [] }),
   notifications_history: () => [],
   notifications_read: () => undefined,

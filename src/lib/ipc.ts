@@ -341,6 +341,8 @@ export const demands = () => invoke<import("../types").Demand[]>("demands");
 export const requestAdd = (text: string, origin: "voice" | "text" = "text") =>
   invoke<import("../types").DemandRequest | null>("request_add", { text, origin });
 export const requestDone = (id: string) => invoke<void>("request_done", { id });
+/** Folders the CLI worked in that are no project yet (Criar › importar). */
+export const cliFolders = () => invoke<import("../types").CliFolder[]>("cli_folders");
 /** The bell: what the panel shows (unread always, read for ten minutes). */
 export const notifications = () =>
   invoke<{ rows: import("../types").Notification[]; groups: unknown[] }>("notifications");

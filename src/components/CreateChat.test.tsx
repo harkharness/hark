@@ -29,11 +29,20 @@ describe("Criar: the project comes first", () => {
     expect(onAddProject).toHaveBeenCalledWith("/p/new");
   });
 
-  it("importing the CLI sessions is a door of its own", () => {
+  it("a folder the CLI worked in becomes a project with one click; the palette stays a door", () => {
     const onImport = vi.fn();
-    const { getByText } = render(<CreateChat {...base} onImport={onImport} />);
-    fireEvent.click(getByText(t("create_import")));
+    const onAddProject = vi.fn();
+    const folders = [{ path: "/p/new", sessions: 7, last_ts: null }];
+    const { getByText } = render(<CreateChat {...base} onImport={onImport} onAddProject={onAddProject} folders={folders} />);
+    fireEvent.click(getByText("new"));
+    expect(onAddProject).toHaveBeenCalledWith("/p/new");
+    fireEvent.click(getByText(t("create_import_search")));
     expect(onImport).toHaveBeenCalled();
+  });
+
+  it("with every folder registered, the import section says so", () => {
+    const { getByText } = render(<CreateChat {...base} />);
+    expect(getByText(t("create_import_none"))).toBeTruthy();
   });
 
   it("with no project registered, it says so and offers the folder", () => {

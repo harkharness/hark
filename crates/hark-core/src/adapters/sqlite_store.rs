@@ -436,6 +436,15 @@ impl SessionStore for SqliteStore {
         Ok(rows.iter().filter_map(|json| serde_json::from_str(json).ok()).collect())
     }
 
+    fn forget_under(&mut self, prefix: &str) -> anyhow::Result<usize> {
+        let like = format!("{}%", prefix.trim_end_matches('/'));
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM prompts WHERE path LIKE ?1", params![like])?;
+        let n = tx.execute("DELETE FROM files WHERE path LIKE ?1", params![like])?;
+        tx.commit()?;
+        Ok(n)
+    }
+
     fn notifications(&self) -> anyhow::Result<Vec<crate::domain::notifications::Notification>> {
         let mut stmt = self.conn.prepare("SELECT notification FROM notifications ORDER BY at ASC, rowid ASC")?;
         let rows = stmt
@@ -614,6 +623,17 @@ mod tests {
     use super::*;
     use crate::domain::snapshot::{RecentPrompt, SessionSummary};
     use crate::ports::SessionStore;
+
+    #[test]
+    fn forgetting_a_folder_drops_its_files_and_keeps_the_rest() {
+        let mut store = SqliteStore::in_memory().unwrap();
+        store.save_file_state("/home/u/.claude/projects/a/1.jsonl", &summary("s1", "2026-11-01T10:00:00Z"), 0, 0).unwrap();
+        store.save_file_state("/home/u/.claude/projects/b/2.jsonl", &summary("s2", "2026-11-02T10:00:00Z"), 0, 0).unwrap();
+        store.save_file_state("/home/u/.hark/records/3.jsonl", &summary("s3", "2026-11-03T10:00:00Z"), 0, 0).unwrap();
+        assert_eq!(store.forget_under("/home/u/.claude/projects").unwrap(), 2);
+        let left = store.sessions_since("0").unwrap();
+        assert_eq!(left.iter().map(|s| s.session_id.as_str()).collect::<Vec<_>>(), vec!["s3"]);
+    }
 
     #[test]
     fn requests_survive_a_round_trip_and_keep_their_done_mark() {

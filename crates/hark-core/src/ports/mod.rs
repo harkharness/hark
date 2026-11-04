@@ -246,6 +246,11 @@ pub trait SessionStore: SpendLedger {
     fn save_requests(&mut self, _requests: &[crate::domain::demands::Request]) -> anyhow::Result<()> {
         Ok(())
     }
+    /// Drop every indexed session file under a path prefix (the agent's
+    /// history folder, when the person switches its reading off).
+    fn forget_under(&mut self, _prefix: &str) -> anyhow::Result<usize> {
+        Ok(0)
+    }
     /// The notifications behind the bell, newest last; a store that keeps
     /// none says so with an empty list.
     fn notifications(&self) -> anyhow::Result<Vec<crate::domain::notifications::Notification>> {

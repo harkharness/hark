@@ -130,6 +130,14 @@ pub struct AssistTable {
     pub tokensave: Option<String>,
 }
 
+/// See `Config::claude_history`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryMode {
+    All,
+    Projects,
+    Off,
+}
+
 #[derive(Debug, Clone, Deserialize, serde::Serialize, Default)]
 #[serde(default)]
 pub struct ModelsTable {
@@ -385,6 +393,17 @@ impl Config {
                 .unwrap_or_else(|| self.model.clone()),
             heavy: self.models.heavy.clone().unwrap_or(defaults.heavy),
             max: self.models.max.clone().unwrap_or(defaults.max),
+        }
+    }
+
+    /// What Hark does with claude's own history on disk (`[agents.claude]
+    /// history`): "all" (default), "projects" or "off".
+    pub fn claude_history(&self) -> HistoryMode {
+        let merged = crate::domain::agents::merge(&self.agents);
+        match crate::domain::agents::resolve(&merged, "claude").and_then(|e| e.history.as_deref()) {
+            Some("off") => HistoryMode::Off,
+            Some("projects") => HistoryMode::Projects,
+            _ => HistoryMode::All,
         }
     }
 
@@ -660,6 +679,16 @@ name = "Codex"
         .unwrap();
         let parsed: Config = toml::from_str(&out).unwrap();
         assert_eq!(parsed.models.light.as_deref(), Some("haiku"));
+    }
+
+    #[test]
+    fn claude_history_reads_the_agent_table_and_defaults_to_all() {
+        let cfg: Config = toml::from_str("").unwrap();
+        assert_eq!(cfg.claude_history(), HistoryMode::All);
+        let cfg: Config = toml::from_str("[agents.claude]\nhistory = \"off\"\n").unwrap();
+        assert_eq!(cfg.claude_history(), HistoryMode::Off);
+        let cfg: Config = toml::from_str("[agents.claude]\nhistory = \"projects\"\n").unwrap();
+        assert_eq!(cfg.claude_history(), HistoryMode::Projects);
     }
 
     #[test]

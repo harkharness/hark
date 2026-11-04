@@ -336,7 +336,13 @@ impl hark_core::ports::HistoryIndexer for BothHistories {
 }
 
 fn refresh_histories(config: &Config, store: &mut (impl hark_core::ports::SessionStore + ?Sized)) {
-    let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, store);
+    // `[agents.claude] history = "off"`: the CLI's own logs are never read,
+    // and what an earlier run indexed leaves the index.
+    if config.claude_history() == hark_core::config::HistoryMode::Off {
+        let _ = store.forget_under(&config.projects_dir.to_string_lossy());
+    } else {
+        let _ = hark_plugin_claude::history::refresh_index(&config.projects_dir, store);
+    }
     let _ = hark_core::adapters::recorder::refresh(&config.data_dir(), store);
 }
 
@@ -2184,6 +2190,32 @@ fn notifications_read_all(app: AppHandle) -> Result<(), String> {
         let ids: Vec<String> = all.iter().filter(|n| n.read_at.is_none()).map(|n| n.id.clone()).collect();
         hark_core::domain::notifications::mark_read(all, &ids, now)
     })
+}
+
+/// Criar › the folders the CLI worked in that are no project of Hark's
+/// yet, biggest first. Only under `history = "all"`; folders that no
+/// longer exist stay out.
+#[tauri::command(async)]
+fn cli_folders() -> Result<Vec<hark_core::domain::project::Folder>, String> {
+    use hark_core::ports::SessionStore;
+    let config = Config::load();
+    if config.claude_history() != hark_core::config::HistoryMode::All {
+        return Ok(Vec::new());
+    }
+    let mut store = SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    refresh_histories(&config, &mut store);
+    let data_dir = config.data_dir().to_string_lossy().to_string();
+    let all = store.sessions_since("0").map_err(|e| e.to_string())?;
+    let sessions: Vec<(Option<&str>, Option<&str>)> = all
+        .iter()
+        .filter(|s| !hark_core::domain::owner::is_machinery_cwd(s.cwd.as_deref(), &data_dir))
+        .map(|s| (s.cwd.as_deref(), s.last_ts.as_deref()))
+        .collect();
+    let projects = load_projects(&config);
+    Ok(hark_core::domain::project::folders_outside(&sessions, &projects)
+        .into_iter()
+        .filter(|f| !f.path.is_empty() && std::path::Path::new(&f.path).is_dir())
+        .collect())
 }
 
 /// "Foca no billing" / "volta": the words that move Hark's attention.
@@ -6375,6 +6407,7 @@ pub fn run() {
             notifications_read_chat,
             notifications_read_all,
             attention_command,
+            cli_folders,
             request_add,
             request_done,
             artifact_strip_pager,

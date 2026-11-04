@@ -230,6 +230,12 @@ export default function App({
     [demands, later],
   );
   const [dayShown, setDayShown] = useState<string | null>(null);
+  // Criar › the folders the CLI worked in that are no project yet.
+  const [cliFolders, setCliFolders] = useState<import("./types").CliFolder[]>([]);
+  useEffect(() => {
+    if (view !== "criar") return;
+    ipc.cliFolders().then(setCliFolders).catch(() => setCliFolders([]));
+  }, [view]);
   const reloadJournal = useCallback(() => {
     ipc.journalRecent(400).then(setJournal).catch(() => {});
   }, []);
@@ -3719,6 +3725,7 @@ export default function App({
                   <CreateChat
                     projects={projects}
                     colourOf={colourOf}
+                    folders={cliFolders}
                     onPick={startDraftChat}
                     onAddProject={(path) =>
                       ipc

@@ -42,6 +42,9 @@ export type Notification = {
   dismissed_at?: string | null;
 };
 
+/** A folder the agent CLI worked in that is no project of Hark's yet. */
+export type CliFolder = { path: string; sessions: number; last_ts?: string | null };
+
 /** "Me lembra de…", kept locally. */
 export type DemandRequest = {
   id: string;
