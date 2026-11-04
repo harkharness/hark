@@ -38,6 +38,8 @@ import Sidebar, { type Door } from "./components/Sidebar";
 import CreateChat from "./components/CreateChat";
 import Demands from "./components/Demands";
 import Mirror from "./components/Mirror";
+import Notifications from "./components/Notifications";
+import { Bell } from "lucide-react";
 import { condense } from "./lib/mirror";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
@@ -207,6 +209,14 @@ export default function App({
   // Foco (inicio-e-code, decision 2): Início pinned to one chat. The chat
   // is focused as usual (composer, rail, events), but the screen stays
   // Início with a condensed mirror of it; "volta" or "pausa" releases.
+  // The bell (inicio-e-code, decision 6): rows behind it, the panel open
+  // or not, and the history already pulled in.
+  const [notifRows, setNotifRows] = useState<import("./types").Notification[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifHistory, setNotifHistory] = useState<import("./types").Notification[]>([]);
+  const reloadNotifs = useCallback(() => {
+    ipc.notifications().then((o) => setNotifRows(o.rows)).catch(() => {});
+  }, []);
   const [inicioFocus, setInicioFocus] = useState<{ title: string; sessionId: string; since: number } | null>(null);
   const inicioFocusRef = useRef<{ title: string; sessionId: string; since: number } | null>(null);
   inicioFocusRef.current = inicioFocus;
@@ -616,6 +626,7 @@ export default function App({
   );
   const refresh = useCallback(() => {
     reloadDemands();
+    reloadNotifs();
     ipc
       .overview()
       .then((o) => {
@@ -1116,6 +1127,21 @@ export default function App({
     }, []),
     onArtifactWritten: useCallback(() => setArtTick((n) => n + 1), []),
     onDemandsChanged: reloadDemands,
+    onNotificationsChanged: reloadNotifs,
+    // A new row behind the bell: the list refreshes, and Hoje gets the
+    // same line (the chat in focus already said so in its own words).
+    onNotification: useCallback((n: import("./types").Notification) => {
+      reloadNotifs();
+      if (!isMain) return;
+      const title = n.target.kind === "chat" ? n.target.title : n.target.kind === "page" ? n.target.id : "";
+      if (inicioFocusRef.current?.title === title) return;
+      push({
+        who: "sys",
+        text: title ? `${title} · ${n.text}` : n.text,
+        goto: n.target.kind === "chat" ? { title: n.target.title, sessionId: n.target.session_id ?? undefined } : undefined,
+      });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
     onOpenPage: useCallback((space: string, id: string) => {
       setView("artefatos");
       setArtSel({ space, id });
@@ -2860,6 +2886,10 @@ export default function App({
   }
 
   async function focusTask(title: string, sessionId: string, note?: string) {
+    // Opening a chat reads what the bell held about it, on the spot.
+    if (notifRows.some((n) => !n.read_at && n.target.kind === "chat" && n.target.title === title)) {
+      ipc.notificationsReadChat(title).then(reloadNotifs).catch(() => {});
+    }
     // Opening a chat IS leaving the board or the settings: from the board
     // view a sidebar click used to only move the scope pill (30/10).
     setView("chat");
@@ -3139,6 +3169,28 @@ export default function App({
     [messages, inicioFocus],
   );
   const pastDays = useMemo(() => journalDays(journal, new Date(), lang()), [journal]);
+  // What the bell shows: the unread, minus the chat on screen.
+  const unreadNotifs = useMemo(
+    () => notifRows.filter((n) => !n.read_at && !(n.target.kind === "chat" && n.target.title === focusedTask?.title)),
+    [notifRows, focusedTask?.title],
+  );
+  const unreadTitles = useMemo(
+    () => [...new Set(unreadNotifs.flatMap((n) => (n.target.kind === "chat" ? [n.target.title] : [])))],
+    [unreadNotifs],
+  );
+  const notifColourOf = (key: string) => colourOf(key.startsWith("/") ? key : allProjects.find((p) => p.name === key)?.path);
+  const goToNotif = (n: import("./types").Notification) => {
+    setNotifOpen(false);
+    if (n.target.kind === "chat") {
+      inicioFocusRef.current = null;
+      setInicioFocus(null);
+      setView("chat");
+      void openTaskByTitle(n.target.title, n.target.session_id ?? undefined);
+    } else if (n.target.kind === "page") {
+      setView("artefatos");
+      setArtSel({ space: n.target.space, id: n.target.id });
+    }
+  };
 
   // Typed windows, shared by the tiled layout and the expanded mode.
   /** Drag-to-reorder wiring for a rail panel's header. */
@@ -3499,6 +3551,9 @@ export default function App({
                 setView("chat");
               }}
               generalActive={!focusedTask && !draftChat && !dayShown && view === "chat"}
+              unreadTitles={unreadTitles}
+              notifCount={unreadNotifs.length}
+              onOpenNotifs={isMain ? () => setNotifOpen((o) => !o) : undefined}
               demandsCount={demands.length}
               demandsOpen={isMain && view === "demandas"}
               onOpenDemands={isMain ? () => {
@@ -3662,10 +3717,11 @@ export default function App({
                   )}
                   {inicioFocus && (
                     <>
-                      <span className="crumb" data-tauri-drag-region>{t("focus_chip")}</span>
-                      <span className="focus-chip" data-tauri-drag-region>
+                      <span className="focus-chip" data-tauri-drag-region title={`${t("focus_chip")} ${inicioFocus.title}`}>
                         <span className="proj-dot" />
-                        {scope.kind === "chat" && scope.project ? `${scope.project.name} › ` : ""}{inicioFocus.title}
+                        <span className="focus-chip-text">
+                          {scope.kind === "chat" && scope.project ? `${scope.project.name} › ` : ""}{inicioFocus.title}
+                        </span>
                       </span>
                       <button className="pill-btn" onClick={leaveFocus}>{t("focus_pause")}</button>
                       <button
@@ -3707,6 +3763,36 @@ export default function App({
                     </>
                   )}
                   <span className="chat-head-gap" data-tauri-drag-region />
+                  {isMain && (
+                    <span className="bell-anchor">
+                      <button
+                        className={`bell-btn ${notifOpen ? "on" : ""}`}
+                        title={t("bell_hint")}
+                        aria-label={t("bell_hint")}
+                        onClick={() => setNotifOpen((o) => !o)}
+                      >
+                        <Bell size={14} />
+                        {unreadNotifs.length > 0 && <span className="bell-badge">{unreadNotifs.length}</span>}
+                      </button>
+                      {notifOpen && (
+                        <Notifications
+                          rows={[...notifRows, ...notifHistory.filter((h) => !notifRows.some((r) => r.id === h.id))]}
+                          colourOf={notifColourOf}
+                          onGo={goToNotif}
+                          onFocus={(n) => {
+                            setNotifOpen(false);
+                            if (n.target.kind === "chat") void enterFocus(n.target.title);
+                          }}
+                          onReadAll={() => ipc.notificationsReadAll().then(reloadNotifs).catch(() => {})}
+                          onHistory={() => {
+                            const oldest = [...notifRows, ...notifHistory].map((n) => n.at).sort()[0];
+                            ipc.notificationsHistory(oldest).then((more) => setNotifHistory((old) => [...old, ...more])).catch(() => {});
+                          }}
+                          onSeen={(ids) => ipc.notificationsRead(ids).then(reloadNotifs).catch(() => {})}
+                        />
+                      )}
+                    </span>
+                  )}
                   {/* This bar owns the thread's STATE and its WINDOWS; the
                       composer row owns the message and the voice. The cost
                       used to be a pill here AND a wallet button down there —

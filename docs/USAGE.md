@@ -121,6 +121,15 @@ chat is one click away in Code. "Volta" or "pausa" releases it. When the
 chat in focus finishes its turn, a line in Hoje says so and lists what
 waits.
 
+**The bell.** Hark never interrupts a turn you are in. What finishes,
+asks or gets ready while you are elsewhere becomes a row behind the bell
+at the top: a chat's turn ended, a permission asked, a page an agent
+wrote. The sidebar shows the chat in strong type with a red dot; opening
+the chat reads its rows on the spot, and seeing them in the panel reads
+them too. A read row leaves the panel ten minutes later; an unread one
+never does; "ver anteriores" brings the history back from the local
+index. The same line lands in Hoje, with "ir" beside it.
+
 **Início › Hoje is Hark itself**, not an agent session: one chat over every
 project, kept in a local journal with the days before it listed in the
 sidebar (click one to read it back). Nothing you type there opens a

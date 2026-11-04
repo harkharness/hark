@@ -24,6 +24,21 @@ export type Demand = {
   at: string;
 };
 
+/** One row behind the bell (domain::notifications). */
+export type Notification = {
+  id: string;
+  kind: "turn_ended" | "permission_asked" | "artifact_ready" | "reminder" | "scheduled";
+  target:
+    | { kind: "chat"; title: string; session_id: string | null }
+    | { kind: "page"; space: string; id: string }
+    | { kind: "request"; id: string };
+  project: string | null;
+  text: string;
+  at: string;
+  read_at?: string | null;
+  dismissed_at?: string | null;
+};
+
 /** "Me lembra de…", kept locally. */
 export type DemandRequest = {
   id: string;
@@ -135,6 +150,8 @@ export type HarkEvent =
   /** An agent wrote a page under ~/.hark/artifacts: the tree re-reads. */
   | { kind: "artifact_written"; space: string; id: string; task_id?: string | null }
   | { kind: "demands_changed" }
+  | { kind: "notification"; notification: Notification }
+  | { kind: "notifications_changed" }
   /** A `hark://artifacts/…` link: that page, in the artifacts view. */
   | { kind: "open_page"; space: string; id: string }
   /** A `hark://chat/…` link whose session the board does not know. */

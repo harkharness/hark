@@ -67,6 +67,12 @@ describe("the two doors of the sidebar", () => {
     expect(getByText("4")).toBeTruthy();
   });
 
+  it("a chat with something unread behind the bell reads strong", () => {
+    const task = { title: "Billing v2", status: "doing" as const, workspace: "/p/vox", session_ids: [], updated_at: "2026-11-04T10:00:00Z", pinned: false, subtasks: [] };
+    const { getByText } = render(<Sidebar {...base} door="code" tasks={[task]} unreadTitles={["Billing v2"]} />);
+    expect(getByText("Billing v2").closest(".side-item")?.className).toContain("unread");
+  });
+
   it("Início lists the days before today, and a day opens on click", () => {
     const onOpenDay = vi.fn();
     const day = { date: "2026-11-03", label: "ontem · ter 03", count: 2, first: "status do billing" };

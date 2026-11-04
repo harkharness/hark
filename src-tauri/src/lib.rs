@@ -1262,6 +1262,12 @@ fn start_worker_titled(
                                 match hark_core::app::artifacts::attach_origin(&store, &page.space, &page.path, origin.clone(), &now_iso()) {
                                     Ok(node) => {
                                         emit_event(&app3, serde_json::json!({ "kind": "artifact_written", "space": page.space, "id": node.id, "task_id": task3 }));
+                                        notify(&app3, hark_core::domain::notifications::Event::ArtifactWritten {
+                                            space: page.space.clone(),
+                                            id: node.id.clone(),
+                                            title: node.title.clone(),
+                                            task: Some(task3.clone()),
+                                        });
                                         return;
                                     }
                                     Err(err) if attempt == 9 || !err.to_string().contains("not a page") => {
@@ -1342,6 +1348,11 @@ fn start_worker_titled(
                             "prod_risk": prod_risk,
                         }),
                     );
+                    notify(&app2, hark_core::domain::notifications::Event::PermissionAsked {
+                        task: board_title.clone(),
+                        tool: tool_name.clone(),
+                        project: None,
+                    });
                 }
                 ClaudeEvent::Result(turn) => {
                     // The next turn starts from scratch: re-announce its
@@ -1459,6 +1470,13 @@ fn start_worker_titled(
                             "context_pct": context_pct,
                             "context_window": context_window }),
                     );
+                    notify(&app2, hark_core::domain::notifications::Event::TurnEnded {
+                        task: board_title.clone(),
+                        session: (!current_session.is_empty()).then(|| current_session.clone()),
+                        project: None,
+                        text: text.to_string(),
+                        is_error,
+                    });
                     // ACP has no capability flag for cost: the sheet says
                     // "no" until an agent prices a turn, and this is where
                     // that is learned — once, then the catalog knows.
@@ -2082,6 +2100,90 @@ fn gather_demands(
     let requests = store.requests().unwrap_or_default();
     let local = hark_core::chrono::Local::now().fixed_offset();
     hark_core::domain::demands::collect(&board, &waiting_refs, &pages, &requests, local, config.lang())
+}
+
+/// One event behind the bell: worded, stored, announced to the windows.
+/// The bell is the only interruption (decision 6, inicio-e-code).
+fn notify(app: &AppHandle, event: hark_core::domain::notifications::Event) {
+    use hark_core::ports::SessionStore;
+    let config = Config::load();
+    let Ok(mut store) = SqliteStore::open(&config.data_dir().join("index.db")) else { return };
+    let mut event = event;
+    // A chat's project is its board card's workspace: the colour it wears.
+    if let hark_core::domain::notifications::Event::TurnEnded { task, project, .. }
+    | hark_core::domain::notifications::Event::PermissionAsked { task, project, .. } = &mut event
+    {
+        if project.is_none() {
+            *project = store.board().unwrap_or_default().into_iter().find(|t| t.title == *task).and_then(|t| t.workspace);
+        }
+    }
+    let n = hark_core::domain::notifications::from_event(&event, &now_iso(), config.lang());
+    let mut all = store.notifications().unwrap_or_default();
+    all.push(n.clone());
+    let _ = store.save_notifications(&all);
+    emit_event(app, serde_json::json!({ "kind": "notification", "notification": n }));
+}
+
+#[derive(Serialize)]
+struct NotificationsOut {
+    /// What the panel shows: unread always, read for ten minutes.
+    rows: Vec<hark_core::domain::notifications::Notification>,
+    groups: Vec<hark_core::domain::notifications::Group>,
+}
+
+#[tauri::command]
+fn notifications() -> Result<NotificationsOut, String> {
+    use hark_core::ports::SessionStore;
+    let config = Config::load();
+    let store = SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let all = store.notifications().map_err(|e| e.to_string())?;
+    let rows: Vec<_> = hark_core::domain::notifications::visible(&all, &now_iso()).into_iter().cloned().collect();
+    let groups = hark_core::domain::notifications::group(&rows);
+    Ok(NotificationsOut { rows, groups })
+}
+
+/// "Ver anteriores": the rows older than `before` (ISO), newest first.
+#[tauri::command]
+fn notifications_history(before: Option<String>, n: Option<usize>) -> Result<Vec<hark_core::domain::notifications::Notification>, String> {
+    use hark_core::ports::SessionStore;
+    let config = Config::load();
+    let store = SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let mut all = store.notifications().map_err(|e| e.to_string())?;
+    all.retain(|x| before.as_deref().is_none_or(|b| x.at.as_str() < b));
+    all.sort_by(|a, b| b.at.cmp(&a.at));
+    all.truncate(n.unwrap_or(30));
+    Ok(all)
+}
+
+fn with_notifications(app: &AppHandle, f: impl FnOnce(&mut Vec<hark_core::domain::notifications::Notification>, &str)) -> Result<(), String> {
+    use hark_core::ports::SessionStore;
+    let config = Config::load();
+    let mut store = SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let mut all = store.notifications().map_err(|e| e.to_string())?;
+    f(&mut all, &now_iso());
+    store.save_notifications(&all).map_err(|e| e.to_string())?;
+    emit_event(app, serde_json::json!({ "kind": "notifications_changed" }));
+    Ok(())
+}
+
+/// Seen in the panel: read.
+#[tauri::command]
+fn notifications_read(app: AppHandle, ids: Vec<String>) -> Result<(), String> {
+    with_notifications(&app, |all, now| hark_core::domain::notifications::mark_read(all, &ids, now))
+}
+
+/// Opening a chat reads everything about it, on the spot.
+#[tauri::command]
+fn notifications_read_chat(app: AppHandle, title: String) -> Result<(), String> {
+    with_notifications(&app, |all, now| hark_core::domain::notifications::mark_read_on_open(all, &title, now))
+}
+
+#[tauri::command]
+fn notifications_read_all(app: AppHandle) -> Result<(), String> {
+    with_notifications(&app, |all, now| {
+        let ids: Vec<String> = all.iter().filter(|n| n.read_at.is_none()).map(|n| n.id.clone()).collect();
+        hark_core::domain::notifications::mark_read(all, &ids, now)
+    })
 }
 
 /// "Foca no billing" / "volta": the words that move Hark's attention.
@@ -6267,6 +6369,11 @@ pub fn run() {
             artifact_rename,
             artifact_set_kind,
             demands,
+            notifications,
+            notifications_history,
+            notifications_read,
+            notifications_read_chat,
+            notifications_read_all,
             attention_command,
             request_add,
             request_done,

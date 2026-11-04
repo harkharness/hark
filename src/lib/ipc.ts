@@ -341,6 +341,14 @@ export const demands = () => invoke<import("../types").Demand[]>("demands");
 export const requestAdd = (text: string, origin: "voice" | "text" = "text") =>
   invoke<import("../types").DemandRequest | null>("request_add", { text, origin });
 export const requestDone = (id: string) => invoke<void>("request_done", { id });
+/** The bell: what the panel shows (unread always, read for ten minutes). */
+export const notifications = () =>
+  invoke<{ rows: import("../types").Notification[]; groups: unknown[] }>("notifications");
+export const notificationsHistory = (before?: string, n = 30) =>
+  invoke<import("../types").Notification[]>("notifications_history", { before: before ?? null, n });
+export const notificationsRead = (ids: string[]) => invoke<void>("notifications_read", { ids });
+export const notificationsReadChat = (title: string) => invoke<void>("notifications_read_chat", { title });
+export const notificationsReadAll = () => invoke<void>("notifications_read_all");
 /** "Foca no billing" / "volta": the words that move Hark's attention, or null. */
 export const attention = (text: string) =>
   invoke<{ kind: "focus"; target: string } | { kind: "leave" } | null>("attention_command", { text });

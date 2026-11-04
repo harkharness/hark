@@ -246,6 +246,14 @@ pub trait SessionStore: SpendLedger {
     fn save_requests(&mut self, _requests: &[crate::domain::demands::Request]) -> anyhow::Result<()> {
         Ok(())
     }
+    /// The notifications behind the bell, newest last; a store that keeps
+    /// none says so with an empty list.
+    fn notifications(&self) -> anyhow::Result<Vec<crate::domain::notifications::Notification>> {
+        Ok(Vec::new())
+    }
+    fn save_notifications(&mut self, _list: &[crate::domain::notifications::Notification]) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 /// Discovers live Claude Code sessions.

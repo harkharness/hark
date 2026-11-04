@@ -32,6 +32,12 @@ CREATE TABLE IF NOT EXISTS board (
     title       TEXT PRIMARY KEY,
     task        TEXT NOT NULL  -- full Task as JSON
 );
+CREATE TABLE IF NOT EXISTS notifications (
+    id           TEXT PRIMARY KEY,
+    at           TEXT NOT NULL,
+    notification TEXT NOT NULL  -- full Notification as JSON
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_at ON notifications(at);
 CREATE TABLE IF NOT EXISTS requests (
     id      TEXT PRIMARY KEY,
     request TEXT NOT NULL  -- full Request as JSON
@@ -63,6 +69,10 @@ CREATE INDEX IF NOT EXISTS idx_spend_session ON spend(session_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_spend_request
     ON spend(request_id, model) WHERE request_id IS NOT NULL;
 ";
+
+/// How many notifications the store keeps: the history behind "ver
+/// anteriores", not an archive of everything that ever happened.
+pub const NOTIFICATIONS_KEPT: usize = 500;
 
 impl SqliteStore {
     pub fn open(path: &std::path::Path) -> anyhow::Result<Self> {
@@ -426,6 +436,31 @@ impl SessionStore for SqliteStore {
         Ok(rows.iter().filter_map(|json| serde_json::from_str(json).ok()).collect())
     }
 
+    fn notifications(&self) -> anyhow::Result<Vec<crate::domain::notifications::Notification>> {
+        let mut stmt = self.conn.prepare("SELECT notification FROM notifications ORDER BY at ASC, rowid ASC")?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows.iter().filter_map(|json| serde_json::from_str(json).ok()).collect())
+    }
+
+    /// Replace the whole list, keeping the newest NOTIFICATIONS_KEPT.
+    fn save_notifications(&mut self, list: &[crate::domain::notifications::Notification]) -> anyhow::Result<()> {
+        let mut sorted: Vec<&crate::domain::notifications::Notification> = list.iter().collect();
+        sorted.sort_by(|a, b| a.at.cmp(&b.at));
+        let keep = sorted.len().saturating_sub(NOTIFICATIONS_KEPT);
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM notifications", [])?;
+        for n in &sorted[keep..] {
+            tx.execute(
+                "INSERT INTO notifications (id, at, notification) VALUES (?1, ?2, ?3)",
+                params![n.id, n.at, serde_json::to_string(n)?],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Replace the whole list (small by nature, like the board).
     fn save_requests(&mut self, requests: &[crate::domain::demands::Request]) -> anyhow::Result<()> {
         let tx = self.conn.transaction()?;
@@ -593,6 +628,21 @@ mod tests {
         // Saving again replaces, never duplicates.
         store.save_requests(&reqs[..1]).unwrap();
         assert_eq!(store.requests().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn notifications_survive_a_round_trip_and_the_store_keeps_only_the_newest() {
+        use crate::domain::notifications::{Event, from_event};
+        use crate::domain::lang::Lang;
+        let mut store = SqliteStore::in_memory().unwrap();
+        let list: Vec<_> = (0..NOTIFICATIONS_KEPT + 5)
+            .map(|i| from_event(&Event::TurnEnded { task: format!("t{i}"), session: None, project: None, text: String::new(), is_error: false }, &format!("2026-11-04T{:02}:{:02}:00-03:00", i / 60, i % 60), Lang::Pt))
+            .collect();
+        store.save_notifications(&list).unwrap();
+        let back = store.notifications().unwrap();
+        assert_eq!(back.len(), NOTIFICATIONS_KEPT);
+        assert_eq!(back.last().unwrap().id, list.last().unwrap().id, "the newest survive");
+        assert_eq!(back.first().unwrap().id, list[5].id);
     }
 
     fn summary(id: &str, ts: &str) -> SessionSummary {

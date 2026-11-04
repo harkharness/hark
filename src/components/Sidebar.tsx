@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, Bug, Code2, FolderTree, Home, Inbox, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, Sparkles, SquareKanban } from "lucide-react";
+import { Bell, BookOpen, Bug, Code2, FolderTree, Home, Inbox, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, Sparkles, SquareKanban } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 import type { Day } from "../lib/inicio";
@@ -31,6 +31,9 @@ export default function Sidebar({
   demandsCount = 0,
   demandsOpen,
   onOpenDemands,
+  unreadTitles = [],
+  notifCount = 0,
+  onOpenNotifs,
   projects,
   colourOf,
   tasks,
@@ -74,6 +77,10 @@ export default function Sidebar({
   demandsCount?: number;
   demandsOpen?: boolean;
   onOpenDemands?: () => void;
+  /** Chats with something unread behind the bell: strong title, red dot. */
+  unreadTitles?: string[];
+  notifCount?: number;
+  onOpenNotifs?: () => void;
   projects: Project[];
   /** The project colour of a path (css token), by registry order. */
   colourOf?: (path: string) => string | undefined;
@@ -149,7 +156,7 @@ export default function Sidebar({
   const item = (task: BoardTask) => (
     <div
       key={task.title}
-      className={`side-item ${task.status} ${activeTitle === task.title ? "active" : ""} ${pulsing.includes(task.title) ? "pulse" : ""}`}
+      className={`side-item ${task.status} ${activeTitle === task.title ? "active" : ""} ${pulsing.includes(task.title) ? "pulse" : ""} ${unreadTitles.includes(task.title) ? "unread" : ""}`}
     >
       {renaming === task.title ? (
         <input
@@ -268,6 +275,12 @@ export default function Sidebar({
         >
           <Inbox size={13} /> {t("side_demands")}
           {demandsCount ? <span className="side-count">{demandsCount}</span> : null}
+        </button>
+      )}
+      {inicio && onOpenNotifs && notifCount > 0 && (
+        <button className="side-board" onClick={onOpenNotifs} title={t("side_notifs_hint")}>
+          <Bell size={13} /> {t("side_notifs")}
+          <span className="side-count" style={{ color: "var(--err, #f7768e)", fontWeight: 700 }}>{notifCount}</span>
         </button>
       )}
       {!inicio && onCreate && (

@@ -53,6 +53,9 @@ type Handlers = {
   onArtifactWritten?: (space: string, id: string) => void;
   /** A request was added or done: the list of the day changed. */
   onDemandsChanged?: () => void;
+  /** A new row behind the bell; and the bell's list changed (read marks). */
+  onNotification?: (n: import("../types").Notification) => void;
+  onNotificationsChanged?: () => void;
   /** A `hark://` link asked for a page. */
   onOpenPage?: (space: string, id: string) => void;
   /** A `hark://chat` link the board could not place. */
@@ -298,6 +301,10 @@ export function useHarkEvents(h: Handlers) {
         h.onArtifactWritten?.(ev.space, ev.id);
       } else if (ev.kind === "demands_changed") {
         h.onDemandsChanged?.();
+      } else if (ev.kind === "notification") {
+        h.onNotification?.(ev.notification);
+      } else if (ev.kind === "notifications_changed") {
+        h.onNotificationsChanged?.();
       } else if (ev.kind === "open_page") {
         h.onOpenPage?.(ev.space, ev.id);
       } else if (ev.kind === "deep_link_unknown") {

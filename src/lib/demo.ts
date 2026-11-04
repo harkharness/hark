@@ -126,6 +126,13 @@ const TRANSCRIPTS: Record<string, TranscriptEntry[]> = {
   ],
 };
 
+/** Behind the bell: two unread, one read a moment ago. */
+const NOTIFS: import("../types").Notification[] = [
+  { id: "turn:chat:Rotate the webhook secret:1", kind: "turn_ended", target: { kind: "chat", title: "Rotate the webhook secret", session_id: "s-rotate" }, project: P["webhook-api"].path, text: "finished its turn · runbook drafted, two commands to confirm", at: ago(3) },
+  { id: "page:webhook-api/incident-summary:1", kind: "artifact_ready", target: { kind: "page", space: "webhook-api", id: "incident-summary" }, project: "webhook-api", text: "Incident summary · deploy 14:02 ready for review", at: ago(45) },
+  { id: "perm:chat:Billing endpoint v2:1", kind: "permission_asked", target: { kind: "chat", title: "Billing endpoint v2", session_id: "s-billing" }, project: P["webhook-api"].path, text: "asked for permission: Bash", at: ago(9), read_at: ago(2) },
+];
+
 /** The list of the day, as Início › Demandas shows it. */
 const DEMANDS: import("../types").Demand[] = [
   { id: "task:Billing endpoint v2", source: "board", project: P["webhook-api"].path, title: "Billing endpoint v2", why: "stopped at a permission", urgency: "needs_you", link: null, at: ago(6) },
@@ -429,6 +436,11 @@ const C: Record<string, (a: Args) => unknown> = {
   request_add: () => null,
   request_done: () => undefined,
   attention_command: () => null,
+  notifications: () => ({ rows: NOTIFS, groups: [] }),
+  notifications_history: () => [],
+  notifications_read: () => undefined,
+  notifications_read_chat: () => undefined,
+  notifications_read_all: () => undefined,
   session_owners: () => [],
   project_sessions: (a) => SESSIONS[PROJECTS.find((p) => p.path === a?.path)?.name ?? ""] ?? [],
   session_candidates: (a) => ALL_SESSIONS.filter((s) => s.title.toLowerCase().includes(String(a?.query ?? "").toLowerCase())).slice(0, Number(a?.limit ?? 8)),
