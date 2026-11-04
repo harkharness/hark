@@ -2084,6 +2084,12 @@ fn gather_demands(
     hark_core::domain::demands::collect(&board, &waiting_refs, &pages, &requests, local, config.lang())
 }
 
+/// "Foca no billing" / "volta": the words that move Hark's attention.
+#[tauri::command]
+fn attention_command(text: String) -> Option<hark_core::domain::attention::Attention> {
+    hark_core::domain::attention::parse(&text)
+}
+
 #[tauri::command]
 fn demands(app: AppHandle) -> Result<Vec<hark_core::domain::demands::Demand>, String> {
     let config = Config::load();
@@ -6261,6 +6267,7 @@ pub fn run() {
             artifact_rename,
             artifact_set_kind,
             demands,
+            attention_command,
             request_add,
             request_done,
             artifact_strip_pager,

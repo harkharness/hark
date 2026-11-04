@@ -113,6 +113,14 @@ request. The board stays the team's: a demand may point at a card, it
 never replaces one. "O que eu tenho hoje?" in Hoje answers from this list,
 zero tokens.
 
+**Foco.** "Foca no billing" (typed in Hoje, or *focar* on a demand) pins
+Início's composer to that chat without leaving Início: a chip at the top
+says which, what you write goes there, and a condensed mirror above the
+composer shows its tools as one line each and its words whole; the full
+chat is one click away in Code. "Volta" or "pausa" releases it. When the
+chat in focus finishes its turn, a line in Hoje says so and lists what
+waits.
+
 **Início › Hoje is Hark itself**, not an agent session: one chat over every
 project, kept in a local journal with the days before it listed in the
 sidebar (click one to read it back). Nothing you type there opens a

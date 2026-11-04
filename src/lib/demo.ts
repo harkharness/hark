@@ -428,6 +428,7 @@ const C: Record<string, (a: Args) => unknown> = {
   demands: () => DEMANDS,
   request_add: () => null,
   request_done: () => undefined,
+  attention_command: () => null,
   session_owners: () => [],
   project_sessions: (a) => SESSIONS[PROJECTS.find((p) => p.path === a?.path)?.name ?? ""] ?? [],
   session_candidates: (a) => ALL_SESSIONS.filter((s) => s.title.toLowerCase().includes(String(a?.query ?? "").toLowerCase())).slice(0, Number(a?.limit ?? 8)),

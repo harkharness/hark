@@ -2270,6 +2270,21 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .demand-src { font-size: 10.5px; color: var(--dim); border: 1px solid var(--border-strong); border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
 .demand-acts { margin-left: auto; display: flex; gap: 6px; flex: 0 0 auto; }
 
+/* ============ Foco: the mirror of the chat in focus (Mirror.tsx) ============ */
+.mirror { margin: 8px 24px 4px; padding: 8px 10px; border: 1px solid rgba(122,162,247,.35); border-radius: 12px; background: rgba(122,162,247,.05); max-width: 760px; font-size: 12.5px; }
+.mirror-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.mirror-title { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-size: 12px; }
+.mirror-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; color: var(--dim); }
+.mirror-row .mono { font-family: var(--font-mono); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mirror-row.err { color: var(--err, #f7768e); }
+.mirror-row.warn { color: var(--warn); }
+.mirror-pending { display: inline-block; width: 12px; text-align: center; }
+.mirror-user { align-self: flex-end; color: var(--text); background: var(--panel-2); border-radius: 10px; padding: 4px 10px; margin: 4px 0 4px auto; width: fit-content; max-width: 90%; }
+.mirror-text { color: var(--text); line-height: 1.5; padding: 4px 0; }
+.shimmer-text { background: linear-gradient(90deg, var(--dim), var(--text-strong), var(--dim)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.focus-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--proj, var(--border-strong)); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--text); white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.focus-chip .proj-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--proj, var(--dim)); }
+
 /* ============ Criar: the project picker (CreateChat.tsx) ============ */
 .create { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; }
 .create-card { width: min(440px, 100%); background: var(--panel); border: 1px solid var(--border-strong); border-radius: 12px; padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,.35); }

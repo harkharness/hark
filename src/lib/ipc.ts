@@ -341,6 +341,9 @@ export const demands = () => invoke<import("../types").Demand[]>("demands");
 export const requestAdd = (text: string, origin: "voice" | "text" = "text") =>
   invoke<import("../types").DemandRequest | null>("request_add", { text, origin });
 export const requestDone = (id: string) => invoke<void>("request_done", { id });
+/** "Foca no billing" / "volta": the words that move Hark's attention, or null. */
+export const attention = (text: string) =>
+  invoke<{ kind: "focus"; target: string } | { kind: "leave" } | null>("attention_command", { text });
 
 export const boardMove = (title: string, status: string) =>
   invoke("board_move", { title, status });

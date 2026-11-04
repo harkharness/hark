@@ -32,6 +32,15 @@ describe("Demandas: the list of the day", () => {
     expect(onDone).toHaveBeenCalledWith(contador);
   });
 
+  it("'focar' exists for a board demand only, and hands it over", () => {
+    const onFocus = vi.fn();
+    const { getAllByText } = render(<Demands {...base} onFocus={onFocus} />);
+    const buttons = getAllByText(t("demand_focus"));
+    expect(buttons).toHaveLength(1);
+    fireEvent.click(buttons[0]);
+    expect(onFocus).toHaveBeenCalledWith(billing);
+  });
+
   it("with nothing on the list, it says so", () => {
     const { getByText } = render(<Demands {...base} demands={[]} />);
     expect(getByText(t("demands_empty"))).toBeTruthy();

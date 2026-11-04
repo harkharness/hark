@@ -3,6 +3,7 @@
 pub mod agents;
 pub mod artifact_links;
 pub mod artifact_skill;
+pub mod attention;
 pub mod artifacts;
 pub mod address;
 pub mod answer;

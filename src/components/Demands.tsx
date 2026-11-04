@@ -1,4 +1,4 @@
-import { ArrowRight, Check, Clock } from "lucide-react";
+import { ArrowRight, Check, Clock, Crosshair } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { Demand } from "../types";
 
@@ -20,6 +20,7 @@ export default function Demands({
   onGo,
   onDone,
   onLater,
+  onFocus,
 }: {
   demands: Demand[];
   colourOf?: (key: string) => string | undefined;
@@ -29,6 +30,8 @@ export default function Demands({
   onDone: (d: Demand) => void;
   /** "depois": sinks to the end of the list for the day. */
   onLater: (d: Demand) => void;
+  /** "focar": Início's composer talks to that chat (board demands only). */
+  onFocus?: (d: Demand) => void;
 }) {
   if (demands.length === 0) return <div className="demands-empty">{t("demands_empty")}</div>;
   return (
@@ -46,6 +49,11 @@ export default function Demands({
             <span className="demand-why">{d.why}</span>
             <span className="demand-src">{t(SOURCE_KEY[d.source])}</span>
             <span className="demand-acts">
+              {onFocus && d.source === "board" && (
+                <button className="pill-btn" onClick={() => onFocus(d)} title={t("demand_focus_hint")}>
+                  <Crosshair size={11} /> {t("demand_focus")}
+                </button>
+              )}
               {(d.link || d.source === "board") && (
                 <button className="pill-btn" onClick={() => onGo(d)} title={t("demand_go_hint")}>
                   <ArrowRight size={11} /> {t("demand_go")}

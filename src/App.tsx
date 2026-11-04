@@ -37,6 +37,8 @@ import { collectOutputs } from "./lib/outputs";
 import Sidebar, { type Door } from "./components/Sidebar";
 import CreateChat from "./components/CreateChat";
 import Demands from "./components/Demands";
+import Mirror from "./components/Mirror";
+import { condense } from "./lib/mirror";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
@@ -200,6 +202,14 @@ export default function App({
   // The list of the day (Início › Demandas), ordered by the backend; "depois"
   // sinks a row to the end for this window's life.
   const [demands, setDemands] = useState<import("./types").Demand[]>([]);
+  const demandsRef = useRef<import("./types").Demand[]>([]);
+  demandsRef.current = demands;
+  // Foco (inicio-e-code, decision 2): Início pinned to one chat. The chat
+  // is focused as usual (composer, rail, events), but the screen stays
+  // Início with a condensed mirror of it; "volta" or "pausa" releases.
+  const [inicioFocus, setInicioFocus] = useState<{ title: string; sessionId: string; since: number } | null>(null);
+  const inicioFocusRef = useRef<{ title: string; sessionId: string; since: number } | null>(null);
+  inicioFocusRef.current = inicioFocus;
   const [later, setLater] = useState<string[]>([]);
   const reloadDemands = useCallback(() => {
     ipc.demands().then(setDemands).catch(() => {});
@@ -231,7 +241,7 @@ export default function App({
   // A task on screen belongs to Code: voice, a deep link or the palette
   // opening one brings that door along.
   useEffect(() => {
-    if (focusedTask || draftChat) setDoor("code");
+    if ((focusedTask || draftChat) && !inicioFocusRef.current) setDoor("code");
   }, [focusedTask, draftChat]);
   const [liveWorkers, setLiveWorkers] = useState<Record<string, LiveWorker>>({});
   const [focused, setFocused] = useState<string | null>(null);
@@ -863,6 +873,13 @@ export default function App({
         agent?: string | null,
       ) => {
         endTurn(label, taskId);
+        // The return moment of a focus: the chat on Início's composer
+        // finished its turn. Say so where the person is, and what waits.
+        if (inicioFocusRef.current?.title === label) {
+          push({ who: "sys", text: t("sys_focus_turn_done", { t: label }), goto: { title: label, sessionId: session ?? undefined } });
+          const waiting = demandsRef.current.filter((d) => d.title !== label).slice(0, 3).map((d) => d.title);
+          if (waiting.length) push({ who: "sys", text: t("sys_focus_waiting", { list: waiting.join(" · ") }) });
+        }
         // The clock on screen is keyed by the chat's title, the event by
         // the worker's label, and the two can differ (a chat titled later
         // than its first prompt): the session says which chats are done.
@@ -1623,6 +1640,24 @@ export default function App({
         push({ who: "user", text, task: pendingPermission.task });
         await answerPermission(pendingPermission.requestId, false);
         say(st("sp_denied"));
+        return;
+      }
+    }
+
+    // The words that move Hark's attention, on Início only: "foca no
+    // billing" pins the composer to that chat; "volta" releases it.
+    if (isMain && door === "inicio" && !text.startsWith("/")) {
+      const att = await ipc.attention(text).catch(() => null);
+      if (att?.kind === "leave" && inicioFocus) {
+        push({ who: "user", text });
+        leaveFocus();
+        return;
+      }
+      if (att?.kind === "focus") {
+        push({ who: "user", text });
+        const target = resolveFocusTarget(att.target);
+        if (target) await enterFocus(target);
+        else push({ who: "sys", text: t("sys_focus_not_found") });
         return;
       }
     }
@@ -2947,6 +2982,44 @@ export default function App({
     await runDispatch(text, sessionId, true);
   }
 
+  /** "Foca no billing": the board title the words point at. An empty
+   *  target is the first board demand on screen. */
+  function resolveFocusTarget(target: string): string | null {
+    const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (!target.trim()) return demandsRef.current.find((d) => d.source === "board")?.title ?? null;
+    const words = norm(target).split(/\s+/).filter((w) => w.length > 2);
+    const hit = board.find((tk) => norm(tk.title).includes(norm(target)))
+      ?? board.find((tk) => words.length > 0 && words.every((w) => norm(tk.title).includes(w)));
+    return hit?.title ?? null;
+  }
+
+  /** Pin Início to a chat: focus it as usual, keep the door on Início. */
+  async function enterFocus(title: string) {
+    const task = board.find((tk) => tk.title === title);
+    let session = task?.session_ids.at(-1);
+    if (!session) session = (await ipc.findSession(title).catch(() => null))?.session_id;
+    if (!session) {
+      push({ who: "sys", text: t("sys_no_session_for", { t: title }) });
+      return;
+    }
+    const focus = { title, sessionId: session, since: Date.now() };
+    inicioFocusRef.current = focus;
+    setInicioFocus(focus);
+    setDayShown(null);
+    await focusTask(title, session);
+    setDoor("inicio");
+    push({ who: "sys", text: t("sys_focus_on", { t: title }) });
+  }
+
+  function leaveFocus() {
+    if (!inicioFocusRef.current) return;
+    inicioFocusRef.current = null;
+    setInicioFocus(null);
+    leaveChat();
+    setView("chat");
+    push({ who: "sys", text: t("sys_focus_left") });
+  }
+
   function startDraftChat(project: Project) {
     setView("chat");
     setDraftChat(project);
@@ -3049,14 +3122,21 @@ export default function App({
           ];
         });
       }
+      // In focus the screen is still Início: the chat's own messages go
+      // to the mirror, the general thread stays here.
+      const shown = inicioFocus ? null : focusedTitle;
       return messages.filter((m) => {
         // The general thread is the empty label: the persistent general
         // chat's events arrive tagged with it, typed asks with none.
         const thread = "task" in m && m.task ? m.task : null;
-        return thread === focusedTitle;
+        return thread === shown;
       });
     },
-    [messages, focusedTitle, dayShown, journal],
+    [messages, focusedTitle, dayShown, journal, inicioFocus],
+  );
+  const mirrorLines = useMemo(
+    () => (inicioFocus ? condense(messages.filter((m) => "task" in m && m.task === inicioFocus.title)) : []),
+    [messages, inicioFocus],
   );
   const pastDays = useMemo(() => journalDays(journal, new Date(), lang()), [journal]);
 
@@ -3276,7 +3356,9 @@ export default function App({
     </PanelFrame>
   );
 
-  const placeholder = forkDraft
+  const placeholder = inicioFocus
+    ? t("composer_focus", { name: inicioFocus.title })
+    : forkDraft
     ? t("composer_fork", { name: forkDraft.title })
     : heldBy
       ? t("composer_held")
@@ -3400,6 +3482,10 @@ export default function App({
                 if (d === "inicio") {
                   leaveChat();
                   setView("chat");
+                } else if (inicioFocusRef.current) {
+                  // Code shows the focused chat whole; the focus is Início's.
+                  inicioFocusRef.current = null;
+                  setInicioFocus(null);
                 }
               } : undefined}
               onCreate={isMain ? () => {
@@ -3407,6 +3493,7 @@ export default function App({
                 setView("criar");
               } : () => projects[0] && startDraftChat(projects[0])}
               onOpenGeneral={() => {
+                if (inicioFocusRef.current) leaveFocus();
                 leaveChat();
                 setDayShown(null);
                 setView("chat");
@@ -3532,6 +3619,7 @@ export default function App({
                       }
                     }}
                     onDone={(d) => ipc.requestDone(d.id).then(reloadDemands).catch(() => {})}
+                    onFocus={(d) => void enterFocus(d.title)}
                     onLater={(d) => setLater((old) => (old.includes(d.id) ? old : [...old, d.id]))}
                   />
                 </div>
@@ -3572,7 +3660,27 @@ export default function App({
                       {pastDays.find((d) => d.date === dayShown)?.label ?? dayShown}
                     </span>
                   )}
-                  {focusedTask && (
+                  {inicioFocus && (
+                    <>
+                      <span className="crumb" data-tauri-drag-region>{t("focus_chip")}</span>
+                      <span className="focus-chip" data-tauri-drag-region>
+                        <span className="proj-dot" />
+                        {scope.kind === "chat" && scope.project ? `${scope.project.name} › ` : ""}{inicioFocus.title}
+                      </span>
+                      <button className="pill-btn" onClick={leaveFocus}>{t("focus_pause")}</button>
+                      <button
+                        className="pill-btn"
+                        onClick={() => {
+                          inicioFocusRef.current = null;
+                          setInicioFocus(null);
+                          setDoor("code");
+                        }}
+                      >
+                        {t("focus_open_full")}
+                      </button>
+                    </>
+                  )}
+                  {focusedTask && !inicioFocus && (
                     <>
                       {/* Tauri drags only when the mousedown lands ON an
                           element carrying the attribute: the children that
@@ -3760,6 +3868,7 @@ export default function App({
                   onBoard={() => ensureRail("board")}
                 />
               ) : (
+                <>
                 <Transcript
                   messages={visibleMessages}
                   catalog={catalog}
@@ -3798,6 +3907,18 @@ export default function App({
                       .catch((err) => push({ who: "sys", text: t("sys_light_restart_err", { e: String(err) }) }))
                   }
                 />
+                {inicioFocus && (
+                  <Mirror
+                    lines={mirrorLines}
+                    writing={!!turns[inicioFocus.title]}
+                    onOpenFull={() => {
+                      inicioFocusRef.current = null;
+                      setInicioFocus(null);
+                      setDoor("code");
+                    }}
+                  />
+                )}
+                </>
               )}
               {/* The artifacts view is documentation: no composer, no turn
                   status, no held banner — those are the chat's. */}
