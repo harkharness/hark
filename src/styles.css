@@ -2253,6 +2253,23 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .side-count { margin-left: auto; font-size: 10.5px; color: var(--dim); }
 .side-board.on .side-count { color: inherit; }
 
+/* ============ Demandas: the list of the day (Demands.tsx) ============ */
+.demands { display: flex; flex-direction: column; gap: 6px; padding: 18px 24px; max-width: 820px; }
+.demands-empty { color: var(--dim); font-size: 13px; padding: 24px; }
+.demand {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  border-left: 3px solid var(--proj, var(--border-strong)); font-size: 13px;
+}
+.demand-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: 0 0 auto; }
+.demand.needs_you .demand-dot { background: var(--warn, #e0af68); }
+.demand.scheduled .demand-dot { background: var(--ok, #9ece6a); }
+.demand.review .demand-dot { background: var(--accent); }
+.demand-title { color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.demand-why { color: var(--dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.demand-src { font-size: 10.5px; color: var(--dim); border: 1px solid var(--border-strong); border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+.demand-acts { margin-left: auto; display: flex; gap: 6px; flex: 0 0 auto; }
+
 /* ============ Criar: the project picker (CreateChat.tsx) ============ */
 .create { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; }
 .create-card { width: min(440px, 100%); background: var(--panel); border: 1px solid var(--border-strong); border-radius: 12px; padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,.35); }

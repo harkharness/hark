@@ -10,6 +10,29 @@ export type Project = { name: string; path: string };
 
 /** Artifacts: the documentation tree of a space (mirror of domain::artifacts). */
 export type ArtifactKind = "doc" | "slides" | "design";
+
+/** One item of the list of the day (domain::demands). */
+export type Demand = {
+  id: string;
+  source: "board" | "agenda" | "artifact" | "request";
+  /** The project path (board) or the artifact space: the colour it wears. */
+  project: string | null;
+  title: string;
+  why: string;
+  urgency: "needs_you" | "scheduled" | "stalled" | "review" | "reminder";
+  link: string | null;
+  at: string;
+};
+
+/** "Me lembra de…", kept locally. */
+export type DemandRequest = {
+  id: string;
+  text: string;
+  said_at: string;
+  due?: string | null;
+  origin: "voice" | "text";
+  done_at?: string | null;
+};
 export type ArtifactOrigin = { session_id?: string | null; task?: string | null };
 export type ArtifactLink = { kind: string; session_id?: string | null; task?: string | null; node?: string | null };
 export type ArtifactNode = {
@@ -111,6 +134,7 @@ export type HarkEvent =
   | { kind: "focus_project"; project: Project }
   /** An agent wrote a page under ~/.hark/artifacts: the tree re-reads. */
   | { kind: "artifact_written"; space: string; id: string; task_id?: string | null }
+  | { kind: "demands_changed" }
   /** A `hark://artifacts/…` link: that page, in the artifacts view. */
   | { kind: "open_page"; space: string; id: string }
   /** A `hark://chat/…` link whose session the board does not know. */

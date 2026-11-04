@@ -29,6 +29,7 @@ const base = {
   onSearchChats: noop,
   onCreate: noop,
   onDoor: noop,
+  onOpenDemands: noop,
 };
 
 describe("the two doors of the sidebar", () => {
@@ -56,6 +57,14 @@ describe("the two doors of the sidebar", () => {
     expect(getByText(t("door_inicio")).closest("button")?.className).toContain("on");
     fireEvent.click(getByText(t("door_code")));
     expect(onDoor).toHaveBeenCalledWith("code");
+  });
+
+  it("Início lists Demandas with its count, and opens the list on click", () => {
+    const onOpenDemands = vi.fn();
+    const { getByText } = render(<Sidebar {...base} door="inicio" demandsCount={4} onOpenDemands={onOpenDemands} />);
+    fireEvent.click(getByText(t("side_demands")));
+    expect(onOpenDemands).toHaveBeenCalled();
+    expect(getByText("4")).toBeTruthy();
   });
 
   it("Início lists the days before today, and a day opens on click", () => {

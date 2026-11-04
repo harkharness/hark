@@ -103,6 +103,16 @@ projects, the Claude Code history, a few actions — with a tab per kind.
 Before you type it shows what needs you, what moved last and what you can
 do. Local index, zero tokens.
 
+**Início › Demandas is the list of the day**: what asks for you, from four
+sources — a board card stopped at a permission or waiting for you, one
+stalled for days, a page an agent wrote in the last day, and your own
+requests ("me lembra de ligar pro banco às 14h", typed or spoken, kept in
+the local index with the time it names). Ordered by urgency; *ir* opens
+the chat or the page, *depois* sinks a row for the day, *feito* closes a
+request. The board stays the team's: a demand may point at a card, it
+never replaces one. "O que eu tenho hoje?" in Hoje answers from this list,
+zero tokens.
+
 **Início › Hoje is Hark itself**, not an agent session: one chat over every
 project, kept in a local journal with the days before it listed in the
 sidebar (click one to read it back). Nothing you type there opens a

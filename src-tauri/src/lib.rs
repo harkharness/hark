@@ -860,7 +860,9 @@ fn ask_text(
         (Some(name), Some(path)) => Some(hark_core::domain::project::Project { name, path }),
         _ => None,
     };
+    let demands = gather_demands(&app, &config, &store);
     let mut deps = build_deps(&config, &mut store, &live, runner.as_ref(), active_project);
+    deps.demands = demands;
     let images = images.unwrap_or_default();
     let result = ask_with_image(&question, &images, &mut deps, &mut |event| {
         if let ClaudeEvent::ToolUse { name, input } = event {
@@ -2046,6 +2048,85 @@ fn artifacts_root(config: &Config) -> std::path::PathBuf {
 
 fn artifact_store() -> FsArtifacts {
     FsArtifacts::new(artifacts_root(&Config::load()))
+}
+
+/// The list of the day (domain::demands): the board, the titles whose
+/// permission still waits for an answer, every page of every space, and
+/// the person's requests. Local, zero tokens.
+fn gather_demands(
+    app: &AppHandle,
+    config: &Config,
+    store: &dyn hark_core::ports::SessionStore,
+) -> Vec<hark_core::domain::demands::Demand> {
+    let board = store.board().unwrap_or_default();
+    let pending: std::collections::HashSet<String> =
+        app.state::<Pending>().0.lock().unwrap().keys().cloned().collect();
+    let waiting: Vec<String> = app
+        .state::<PermLog>()
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(id, _, _)| pending.contains(id))
+        .map(|(_, title, _)| title.clone())
+        .collect();
+    let waiting_refs: Vec<&str> = waiting.iter().map(String::as_str).collect();
+    let arts = artifact_store();
+    let now = now_iso();
+    let mut pages = Vec::new();
+    for space in arts.spaces().unwrap_or_default() {
+        if let Ok(tree) = hark_core::app::artifacts::load(&arts, &space, &now) {
+            pages.extend(tree.nodes.into_iter().map(|n| (space.clone(), n)));
+        }
+    }
+    let requests = store.requests().unwrap_or_default();
+    let local = hark_core::chrono::Local::now().fixed_offset();
+    hark_core::domain::demands::collect(&board, &waiting_refs, &pages, &requests, local, config.lang())
+}
+
+#[tauri::command]
+fn demands(app: AppHandle) -> Result<Vec<hark_core::domain::demands::Demand>, String> {
+    let config = Config::load();
+    let store = SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    Ok(gather_demands(&app, &config, &store))
+}
+
+/// "Me lembra de…" typed or spoken: a request when the sentence is one,
+/// None otherwise (the caller then treats it as ordinary text).
+#[tauri::command]
+fn request_add(
+    app: AppHandle,
+    text: String,
+    origin: Option<String>,
+) -> Result<Option<hark_core::domain::demands::Request>, String> {
+    use hark_core::domain::demands::{parse_request, Said};
+    use hark_core::ports::SessionStore;
+    let said = if origin.as_deref() == Some("voice") { Said::Voice } else { Said::Text };
+    let now = hark_core::chrono::Local::now().fixed_offset();
+    let Some(req) = parse_request(&text, now, said) else { return Ok(None) };
+    let config = Config::load();
+    let mut store = SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let mut all = store.requests().map_err(|e| e.to_string())?;
+    all.push(req.clone());
+    store.save_requests(&all).map_err(|e| e.to_string())?;
+    emit_event(&app, serde_json::json!({ "kind": "demands_changed" }));
+    Ok(Some(req))
+}
+
+/// A request done: it leaves the list and stays in the store with the time.
+#[tauri::command]
+fn request_done(app: AppHandle, id: String) -> Result<(), String> {
+    use hark_core::ports::SessionStore;
+    let id = id.strip_prefix("req:").unwrap_or(&id).to_string();
+    let config = Config::load();
+    let mut store = SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    let mut all = store.requests().map_err(|e| e.to_string())?;
+    for req in all.iter_mut().filter(|r| r.id == id) {
+        req.done_at = Some(now_iso());
+    }
+    store.save_requests(&all).map_err(|e| e.to_string())?;
+    emit_event(&app, serde_json::json!({ "kind": "demands_changed" }));
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -6179,6 +6260,9 @@ pub fn run() {
             artifact_move,
             artifact_rename,
             artifact_set_kind,
+            demands,
+            request_add,
+            request_done,
             artifact_strip_pager,
             artifact_remove,
             focus_main,

@@ -238,6 +238,14 @@ pub trait SessionStore: SpendLedger {
     /// The invisible kanban.
     fn board(&self) -> anyhow::Result<Vec<crate::domain::board::Task>>;
     fn save_board(&mut self, tasks: &[crate::domain::board::Task]) -> anyhow::Result<()>;
+    /// The person's own requests ("me lembra de…"), done ones included.
+    /// A store that keeps none says so with an empty list.
+    fn requests(&self) -> anyhow::Result<Vec<crate::domain::demands::Request>> {
+        Ok(Vec::new())
+    }
+    fn save_requests(&mut self, _requests: &[crate::domain::demands::Request]) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 /// Discovers live Claude Code sessions.

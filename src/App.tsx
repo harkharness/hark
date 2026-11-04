@@ -36,6 +36,7 @@ import SessionPanel from "./components/SessionPanel";
 import { collectOutputs } from "./lib/outputs";
 import Sidebar, { type Door } from "./components/Sidebar";
 import CreateChat from "./components/CreateChat";
+import Demands from "./components/Demands";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
@@ -103,7 +104,7 @@ export default function App({
   /** No forced project = the main window: every project, the general chat
    *  backed by the persistent worker, board/costs/settings as views. */
   const isMain = !forcedProject;
-  type View = "chat" | "board" | "ajustes" | "artefatos" | "criar";
+  type View = "chat" | "board" | "ajustes" | "artefatos" | "criar" | "demandas";
   const [view, setView] = useState<View>("chat");
   // The artifacts view: the space and page on screen, the page's data
   // (for the composer's scope and the rail) and a tick that re-reads the
@@ -196,6 +197,17 @@ export default function App({
   // is the thread; the days before are rows in the Início sidebar, and one
   // of them can be on screen instead of today.
   const [journal, setJournal] = useState<import("./types").JournalTurn[]>([]);
+  // The list of the day (Início › Demandas), ordered by the backend; "depois"
+  // sinks a row to the end for this window's life.
+  const [demands, setDemands] = useState<import("./types").Demand[]>([]);
+  const [later, setLater] = useState<string[]>([]);
+  const reloadDemands = useCallback(() => {
+    ipc.demands().then(setDemands).catch(() => {});
+  }, []);
+  const demandsOrdered = useMemo(
+    () => [...demands.filter((d) => !later.includes(d.id)), ...demands.filter((d) => later.includes(d.id))],
+    [demands, later],
+  );
   const [dayShown, setDayShown] = useState<string | null>(null);
   const reloadJournal = useCallback(() => {
     ipc.journalRecent(400).then(setJournal).catch(() => {});
@@ -593,6 +605,7 @@ export default function App({
     [],
   );
   const refresh = useCallback(() => {
+    reloadDemands();
     ipc
       .overview()
       .then((o) => {
@@ -1085,6 +1098,7 @@ export default function App({
       startDraftRef.current(project);
     }, []),
     onArtifactWritten: useCallback(() => setArtTick((n) => n + 1), []),
+    onDemandsChanged: reloadDemands,
     onOpenPage: useCallback((space: string, id: string) => {
       setView("artefatos");
       setArtSel({ space, id });
@@ -1948,6 +1962,14 @@ export default function App({
         say(st("sp_fu_stay"));
         return;
       }
+    }
+    // "Me lembra de…": a request, kept locally, never a model call.
+    const request = await ipc.requestAdd(text, "text").catch(() => null);
+    if (request) {
+      push({ who: "user", text });
+      const when = request.due ? t("sys_request_when", { when: new Date(request.due).toLocaleString(lang() === "pt" ? "pt-BR" : "en-US", { weekday: "short", hour: "2-digit", minute: "2-digit" }) }) : "";
+      push({ who: "sys", text: t("sys_request_noted", { text: request.text, when }) });
+      return;
     }
     const route = await ipc.routeText(text).catch(() => "ask");
     const msgId = crypto.randomUUID();
@@ -3390,6 +3412,12 @@ export default function App({
                 setView("chat");
               }}
               generalActive={!focusedTask && !draftChat && !dayShown && view === "chat"}
+              demandsCount={demands.length}
+              demandsOpen={isMain && view === "demandas"}
+              onOpenDemands={isMain ? () => {
+                leaveChat();
+                setView((v) => (v === "demandas" ? "chat" : "demandas"));
+              } : undefined}
               days={pastDays}
               dayShown={dayShown}
               onOpenDay={(d) => {
@@ -3480,6 +3508,32 @@ export default function App({
               ) : isMain && view === "ajustes" ? (
                 <div className="view-wide">
                   <Settings initialSection={settingsSection} />
+                </div>
+              ) : isMain && view === "demandas" ? (
+                <div className="view-wide">
+                  <div className="chat-title-head" data-tauri-drag-region>
+                    <span className="chat-title" data-tauri-drag-region>{t("demands_title")}</span>
+                  </div>
+                  <Demands
+                    demands={demandsOrdered}
+                    // A board demand carries the project path; an artifact
+                    // one carries its space, which is the project's name.
+                    colourOf={(key) => colourOf(key.startsWith("/") ? key : allProjects.find((p) => p.name === key)?.path)}
+                    onGo={(d) => {
+                      const page = d.link?.match(/^hark:\/\/artifacts\/([^/]+)\/(.+)$/);
+                      if (page) {
+                        setView("artefatos");
+                        setArtSel({ space: decodeURIComponent(page[1]), id: decodeURIComponent(page[2]) });
+                        return;
+                      }
+                      if (d.source === "board") {
+                        setView("chat");
+                        void openTaskByTitle(d.title);
+                      }
+                    }}
+                    onDone={(d) => ipc.requestDone(d.id).then(reloadDemands).catch(() => {})}
+                    onLater={(d) => setLater((old) => (old.includes(d.id) ? old : [...old, d.id]))}
+                  />
                 </div>
               ) : isMain && view === "criar" ? (
                 <div className="view-wide">

@@ -335,6 +335,13 @@ export const evaluate = (message: string, focusedTask: string, focusedSession: s
 export const slashCommands = (workspace?: string) =>
   invoke<string[]>("slash_commands", { workspace: workspace ?? null });
 
+/** The list of the day, ordered by the backend. */
+export const demands = () => invoke<import("../types").Demand[]>("demands");
+/** "Me lembra de…": the request when the sentence is one, else null. */
+export const requestAdd = (text: string, origin: "voice" | "text" = "text") =>
+  invoke<import("../types").DemandRequest | null>("request_add", { text, origin });
+export const requestDone = (id: string) => invoke<void>("request_done", { id });
+
 export const boardMove = (title: string, status: string) =>
   invoke("board_move", { title, status });
 export const boardRename = (title: string, newTitle: string) =>

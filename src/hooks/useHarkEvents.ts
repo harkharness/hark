@@ -51,6 +51,8 @@ type Handlers = {
   onFocusProject?: (project: import("../types").Project) => void;
   /** An agent wrote an artifact page: whoever shows the tree re-reads it. */
   onArtifactWritten?: (space: string, id: string) => void;
+  /** A request was added or done: the list of the day changed. */
+  onDemandsChanged?: () => void;
   /** A `hark://` link asked for a page. */
   onOpenPage?: (space: string, id: string) => void;
   /** A `hark://chat` link the board could not place. */
@@ -294,6 +296,8 @@ export function useHarkEvents(h: Handlers) {
         h.onFocusProject?.(ev.project);
       } else if (ev.kind === "artifact_written") {
         h.onArtifactWritten?.(ev.space, ev.id);
+      } else if (ev.kind === "demands_changed") {
+        h.onDemandsChanged?.();
       } else if (ev.kind === "open_page") {
         h.onOpenPage?.(ev.space, ev.id);
       } else if (ev.kind === "deep_link_unknown") {

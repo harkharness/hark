@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, Bug, Code2, FolderTree, Home, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, Sparkles, SquareKanban } from "lucide-react";
+import { BookOpen, Bug, Code2, FolderTree, Home, Inbox, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, Sparkles, SquareKanban } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 import type { Day } from "../lib/inicio";
@@ -28,6 +28,9 @@ export default function Sidebar({
   days = [],
   dayShown,
   onOpenDay,
+  demandsCount = 0,
+  demandsOpen,
+  onOpenDemands,
   projects,
   colourOf,
   tasks,
@@ -67,6 +70,10 @@ export default function Sidebar({
   days?: Day[];
   dayShown?: string | null;
   onOpenDay?: (day: Day) => void;
+  /** The list of the day (Início door): how many, and the view's toggle. */
+  demandsCount?: number;
+  demandsOpen?: boolean;
+  onOpenDemands?: () => void;
   projects: Project[];
   /** The project colour of a path (css token), by registry order. */
   colourOf?: (path: string) => string | undefined;
@@ -251,6 +258,16 @@ export default function Sidebar({
           title={t("side_today_hint")}
         >
           <Sparkles size={13} /> {t("side_today")}
+        </button>
+      )}
+      {inicio && onOpenDemands && (
+        <button
+          className={`side-board ${demandsOpen ? "on" : ""}`}
+          onClick={onOpenDemands}
+          title={t("side_demands_hint")}
+        >
+          <Inbox size={13} /> {t("side_demands")}
+          {demandsCount ? <span className="side-count">{demandsCount}</span> : null}
         </button>
       )}
       {!inicio && onCreate && (

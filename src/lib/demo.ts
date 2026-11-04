@@ -126,6 +126,14 @@ const TRANSCRIPTS: Record<string, TranscriptEntry[]> = {
   ],
 };
 
+/** The list of the day, as Início › Demandas shows it. */
+const DEMANDS: import("../types").Demand[] = [
+  { id: "task:Billing endpoint v2", source: "board", project: P["webhook-api"].path, title: "Billing endpoint v2", why: "stopped at a permission", urgency: "needs_you", link: null, at: ago(6) },
+  { id: "page:webhook-api/incident-summary", source: "artifact", project: "webhook-api", title: "Incident summary · deploy 14:02", why: "ready for your review", urgency: "review", link: "hark://artifacts/webhook-api/incident-summary", at: ago(45) },
+  { id: "task:Offline mode for the queue", source: "board", project: P["mobile-app"].path, title: "Offline mode for the queue", why: "stalled for 4 days", urgency: "stalled", link: null, at: ago(4 * 24 * 60) },
+  { id: "req:r1", source: "request", project: null, title: "answer the accountant", why: "you asked yesterday, 18:10", urgency: "reminder", link: null, at: ago(16 * 60) },
+];
+
 const JOURNAL: JournalTurn[] = [
   // The days before today: rows in the Início sidebar, read back on click.
   { ts: ago(3 * 24 * 60 + 90), question: "what's blocked across the projects?", fala: "Two things: the retry queue waits on a review, and the offline mode has no owner yet.", body: "" },
@@ -417,6 +425,9 @@ const C: Record<string, (a: Args) => unknown> = {
   setup_status: () => SETUP,
   hark_chat_status: () => ({ alive: true, session_id: "s-hark" }),
   journal_recent: () => JOURNAL,
+  demands: () => DEMANDS,
+  request_add: () => null,
+  request_done: () => undefined,
   session_owners: () => [],
   project_sessions: (a) => SESSIONS[PROJECTS.find((p) => p.path === a?.path)?.name ?? ""] ?? [],
   session_candidates: (a) => ALL_SESSIONS.filter((s) => s.title.toLowerCase().includes(String(a?.query ?? "").toLowerCase())).slice(0, Number(a?.limit ?? 8)),

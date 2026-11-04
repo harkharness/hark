@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS board (
     title       TEXT PRIMARY KEY,
     task        TEXT NOT NULL  -- full Task as JSON
 );
+CREATE TABLE IF NOT EXISTS requests (
+    id      TEXT PRIMARY KEY,
+    request TEXT NOT NULL  -- full Request as JSON
+);
 CREATE TABLE IF NOT EXISTS spend (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
     ts                   TEXT NOT NULL,
@@ -414,6 +418,28 @@ impl SessionStore for SqliteStore {
         self.save_board_impl(tasks)
     }
 
+    fn requests(&self) -> anyhow::Result<Vec<crate::domain::demands::Request>> {
+        let mut stmt = self.conn.prepare("SELECT request FROM requests ORDER BY rowid")?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows.iter().filter_map(|json| serde_json::from_str(json).ok()).collect())
+    }
+
+    /// Replace the whole list (small by nature, like the board).
+    fn save_requests(&mut self, requests: &[crate::domain::demands::Request]) -> anyhow::Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM requests", [])?;
+        for req in requests {
+            tx.execute(
+                "INSERT INTO requests (id, request) VALUES (?1, ?2)",
+                params![req.id, serde_json::to_string(req)?],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     fn file_state(&self, path: &str) -> anyhow::Result<Option<(SessionSummary, u64, i64)>> {
         let row = self
             .conn
@@ -553,6 +579,21 @@ mod tests {
     use super::*;
     use crate::domain::snapshot::{RecentPrompt, SessionSummary};
     use crate::ports::SessionStore;
+
+    #[test]
+    fn requests_survive_a_round_trip_and_keep_their_done_mark() {
+        use crate::domain::demands::{Request, Said};
+        let mut store = SqliteStore::in_memory().unwrap();
+        let reqs = vec![
+            Request { id: "r1".into(), text: "ligar pro banco".into(), said_at: "2026-11-04T08:00:00-03:00".into(), due: Some("2026-11-04T14:00:00-03:00".into()), origin: Said::Voice, done_at: None },
+            Request { id: "r2".into(), text: "responder o contador".into(), said_at: "2026-11-03T18:10:00-03:00".into(), due: None, origin: Said::Text, done_at: Some("2026-11-04T09:00:00-03:00".into()) },
+        ];
+        store.save_requests(&reqs).unwrap();
+        assert_eq!(store.requests().unwrap(), reqs);
+        // Saving again replaces, never duplicates.
+        store.save_requests(&reqs[..1]).unwrap();
+        assert_eq!(store.requests().unwrap().len(), 1);
+    }
 
     fn summary(id: &str, ts: &str) -> SessionSummary {
         SessionSummary {
