@@ -304,8 +304,15 @@ fn last_place(text: &str, seps: &[&str]) -> Option<String> {
         .map(|(_, _, tail)| tail)
 }
 
+/// Orders are short. Past this many words the sentence is conversation,
+/// whatever verbs it carries along the way ("…pin tulipa chart…").
+pub const MAX_COMMAND_WORDS: usize = 16;
+
 /// Parse a board command, or None when the sentence is real work.
 pub fn parse(utterance: &str) -> Option<TaskCommand> {
+    if utterance.split_whitespace().count() > MAX_COMMAND_WORDS {
+        return None;
+    }
     let lower = utterance.to_lowercase();
     let after = |needle: &str| {
         lower
@@ -492,6 +499,20 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_statement_is_never_a_command_even_with_a_verb_inside() {
+        // "…pin tulipa chart last version também, render templates…" was
+        // read as "pin <everything after>": a verb in the middle of a
+        // paragraph is conversation, not an order.
+        let said = "a migração do cobrador eu já terminei, não tem porque a task estar ali ainda, \
+            alertas também já terminei, pin tulipa chart last version também, render templates em prod também, \
+            a infra foi renomeada para human token porém perdeu prioridade";
+        assert_eq!(parse(said), None);
+        // Short orders keep working, verb first or after a vocative.
+        assert!(matches!(parse("fixa a task de pagamentos"), Some(TaskCommand::Pin { .. })));
+        assert!(matches!(parse("hark, fixa a task de pagamentos"), Some(TaskCommand::Pin { .. })));
+    }
 
     #[test]
     fn abre_o_chat_means_go_work_there() {

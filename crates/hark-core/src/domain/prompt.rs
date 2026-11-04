@@ -111,6 +111,9 @@ pub fn voice_system_prompt(lang: Lang) -> &'static str {
 pub const MAX_SESSIONS: usize = 30;
 /// Character budget per rendered user prompt from the history.
 const MAX_PROMPT_CHARS: usize = 220;
+/// The agent's last reply in a session block: a closing summary fits,
+/// a wall of prose does not.
+const MAX_REPLY_CHARS: usize = 600;
 
 /// Collapse whitespace and clamp to `max` chars (ellipsis when truncated).
 /// Keeps giant pasted logs in the history from exploding the context.
@@ -337,14 +340,20 @@ fn session_block(s: &SessionSummary) -> String {
         .skip(skip)
         .map(|p| format!("    [{}] {}", p.ts, compact(&p.text, MAX_PROMPT_CHARS)))
         .collect();
+    let reply = s
+        .last_reply
+        .as_ref()
+        .map(|r| format!("\n  ultima resposta do agente [{}]: {}", r.ts, compact(&r.text, MAX_REPLY_CHARS)))
+        .unwrap_or_default();
     format!(
-        "- sessao {} | titulo: {} | cwd: {} | branch: {} | ultima atividade: {}\n  ultimos pedidos do usuario:\n{}",
+        "- sessao {} | titulo: {} | cwd: {} | branch: {} | ultima atividade: {}\n  ultimos pedidos do usuario:\n{}{}",
         s.session_id,
         s.title.as_deref().unwrap_or("(sem titulo)"),
         s.cwd.as_deref().unwrap_or("?"),
         s.git_branch.as_deref().unwrap_or("?"),
         s.last_ts.as_deref().unwrap_or("?"),
-        prompts.join("\n")
+        prompts.join("\n"),
+        reply
     )
 }
 
@@ -369,6 +378,7 @@ mod tests {
                         ts: "2026-08-13T09:00:00.000Z".into(),
                         text: "run the tests again".into(),
                     }],
+                    last_reply: None,
                 },
                 SessionSummary {
                     session_id: "new1".into(),
@@ -381,6 +391,10 @@ mod tests {
                         ts: "2026-08-14T11:00:00.000Z".into(),
                         text: "open the PR".into(),
                     }],
+                    last_reply: Some(RecentPrompt {
+                        ts: "2026-08-14T11:04:00.000Z".into(),
+                        text: "PR aberto, falta o review do time.".into(),
+                    }),
                 },
             ],
             live: vec![LiveSession {
@@ -412,6 +426,17 @@ mod tests {
             }],
             board: "[doing]\n- Migração do DNS antigo (atualizado 2026-08-14)".into(),
         }
+    }
+
+    #[test]
+    fn a_session_block_carries_the_agents_last_reply() {
+        // "Status do KR 1.3?" is answered by what the agent said last, not
+        // by what the user asked last.
+        let text = build("status do webhook?", &snapshot());
+        assert!(text.contains("ultima resposta do agente [2026-08-14T11:04:00.000Z]: PR aberto, falta o review do time."), "{text}");
+        // A session without a reply yet says nothing about one.
+        let old = text.split("sessao new1").next().unwrap();
+        assert!(!old.contains("ultima resposta"), "{old}");
     }
 
     #[test]

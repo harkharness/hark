@@ -125,7 +125,19 @@ the local index with the time it names). Ordered by urgency; *ir* opens
 the chat or the page, *depois* sinks a row for the day, *feito* closes a
 request. The board stays the team's: a demand may point at a card, it
 never replaces one. "O que eu tenho hoje?" in Hoje answers from this list,
-zero tokens.
+zero tokens. A card stalled for more than two weeks is forgotten work, not
+a demand: it stays on the board and leaves the list.
+
+**What answers for free, and what goes up.** Short, whole questions about
+the running workers, the board, the spend and the list of the day are
+answered from the local index. A question that hooks into the turn before
+("mas quais as pendências?"), a long one, or one about *one* thing ("as
+pendências do patch?") goes to the model with the snapshot, and so does a
+long sentence that happens to carry an order's verb in the middle: orders
+are short and come first. The snapshot carries, for each session, your
+last requests and the agent's **last reply**, so "status do KR 1.3" is
+answered by what the agent said last. The first launch after this change
+rebuilds the index from your session files once.
 
 **Foco.** "Foca no billing" (typed in Hoje, or *focar* on a demand) pins
 Início's composer to that chat without leaving Início: a chip at the top

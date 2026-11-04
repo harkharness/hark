@@ -6,6 +6,10 @@ use hark_agent::SessionEvent;
 /// The index itself stores every prompt (topic search needs full history).
 pub const MAX_RECENT_PROMPTS: usize = 5;
 
+/// How much of the agent's last reply the index keeps: enough for a
+/// closing summary ("done X, pending Y"), not a transcript.
+pub const LAST_REPLY_CHARS: usize = 1500;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecentPrompt {
     pub ts: String,
@@ -22,6 +26,18 @@ pub struct SessionSummary {
     pub last_prompt: Option<String>,
     pub last_ts: Option<String>,
     pub recent_prompts: Vec<RecentPrompt>,
+    /// The agent's newest prose: what it said last is the session's status.
+    pub last_reply: Option<RecentPrompt>,
+}
+
+/// Clip to `max` chars, marking the cut.
+fn clip(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(max).collect();
+    out.push('…');
+    out
 }
 
 /// A name out of an opening prompt: its first non-empty line, clipped.
@@ -84,6 +100,14 @@ impl SessionSummary {
                 last_ts: self.last_ts.max(Some(ts)),
                 ..self
             },
+            SessionEvent::AssistantText { ts, text } => Self {
+                last_ts: self.last_ts.clone().max(Some(ts.clone())),
+                last_reply: Some(RecentPrompt {
+                    ts,
+                    text: clip(&text, LAST_REPLY_CHARS),
+                }),
+                ..self
+            },
             SessionEvent::Title(title) => Self {
                 title: Some(title),
                 ..self
@@ -104,6 +128,27 @@ mod tests {
             cwd: Some("/home/dev/proj".into()),
             git_branch: Some("main".into()),
         }
+    }
+
+    #[test]
+    fn keeps_the_last_words_of_the_agent_as_the_reply() {
+        let s = vec![
+            prompt("2026-08-14T10:00:00.000Z", "start the migration"),
+            SessionEvent::AssistantText { ts: "2026-08-14T10:01:00.000Z".into(), text: "Looking at the values.".into() },
+            SessionEvent::AssistantText { ts: "2026-08-14T10:09:00.000Z".into(), text: "Done: values migrated, PR open.".into() },
+        ]
+        .into_iter()
+        .fold(SessionSummary::new("abc"), SessionSummary::apply);
+        assert_eq!(
+            s.last_reply,
+            Some(RecentPrompt { ts: "2026-08-14T10:09:00.000Z".into(), text: "Done: values migrated, PR open.".into() })
+        );
+        assert_eq!(s.last_ts.as_deref(), Some("2026-08-14T10:09:00.000Z"));
+
+        // A reply is clipped at the fold: the index is not a transcript.
+        let long = "x".repeat(LAST_REPLY_CHARS + 50);
+        let s = SessionSummary::new("abc").apply(SessionEvent::AssistantText { ts: "t".into(), text: long });
+        assert_eq!(s.last_reply.unwrap().text.chars().count(), LAST_REPLY_CHARS + 1, "clipped plus the ellipsis");
     }
 
     #[test]

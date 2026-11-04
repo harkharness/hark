@@ -4,7 +4,7 @@
 //! stores: the session index and the token spend ledger (source=jsonl).
 
 use hark_agent::TokenUsage;
-use crate::log::{parse_line, SessionEvent};
+use crate::log::{parse_events, parse_line, SessionEvent};
 use hark_core::domain::snapshot::SessionSummary;
 use hark_core::domain::spend::{SpendKind, SpendRow, SpendSource};
 use hark_core::ports::SessionStore;
@@ -87,7 +87,7 @@ fn index_file(path: &Path, store: &mut (impl SessionStore + ?Sized)) -> anyhow::
     let summary = reader
         .lines()
         .map_while(Result::ok)
-        .filter_map(|line| parse_line(&line))
+        .flat_map(|line| parse_events(&line))
         .inspect(|event| {
             if let Some(row) = spend_row(event, &session_id, workspace.as_deref()) {
                 spend_rows.push(row);
@@ -201,6 +201,31 @@ mod tests {
         format!(
             r#"{{"type":"user","timestamp":"{ts}","cwd":"/home/dev/proj","gitBranch":"main","message":{{"role":"user","content":"{text}"}}}}"#
         )
+    }
+
+    fn assistant_line(ts: &str, text: &str) -> String {
+        format!(
+            r#"{{"type":"assistant","timestamp":"{ts}","requestId":"req-{ts}","message":{{"role":"assistant","model":"claude-opus-5","content":[{{"type":"text","text":"{text}"}}],"usage":{{"input_tokens":5,"output_tokens":7}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn indexes_the_agents_last_reply_next_to_the_prompts() {
+        let dir = tempfile::tempdir().unwrap();
+        write_session(
+            dir.path(),
+            "sess-1.jsonl",
+            &[
+                user_line("2026-08-14T10:00:00.000Z", "start migration"),
+                assistant_line("2026-08-14T10:01:00.000Z", "Looking."),
+                assistant_line("2026-08-14T10:05:00.000Z", "Done: values migrated, PR open."),
+            ],
+        );
+        let mut store = SqliteStore::in_memory().unwrap();
+        refresh_index(dir.path(), &mut store).unwrap();
+        let sessions = store.sessions_since("2026-08-14T00:00:00.000Z").unwrap();
+        assert_eq!(sessions[0].last_reply.as_ref().map(|r| r.text.as_str()), Some("Done: values migrated, PR open."));
+        assert_eq!(sessions[0].recent_prompts.len(), 1, "the reply is not a prompt");
     }
 
     fn write_session(dir: &std::path::Path, name: &str, lines: &[String]) -> std::path::PathBuf {

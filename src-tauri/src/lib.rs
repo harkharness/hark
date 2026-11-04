@@ -4726,6 +4726,8 @@ struct IntentOut {
     question: Option<String>,
     options: Vec<IntentOption>,
     cost_usd: Option<f64>,
+    /// The light model that classified: the chat row names it instead of "?".
+    model: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -4817,7 +4819,7 @@ fn classify_utterance(
     };
     let turn = runner.ask(&request, &mut |_| {}).map_err(|e| e.to_string())?;
     let decision = serde_json::from_str::<vi::IntentDecision>(&turn.raw).unwrap_or_default();
-    let plan = vi::resolve(&decision, &catalog);
+    let plan = vi::resolve(&decision, &catalog, &utterance);
 
     record_live_spend(
         &config,
@@ -4832,6 +4834,7 @@ fn classify_utterance(
 
     let mut out = IntentOut {
         cost_usd: turn.cost_usd,
+        model: Some(config.models().light.clone()),
         ..Default::default()
     };
     match plan {

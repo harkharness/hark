@@ -88,6 +88,10 @@ pub fn session_event(line: &Line, session_id: &str) -> Option<SessionEvent> {
             cwd: None,
             git_branch: None,
         }),
+        Line::Entry(Entry { ts, role: Role::Assistant, text, .. }) => Some(SessionEvent::AssistantText {
+            ts: ts.clone(),
+            text: text.clone(),
+        }),
         Line::Entry(Entry { ts, .. }) => Some(SessionEvent::Activity { ts: ts.clone() }),
         Line::Usage(u) => Some(SessionEvent::AssistantUsage {
             ts: u.ts.clone(),
@@ -210,8 +214,11 @@ mod tests {
             session_event(&said(Role::User, "abre o PR"), "s-1"),
             Some(SessionEvent::UserPrompt { ts: "2026-09-14T12:00:01.000Z".into(), text: "abre o PR".into(), cwd: None, git_branch: None })
         );
-        // The agent's words only move the clock; the tokens feed the ledger.
-        assert_eq!(session_event(&said(Role::Assistant, "abrindo"), "s-1"), Some(SessionEvent::Activity { ts: "2026-09-14T12:00:01.000Z".into() }));
+        // The agent's words are the reply the index keeps; the tokens feed the ledger.
+        assert_eq!(
+            session_event(&said(Role::Assistant, "abrindo"), "s-1"),
+            Some(SessionEvent::AssistantText { ts: "2026-09-14T12:00:01.000Z".into(), text: "abrindo".into() })
+        );
         assert_eq!(
             session_event(&usage(), "s-1"),
             Some(SessionEvent::AssistantUsage {

@@ -49,10 +49,16 @@ pub fn significant_terms(text: &str) -> Vec<String> {
         "abre", "abrir", "com", "como", "continua", "das", "dos", "ele", "ela", "essa", "esse",
         "está", "esta", "para", "pra", "por", "que", "sobre", "the", "uma", "vamos", "hark",
     ];
-    text.to_lowercase()
-        .split(|c: char| !c.is_alphanumeric() && c != '-')
-        .filter(|w| w.chars().count() >= 3 && !STOPWORDS.contains(w))
-        .map(String::from)
+    // Dots survive the split so "1.3" stays a version; a trailing dot is
+    // punctuation. Two-letter words are glue unless written as an acronym.
+    text.split(|c: char| !c.is_alphanumeric() && c != '-' && c != '.')
+        .map(|w| w.trim_matches('.'))
+        .filter(|w| {
+            let n = w.chars().count();
+            n >= 3 || (n == 2 && w.chars().all(|c| c.is_uppercase() || c.is_ascii_digit()))
+        })
+        .map(str::to_lowercase)
+        .filter(|w| !STOPWORDS.contains(&w.as_str()))
         .collect()
 }
 
@@ -86,6 +92,18 @@ fn recency_boost(rank: usize) -> f64 {
 mod tests {
     use super::*;
     use crate::domain::snapshot::{RecentPrompt, SessionSummary};
+
+    #[test]
+    fn short_acronyms_and_versions_are_topic_terms() {
+        // "status do KR 1.3" found nothing: "KR" fell under the length
+        // floor and "1.3" split into digits. Those ARE the topic.
+        let terms = significant_terms("estou focado no KR 1.3, me passa o status dele?");
+        assert!(terms.contains(&"kr".to_string()), "{terms:?}");
+        assert!(terms.contains(&"1.3".to_string()), "{terms:?}");
+        // Lowercase two-letter glue stays out; a trailing dot is not a version.
+        let terms = significant_terms("me fala do webhook.");
+        assert_eq!(terms, vec!["fala", "webhook"]);
+    }
 
     fn session(id: &str, title: &str, prompt: &str) -> SessionSummary {
         SessionSummary {

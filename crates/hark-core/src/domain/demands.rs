@@ -70,6 +70,8 @@ pub struct Request {
 
 /// A task counts as stalled after this many days without a turn.
 const STALLED_DAYS: i64 = 3;
+/// And as forgotten after this many: not a demand of the day anymore.
+const STALLED_MAX_DAYS: i64 = 14;
 /// A page younger than this, written by an agent, is waiting for a look.
 const REVIEW_HOURS: i64 = 24;
 
@@ -92,7 +94,7 @@ pub fn collect(
                 TaskStatus::Waiting => (Urgency::NeedsYou, lang.pick("esperando você", "waiting for you").to_string()),
                 TaskStatus::Doing => {
                     let days = age_days(&task.updated_at, now);
-                    if days < STALLED_DAYS {
+                    if !(STALLED_DAYS..=STALLED_MAX_DAYS).contains(&days) {
                         continue;
                     }
                     (Urgency::Stalled, format!("{} {days} {}", lang.pick("parado há", "stalled for"), lang.pick("dias", "days")))
@@ -300,6 +302,19 @@ mod tests {
         assert_eq!(out[1].title, "Quick-add");
         assert_eq!(out[1].urgency, Urgency::Stalled);
         assert_eq!(out[1].why, "parado há 4 dias");
+    }
+
+    #[test]
+    fn work_abandoned_for_weeks_is_not_a_demand_of_the_day() {
+        // Thirteen "parado há 65 dias" rows buried the real list: after two
+        // weeks a doing task is forgotten work, not something asking today.
+        let now = at("2026-11-04T10:00:00-03:00");
+        let board = vec![
+            task("Old migration", TaskStatus::Doing, "2026-08-31T09:00:00-03:00", "/p/hark"),
+            task("Last week", TaskStatus::Doing, "2026-10-26T09:00:00-03:00", "/p/hark"),
+        ];
+        let out = collect(&board, &[], &[], &[], now, Lang::Pt);
+        assert_eq!(out.iter().map(|d| d.title.as_str()).collect::<Vec<_>>(), vec!["Last week"]);
     }
 
     #[test]

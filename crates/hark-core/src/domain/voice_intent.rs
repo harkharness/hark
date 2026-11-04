@@ -225,7 +225,7 @@ pub fn build_prompt(utterance: &str, catalog: &IntentCatalog) -> String {
 
 /// Validate the decision against the catalog. This is the half that makes
 /// acting on a model's output defensible.
-pub fn resolve(decision: &IntentDecision, catalog: &IntentCatalog) -> SpokenPlan {
+pub fn resolve(decision: &IntentDecision, catalog: &IntentCatalog, utterance: &str) -> SpokenPlan {
     let instruction = decision
         .instruction
         .as_deref()
@@ -284,13 +284,28 @@ pub fn resolve(decision: &IntentDecision, catalog: &IntentCatalog) -> SpokenPlan
                 },
             }
         }
-        "status" => SpokenPlan::Status {
-            session_id: decision.session.and_then(known).map(|s| s.id),
-        },
+        // The local status is the list of running workers and nothing
+        // else; "status of X" is X's last reply, which only the ask reads.
+        "status" if decision.session.is_none() && asks_about_running(utterance) => {
+            SpokenPlan::Status { session_id: None }
+        }
         // Unknown kinds included: an answer we do not understand is a
         // question, which costs a turn — never a wrong action.
         _ => SpokenPlan::Question,
     }
+}
+
+/// Words that ask about the running flag itself.
+fn asks_about_running(utterance: &str) -> bool {
+    const RUNNING: &[&str] = &[
+        "rodando", "executando", "andamento", "ativo", "ativa", "ativos", "ativas",
+        "worker", "workers", "running", "active", "in flight", "in progress",
+    ];
+    let folded = crate::domain::matching::fold(utterance);
+    let words = crate::domain::matching::tokens(utterance);
+    RUNNING
+        .iter()
+        .any(|w| words.iter().any(|t| t == w) || (w.contains(' ') && folded.contains(w)))
 }
 
 /// Ambiguity, or a target that failed validation. Without candidates and
@@ -348,7 +363,7 @@ mod tests {
         for n in [0, 3, 99, -1] {
             let mut d = decision("open_session");
             d.session = Some(n);
-            assert_eq!(resolve(&d, &catalog()), SpokenPlan::Question, "index {n}");
+            assert_eq!(resolve(&d, &catalog(), ""), SpokenPlan::Question, "index {n}");
         }
     }
 
@@ -356,7 +371,7 @@ mod tests {
     fn an_unregistered_project_is_not_a_project() {
         let mut d = decision("open_project");
         d.project = Some("some-repo-i-imagined".into());
-        assert_eq!(resolve(&d, &catalog()), SpokenPlan::Question);
+        assert_eq!(resolve(&d, &catalog(), ""), SpokenPlan::Question);
     }
 
     #[test]
@@ -365,7 +380,7 @@ mod tests {
         d.session = Some(1);
         d.instruction = Some("atualiza o último artefato".into());
         assert_eq!(
-            resolve(&d, &catalog()),
+            resolve(&d, &catalog(), ""),
             SpokenPlan::OpenSession {
                 session_id: "s-1".into(),
                 title: "Pin Vigia chart last version".into(),
@@ -379,7 +394,7 @@ mod tests {
         let mut d = decision("clarify");
         d.candidates = vec![1, 2];
         d.question = Some("Qual das duas sessões do Vigia?".into());
-        match resolve(&d, &catalog()) {
+        match resolve(&d, &catalog(), "") {
             SpokenPlan::Clarify { question, options } => {
                 assert_eq!(options.len(), 2);
                 assert!(question.contains("Vigia"));
@@ -393,7 +408,7 @@ mod tests {
         let mut d = decision("clarify");
         d.candidates = vec![1, 42];
         d.question = Some("Qual sessão?".into());
-        match resolve(&d, &catalog()) {
+        match resolve(&d, &catalog(), "") {
             SpokenPlan::Clarify { options, .. } => {
                 assert_eq!(options.len(), 1, "only the real one survives");
                 assert_eq!(options[0].id, "s-1");
@@ -409,7 +424,7 @@ mod tests {
         let mut d = decision("dispatch");
         d.instruction = Some("atualiza o artefato pro time".into());
         assert_eq!(
-            resolve(&d, &catalog()),
+            resolve(&d, &catalog(), ""),
             SpokenPlan::Dispatch {
                 session_id: Some("s-9".into()),
                 instruction: "atualiza o artefato pro time".into(),
@@ -419,27 +434,36 @@ mod tests {
 
     #[test]
     fn dispatch_with_nothing_to_do_is_not_work() {
-        assert_eq!(resolve(&decision("dispatch"), &catalog()), SpokenPlan::Question);
+        assert_eq!(resolve(&decision("dispatch"), &catalog(), ""), SpokenPlan::Question);
     }
 
     #[test]
     fn a_kind_we_do_not_understand_costs_a_turn_not_a_wrong_action() {
-        assert_eq!(resolve(&decision("teleport"), &catalog()), SpokenPlan::Question);
-        assert_eq!(resolve(&decision("question"), &catalog()), SpokenPlan::Question);
+        assert_eq!(resolve(&decision("teleport"), &catalog(), ""), SpokenPlan::Question);
+        assert_eq!(resolve(&decision("question"), &catalog(), ""), SpokenPlan::Question);
     }
 
     #[test]
-    fn status_resolves_locally_with_or_without_a_target() {
-        let mut d = decision("status");
-        d.session = Some(2);
+    fn status_is_the_running_flag_only_when_the_sentence_asks_about_running() {
+        // "o que está faltando no patch do windows" came back as "status"
+        // and the window said "nada rodando": the local status is the list
+        // of running workers, nothing else. A session's status is its last
+        // reply, which only the ask can read.
         assert_eq!(
-            resolve(&d, &catalog()),
-            SpokenPlan::Status { session_id: Some("s-2".into()) }
-        );
-        assert_eq!(
-            resolve(&decision("status"), &catalog()),
+            resolve(&decision("status"), &catalog(), "tem algo rodando?"),
             SpokenPlan::Status { session_id: None }
         );
+        assert_eq!(
+            resolve(&decision("status"), &catalog(), "what's running right now?"),
+            SpokenPlan::Status { session_id: None }
+        );
+        assert_eq!(
+            resolve(&decision("status"), &catalog(), "me fala o que está faltando no patch do windows"),
+            SpokenPlan::Question
+        );
+        let mut d = decision("status");
+        d.session = Some(2);
+        assert_eq!(resolve(&d, &catalog(), "qual o status do webhook?"), SpokenPlan::Question);
     }
 
     #[test]
@@ -478,6 +502,6 @@ mod tests {
         // exists in the vector.
         let mut d = decision("open_session");
         d.session = Some(13);
-        assert_eq!(resolve(&d, &c), SpokenPlan::Question);
+        assert_eq!(resolve(&d, &c, ""), SpokenPlan::Question);
     }
 }

@@ -2110,7 +2110,7 @@ export default function App({
         candidates: intent.options.map((o) => ({ session_id: o.session_id, title: o.title, cwd: o.project ?? undefined })),
       });
       const question = intent.question ?? st("sp_found_dests", { n: intent.options.length });
-      push({ who: "hark", text: question, cost: intent.cost_usd ?? undefined });
+      push({ who: "hark", text: question, cost: intent.cost_usd ?? undefined, model: intent.model ?? undefined });
       say(question);
       return true;
     }
@@ -2128,7 +2128,7 @@ export default function App({
         if (running.length === 1) return st("sp_status_one", { t: running[0].summary, s: st("sp_status_running") });
         return st("sp_status_many", { n: running.length, list: running.map((w) => w.summary).slice(0, 3).join("; ") });
       })();
-      push({ who: "hark", text: line, cost: intent.cost_usd ?? undefined });
+      push({ who: "hark", text: line, cost: intent.cost_usd ?? undefined, model: intent.model ?? undefined });
       say(line);
       return true;
     }

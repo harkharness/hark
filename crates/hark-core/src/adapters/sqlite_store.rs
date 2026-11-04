@@ -85,7 +85,29 @@ impl SqliteStore {
 
     fn from_conn(conn: Connection) -> anyhow::Result<Self> {
         conn.execute_batch(SCHEMA)?;
+        Self::migrate_reply_column(&conn)?;
         Ok(Self { conn })
+    }
+
+    /// Indexes from before the agent's reply was kept: add the columns and
+    /// wipe the file rows, so the next refresh refolds every session from
+    /// byte zero (prompts dedupe by key, spend by request id).
+    fn migrate_reply_column(conn: &Connection) -> anyhow::Result<()> {
+        let has_column = conn
+            .prepare("PRAGMA table_info(files)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(Result::ok)
+            .any(|name| name == "last_reply");
+        if has_column {
+            return Ok(());
+        }
+        conn.execute_batch(
+            "ALTER TABLE files ADD COLUMN last_reply_ts TEXT;
+             ALTER TABLE files ADD COLUMN last_reply TEXT;
+             DELETE FROM prompts;
+             DELETE FROM files;",
+        )?;
+        Ok(())
     }
 
     fn row_to_summary(row: &rusqlite::Row) -> rusqlite::Result<SessionSummary> {
@@ -97,6 +119,10 @@ impl SqliteStore {
             last_prompt: row.get("last_prompt")?,
             last_ts: row.get("last_ts")?,
             recent_prompts: Vec::new(), // filled separately
+            last_reply: match (row.get::<_, Option<String>>("last_reply_ts")?, row.get::<_, Option<String>>("last_reply")?) {
+                (Some(ts), Some(text)) => Some(RecentPrompt { ts, text }),
+                _ => None,
+            },
         })
     }
 
@@ -489,7 +515,7 @@ impl SessionStore for SqliteStore {
             .conn
             .query_row(
                 "SELECT session_id, cwd, git_branch, title, last_prompt, last_ts,
-                        byte_offset, mtime
+                        byte_offset, mtime, last_reply_ts, last_reply
                  FROM files WHERE path = ?1",
                 params![path],
                 |row| {
@@ -521,11 +547,11 @@ impl SessionStore for SqliteStore {
         tx.execute(
             "INSERT INTO files
                (path, session_id, cwd, git_branch, title, last_prompt, last_ts,
-                byte_offset, mtime)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+                byte_offset, mtime, last_reply_ts, last_reply)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
              ON CONFLICT(path) DO UPDATE SET
                session_id=?2, cwd=?3, git_branch=?4, title=?5, last_prompt=?6,
-               last_ts=?7, byte_offset=?8, mtime=?9",
+               last_ts=?7, byte_offset=?8, mtime=?9, last_reply_ts=?10, last_reply=?11",
             params![
                 path,
                 summary.session_id,
@@ -536,6 +562,8 @@ impl SessionStore for SqliteStore {
                 summary.last_ts,
                 offset,
                 mtime,
+                summary.last_reply.as_ref().map(|r| r.ts.clone()),
+                summary.last_reply.as_ref().map(|r| r.text.clone()),
             ],
         )?;
         tx.execute("DELETE FROM prompts WHERE path = ?1", params![path])?;
@@ -601,7 +629,8 @@ impl SessionStore for SqliteStore {
 
     fn sessions_since(&self, iso_ts: &str) -> anyhow::Result<Vec<SessionSummary>> {
         let mut stmt = self.conn.prepare(
-            "SELECT path, session_id, cwd, git_branch, title, last_prompt, last_ts
+            "SELECT path, session_id, cwd, git_branch, title, last_prompt, last_ts,
+                    last_reply_ts, last_reply
              FROM files WHERE last_ts >= ?1 ORDER BY last_ts DESC",
         )?;
         let rows = stmt
@@ -677,7 +706,33 @@ mod tests {
                 ts: ts.into(),
                 text: "do the thing".into(),
             }],
+            last_reply: Some(RecentPrompt {
+                ts: ts.into(),
+                text: "Done, PR open.".into(),
+            }),
         }
+    }
+
+    #[test]
+    fn an_index_from_before_the_reply_column_is_refolded_from_scratch() {
+        // Old rows carry no reply and their offsets sit at the end of each
+        // file: without a wipe the agent's words would never arrive.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE files (path TEXT PRIMARY KEY, session_id TEXT NOT NULL, cwd TEXT, git_branch TEXT,
+                title TEXT, last_prompt TEXT, last_ts TEXT, byte_offset INTEGER NOT NULL DEFAULT 0, mtime INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE prompts (path TEXT NOT NULL, ts TEXT NOT NULL, text TEXT NOT NULL, PRIMARY KEY (path, ts, text));
+             INSERT INTO files (path, session_id, byte_offset, mtime) VALUES ('/logs/old.jsonl', 'old', 999, 1);
+             INSERT INTO prompts VALUES ('/logs/old.jsonl', 't', 'hi');",
+        )
+        .unwrap();
+        let store = SqliteStore::from_conn(conn).unwrap();
+        assert!(store.file_state("/logs/old.jsonl").unwrap().is_none(), "wiped so the next refresh refolds");
+        // And the column is there for the refold.
+        let mut s2 = store;
+        let s = summary("abc", "2026-08-14T10:00:00.000Z");
+        s2.save_file_state("/logs/abc.jsonl", &s, 1, 1).unwrap();
+        assert_eq!(s2.file_state("/logs/abc.jsonl").unwrap().unwrap().0.last_reply, s.last_reply);
     }
 
     #[test]

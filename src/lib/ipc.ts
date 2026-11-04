@@ -180,6 +180,8 @@ export type SpokenIntent = {
   instruction?: string | null;
   question?: string | null;
   options: { session_id: string; title: string; project?: string | null }[];
+  /** The light model that classified; the chat row names it. */
+  model?: string | null;
   cost_usd?: number | null;
 };
 export const classifyUtterance = (utterance: string, recent: string[]) =>

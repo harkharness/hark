@@ -224,6 +224,9 @@ pub enum SessionEvent {
     },
     /// Any agent output; only the timestamp matters (session freshness).
     Activity { ts: String },
+    /// The agent's prose on one line: the index keeps the newest as the
+    /// session's reply, so "status of X" has the agent's own words.
+    AssistantText { ts: String, text: String },
     /// Agent output carrying token usage: the retroactive spend trail
     /// (history files rarely carry USD, only tokens).
     AssistantUsage {

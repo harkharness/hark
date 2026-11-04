@@ -98,10 +98,34 @@ const FORCE_FULL: &[&str] = &[
     "walk me through",
 ];
 
+/// Past this many words a question carries context the templates cannot
+/// read ("mas eu disse pra vc ver o que ficou…, quais as pendências?").
+const MAX_LOCAL_WORDS: usize = 12;
+
+/// Openers that hook the sentence to the turn before. The local layer has
+/// no memory of that turn, so these go up.
+const HOOKS: &[&str] = &["mas ", "e ", "entao ", "porem ", "but ", "and ", "then ", "so "];
+
+/// Pending things OF something are that thing's sessions, not the day.
+fn asks_about_one_thing(q: &str) -> bool {
+    const OF: &[&str] = &[
+        "pendencias d", "pendencias n", "pendencias em ", "demandas d", "demandas n",
+        "pending on ", "pending of ", "pending in ", "pending for ", "pending with ",
+    ];
+    const DAY: &[&str] = &["de hoje", "do dia", "da semana", "for today", "of today", "of the day"];
+    OF.iter().any(|m| q.contains(m)) && !DAY.iter().any(|d| q.contains(d))
+}
+
 /// Decide the cheapest layer that still answers WELL.
 pub fn plan_answer(question: &str, facts: &LocalFacts) -> AnswerPlan {
     let q = normalize(question);
     if FORCE_FULL.iter().any(|p| q.contains(p)) {
+        return AnswerPlan::FullAsk;
+    }
+    if q.split_whitespace().count() > MAX_LOCAL_WORDS
+        || HOOKS.iter().any(|h| q.starts_with(h))
+        || asks_about_one_thing(&q)
+    {
         return AnswerPlan::FullAsk;
     }
 
@@ -419,6 +443,23 @@ mod tests {
             summary: summary.into(),
             lineage: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_follow_up_or_a_long_question_never_answers_locally() {
+        // "mas eu disse pra vc ver o que ficou de próximos passos, quais são
+        // as pendências?" dumped the demand list: the local layer has no
+        // memory of the turn before, so hooks and long questions go up.
+        let f = LocalFacts { board: &[], workers: &[], demands: &[], spend_day_usd: None, spend_week_usd: None, lang: Lang::Pt };
+        assert_eq!(plan_answer("mas eu disse pra vc ver o que ficou de próximos passos, quais são as pendências?", &f), AnswerPlan::FullAsk);
+        assert_eq!(plan_answer("mas quais são as pendências?", &f), AnswerPlan::FullAsk);
+        assert_eq!(plan_answer("e o que está rodando?", &f), AnswerPlan::FullAsk);
+        // Pending things OF something are that thing's sessions, not the day.
+        assert_eq!(plan_answer("quais as pendências do patch de segurança?", &f), AnswerPlan::FullAsk);
+        assert_eq!(plan_answer("what's pending on the billing migration?", &f), AnswerPlan::FullAsk);
+        // The short, whole question still answers for free.
+        assert!(matches!(plan_answer("quais as pendências de hoje?", &f), AnswerPlan::Local(_)));
+        assert!(matches!(plan_answer("o que está rodando?", &f), AnswerPlan::Local(_)));
     }
 
     #[test]

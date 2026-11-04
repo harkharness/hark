@@ -7,6 +7,32 @@ use serde_json::Value;
 
 pub use hark_agent::SessionEvent;
 
+/// Every event one line carries: an assistant line is usage AND, when it
+/// has prose, the text of the reply.
+pub fn parse_events(line: &str) -> Vec<SessionEvent> {
+    let mut events: Vec<SessionEvent> = parse_line(line).into_iter().collect();
+    if let Some(text) = assistant_text(line) {
+        events.push(text);
+    }
+    events
+}
+
+/// The prose of an assistant line (tool calls and sidechains carry none).
+fn assistant_text(line: &str) -> Option<SessionEvent> {
+    let v: Value = serde_json::from_str(line).ok()?;
+    if v.get("type")?.as_str()? != "assistant"
+        || v.get("isSidechain").and_then(Value::as_bool) == Some(true)
+    {
+        return None;
+    }
+    let ts = v.get("timestamp")?.as_str()?.to_string();
+    let text = prompt_text(v.get("message")?.get("content")?)?;
+    if text.trim().is_empty() {
+        return None;
+    }
+    Some(SessionEvent::AssistantText { ts, text })
+}
+
 /// Parse a single jsonl line into an event, if it carries anything we index.
 pub fn parse_line(line: &str) -> Option<SessionEvent> {
     let v: Value = serde_json::from_str(line).ok()?;
@@ -87,6 +113,28 @@ fn prompt_text(content: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_assistant_line_with_prose_yields_its_text_besides_the_usage() {
+        // The index used to keep only the user's side: a question about a
+        // session's STATUS had nothing to read. The agent's last words are
+        // the status.
+        let line = r#"{"type":"assistant","timestamp":"2026-08-14T11:03:00.000Z","requestId":"req_02",
+            "message":{"role":"assistant","model":"claude-opus-5","content":[{"type":"tool_use","name":"Bash","input":{}},{"type":"text","text":"Pronto: PR aberto, falta o review."}],
+            "usage":{"input_tokens":1,"output_tokens":2}}}"#;
+        let events = parse_events(line);
+        assert!(matches!(events[0], SessionEvent::AssistantUsage { .. }));
+        assert_eq!(
+            events[1],
+            SessionEvent::AssistantText { ts: "2026-08-14T11:03:00.000Z".into(), text: "Pronto: PR aberto, falta o review.".into() }
+        );
+
+        // Tool-only lines and sidechains carry no words for the index.
+        let tools = r#"{"type":"assistant","timestamp":"t","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}],"usage":{"input_tokens":1,"output_tokens":2}}}"#;
+        assert_eq!(parse_events(tools).len(), 1);
+        let side = r#"{"type":"assistant","timestamp":"t","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"sub"}],"usage":{"input_tokens":1,"output_tokens":2}}}"#;
+        assert_eq!(parse_events(side).len(), 1);
+    }
 
     #[test]
     fn parses_user_prompt_line() {

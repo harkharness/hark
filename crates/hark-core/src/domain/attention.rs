@@ -31,10 +31,16 @@ const FOCUS_THIS: [&str; 8] = ["foca nessa", "foca nesse", "foca nisso", "focar 
 const TRAILING: [&str; 4] = [" agora", " now", " por favor", " please"];
 const LEADING: [&str; 4] = ["o ", "a ", "the ", "na "];
 
+/// An order to the attention is short; "focar" inside a story is a story.
+const MAX_WORDS: usize = 12;
+
 pub fn parse(text: &str) -> Option<Attention> {
     let t = normalize(text);
     if LEAVE.contains(&t.as_str()) {
         return Some(Attention::Leave);
+    }
+    if t.split_whitespace().count() > MAX_WORDS {
+        return None;
     }
     if FOCUS_THIS.iter().any(|m| t.contains(m)) {
         return Some(Attention::Focus { target: String::new() });
@@ -77,6 +83,14 @@ fn normalize(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_focus_marker_inside_a_long_sentence_is_not_an_order() {
+        let said = "ontem eu disse que ia focar no billing mas acabei pegando o incidente do gateway, \
+            e hoje preciso revisar os alertas antes de voltar";
+        assert_eq!(parse(said), None);
+        assert_eq!(parse("foca no billing agora"), Some(Attention::Focus { target: "billing".into() }));
+    }
 
     #[test]
     fn foca_no_x_names_the_target() {
