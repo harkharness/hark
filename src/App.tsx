@@ -154,6 +154,12 @@ export default function App({
   const [recording, setRecording] = useState(false);
   /** Sidebar rows pulsing after a voice dispatch landed on them. */
   const [pulsing, setPulsing] = useState<string[]>([]);
+  /** Sessions with a worker on them, by task id: the history rows of the
+   *  sidebar show the dot by session, since a chat needs no card. */
+  const [liveSessions, setLiveSessions] = useState<Record<string, string>>({});
+  /** Bumped when a session starts or a turn lands: the sidebar's chats
+   *  come from the index, which just gained a line. */
+  const [chatsNonce, setChatsNonce] = useState(0);
   /** Capture ended, whisper still grinding — seconds of it without Metal. */
   const [transcribing, setTranscribing] = useState(false);
   // The global Esc handler must see the live value (no stale closure).
@@ -692,7 +698,7 @@ export default function App({
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectPaths]);
+  }, [projectPaths, chatsNonce]);
 
   // Main window only: the first-run gate, the update poll and the general
   // chat's stored record (the mother's three boot duties).
@@ -892,6 +898,7 @@ export default function App({
         agent?: string | null,
       ) => {
         endTurn(label, taskId);
+        setChatsNonce((n) => n + 1);
         // The return moment of a focus: the chat on Início's composer
         // finished its turn. Say so where the person is, and what waits.
         if (inicioFocusRef.current?.title === label) {
@@ -1094,6 +1101,11 @@ export default function App({
     refresh,
     onWorkerExit: useCallback((taskId: string, reason?: string | null) => {
       endTurn(null, taskId);
+      setLiveSessions((old) => {
+        const { [taskId]: _gone, ...rest } = old;
+        return rest;
+      });
+      setChatsNonce((n) => n + 1);
       if (taskId === HARK_CHAT) {
         // One retry, announced: hark_chat_send respawns the worker on the
         // same session, so the conversation's memory survives the crash.
@@ -1184,6 +1196,8 @@ export default function App({
       setFocusedTask((old) =>
         old && old.title === label ? { ...old, sessionId } : old,
       );
+      setLiveSessions((old) => ({ ...old, [taskId]: sessionId }));
+      setChatsNonce((n) => n + 1);
     }, []),
   });
 
@@ -3154,14 +3168,15 @@ export default function App({
   }
 
   /**
-   * Recover an existing session: it becomes a board task named after the
-   * SESSION (not after the sentence that found it) and its chat opens with
-   * the history loaded. Sessions living in another project open there.
+   * Recover an existing session: its chat opens with the history loaded,
+   * named after the SESSION (not after the sentence that found it). No
+   * card is created — a task is created on request (05/11). Sessions
+   * living in another project open there.
    */
   async function recoverSession(hit: SessionHit) {
     let task: { title: string; workspace?: string | null };
     try {
-      task = await ipc.taskFromSession(hit.session_id);
+      task = await ipc.chatFromSession(hit.session_id);
     } catch (err) {
       push({ who: "sys", text: t("sys_session_register_err", { e: String(err) }) });
       return;
@@ -3584,7 +3599,9 @@ export default function App({
                 (c) => !board.some((t) => t.session_ids.includes(c.session_id)),
               )}
               activeTitle={focusedTask?.title}
+              activeSessionId={focusedTask?.sessionId || undefined}
               liveTitles={Object.values(liveWorkers).map((w) => w.label)}
+              liveSessionIds={Object.keys(liveWorkers).flatMap((id) => (liveSessions[id] ? [liveSessions[id]] : []))}
               pulsing={pulsing}
               onOpen={openTaskFromSidebar}
               onOpenChat={recoverSession}

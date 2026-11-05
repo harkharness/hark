@@ -77,6 +77,17 @@ describe("the two doors of the sidebar", () => {
     expect(getByText("Billing v2").closest(".side-item")?.className).toContain("unread");
   });
 
+  it("a history chat reads active when open and shows the dot when a worker is on it", () => {
+    // A chat needs no card any more (05/11): the row is decorated by session.
+    const chats = [
+      { session_id: "s1", title: "Patch de segurança", cwd: "/p/vox", last_ts: "2026-11-05T08:52:00Z" },
+      { session_id: "s2", title: "Outro chat", cwd: "/p/vox", last_ts: "2026-11-04T08:52:00Z" },
+    ];
+    const { getByText } = render(<Sidebar {...base} door="code" chats={chats} activeSessionId="s1" liveSessionIds={["s2"]} />);
+    expect(getByText("Patch de segurança").closest(".side-chat")?.className).toContain("active");
+    expect(getByText("Outro chat").closest(".side-chat")?.className).toContain("live");
+  });
+
   it("a project group folds to one line and remembers it; its menu offers every chat", () => {
     const onMoreChats = vi.fn();
     const task = { title: "Billing v2", status: "doing" as const, workspace: "/p/vox", session_ids: [], updated_at: "2026-11-04T10:00:00Z", pinned: false, subtasks: [] };

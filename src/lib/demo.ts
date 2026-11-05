@@ -458,7 +458,7 @@ const C: Record<string, (a: Args) => unknown> = {
   transcript_since: () => ({ entries: [], offset: 4096 }),
   session_stats: (a) => ({ title: TITLE_OF(String(a?.sessionId)), size_mb: 0.4, entries: 38, last_ts: ago(3) }),
   session_context_weight: () => ({ last_total_tokens: 36_000, cache_read: 30_000, cache_created: 4_000, input: 1_500, output: 500, context_window: 200_000, pct: 0.18 }),
-  task_from_session: (a) => ({ title: TITLE_OF(String(a?.sessionId)) ?? "chat", session_id: String(a?.sessionId) }),
+  chat_from_session: (a) => ({ title: TITLE_OF(String(a?.sessionId)) ?? "chat", session_id: String(a?.sessionId) }),
   usage_report: () => USAGE,
   spend_summary: (a) => SPEND(String(a?.group ?? "kind")),
   spend_top_sessions: () => SPEND("session"),

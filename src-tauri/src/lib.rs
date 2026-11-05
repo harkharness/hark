@@ -4632,34 +4632,20 @@ fn project_sessions(path: String) -> Result<Vec<SessionHit>, String> {
         .collect())
 }
 
-/// Turn a recovered session into a board task named after the SESSION —
-/// never after the sentence that found it — and bind the two, so the chat
-/// and the card are the same thing from here on.
-#[tauri::command(async)]
-fn task_from_session(session_id: String) -> Result<serde_json::Value, String> {
-    use hark_core::ports::SessionStore;
+/// A chat from the history, as the window opens it: its title, its
+/// folder, its id. Nothing is written to the board — a task is created
+/// on request (05/11), opening a chat is not a request.
+#[tauri::command]
+fn chat_from_session(session_id: String) -> Result<serde_json::Value, String> {
     let config = Config::load();
     let mut store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
     refresh_histories(&config, &mut store);
     let summary = session_summary(&store, &session_id)
         .ok_or_else(|| format!("sessão {session_id} não está no índice"))?;
-    let tasks = store.board().map_err(|e| e.to_string())?;
-    // By session id only, and the card answers with the title and folder
-    // it really has: a look-alike title used to hand the session to
-    // another project's card, and the window focused a name no list had.
-    let (merged, card) = hark_core::domain::board::adopt_session(
-        tasks,
-        &session_label(&summary),
-        &now_iso(),
-        summary.cwd.as_deref(),
-        &session_id,
-        &ui("sessão recuperada", "session recovered"),
-    );
-    store.save_board(&merged).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
-        "title": card.title,
-        "workspace": card.workspace.or(summary.cwd),
+        "title": session_label(&summary),
+        "workspace": summary.cwd,
         "session_id": session_id,
     }))
 }
@@ -6389,7 +6375,7 @@ pub fn run() {
             terminal::term_close,
             session_candidates,
             project_sessions,
-            task_from_session,
+            chat_from_session,
             open_project_window,
             open_task,
             artifacts_spaces,

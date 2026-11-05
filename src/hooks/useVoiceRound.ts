@@ -175,13 +175,13 @@ export function useVoiceRound({
       return;
     }
     // No work to send: opening IS the action. Resolve the owning
-    // project (adopts the session as a board task when needed).
+    // project from the index (opening never creates a card).
     let ws = cand.workspace ?? null;
     let title = cand.title;
     if (!ws && cand.session_id) {
-      const task = await ipc.taskFromSession(cand.session_id).catch(() => null);
-      ws = task?.workspace ?? null;
-      title = task?.title ?? title;
+      const chat = await ipc.chatFromSession(cand.session_id).catch(() => null);
+      ws = chat?.workspace ?? null;
+      title = chat?.title ?? title;
     }
     if (!ws) {
       finish(t("vr_no_project"), "warn", 2600);

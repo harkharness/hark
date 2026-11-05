@@ -119,7 +119,9 @@ fn same_task(a: &str, b: &str) -> bool {
 }
 
 /// Merge proposed updates into the board. Similar titles update in place
-/// (status, note, timestamp, linked session); new topics become new tasks.
+/// (status, note, timestamp, linked session). A topic the board does not
+/// have is left alone: a task is created on request (`create_task`),
+/// never by the model or a dispatch (05/11).
 pub fn apply_updates(
     mut tasks: Vec<Task>,
     updates: &[BoardUpdate],
@@ -148,81 +150,46 @@ pub fn apply_updates(
                     .position(|t| t.session_ids.iter().any(|i| i == s))
             })
             .or_else(|| tasks.iter().position(|t| same_task(&t.title, &update.titulo)));
-        match position.map(|i| &mut tasks[i]) {
-            Some(task) => {
-                task.status = update.status;
-                task.updated_at = now.to_string();
-                if update.nota.is_some() {
-                    task.note = update.nota.clone();
-                }
-                if task.workspace.is_none() {
-                    task.workspace = workspace.map(String::from);
-                }
-                link(&mut task.session_ids);
+        if let Some(task) = position.map(|i| &mut tasks[i]) {
+            task.status = update.status;
+            task.updated_at = now.to_string();
+            if update.nota.is_some() {
+                task.note = update.nota.clone();
             }
-            None => {
-                let mut session_ids = Vec::new();
-                link(&mut session_ids);
-                tasks.push(Task {
-                    title: update.titulo.clone(),
-                    status: update.status,
-                    workspace: workspace.map(String::from),
-                    session_ids,
-                    updated_at: now.to_string(),
-                    note: update.nota.clone(),
-                    pinned: false,
-                    subtasks: Vec::new(),
-                });
+            if task.workspace.is_none() {
+                task.workspace = workspace.map(String::from);
             }
+            link(&mut task.session_ids);
         }
     }
     tasks
 }
 
-/// A session recovered from history (the palette, the HUD) becomes a card
-/// of ITS folder. Only the session id matches: `apply_updates` also
-/// matches by title for the model's updates, and a look-alike title put a
-/// terminal session on another project's card, where no window of its own
-/// project listed it (25/09). Returns the card as saved, so the caller
-/// focuses the title the board really has.
-pub fn adopt_session(
+/// A task created on request: a card of the folder it was asked in,
+/// linked to that chat. Never folds into a card that already has the
+/// session — one chat may carry several tasks. Returns the card as
+/// saved, so the caller focuses the title the board really has.
+pub fn create_task(
     mut tasks: Vec<Task>,
-    label: &str,
+    title: &str,
     now: &str,
-    cwd: Option<&str>,
-    session_id: &str,
-    // The note a fresh card carries, in the window's language ("session recovered").
-    note: &str,
+    workspace: Option<&str>,
+    session_id: Option<&str>,
 ) -> (Vec<Task>, Task) {
-    let covers = |ws: &str, dir: &str| {
-        let ws = ws.trim_end_matches('/');
-        dir == ws || dir.starts_with(&format!("{ws}/"))
-    };
-    if let Some(task) = tasks.iter_mut().find(|t| t.session_ids.iter().any(|s| s == session_id)) {
-        task.status = TaskStatus::Doing;
-        task.updated_at = now.to_string();
-        if let Some(dir) = cwd {
-            if !task.workspace.as_deref().is_some_and(|ws| covers(ws, dir)) {
-                task.workspace = Some(dir.to_string());
-            }
-        }
-        let card = task.clone();
-        return (tasks, card);
-    }
     // The title is the board's key: a new card never takes one in use.
-    let mut title = label.to_string();
+    let mut unique = title.to_string();
     let mut n = 2;
-    while tasks.iter().any(|t| t.title == title) {
-        title = format!("{label} ({n})");
+    while tasks.iter().any(|t| t.title == unique) {
+        unique = format!("{title} ({n})");
         n += 1;
     }
     let card = Task {
-        title,
+        title: unique,
         status: TaskStatus::Doing,
-        workspace: cwd.map(String::from),
-        session_ids: vec![session_id.to_string()],
+        workspace: workspace.map(String::from),
+        session_ids: session_id.map(String::from).into_iter().collect(),
         updated_at: now.to_string(),
-        note: Some(note.to_string()),
+        note: None,
         pinned: false,
         subtasks: Vec::new(),
     };
@@ -366,47 +333,42 @@ mod tests {
 
     const NOW: &str = "2026-09-25T12:00:00Z";
 
+    /// Cards created on request, then moved to the status the test needs.
+    fn seeded(cards: &[(&str, TaskStatus)], now: &str, workspace: Option<&str>, session: Option<&str>) -> Vec<Task> {
+        cards.iter().fold(Vec::new(), |tasks, (title, status)| {
+            let (tasks, _) = create_task(tasks, title, now, workspace, session);
+            set_status(tasks, title, *status, now)
+        })
+    }
+
     #[test]
-    fn a_recovered_session_gets_its_own_card_in_its_own_folder() {
-        // 25/09: a terminal session opened from the history palette was
-        // matched BY TITLE to another project's card, so the chat showed
-        // in neither list of its own window. Only the session id may
-        // match a recovered session.
-        let board = vec![linked("deploy phase 8 production", "/home/dev/other", "s-old")];
-        let (tasks, card) = adopt_session(board, "deploy-phase-9-production", NOW, Some("/home/dev/ws"), "s-9", "sessão recuperada");
-        assert_eq!(card.title, "deploy-phase-9-production");
+    fn a_task_is_created_on_request_in_the_chat_it_was_asked_in() {
+        // A task is a deliberate record (05/11): it is created when the
+        // person asks, linked to the chat they asked in, in that folder.
+        let (tasks, card) = create_task(Vec::new(), "Patch de segurança", NOW, Some("/home/dev/ws"), Some("s-9"));
+        assert_eq!(card.title, "Patch de segurança");
+        assert_eq!(card.status, TaskStatus::Doing);
         assert_eq!(card.workspace.as_deref(), Some("/home/dev/ws"));
         assert_eq!(card.session_ids, vec!["s-9".to_string()]);
-        assert_eq!(card.status, TaskStatus::Doing);
-        assert_eq!(tasks.len(), 2, "the look-alike card is someone else's");
-        assert_eq!(tasks[0], linked("deploy phase 8 production", "/home/dev/other", "s-old"));
-    }
-
-    #[test]
-    fn a_session_already_on_a_card_reopens_that_card() {
-        let board = vec![linked("Renomeado pelo usuário", "/home/dev/ws", "s-9")];
-        let (tasks, card) = adopt_session(board, "deploy-phase-9-production", NOW, Some("/home/dev/ws"), "s-9", "sessão recuperada");
-        assert_eq!(tasks.len(), 1);
-        assert_eq!(card.title, "Renomeado pelo usuário", "the card keeps the name it was given");
         assert_eq!(card.updated_at, NOW);
+        assert_eq!(tasks, vec![card]);
     }
 
     #[test]
-    fn a_card_outside_the_sessions_folder_follows_the_session() {
-        let board = vec![linked("chat", "/home/dev/other", "s-9")];
-        let (_, moved) = adopt_session(board, "chat", NOW, Some("/home/dev/ws"), "s-9", "sessão recuperada");
-        assert_eq!(moved.workspace.as_deref(), Some("/home/dev/ws"));
-        // A card on the project root already covers a session in a subfolder.
-        let board = vec![linked("chat", "/home/dev/ws", "s-9")];
-        let (_, kept) = adopt_session(board, "chat", NOW, Some("/home/dev/ws/apps/game"), "s-9", "sessão recuperada");
-        assert_eq!(kept.workspace.as_deref(), Some("/home/dev/ws"));
+    fn a_chat_may_carry_more_than_one_task() {
+        // Like an issue tracker: one conversation, several tasks. Creating
+        // never folds into the card that already has the session.
+        let (tasks, _) = create_task(Vec::new(), "Mover o webhook", NOW, Some("/home/dev/ws"), Some("s-9"));
+        let (tasks, second) = create_task(tasks, "Trocar o DNS", NOW, Some("/home/dev/ws"), Some("s-9"));
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(second.session_ids, vec!["s-9".to_string()]);
     }
 
     #[test]
     fn a_new_card_never_takes_a_title_already_on_the_board() {
         // The title is the board's key: a clash would fail the save.
         let board = vec![linked("deploy", "/home/dev/ws", "s-1")];
-        let (tasks, card) = adopt_session(board, "deploy", NOW, Some("/home/dev/ws"), "s-2", "sessão recuperada");
+        let (tasks, card) = create_task(board, "deploy", NOW, Some("/home/dev/ws"), Some("s-2"));
         assert_eq!(card.title, "deploy (2)");
         assert_eq!(tasks.len(), 2);
     }
@@ -483,8 +445,9 @@ mod tests {
 
     #[test]
     fn model_provided_session_links_the_task() {
+        let existing = seeded(&[("Migração webhook", TaskStatus::Doing)], "2026-08-14T10:00:00Z", None, None);
         let tasks = apply_updates(
-            Vec::new(),
+            existing,
             &[BoardUpdate {
                 titulo: "Migração webhook".into(),
                 status: TaskStatus::Waiting,
@@ -504,13 +467,7 @@ mod tests {
         // upserts under the session-derived title. Matching by linked
         // session must win over title similarity — otherwise every rename
         // gets shadowed by a duplicate card.
-        let existing = apply_updates(
-            Vec::new(),
-            &[update("Alertas do cluster migração e correções", TaskStatus::Doing)],
-            "2026-08-17T10:00:00Z",
-            Some("/home/dev/proj"),
-            Some("sess-alerts"),
-        );
+        let existing = seeded(&[("Alertas do cluster migração e correções", TaskStatus::Doing)], "2026-08-17T10:00:00Z", Some("/home/dev/proj"), Some("sess-alerts"));
         let renamed = rename(
             existing,
             "Alertas do cluster migração e correções",
@@ -530,7 +487,10 @@ mod tests {
     }
 
     #[test]
-    fn creates_tasks_from_updates() {
+    fn an_update_for_a_topic_not_on_the_board_creates_nothing() {
+        // The model and the dispatcher only move cards that exist (05/11):
+        // every chat used to become a card, and the board became a list
+        // of sessions. A task is created on request, by create_task.
         let tasks = apply_updates(
             Vec::new(),
             &[update("Migração do webhook Carteira", TaskStatus::Waiting)],
@@ -538,22 +498,12 @@ mod tests {
             Some("/home/dev/proj"),
             Some("sess-1"),
         );
-        assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0].title, "Migração do webhook Carteira");
-        assert_eq!(tasks[0].status, TaskStatus::Waiting);
-        assert_eq!(tasks[0].session_ids, vec!["sess-1"]);
-        assert_eq!(tasks[0].workspace.as_deref(), Some("/home/dev/proj"));
+        assert!(tasks.is_empty());
     }
 
     #[test]
     fn merges_similar_titles_instead_of_duplicating() {
-        let existing = apply_updates(
-            Vec::new(),
-            &[update("Migração do webhook Carteira", TaskStatus::Doing)],
-            "2026-08-14T10:00:00Z",
-            None,
-            Some("sess-1"),
-        );
+        let existing = seeded(&[("Migração do webhook Carteira", TaskStatus::Doing)], "2026-08-14T10:00:00Z", None, Some("sess-1"));
         let tasks = apply_updates(
             existing,
             &[update("migração webhook", TaskStatus::Waiting)],
@@ -569,36 +519,21 @@ mod tests {
     }
 
     #[test]
-    fn different_topics_stay_separate() {
-        let existing = apply_updates(
-            Vec::new(),
-            &[update("Migração do webhook", TaskStatus::Doing)],
-            "2026-08-14T10:00:00Z",
-            None,
-            None,
-        );
+    fn a_different_topic_leaves_the_existing_card_alone() {
+        let existing = seeded(&[("Migração do webhook", TaskStatus::Doing)], "2026-08-14T10:00:00Z", None, None);
         let tasks = apply_updates(
-            existing,
-            &[update("Migração de Pagamentos", TaskStatus::Doing)],
+            existing.clone(),
+            &[update("Migração de Pagamentos", TaskStatus::Waiting)],
             "2026-08-15T10:00:00Z",
             None,
             None,
         );
-        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks, existing);
     }
 
     #[test]
     fn renames_pins_and_finds_by_spoken_query() {
-        let tasks = apply_updates(
-            Vec::new(),
-            &[
-                update("Migração do webhook Carteira", TaskStatus::Doing),
-                update("Padrão de alertas", TaskStatus::Backlog),
-            ],
-            "2026-08-15T10:00:00Z",
-            None,
-            None,
-        );
+        let tasks = seeded(&[("Migração do webhook Carteira", TaskStatus::Doing), ("Padrão de alertas", TaskStatus::Backlog)], "2026-08-15T10:00:00Z", None, None);
 
         // Spoken query hits the right task without the exact title.
         let found = find(&tasks, "webhook").expect("match");
@@ -614,16 +549,7 @@ mod tests {
 
     #[test]
     fn manual_move_and_archive_by_exact_title() {
-        let tasks = apply_updates(
-            Vec::new(),
-            &[
-                update("Migração webhook", TaskStatus::Doing),
-                update("Alertas playbooks", TaskStatus::Backlog),
-            ],
-            "2026-08-15T10:00:00Z",
-            None,
-            None,
-        );
+        let tasks = seeded(&[("Migração webhook", TaskStatus::Doing), ("Alertas playbooks", TaskStatus::Backlog)], "2026-08-15T10:00:00Z", None, None);
 
         let moved = set_status(tasks, "Migração webhook", TaskStatus::Done, "2026-08-15T11:00:00Z");
         let webhook = moved.iter().find(|t| t.title == "Migração webhook").unwrap();
@@ -637,15 +563,17 @@ mod tests {
 
     #[test]
     fn renders_open_tasks_grouped_and_hides_old_done() {
-        let mut tasks = Vec::new();
-        for (title, status) in [
-            ("A fazer X", TaskStatus::Backlog),
-            ("Rodando Y", TaskStatus::Doing),
-            ("Esperando Z", TaskStatus::Waiting),
-            ("Feito W", TaskStatus::Done),
-        ] {
-            tasks = apply_updates(tasks, &[update(title, status)], "2026-08-15T10:00:00Z", None, None);
-        }
+        let tasks = seeded(
+            &[
+                ("A fazer X", TaskStatus::Backlog),
+                ("Rodando Y", TaskStatus::Doing),
+                ("Esperando Z", TaskStatus::Waiting),
+                ("Feito W", TaskStatus::Done),
+            ],
+            "2026-08-15T10:00:00Z",
+            None,
+            None,
+        );
         let text = render(&tasks);
         assert!(text.contains("doing"));
         assert!(text.contains("Rodando Y"));

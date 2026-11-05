@@ -41,7 +41,9 @@ export default function Sidebar({
   tasks,
   chats = [],
   activeTitle,
+  activeSessionId,
   liveTitles,
+  liveSessionIds = [],
   pulsing = [],
   onOpen,
   onOpenChat,
@@ -98,7 +100,11 @@ export default function Sidebar({
   /** Shown at the top when the window is scoped to one project. */
   workspaceName?: string;
   activeTitle?: string;
+  /** The open chat, by session: a history row needs no card to read active. */
+  activeSessionId?: string;
   liveTitles: string[];
+  /** Sessions with a worker on them: a history row shows the dot by session. */
+  liveSessionIds?: string[];
   /** Rows that just received work by voice: they pulse for a beat. */
   pulsing?: string[];
   onOpen: (task: BoardTask) => void;
@@ -460,10 +466,11 @@ export default function Sidebar({
                 {matches.map((c) => (
                   <button
                     key={c.session_id}
-                    className="side-chat"
+                    className={`side-chat ${activeSessionId === c.session_id ? "active" : ""} ${liveSessionIds.includes(c.session_id) ? "live" : ""}`}
                     title={c.last_prompt ?? c.title}
                     onClick={() => onOpenChat?.(c)}
                   >
+                    {liveSessionIds.includes(c.session_id) && <span className="side-dot live" />}
                     <span className="side-title">{c.title}</span>
                     <span className="side-chat-ts">
                       {c.last_ts ? c.last_ts.slice(5, 10).replace("-", "/") : ""}

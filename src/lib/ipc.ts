@@ -273,10 +273,11 @@ export const sessionCandidates = (query: string, limit?: number) =>
 export const projectSessions = (path: string) =>
   invoke<import("../types").SessionHit[]>("project_sessions", { path });
 
-/** Bind a recovered session to a board task named after the SESSION. */
-export const taskFromSession = (sessionId: string) =>
+/** A chat from the history, as the window opens it: title, folder, id.
+ *  Nothing lands on the board — a task is created on request. */
+export const chatFromSession = (sessionId: string) =>
   invoke<{ title: string; workspace?: string | null; session_id: string }>(
-    "task_from_session",
+    "chat_from_session",
     { sessionId },
   );
 
