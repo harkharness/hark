@@ -576,6 +576,7 @@ const C: Record<string, (a: Args) => unknown> = {
   board_subtask_toggle: () => undefined,
   board_move: () => undefined,
   board_rename: () => undefined,
+  chat_rename: (a) => String(a?.title ?? ""),
   board_pin: () => undefined,
   board_archive: () => undefined,
   board_archive_stale: () => 0,

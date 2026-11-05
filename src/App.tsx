@@ -1201,6 +1201,7 @@ export default function App({
       setLiveSessions((old) => ({ ...old, [taskId]: sessionId }));
       setChatsNonce((n) => n + 1);
     }, []),
+    onChatRenamed: useCallback(() => setChatsNonce((n) => n + 1), []),
   });
 
   // Global shortcuts: Cmd+P quick-open, Cmd+B sidebar collapse,
@@ -1902,6 +1903,20 @@ export default function App({
         push({ who: "sys", text: t("sys_task_done", { t: cmd.title }), task: cmd.title });
         say(st("sp_task_done"));
         refresh();
+      } else if (cmd.kind === "rename") {
+        // The chat's name (05/11): into the session's own history, so the
+        // CLI's resume list and every window read the same one.
+        let session = cmd.query ? null : focusedTask?.sessionId || null;
+        if (cmd.query) {
+          const hit = await ipc.findSession(cmd.query).catch(() => null);
+          session = hit?.session_id ?? null;
+        }
+        if (!session) {
+          push({ who: "sys", text: cmd.query ? t("sys_nothing_matches", { q: cmd.query }) : t("sys_rename_no_chat") });
+          say(st("sp_not_on_board"));
+          return;
+        }
+        await renameChat(session, cmd.title);
       } else if (cmd.kind === "not_found") {
         push({ who: "sys", text: t("sys_nothing_matches", { q: cmd.query }) });
         say(st("sp_not_on_board"));
@@ -3233,6 +3248,17 @@ export default function App({
    * card is created — a task is created on request (05/11). Sessions
    * living in another project open there.
    */
+  /** Name a chat; the backend's `chat_renamed` event re-reads the rows. */
+  async function renameChat(sessionId: string, title: string) {
+    try {
+      const saved = await ipc.chatRename(sessionId, title);
+      push({ who: "sys", text: t("sys_chat_renamed", { t: saved }), task: focusedTask?.sessionId === sessionId ? focusedTask.title : undefined });
+      say(st("sp_renamed", { t: saved }));
+    } catch (err) {
+      push({ who: "sys", text: t("sys_chat_rename_err", { e: String(err) }) });
+    }
+  }
+
   async function recoverSession(hit: SessionHit) {
     let task: { title: string; workspace?: string | null };
     try {
@@ -3668,6 +3694,7 @@ export default function App({
               pulsing={pulsing}
               onOpen={openTaskFromSidebar}
               onOpenChat={recoverSession}
+              onRenameChat={(chat, title) => void renameChat(chat.session_id, title)}
               workspaceName={forcedProject?.name}
               onSearchChats={() => setChatPalette(true)}
               door={isMain ? door : "code"}

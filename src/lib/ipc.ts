@@ -368,6 +368,10 @@ export const boardMove = (title: string, status: string) =>
   invoke("board_move", { title, status });
 export const boardRename = (title: string, newTitle: string) =>
   invoke("board_rename", { title, newTitle });
+/** Name a chat: written into the session's own history (the CLI reads
+ *  it too). Answers the name as saved. */
+export const chatRename = (sessionId: string, title: string) =>
+  invoke<string>("chat_rename", { sessionId, title });
 export const boardPin = (title: string) => invoke("board_pin", { title });
 export const boardArchive = (title: string) => invoke("board_archive", { title });
 

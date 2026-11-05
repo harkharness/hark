@@ -333,6 +333,58 @@ impl hark_core::ports::HistoryIndexer for BothHistories {
         let records = hark_core::adapters::recorder::refresh(&Config::load().data_dir(), store)?;
         Ok(files + records)
     }
+
+    /// Claude's own file takes the CLI's line; a record of Hark's takes
+    /// ours; any other path is nobody's and stays untouched.
+    fn set_title(
+        &self,
+        path: &std::path::Path,
+        session_id: &str,
+        title: &str,
+        source: hark_agent::TitleSource,
+    ) -> anyhow::Result<bool> {
+        let config = Config::load();
+        if path.starts_with(&config.projects_dir) && path.is_file() {
+            hark_plugin_claude::history::set_title(path, session_id, title, source)?;
+            return Ok(true);
+        }
+        hark_core::adapters::recorder::RecordedHistory { data_dir: config.data_dir() }
+            .set_title(path, session_id, title, source)
+    }
+}
+
+/// Name a chat: the name goes into the session's OWN history (the CLI's
+/// `custom-title` line, or a title line in Hark's record), so the agent's
+/// resume list, Hark's index and every window read the same name. The
+/// board is not touched: a task's name is the task's.
+fn name_session(
+    config: &Config,
+    session_id: &str,
+    title: &str,
+    source: hark_agent::TitleSource,
+) -> anyhow::Result<String> {
+    use hark_core::ports::{HistoryIndexer, SessionStore};
+    let title = title.trim();
+    anyhow::ensure!(!title.is_empty(), "{}", ui("nome vazio", "empty name"));
+    let mut store = SqliteStore::open(&config.data_dir().join("index.db"))?;
+    refresh_histories(config, &mut store);
+    let path = store
+        .session_path(session_id)?
+        .ok_or_else(|| anyhow::anyhow!("{}", ui("esse chat ainda não tem histórico em disco", "this chat has no history on disk yet")))?;
+    let written = BothHistories.set_title(std::path::Path::new(&path), session_id, title, source)?;
+    anyhow::ensure!(written, "{}", ui("o agente desse chat não guarda nome", "this chat's agent keeps no name"));
+    refresh_histories(config, &mut store);
+    Ok(title.to_string())
+}
+
+/// "renomeia esse chat para X", the row's menu, `/rename X`: the user
+/// names the chat. Every window hears `chat_renamed` and re-reads.
+#[tauri::command(async)]
+fn chat_rename(app: AppHandle, session_id: String, title: String) -> Result<String, String> {
+    let config = Config::load();
+    let title = name_session(&config, &session_id, &title, hark_agent::TitleSource::User).map_err(|e| e.to_string())?;
+    emit_event(&app, serde_json::json!({ "kind": "chat_renamed", "session_id": session_id, "title": title }));
+    Ok(title)
 }
 
 fn refresh_histories(config: &Config, store: &mut (impl hark_core::ports::SessionStore + ?Sized)) {
@@ -5697,20 +5749,12 @@ fn task_command(
                 }
             },
         },
-        // "renomeia (esse chat) para X": an empty query means whatever the
-        // window has focused right now.
-        TaskCommand::Rename { query, .. } if query.is_empty() => {
-            match focused.as_deref().filter(|f| !f.is_empty()) {
-                Some(f) => f,
-                None => {
-                    return Ok(Some(serde_json::json!({
-                        "kind": "not_found",
-                        "query": "nenhuma task focada pra renomear",
-                    })))
-                }
-            }
+        // "renomeia (esse chat) para X": the CHAT's name (05/11), never a
+        // card's. The window resolves the session — the focused one when
+        // the query is empty, a search otherwise — and calls chat_rename.
+        TaskCommand::Rename { query, title } => {
+            return Ok(Some(serde_json::json!({ "kind": "rename", "query": query, "title": title })));
         }
-        TaskCommand::Rename { query, .. } => query,
         TaskCommand::Open(_)
         | TaskCommand::Create { .. }
         | TaskCommand::Switch { .. }
@@ -5734,11 +5778,6 @@ fn task_command(
         };
         let title = task.title.clone();
         match &command {
-            TaskCommand::Rename { title: new, .. } => {
-                let tasks = hark_core::domain::board::rename(tasks, &title, new, &now_iso());
-                store.save_board(&tasks)?;
-                Ok(Some(serde_json::json!({ "kind": "renamed", "title": new })))
-            }
             TaskCommand::Pin(_) => {
                 let tasks = hark_core::domain::board::toggle_pin(tasks, &title);
                 store.save_board(&tasks)?;
@@ -5771,6 +5810,7 @@ fn task_command(
             | TaskCommand::SetMode { .. }
             | TaskCommand::OpenSettings
             | TaskCommand::Create { .. }
+            | TaskCommand::Rename { .. }
             | TaskCommand::Handoff { .. } => unreachable!("handled above"),
         }
     })
@@ -6408,6 +6448,7 @@ pub fn run() {
             evaluate,
             board_move,
             board_rename,
+            chat_rename,
             board_pin,
             board_archive,
             voice::set_active_context,

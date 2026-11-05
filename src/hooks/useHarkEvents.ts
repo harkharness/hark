@@ -16,6 +16,8 @@ type Handlers = {
   setLiveWorkers: React.Dispatch<React.SetStateAction<Record<string, LiveWorker>>>;
   onWorkerExit: (taskId: string, reason?: string | null) => void;
   onSessionStarted: (taskId: string, sessionId: string) => void;
+  /** A chat was named (here or in another window): re-read the rows. */
+  onChatRenamed?: (sessionId: string, title: string) => void;
   /** Raw per-thread feed (the task's own "terminal"). */
   pushRaw: (label: string, line: string) => void;
   /** Window-accumulated spend, per thread label. */
@@ -286,6 +288,9 @@ export function useHarkEvents(h: Handlers) {
         h.refresh();
       } else if (ev.kind === "session_started") {
         h.onSessionStarted(ev.task_id, ev.session_id);
+        h.refresh();
+      } else if (ev.kind === "chat_renamed") {
+        h.onChatRenamed?.(ev.session_id, ev.title);
         h.refresh();
       } else if (ev.kind === "speaking") {
         h.onSpeaking(ev.on);

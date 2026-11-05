@@ -59,6 +59,7 @@ export default function Sidebar({
   onReport,
   generalActive,
   onRename,
+  onRenameChat,
   onPin,
   onArchive,
   onResume,
@@ -131,6 +132,9 @@ export default function Sidebar({
   onReport?: () => void;
   generalActive?: boolean;
   onRename: (task: BoardTask, title: string) => void;
+  /** Rename the CHAT (05/11): the name goes to the session's own history,
+   *  so the CLI's resume list and every window read the same one. */
+  onRenameChat?: (chat: SessionHit, title: string) => void;
   onPin: (task: BoardTask) => void;
   onArchive: (task: BoardTask) => void;
   onResume: (task: BoardTask) => void;
@@ -257,10 +261,10 @@ export default function Sidebar({
     </div>
   );
 
-  /** A chat of the index as a row (05/11): the conversation is the unit,
-   *  the cards it carries decorate it — status dot, task count — and
-   *  opening a chat with a card opens the card, so the thread keeps the
-   *  name the board has. */
+  /** A chat of the index as a row (05/11): the conversation is the unit
+   *  and the row carries ITS name — the one the CLI shows too; the cards
+   *  it carries decorate it (status dot, a count with their names on
+   *  hover), and opening a chat with a card opens the card. */
   const chatRow = (c: SessionHit) => {
     const cards = tasks.filter((task) => task.session_ids.includes(c.session_id));
     const card = cards[0];
@@ -268,7 +272,28 @@ export default function Sidebar({
     const active = activeSessionId === c.session_id || (!!card && activeTitle === card.title);
     const unread = unreadSessionIds.includes(c.session_id) || (!!card && unreadTitles.includes(card.title));
     const pulse = !!card && pulsing.includes(card.title);
-    const title = card?.title ?? c.title;
+    const title = c.title;
+    const renameKey = `chat:${c.session_id}`;
+    if (renaming === renameKey) {
+      return (
+        <div key={c.session_id} className="side-item chat active">
+          <input
+            className="side-rename"
+            autoFocus
+            defaultValue={title}
+            onBlur={(e) => {
+              const next = e.target.value.trim();
+              if (next && next !== title) onRenameChat?.(c, next);
+              setRenaming(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              if (e.key === "Escape") setRenaming(null);
+            }}
+          />
+        </div>
+      );
+    }
     return (
       <div
         key={c.session_id}
@@ -292,31 +317,39 @@ export default function Sidebar({
           <span className={`side-dot ${live ? "live" : ""}`}>{card ? DOT[card.status] : "·"}</span>
           <span className="side-title">{title}</span>
           {cards.length > 0 && (
-            <span className="side-tasks" title={t("side_tasks_hint", { n: cards.length })}>
+            <span
+              className="side-tasks"
+              title={`${t("side_tasks_hint", { n: cards.length })}: ${cards.map((k) => k.title).join(", ")}`}
+            >
               <ClipboardList size={10} /> {cards.length}
             </span>
           )}
           <span className="side-chat-ts">{c.last_ts ? c.last_ts.slice(5, 10).replace("-", "/") : ""}</span>
         </button>
-        {card && (
-          <button
-            className="side-menu-btn"
-            onClick={() => setMenu(menu === card.title ? null : card.title)}
-            title={t("side_actions")}
-          >
-            <MoreVertical size={13} />
-          </button>
-        )}
-        {card && menu === card.title && (
+        <button
+          className="side-menu-btn"
+          onClick={() => setMenu(menu === renameKey ? null : renameKey)}
+          title={t("side_actions")}
+        >
+          <MoreVertical size={13} />
+        </button>
+        {menu === renameKey && (
           <div className="side-menu">
-            <button onClick={() => { setMenu(null); onOpen(card); }}>{t("side_open")}</button>
-            <button onClick={() => { setMenu(null); onResume(card); }}>{t("side_resume")}</button>
-            <button onClick={() => { setMenu(null); onPin(card); }}>
-              {card.pinned ? t("side_unpin") : t("side_pin")}
-            </button>
-            <button className="danger" onClick={() => { setMenu(null); onArchive(card); }}>
-              {t("side_archive")}
-            </button>
+            {card && <button onClick={() => { setMenu(null); onOpen(card); }}>{t("side_open")}</button>}
+            {card && <button onClick={() => { setMenu(null); onResume(card); }}>{t("side_resume")}</button>}
+            {onRenameChat && (
+              <button onClick={() => { setMenu(null); setRenaming(renameKey); }}>{t("side_rename")}</button>
+            )}
+            {card && (
+              <button onClick={() => { setMenu(null); onPin(card); }}>
+                {card.pinned ? t("side_unpin") : t("side_pin")}
+              </button>
+            )}
+            {card && (
+              <button className="danger" onClick={() => { setMenu(null); onArchive(card); }}>
+                {t("side_archive")}
+              </button>
+            )}
           </div>
         )}
       </div>

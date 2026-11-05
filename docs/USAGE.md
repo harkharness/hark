@@ -325,6 +325,19 @@ card does not move a ticket somewhere else — it tracks the conversations
 doing the work, so resuming means resuming, not starting over. The board
 is global and a detached project window shows its slice.
 
+### A chat's name is the chat's
+
+Renaming is the chat's, not a card's: "renomeia esse chat para patch do
+windows", "rename this chat to dns fix", `/rename patch do windows`, or
+"Mudar o nome" in the row's `⋯` menu. The name is written into the
+session's **own history** — for Claude Code, the same `custom-title` line
+its `/rename` writes — so `claude --resume`, Hark's rows, Demandas and
+every other reader of that history show one name. A name you gave in the
+CLI shows in Hark the same way. A card keeps its own name on the board.
+A brand-new chat opened with a sentence gets a short name from the light
+model after its first reply, written the same way (as a generated name:
+the CLI's own namer and yours outrank it).
+
 ## Costs
 
 Every turn lands in a local SQLite ledger: kind, project, task, model, tokens,

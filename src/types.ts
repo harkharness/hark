@@ -144,6 +144,8 @@ export type HarkEvent =
   | { kind: "phase"; task_id: string; phase: "requesting" | "thinking" | "writing" }
   | { kind: "worker_exit"; task_id: string; exit_code?: number | null; reason?: string | null }
   | { kind: "session_started"; task_id: string; session_id: string }
+  /** A chat got a name — in its own history, so every window re-reads. */
+  | { kind: "chat_renamed"; session_id: string; title: string }
   | { kind: "speaking"; on: boolean }
   /** What hear_once is doing right now. The promise alone can't say: on
    *  CPU the transcription grinds long after the capture ended, and a UI
@@ -390,6 +392,9 @@ export type TaskCommandResult =
       candidates: { title: string; session_id?: string | null; workspace?: string | null }[];
     }
   | { kind: "not_found"; query: string }
+  /** "renomeia (esse chat | <query>) para X": the window resolves the
+   *  session (focused when the query is empty) and names the chat. */
+  | { kind: "rename"; query: string; title: string }
   /** "compacta o contexto": deliver "/compact" to the focused session. */
   | { kind: "compact" }
   /** "muda o modo pra X": switch the focused worker's permission mode. */

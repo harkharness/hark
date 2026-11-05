@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import Sidebar from "./Sidebar";
 import { t } from "../lib/i18n";
 import type { Project } from "../types";
@@ -89,19 +89,37 @@ describe("the two doors of the sidebar", () => {
   });
 
   it("rows are chats: a card decorates the chat it is tied to and opens on click, a loose card stays on the board", () => {
-    // Rows are chats (05/11): the card lends its name, status and a
-    // count; a card with no session of its own is the board's business.
+    // Rows are chats (05/11): the row keeps the CHAT's own name — the one
+    // the CLI shows too — and the card lends its status and a count, its
+    // name on hover; a card with no session of its own is the board's.
     const onOpen = vi.fn();
     const chats = [{ session_id: "s1", title: "patch windows", cwd: "/p/vox", last_ts: "2026-11-05T08:52:00Z" }];
     const tied = { title: "Patch de segurança", status: "waiting" as const, workspace: "/p/vox", session_ids: ["s1"], updated_at: "2026-11-05T08:52:00Z", pinned: false, subtasks: [] };
     const loose = { title: "Só no quadro", status: "doing" as const, workspace: "/p/vox", session_ids: [], updated_at: "2026-11-05T08:52:00Z", pinned: false, subtasks: [] };
     const { getByText, getByTitle, queryByText } = render(<Sidebar {...base} door="code" chats={chats} tasks={[tied, loose]} onOpen={onOpen} />);
-    const row = getByText("Patch de segurança").closest(".side-item")!;
+    const row = getByText("patch windows").closest(".side-item")!;
     expect(row.className).toContain("waiting");
-    expect(getByTitle(t("side_tasks_hint", { n: 1 }))).toBeTruthy();
+    expect(getByTitle(`${t("side_tasks_hint", { n: 1 })}: Patch de segurança`)).toBeTruthy();
+    expect(queryByText("Patch de segurança")).toBeNull();
     expect(queryByText("Só no quadro")).toBeNull();
-    fireEvent.click(getByText("Patch de segurança"));
+    fireEvent.click(getByText("patch windows"));
     expect(onOpen).toHaveBeenCalledWith(tied);
+  });
+
+  it("a chat's menu renames the chat itself, card or no card", () => {
+    // The name is the chat's (05/11): it goes to the session's own
+    // history, so the CLI's resume list and every window agree. A card's
+    // name is the card's and is renamed on the board.
+    const onRenameChat = vi.fn();
+    const chats = [{ session_id: "s1", title: "patch windows", cwd: "/p/vox", last_ts: "2026-11-05T08:52:00Z" }];
+    const { getByText, getByDisplayValue } = render(<Sidebar {...base} door="code" chats={chats} onRenameChat={onRenameChat} />);
+    const row = getByText("patch windows").closest(".side-item") as HTMLElement;
+    fireEvent.click(within(row).getByTitle(t("side_actions")));
+    fireEvent.click(within(row).getByText(t("side_rename")));
+    const input = getByDisplayValue("patch windows") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Patch de segurança do Windows" } });
+    fireEvent.blur(input);
+    expect(onRenameChat).toHaveBeenCalledWith(chats[0], "Patch de segurança do Windows");
   });
 
   it("a pinned card keeps a row of its own at the top", () => {
