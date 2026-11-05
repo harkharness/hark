@@ -86,6 +86,7 @@ impl SqliteStore {
     fn from_conn(conn: Connection) -> anyhow::Result<Self> {
         conn.execute_batch(SCHEMA)?;
         Self::migrate_reply_column(&conn)?;
+        Self::migrate_titled_by_user(&conn)?;
         Ok(Self { conn })
     }
 
@@ -110,12 +111,28 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// Indexes from before a session knew who named it: one flag column,
+    /// false for every row (a title already there may be the user's or the
+    /// first prompt's; the next full refold tells them apart).
+    fn migrate_titled_by_user(conn: &Connection) -> anyhow::Result<()> {
+        let has_column = conn
+            .prepare("PRAGMA table_info(files)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(Result::ok)
+            .any(|name| name == "titled_by_user");
+        if !has_column {
+            conn.execute_batch("ALTER TABLE files ADD COLUMN titled_by_user INTEGER NOT NULL DEFAULT 0;")?;
+        }
+        Ok(())
+    }
+
     fn row_to_summary(row: &rusqlite::Row) -> rusqlite::Result<SessionSummary> {
         Ok(SessionSummary {
             session_id: row.get("session_id")?,
             cwd: row.get("cwd")?,
             git_branch: row.get("git_branch")?,
             title: row.get("title")?,
+            titled_by_user: row.get::<_, i64>("titled_by_user")? != 0,
             last_prompt: row.get("last_prompt")?,
             last_ts: row.get("last_ts")?,
             recent_prompts: Vec::new(), // filled separately
@@ -515,7 +532,7 @@ impl SessionStore for SqliteStore {
             .conn
             .query_row(
                 "SELECT session_id, cwd, git_branch, title, last_prompt, last_ts,
-                        byte_offset, mtime, last_reply_ts, last_reply
+                        byte_offset, mtime, last_reply_ts, last_reply, titled_by_user
                  FROM files WHERE path = ?1",
                 params![path],
                 |row| {
@@ -547,11 +564,12 @@ impl SessionStore for SqliteStore {
         tx.execute(
             "INSERT INTO files
                (path, session_id, cwd, git_branch, title, last_prompt, last_ts,
-                byte_offset, mtime, last_reply_ts, last_reply)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                byte_offset, mtime, last_reply_ts, last_reply, titled_by_user)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
              ON CONFLICT(path) DO UPDATE SET
                session_id=?2, cwd=?3, git_branch=?4, title=?5, last_prompt=?6,
-               last_ts=?7, byte_offset=?8, mtime=?9, last_reply_ts=?10, last_reply=?11",
+               last_ts=?7, byte_offset=?8, mtime=?9, last_reply_ts=?10, last_reply=?11,
+               titled_by_user=?12",
             params![
                 path,
                 summary.session_id,
@@ -564,6 +582,7 @@ impl SessionStore for SqliteStore {
                 mtime,
                 summary.last_reply.as_ref().map(|r| r.ts.clone()),
                 summary.last_reply.as_ref().map(|r| r.text.clone()),
+                summary.titled_by_user as i64,
             ],
         )?;
         tx.execute("DELETE FROM prompts WHERE path = ?1", params![path])?;
@@ -630,7 +649,7 @@ impl SessionStore for SqliteStore {
     fn sessions_since(&self, iso_ts: &str) -> anyhow::Result<Vec<SessionSummary>> {
         let mut stmt = self.conn.prepare(
             "SELECT path, session_id, cwd, git_branch, title, last_prompt, last_ts,
-                    last_reply_ts, last_reply
+                    last_reply_ts, last_reply, titled_by_user
              FROM files WHERE last_ts >= ?1 ORDER BY last_ts DESC",
         )?;
         let rows = stmt
@@ -652,6 +671,25 @@ mod tests {
     use super::*;
     use crate::domain::snapshot::{RecentPrompt, SessionSummary};
     use crate::ports::SessionStore;
+
+    #[test]
+    fn who_named_a_session_survives_the_index() {
+        // The fold is incremental: the summary comes back from the store
+        // before the next lines land on it, so "the user named this" has
+        // to come back too, or a later generated name would overwrite it.
+        let mut store = SqliteStore::in_memory().unwrap();
+        let mut named = summary("s1", "2026-11-01T10:00:00Z");
+        named.titled_by_user = true;
+        store.save_file_state("/p/1.jsonl", &named, 0, 0).unwrap();
+        store.save_file_state("/p/2.jsonl", &summary("s2", "2026-11-01T10:00:00Z"), 0, 0).unwrap();
+        let (back, _, _) = store.file_state("/p/1.jsonl").unwrap().unwrap();
+        assert!(back.titled_by_user);
+        let (other, _, _) = store.file_state("/p/2.jsonl").unwrap().unwrap();
+        assert!(!other.titled_by_user);
+        // The listings carry it too.
+        let by_ts = store.sessions_since("2026-11-01T00:00:00Z").unwrap();
+        assert_eq!(by_ts.iter().filter(|s| s.titled_by_user).count(), 1);
+    }
 
     #[test]
     fn forgetting_a_folder_drops_its_files_and_keeps_the_rest() {
@@ -700,6 +738,7 @@ mod tests {
             cwd: Some("/home/dev/proj".into()),
             git_branch: Some("main".into()),
             title: Some("Some work".into()),
+            titled_by_user: false,
             last_prompt: Some("do the thing".into()),
             last_ts: Some(ts.into()),
             recent_prompts: vec![RecentPrompt {

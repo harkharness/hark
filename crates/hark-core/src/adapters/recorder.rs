@@ -202,12 +202,31 @@ impl HistoryIndexer for RecordedHistory {
     fn refresh(&self, _projects_dir: &Path, store: &mut dyn SessionStore) -> anyhow::Result<usize> {
         refresh(&self.data_dir, store)
     }
+
+    /// A record of ours takes a title line; any other file is someone
+    /// else's history and is left untouched.
+    fn set_title(&self, path: &Path, _session_id: &str, title: &str, source: hark_agent::TitleSource) -> anyhow::Result<bool> {
+        if !path.starts_with(self.data_dir.join("sessions")) || !path.is_file() {
+            return Ok(false);
+        }
+        append(path, &[recorded::render(&Line::Title { title: title.to_string(), source })]);
+        Ok(true)
+    }
 }
 
 /// Both histories, one seam: claude's files and Hark's records.
 pub struct Histories<'a>(pub Vec<&'a dyn HistoryIndexer>);
 
 impl HistoryIndexer for Histories<'_> {
+    fn set_title(&self, path: &Path, session_id: &str, title: &str, source: hark_agent::TitleSource) -> anyhow::Result<bool> {
+        for indexer in &self.0 {
+            if indexer.set_title(path, session_id, title, source)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     fn refresh(&self, projects_dir: &Path, store: &mut dyn SessionStore) -> anyhow::Result<usize> {
         let mut total = 0;
         for indexer in &self.0 {
@@ -278,6 +297,31 @@ mod tests {
         assert_eq!(rows[0].usage.input, 10);
         assert_eq!(rows[0].cost_usd, 0.0);
         assert!(store.spend_rows_session("s-1").unwrap().is_empty(), "no live row was written by the index");
+    }
+
+    #[test]
+    fn a_name_given_in_hark_lands_in_the_record_and_the_index() {
+        use crate::ports::HistoryIndexer;
+        let dir = tempfile::tempdir().unwrap();
+        let rec = Recorder::new(dir.path(), "codex", Path::new("/p/x"));
+        rec.started("s-9");
+        rec.user("abre o PR do webhook");
+        let mut store = SqliteStore::in_memory().unwrap();
+        refresh(dir.path(), &mut store).unwrap();
+        let path = session_file(dir.path(), "codex", "s-9");
+
+        let history = RecordedHistory { data_dir: dir.path().to_path_buf() };
+        let written = history.set_title(&path, "s-9", "Webhook PR", hark_agent::TitleSource::User).unwrap();
+        assert!(written, "a record of ours takes the title");
+        // A file that is not a record of ours is left alone: another
+        // indexer owns it.
+        let foreign = dir.path().join("elsewhere").join("x.jsonl");
+        assert!(!history.set_title(&foreign, "x", "Nope", hark_agent::TitleSource::User).unwrap());
+        assert!(!foreign.exists());
+
+        refresh(dir.path(), &mut store).unwrap();
+        let (summary, _, _) = store.file_state(path.to_str().unwrap()).unwrap().unwrap();
+        assert_eq!(summary.title.as_deref(), Some("Webhook PR"));
     }
 
     #[test]

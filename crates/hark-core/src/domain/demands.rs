@@ -377,6 +377,7 @@ mod tests {
             cwd: Some(cwd.into()),
             git_branch: None,
             title: Some(title.into()),
+            titled_by_user: false,
             last_prompt: Some("…".into()),
             last_ts: Some(prompt_ts.max(reply_ts).into()),
             recent_prompts: vec![RecentPrompt { ts: prompt_ts.into(), text: "…".into() }],

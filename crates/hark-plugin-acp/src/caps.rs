@@ -80,6 +80,8 @@ pub fn negotiate(result: &serde_json::Value, memory_file: Option<String>) -> Neg
         // `session/fork` — announced in sessionCapabilities by the Claude
         // adapter (0.76) and codex-acp (1.11); gemini 0.46 says nothing.
         fork: agent_caps.and_then(|c| c.pointer("/sessionCapabilities/fork")).is_some(),
+        // The history is Hark's own record (F9.4): a title goes in there.
+        title_write: true,
         // Directives cross only through what the agent OFFERS in its
         // session/new answer (modes, config options) — unknown until then,
         // so the sheet says no until `directives::Offer` says otherwise.

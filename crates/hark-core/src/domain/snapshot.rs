@@ -23,6 +23,9 @@ pub struct SessionSummary {
     pub cwd: Option<String>,
     pub git_branch: Option<String>,
     pub title: Option<String>,
+    /// `title` came from the user (a rename), not from a model or the
+    /// first prompt: a generated name must not replace it.
+    pub titled_by_user: bool,
     pub last_prompt: Option<String>,
     pub last_ts: Option<String>,
     pub recent_prompts: Vec<RecentPrompt>,
@@ -110,6 +113,13 @@ impl SessionSummary {
             },
             SessionEvent::Title(title) => Self {
                 title: Some(title),
+                titled_by_user: true,
+                ..self
+            },
+            // A model's name fills the gap and replaces an older model's
+            // name; a name the user typed is never overwritten.
+            SessionEvent::GeneratedTitle(title) => Self {
+                title: if self.titled_by_user { self.title } else { Some(title) },
                 ..self
             },
         }
@@ -172,6 +182,46 @@ mod tests {
         assert_eq!(s.last_prompt.as_deref(), Some("now open the PR"));
         assert_eq!(s.last_ts.as_deref(), Some("2026-08-14T10:10:00.000Z"));
         assert_eq!(s.recent_prompts.len(), 2);
+    }
+
+    #[test]
+    fn a_generated_title_names_a_nameless_session_but_never_over_the_users() {
+        // The CLI (or Hark) writes a generated name: better than the first
+        // sixty characters of the opening message, worse than a name the
+        // user typed — whichever order the lines arrive in.
+        let generated_only = vec![
+            prompt("2026-08-14T10:00:00.000Z", "Alerts migration to the new team"),
+            SessionEvent::GeneratedTitle("Alerts migration".into()),
+        ]
+        .into_iter()
+        .fold(SessionSummary::new("abc"), SessionSummary::apply);
+        assert_eq!(generated_only.title.as_deref(), Some("Alerts migration"));
+
+        let user_first = vec![
+            SessionEvent::Title("Cluster alerts".into()),
+            SessionEvent::GeneratedTitle("Alerts migration".into()),
+        ]
+        .into_iter()
+        .fold(SessionSummary::new("abc"), SessionSummary::apply);
+        assert_eq!(user_first.title.as_deref(), Some("Cluster alerts"));
+
+        let user_last = vec![
+            SessionEvent::GeneratedTitle("Alerts migration".into()),
+            SessionEvent::Title("Cluster alerts".into()),
+        ]
+        .into_iter()
+        .fold(SessionSummary::new("abc"), SessionSummary::apply);
+        assert_eq!(user_last.title.as_deref(), Some("Cluster alerts"));
+
+        // A newer generated name replaces an older generated one (the CLI
+        // keeps the last), but never a user's.
+        let regenerated = vec![
+            SessionEvent::GeneratedTitle("First guess".into()),
+            SessionEvent::GeneratedTitle("Better guess".into()),
+        ]
+        .into_iter()
+        .fold(SessionSummary::new("abc"), SessionSummary::apply);
+        assert_eq!(regenerated.title.as_deref(), Some("Better guess"));
     }
 
     #[test]

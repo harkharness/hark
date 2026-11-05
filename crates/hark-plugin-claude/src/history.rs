@@ -63,6 +63,30 @@ fn jsonl_files(projects_dir: &Path) -> anyhow::Result<Vec<std::path::PathBuf>> {
     Ok(files)
 }
 
+/// Name a session in its own log: one `custom-title`/`ai-title` line
+/// appended, the CLI's shape (`log::title_line`), on a line of its own
+/// even when the file's last write had no newline. The next index pass
+/// folds it like any other line; `claude --resume` reads it the same way.
+pub fn set_title(path: &Path, session_id: &str, title: &str, source: hark_agent::TitleSource) -> anyhow::Result<()> {
+    use std::io::Write;
+    let ends_open = std::fs::File::open(path).and_then(|mut f| {
+        let len = f.metadata()?.len();
+        if len == 0 {
+            return Ok(false);
+        }
+        f.seek(SeekFrom::End(-1))?;
+        let mut last = [0u8; 1];
+        std::io::Read::read_exact(&mut f, &mut last)?;
+        Ok(last[0] != b'\n')
+    })?;
+    let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
+    if ends_open {
+        file.write_all(b"\n")?;
+    }
+    writeln!(file, "{}", crate::log::title_line(session_id, title, source))?;
+    Ok(())
+}
+
 /// Returns true when the file had new content to fold.
 fn index_file(path: &Path, store: &mut (impl SessionStore + ?Sized)) -> anyhow::Result<bool> {
     let path_str = path.to_string_lossy().to_string();
@@ -72,7 +96,10 @@ fn index_file(path: &Path, store: &mut (impl SessionStore + ?Sized)) -> anyhow::
 
     let stored = store.file_state(&path_str)?;
     let (summary, offset) = match stored {
-        Some((_, _, stored_mtime)) if stored_mtime == mtime => return Ok(false),
+        // Same size AND same second: nothing new. (Size too — a title
+        // appended within the second of the CLI's last write shares its
+        // mtime and would otherwise wait for the next write to be read.)
+        Some((_, offset, stored_mtime)) if stored_mtime == mtime && offset == len => return Ok(false),
         // Truncated or rotated file: refold from scratch.
         Some((_, offset, _)) if offset > len => (fresh_summary(path), 0),
         Some((summary, offset, _)) => (summary, offset),
@@ -237,6 +264,30 @@ mod tests {
             writeln!(f, "{l}").unwrap();
         }
         path
+    }
+
+    #[test]
+    fn a_title_set_by_hark_is_appended_and_read_back_by_the_index() {
+        // The file may end without a newline (the CLI's last write was cut):
+        // the title still lands on a line of its own, and the lines before
+        // it are untouched.
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_session(dir.path(), "sess-1.jsonl", &[user_line("2026-08-14T10:00:00.000Z", "start migration")]);
+        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        write!(f, "{}", assistant_line("2026-08-14T10:01:00.000Z", "Looking.")).unwrap();
+        drop(f);
+        let mut store = SqliteStore::in_memory().unwrap();
+        refresh_index(dir.path(), &mut store).unwrap();
+
+        set_title(&path, "sess-1", "Webhook migration", hark_agent::TitleSource::User).unwrap();
+        refresh_index(dir.path(), &mut store).unwrap();
+
+        let sessions = store.sessions_since("2026-08-14T00:00:00.000Z").unwrap();
+        assert_eq!(sessions[0].title.as_deref(), Some("Webhook migration"));
+        assert_eq!(sessions[0].last_reply.as_ref().map(|r| r.text.as_str()), Some("Looking."), "earlier lines intact");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text.lines().count(), 3);
+        assert!(text.ends_with('\n'), "a line of its own, closed");
     }
 
     #[test]

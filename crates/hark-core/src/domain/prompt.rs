@@ -416,6 +416,7 @@ mod tests {
                     cwd: Some("/home/dev/alpha".into()),
                     git_branch: Some("main".into()),
                     title: Some("Alpha refactor".into()),
+                    titled_by_user: false,
                     last_prompt: Some("run the tests again".into()),
                     last_ts: Some("2026-08-13T09:00:00.000Z".into()),
                     recent_prompts: vec![RecentPrompt {
@@ -429,6 +430,7 @@ mod tests {
                     cwd: Some("/home/dev/beta".into()),
                     git_branch: Some("feat/webhook".into()),
                     title: Some("Webhook migration".into()),
+                    titled_by_user: false,
                     last_prompt: Some("open the PR".into()),
                     last_ts: Some("2026-08-14T11:00:00.000Z".into()),
                     recent_prompts: vec![RecentPrompt {
@@ -665,6 +667,7 @@ mod tests {
             session_id: "old-webhook".into(),
             last_ts: Some("2026-01-01T00:00:00.000Z".into()),
             title: Some("Webhook antiga".into()),
+            titled_by_user: false,
             last_prompt: Some("migrar webhook".into()),
             ..SessionSummary::new("old-webhook")
         });

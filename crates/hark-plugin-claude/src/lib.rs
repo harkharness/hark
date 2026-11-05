@@ -37,6 +37,8 @@ pub fn capabilities() -> hark_agent::Capabilities {
         directive_mode: true,
         directive_model: true,
         directive_effort: true,
+        // A title appended to the session's jsonl in the CLI's own shape.
+        title_write: true,
     }
 }
 
@@ -50,5 +52,8 @@ mod capability_sheet {
         let caps = super::capabilities();
         assert!(caps.directive_mode && caps.directive_model && caps.directive_effort, "mode/model/effort reach the CLI");
         assert!(caps.fork);
+        // A name set in Hark lands in the CLI's own log, so `claude --resume`
+        // and every other reader of it see the same name.
+        assert!(caps.title_write);
     }
 }

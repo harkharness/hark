@@ -141,6 +141,19 @@ pub trait HistoryIndexer {
         projects_dir: &std::path::Path,
         store: &mut dyn SessionStore,
     ) -> anyhow::Result<usize>;
+    /// Write a session's name into its history file, in that history's
+    /// own shape, so the backend and Hark show one name. `Ok(false)` says
+    /// the file is not this indexer's (another one owns it); the default
+    /// is an indexer that never writes (`Capabilities::title_write`).
+    fn set_title(
+        &self,
+        _path: &std::path::Path,
+        _session_id: &str,
+        _title: &str,
+        _source: hark_agent::TitleSource,
+    ) -> anyhow::Result<bool> {
+        Ok(false)
+    }
 }
 
 /// The persistent token/cost ledger. Every Claude turn lands here — the

@@ -239,8 +239,23 @@ pub enum SessionEvent {
     },
     /// Context compaction record: how many tokens the window dropped.
     CompactBoundary { ts: String, pre_tokens: u64, post_tokens: u64 },
-    /// User-assigned session title.
+    /// A title the user gave the session (Claude's `/rename`, Hark's
+    /// "renomeia"): outranks any generated one, whenever it arrives.
     Title(String),
+    /// A title a model wrote for the session (Claude's own `ai-title`, or
+    /// Hark's light model): a better name than the first prompt, never a
+    /// better one than the user's.
+    GeneratedTitle(String),
+}
+
+/// Who named a session. Written back into the backend's history by
+/// `title_write` plugins so the name shows wherever that history is read
+/// — the agent's own resume list included.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TitleSource {
+    User,
+    Generated,
 }
 
 /// What a backend can actually do. The UI degrades feature by feature:
@@ -286,6 +301,12 @@ pub struct Capabilities {
     /// option categorised `thought_level`).
     #[serde(default)]
     pub directive_effort: bool,
+    /// A session title set in Hark is written into the backend's own
+    /// history (the Claude CLI's `custom-title` line), so the backend and
+    /// every other reader of that history show the same name. Without
+    /// it a rename lives in Hark's index only.
+    #[serde(default)]
+    pub title_write: bool,
 }
 
 #[cfg(test)]

@@ -42,6 +42,8 @@ pub enum Line {
     Header(Header),
     Entry(Entry),
     Usage(Usage),
+    /// The session's name and who gave it (user or model).
+    Title { title: String, source: hark_agent::TitleSource },
 }
 
 /// One line of text, no newline.
@@ -58,6 +60,12 @@ pub fn render(line: &Line) -> String {
             v["hark"] = Value::from("usage");
             v.to_string()
         }
+        Line::Title { title, source } => serde_json::json!({
+            "hark": "title",
+            "title": title,
+            "source": source,
+        })
+        .to_string(),
     }
 }
 
@@ -68,6 +76,10 @@ pub fn parse(text: &str) -> Option<Line> {
     match v.get("hark").and_then(Value::as_str) {
         Some("session") => serde_json::from_value(v).ok().map(Line::Header),
         Some("usage") => serde_json::from_value(v).ok().map(Line::Usage),
+        Some("title") => Some(Line::Title {
+            title: v.get("title")?.as_str()?.to_string(),
+            source: serde_json::from_value(v.get("source")?.clone()).ok()?,
+        }),
         Some(_) => None,
         // An entry is recognised by its role; a claude line has none at the top.
         None if v.get("role").is_some() => serde_json::from_value(v).ok().map(Line::Entry),
@@ -100,6 +112,10 @@ pub fn session_event(line: &Line, session_id: &str) -> Option<SessionEvent> {
             usage: TokenUsage { ..u.usage },
             is_sidechain: false,
         }),
+        Line::Title { title, source: hark_agent::TitleSource::User } => Some(SessionEvent::Title(title.clone())),
+        Line::Title { title, source: hark_agent::TitleSource::Generated } => {
+            Some(SessionEvent::GeneratedTitle(title.clone()))
+        }
     }
 }
 
@@ -206,6 +222,18 @@ mod tests {
         // Lines that are not conversation are not entries.
         assert_eq!(transcript::parse_entry(&render(&header())), None);
         assert_eq!(transcript::parse_entry(&render(&usage())), None);
+    }
+
+    #[test]
+    fn a_title_line_names_the_session_and_says_who_named_it() {
+        let user = Line::Title { title: "Alertas do cluster".into(), source: hark_agent::TitleSource::User };
+        let generated = Line::Title { title: "Migração dos alertas".into(), source: hark_agent::TitleSource::Generated };
+        assert_eq!(parse(&render(&user)), Some(user.clone()));
+        assert_eq!(parse(&render(&generated)), Some(generated.clone()));
+        assert_eq!(session_event(&user, "s-1"), Some(SessionEvent::Title("Alertas do cluster".into())));
+        assert_eq!(session_event(&generated, "s-1"), Some(SessionEvent::GeneratedTitle("Migração dos alertas".into())));
+        // Not conversation: the viewer never shows it as a message.
+        assert_eq!(transcript::parse_entry(&render(&user)), None);
     }
 
     #[test]

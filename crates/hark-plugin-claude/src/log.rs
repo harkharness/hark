@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 
-pub use hark_agent::SessionEvent;
+pub use hark_agent::{SessionEvent, TitleSource};
 
 /// Every event one line carries: an assistant line is usage AND, when it
 /// has prose, the text of the reply.
@@ -89,8 +89,25 @@ pub fn parse_line(line: &str) -> Option<SessionEvent> {
             })
         }
         "custom-title" => Some(SessionEvent::Title(str_of("customTitle")?)),
+        "ai-title" => Some(SessionEvent::GeneratedTitle(str_of("aiTitle")?)),
         _ => None,
     }
+}
+
+/// The line the CLI itself writes when a session is named (`/rename` →
+/// `custom-title`; its own model → `ai-title`), in the same key order, so
+/// a line Hark appends is indistinguishable from one the CLI wrote. The
+/// CLI keeps the LAST of each kind and shows the user's over the model's.
+pub fn title_line(session_id: &str, title: &str, source: TitleSource) -> String {
+    let (kind, key) = match source {
+        TitleSource::User => ("custom-title", "customTitle"),
+        TitleSource::Generated => ("ai-title", "aiTitle"),
+    };
+    format!(
+        r#"{{"type":"{kind}","{key}":{},"sessionId":{}}}"#,
+        serde_json::Value::from(title),
+        serde_json::Value::from(session_id)
+    )
 }
 
 /// Extract the human-written text from a message content value, which is
@@ -187,6 +204,37 @@ mod tests {
         assert_eq!(
             parse_line(line),
             Some(SessionEvent::Title("Webhook migration".into()))
+        );
+    }
+
+    #[test]
+    fn parses_the_clis_own_generated_title() {
+        // The CLI names sessions itself ("ai-title"); a user's /rename
+        // ("custom-title") is a different fact and outranks it.
+        let line = r#"{"type":"ai-title","aiTitle":"Home do workspace","sessionId":"abc"}"#;
+        assert_eq!(parse_line(line), Some(SessionEvent::GeneratedTitle("Home do workspace".into())));
+    }
+
+    #[test]
+    fn a_title_line_is_the_one_the_cli_writes() {
+        // Byte for byte the CLI's own shape (observed 05/11/2026 in
+        // ~/.claude/projects), so its resume list reads what Hark wrote.
+        assert_eq!(
+            title_line("abc", "Webhook migration", TitleSource::User),
+            r#"{"type":"custom-title","customTitle":"Webhook migration","sessionId":"abc"}"#
+        );
+        assert_eq!(
+            title_line("abc", "Home do workspace", TitleSource::Generated),
+            r#"{"type":"ai-title","aiTitle":"Home do workspace","sessionId":"abc"}"#
+        );
+        // And our own parser reads both back.
+        assert_eq!(
+            parse_line(&title_line("abc", "Web \"quoted\"", TitleSource::User)),
+            Some(SessionEvent::Title("Web \"quoted\"".into()))
+        );
+        assert_eq!(
+            parse_line(&title_line("abc", "Home", TitleSource::Generated)),
+            Some(SessionEvent::GeneratedTitle("Home".into()))
         );
     }
 

@@ -23,7 +23,8 @@ Types every plugin speaks:
 | `AgentEvent` | The event stream: `ToolUse`, `AssistantText`, `ToolResult`, `Result(TurnResult)`, `PermissionRequest`, `SessionStarted`, `RateLimit`, `Spend(TurnSpend)` (the running turn's calls, tokens and estimated dollars, sent when they move — optional; the shell holds the per-turn ceiling from it), `Ignored` |
 | `TurnResult` | End of turn: `is_error`, `raw`, `reply` (raw JSON when a schema constrained the answer), `cost_usd: Option`, per-model `usage` (what the turn spent, every call added up), `context: Option<ContextReading>` (the last main-thread call's prompt: the context in use) |
 | `ModelUsage` / `TokenUsage` | The ledger's raw material; USD optional, tokens not |
-| `SessionEvent` | Neutral history facts (`UserPrompt`, `AssistantUsage`, `CompactBoundary`, `Title`) the indexer consumes |
+| `SessionEvent` | Neutral history facts (`UserPrompt`, `AssistantUsage`, `CompactBoundary`, `Title` from the user, `GeneratedTitle` from a model) the indexer consumes |
+| `TitleSource` | Who named a session (`User` / `Generated`); the user's name always outranks a model's |
 | `SpawnLimits` | Hard caps (`max_budget_usd`, `max_turns`) |
 | `Capabilities` | What the backend can do; the UI degrades feature by feature |
 
@@ -44,6 +45,14 @@ Types every plugin speaks:
 - `directive_mode` / `directive_model` / `directive_effort` — each pill
   reaches the agent: a CLI flag for claude, or an ACP mode / config
   option the agent offered at `session/new`
+- `title_write` — a name given in Hark ("renomeia esse chat para X", or
+  the light model's name for a new chat) is written into the backend's
+  OWN history, in its own shape, so the backend and every other reader of
+  that history show the same name. Claude: one `custom-title` /
+  `ai-title` line appended to the session's jsonl — what `/rename` and
+  the CLI's own namer write, so `claude --resume` lists Hark's name.
+  ACP agents: a title line in Hark's record. Without it a rename lives
+  in Hark's index only.
 
 ### Unsupported is shown, never hidden
 
@@ -71,6 +80,10 @@ Seams the core exposes (in `hark-core::ports` today):
   images, model, system_prompt, schema, effort.
 - `HistoryIndexer::refresh(projects_dir, store)` — parse your history into
   `SessionEvent`s; the core owns the SQLite index and the spend ledger.
+- `HistoryIndexer::set_title(path, session_id, title, source)` — write the
+  name into that history file in its own shape (`title_write`); `Ok(false)`
+  means the file is another indexer's. The next `refresh` folds it like
+  any line the backend wrote.
 
 The cheap lane's runner is wrapped once in `hark_core::app::runner::
 TieredRunner`, which says the requested tier in the agent's own model
