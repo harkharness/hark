@@ -3300,6 +3300,10 @@ export default function App({
     () => notifRows.filter((n) => !n.read_at && !(n.target.kind === "chat" && n.target.title === focusedTask?.title)),
     [notifRows, focusedTask?.title],
   );
+  const unreadSessionIds = useMemo(
+    () => [...new Set(unreadNotifs.flatMap((n) => (n.target.kind === "chat" && n.target.session_id ? [n.target.session_id] : [])))],
+    [unreadNotifs],
+  );
   const unreadTitles = useMemo(
     () => [...new Set(unreadNotifs.flatMap((n) => (n.target.kind === "chat" ? [n.target.title] : [])))],
     [unreadNotifs],
@@ -3644,9 +3648,8 @@ export default function App({
               // A history row steps aside only for a card THIS window
               // lists: a session whose card lives in another project used
               // to drop out of both lists (25/09).
-              chats={chats.filter(
-                (c) => !board.some((t) => t.session_ids.includes(c.session_id)),
-              )}
+              chats={chats}
+              unreadSessionIds={unreadSessionIds}
               activeTitle={focusedTask?.title}
               activeSessionId={focusedTask?.sessionId || undefined}
               liveTitles={Object.values(liveWorkers).map((w) => w.label)}
@@ -3683,8 +3686,8 @@ export default function App({
                 setPaletteQuery(p.name);
                 setChatPalette(true);
               }}
-              onDropLink={(task, link) => {
-                void openTaskByTitle(task.title, task.session_ids.at(-1));
+              onDropLink={(target, link) => {
+                void openTaskByTitle(target.title, target.session_id);
                 setComposerPrefill({ text: `${link} `, nonce: Date.now() });
               }}
               unreadTitles={unreadTitles}

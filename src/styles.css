@@ -690,7 +690,14 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .side-chat .side-title {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.side-chat-ts { flex: 0 0 auto; font-size: 10px; opacity: .6; }
+.side-chat-ts { flex: 0 0 auto; font-size: 10px; opacity: .6; margin-left: auto; }
+.side-item.chat .side-open { font-size: 12px; padding: 6px 10px; }
+.side-item.chat:not(.doing):not(.waiting):not(.done) .side-dot { color: var(--border-strong); }
+.side-tasks {
+  display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto;
+  font-size: 10px; color: var(--dim); border: 1px solid var(--border-strong);
+  border-radius: 999px; padding: 0 5px;
+}
 .side-item {
   position: relative; display: flex; align-items: center;
   border-radius: 8px; margin-bottom: 1px;

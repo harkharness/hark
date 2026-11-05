@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bell, BookOpen, Bug, ChevronDown, ChevronRight, Code2, Home, Inbox, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, Sparkles, SquareKanban } from "lucide-react";
+import { Bell, BookOpen, Bug, ChevronDown, ChevronRight, ClipboardList, Code2, Home, Inbox, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, Sparkles, SquareKanban } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 import type { Day } from "../lib/inicio";
@@ -44,6 +44,7 @@ export default function Sidebar({
   activeSessionId,
   liveTitles,
   liveSessionIds = [],
+  unreadSessionIds = [],
   pulsing = [],
   onOpen,
   onOpenChat,
@@ -86,7 +87,9 @@ export default function Sidebar({
   notifCount?: number;
   onOpenNotifs?: () => void;
   /** A page dragged from the artifacts tree onto a chat: its link lands there. */
-  onDropLink?: (task: BoardTask, link: string) => void;
+  onDropLink?: (target: { title: string; session_id?: string }, link: string) => void;
+  /** Chats with something unread behind the bell, by session. */
+  unreadSessionIds?: string[];
   /** "Ver todos os chats" of a project: the palette, filtered to it. */
   onMoreChats?: (project: Project) => void;
   projects: Project[];
@@ -142,6 +145,7 @@ export default function Sidebar({
   const [adding, setAdding] = useState(false);
   const [projMenu, setProjMenu] = useState<string | null>(null);
   const inicio = door === "inicio";
+  const RECENT_CHATS = 8;
   // Folded groups, remembered per machine: a project you are not in today
   // takes one line.
   const [collapsed, setCollapsed] = useState<string[]>(() => {
@@ -196,7 +200,7 @@ export default function Sidebar({
         const link = e.dataTransfer.getData("text/hark-artifact");
         if (link && onDropLink) {
           e.preventDefault();
-          onDropLink(task, link);
+          onDropLink({ title: task.title, session_id: task.session_ids.at(-1) }, link);
         }
       }}
     >
@@ -252,6 +256,72 @@ export default function Sidebar({
       )}
     </div>
   );
+
+  /** A chat of the index as a row (05/11): the conversation is the unit,
+   *  the cards it carries decorate it — status dot, task count — and
+   *  opening a chat with a card opens the card, so the thread keeps the
+   *  name the board has. */
+  const chatRow = (c: SessionHit) => {
+    const cards = tasks.filter((task) => task.session_ids.includes(c.session_id));
+    const card = cards[0];
+    const live = liveSessionIds.includes(c.session_id) || (!!card && liveTitles.includes(card.title));
+    const active = activeSessionId === c.session_id || (!!card && activeTitle === card.title);
+    const unread = unreadSessionIds.includes(c.session_id) || (!!card && unreadTitles.includes(card.title));
+    const pulse = !!card && pulsing.includes(card.title);
+    const title = card?.title ?? c.title;
+    return (
+      <div
+        key={c.session_id}
+        className={`side-item chat ${card?.status ?? ""} ${active ? "active" : ""} ${pulse ? "pulse" : ""} ${unread ? "unread" : ""}`}
+        onDragOver={(e) => {
+          if (onDropLink && e.dataTransfer.types.includes("text/hark-artifact")) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          const link = e.dataTransfer.getData("text/hark-artifact");
+          if (link && onDropLink) {
+            e.preventDefault();
+            onDropLink({ title, session_id: c.session_id }, link);
+          }
+        }}
+      >
+        <button
+          className="side-open"
+          onClick={() => (card ? onOpen(card) : onOpenChat?.(c))}
+          title={c.last_prompt ?? title}
+        >
+          <span className={`side-dot ${live ? "live" : ""}`}>{card ? DOT[card.status] : "·"}</span>
+          <span className="side-title">{title}</span>
+          {cards.length > 0 && (
+            <span className="side-tasks" title={t("side_tasks_hint", { n: cards.length })}>
+              <ClipboardList size={10} /> {cards.length}
+            </span>
+          )}
+          <span className="side-chat-ts">{c.last_ts ? c.last_ts.slice(5, 10).replace("-", "/") : ""}</span>
+        </button>
+        {card && (
+          <button
+            className="side-menu-btn"
+            onClick={() => setMenu(menu === card.title ? null : card.title)}
+            title={t("side_actions")}
+          >
+            <MoreVertical size={13} />
+          </button>
+        )}
+        {card && menu === card.title && (
+          <div className="side-menu">
+            <button onClick={() => { setMenu(null); onOpen(card); }}>{t("side_open")}</button>
+            <button onClick={() => { setMenu(null); onResume(card); }}>{t("side_resume")}</button>
+            <button onClick={() => { setMenu(null); onPin(card); }}>
+              {card.pinned ? t("side_unpin") : t("side_pin")}
+            </button>
+            <button className="danger" onClick={() => { setMenu(null); onArchive(card); }}>
+              {t("side_archive")}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <nav className="sidebar" onMouseLeave={() => { setMenu(null); setProjMenu(null); }}>
@@ -383,15 +453,17 @@ export default function Sidebar({
         </section>
       )}
       {!inicio && projects.map((p) => {
-        const group = ordered.filter((t) => inProject(t, p));
-        // Full Claude Code history of this project (chats not yet on the
-        // board), reachable through the search box — like `claude --resume`,
-        // but typed. Empty query shows the 5 most recent.
+        // Rows are chats (05/11): the project's recent sessions from the
+        // index, decorated by the cards they carry. Only pinned cards keep
+        // a row of their own, at the top; the rest live on the board.
+        const group = ordered.filter((t) => inProject(t, p) && t.pinned);
         const projChats = chats.filter(
           (c) => c.cwd && (c.cwd === p.path || c.cwd.startsWith(`${p.path}/`)),
         );
-        // The five most recent, always. Search moved to the palette.
-        const matches = projChats.slice(0, 5);
+        // The most recent, always. Search moved to the palette.
+        const matches = projChats
+          .filter((c) => !group.some((task) => task.session_ids.includes(c.session_id)))
+          .slice(0, RECENT_CHATS);
         const colour = colourOf?.(p.path);
         const folded = collapsed.includes(p.path);
         return (
@@ -463,20 +535,7 @@ export default function Sidebar({
                     whole history is the palette's job (the magnifier up top),
                     which gets the window's attention instead of a dropdown
                     inside a 260px rail. */}
-                {matches.map((c) => (
-                  <button
-                    key={c.session_id}
-                    className={`side-chat ${activeSessionId === c.session_id ? "active" : ""} ${liveSessionIds.includes(c.session_id) ? "live" : ""}`}
-                    title={c.last_prompt ?? c.title}
-                    onClick={() => onOpenChat?.(c)}
-                  >
-                    {liveSessionIds.includes(c.session_id) && <span className="side-dot live" />}
-                    <span className="side-title">{c.title}</span>
-                    <span className="side-chat-ts">
-                      {c.last_ts ? c.last_ts.slice(5, 10).replace("-", "/") : ""}
-                    </span>
-                  </button>
-                ))}
+                {matches.map(chatRow)}
               </>
             )}
           </section>

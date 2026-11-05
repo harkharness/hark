@@ -72,8 +72,8 @@ describe("the two doors of the sidebar", () => {
   });
 
   it("a chat with something unread behind the bell reads strong", () => {
-    const task = { title: "Billing v2", status: "doing" as const, workspace: "/p/vox", session_ids: [], updated_at: "2026-11-04T10:00:00Z", pinned: false, subtasks: [] };
-    const { getByText } = render(<Sidebar {...base} door="code" tasks={[task]} unreadTitles={["Billing v2"]} />);
+    const chats = [{ session_id: "s1", title: "Billing v2", cwd: "/p/vox", last_ts: "2026-11-04T10:00:00Z" }];
+    const { getByText } = render(<Sidebar {...base} door="code" chats={chats} unreadSessionIds={["s1"]} />);
     expect(getByText("Billing v2").closest(".side-item")?.className).toContain("unread");
   });
 
@@ -84,32 +84,54 @@ describe("the two doors of the sidebar", () => {
       { session_id: "s2", title: "Outro chat", cwd: "/p/vox", last_ts: "2026-11-04T08:52:00Z" },
     ];
     const { getByText } = render(<Sidebar {...base} door="code" chats={chats} activeSessionId="s1" liveSessionIds={["s2"]} />);
-    expect(getByText("Patch de segurança").closest(".side-chat")?.className).toContain("active");
-    expect(getByText("Outro chat").closest(".side-chat")?.className).toContain("live");
+    expect(getByText("Patch de segurança").closest(".side-item")?.className).toContain("active");
+    expect(getByText("Outro chat").querySelector(".side-dot")?.className ?? getByText("Outro chat").parentElement?.querySelector(".side-dot")?.className).toContain("live");
+  });
+
+  it("rows are chats: a card decorates the chat it is tied to and opens on click, a loose card stays on the board", () => {
+    // Rows are chats (05/11): the card lends its name, status and a
+    // count; a card with no session of its own is the board's business.
+    const onOpen = vi.fn();
+    const chats = [{ session_id: "s1", title: "patch windows", cwd: "/p/vox", last_ts: "2026-11-05T08:52:00Z" }];
+    const tied = { title: "Patch de segurança", status: "waiting" as const, workspace: "/p/vox", session_ids: ["s1"], updated_at: "2026-11-05T08:52:00Z", pinned: false, subtasks: [] };
+    const loose = { title: "Só no quadro", status: "doing" as const, workspace: "/p/vox", session_ids: [], updated_at: "2026-11-05T08:52:00Z", pinned: false, subtasks: [] };
+    const { getByText, getByTitle, queryByText } = render(<Sidebar {...base} door="code" chats={chats} tasks={[tied, loose]} onOpen={onOpen} />);
+    const row = getByText("Patch de segurança").closest(".side-item")!;
+    expect(row.className).toContain("waiting");
+    expect(getByTitle(t("side_tasks_hint", { n: 1 }))).toBeTruthy();
+    expect(queryByText("Só no quadro")).toBeNull();
+    fireEvent.click(getByText("Patch de segurança"));
+    expect(onOpen).toHaveBeenCalledWith(tied);
+  });
+
+  it("a pinned card keeps a row of its own at the top", () => {
+    const pinned = { title: "Oncall", status: "doing" as const, workspace: "/p/vox", session_ids: [], updated_at: "2026-11-05T08:52:00Z", pinned: true, subtasks: [] };
+    const { getByText } = render(<Sidebar {...base} door="code" tasks={[pinned]} />);
+    expect(getByText("Oncall")).toBeTruthy();
   });
 
   it("a project group folds to one line and remembers it; its menu offers every chat", () => {
     const onMoreChats = vi.fn();
-    const task = { title: "Billing v2", status: "doing" as const, workspace: "/p/vox", session_ids: [], updated_at: "2026-11-04T10:00:00Z", pinned: false, subtasks: [] };
-    const { getByText, queryByText, getAllByTitle } = render(<Sidebar {...base} door="code" tasks={[task]} onMoreChats={onMoreChats} />);
+    const chats = [{ session_id: "s1", title: "Billing v2", cwd: "/p/vox", last_ts: "2026-11-04T10:00:00Z" }];
+    const { getByText, queryByText, getAllByTitle } = render(<Sidebar {...base} door="code" chats={chats} onMoreChats={onMoreChats} />);
     expect(getByText("Billing v2")).toBeTruthy();
     fireEvent.click(getAllByTitle(t("side_collapse"))[0]);
     expect(queryByText("Billing v2")).toBeNull();
     expect(JSON.parse(localStorage.getItem("hark.side.collapsed") ?? "[]")).toEqual(["/p/vox"]);
     fireEvent.click(getAllByTitle(t("side_actions"))[0]);
-    fireEvent.click(getByText(t("side_menu_all", { n: 0 })));
+    fireEvent.click(getByText(t("side_menu_all", { n: 1 })));
     expect(onMoreChats).toHaveBeenCalledWith(vox);
     localStorage.removeItem("hark.side.collapsed");
   });
 
   it("a page dropped on a chat hands the chat and the link over", () => {
     const onDropLink = vi.fn();
-    const task = { title: "Billing v2", status: "doing" as const, workspace: "/p/vox", session_ids: [], updated_at: "2026-11-04T10:00:00Z", pinned: false, subtasks: [] };
-    const { getByText } = render(<Sidebar {...base} door="code" tasks={[task]} onDropLink={onDropLink} />);
+    const chats = [{ session_id: "s1", title: "Billing v2", cwd: "/p/vox", last_ts: "2026-11-04T10:00:00Z" }];
+    const { getByText } = render(<Sidebar {...base} door="code" chats={chats} onDropLink={onDropLink} />);
     const row = getByText("Billing v2").closest(".side-item")!;
     const dataTransfer = { types: ["text/hark-artifact"], getData: () => "hark://artifacts/vox/deck" };
     fireEvent.drop(row, { dataTransfer });
-    expect(onDropLink).toHaveBeenCalledWith(task, "hark://artifacts/vox/deck");
+    expect(onDropLink).toHaveBeenCalledWith({ title: "Billing v2", session_id: "s1" }, "hark://artifacts/vox/deck");
   });
 
   it("Início lists the days before today, and a day opens on click", () => {
