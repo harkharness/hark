@@ -80,7 +80,7 @@ pub struct Request {
 /// A task counts as stalled after this many days without a turn.
 const STALLED_DAYS: i64 = 3;
 /// And as forgotten after this many: not a demand of the day anymore.
-const STALLED_MAX_DAYS: i64 = 14;
+pub const STALLED_MAX_DAYS: i64 = 14;
 /// A page younger than this, written by an agent, is waiting for a look.
 const REVIEW_HOURS: i64 = 24;
 /// A chat with a turn inside this window is a chat of the day.

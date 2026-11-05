@@ -285,6 +285,9 @@ export const chatFromSession = (sessionId: string) =>
 export const boardCreate = (title: string, sessionId?: string | null, workspace?: string | null) =>
   invoke<import("../types").BoardTask>("board_create", { title, sessionId: sessionId ?? null, workspace: workspace ?? null });
 
+/** Archive every doing card forgotten for weeks; answers how many went. */
+export const boardArchiveStale = () => invoke<number>("board_archive_stale");
+
 export const findSession = (query: string) =>
   invoke<{ session_id: string; title?: string; cwd?: string | null } | null>("find_session", {
     query,

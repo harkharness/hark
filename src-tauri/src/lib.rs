@@ -5800,6 +5800,22 @@ fn board_create(
     })
 }
 
+/// The Demandas line "N cards parados há semanas" cleared with one verb.
+#[tauri::command]
+fn board_archive_stale() -> Result<usize, String> {
+    with_board(|store, tasks| {
+        use hark_core::ports::SessionStore;
+        let before = tasks.len();
+        let kept = hark_core::domain::board::archive_stale(
+            tasks,
+            &now_iso(),
+            hark_core::domain::demands::STALLED_MAX_DAYS,
+        );
+        store.save_board(&kept)?;
+        Ok(before - kept.len())
+    })
+}
+
 #[tauri::command]
 fn board_archive(title: String) -> Result<(), String> {
     use hark_core::ports::SessionStore;
@@ -6407,6 +6423,7 @@ pub fn run() {
             project_sessions,
             chat_from_session,
             board_create,
+            board_archive_stale,
             open_project_window,
             open_task,
             artifacts_spaces,

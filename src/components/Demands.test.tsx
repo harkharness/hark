@@ -51,14 +51,18 @@ describe("Demandas: the chats of the day", () => {
   const patch: Demand = { id: "session:s1", source: "session", project: "/p/infra", title: "Patch de segurança", why: "agente respondeu às 08:52, esperando você", urgency: "needs_you", link: "hark://chat/s1", at: "2026-11-05T08:52:00-03:00" };
   const forgotten: Demand = { id: "board:forgotten", source: "board", project: null, title: "12 cards parados há semanas", why: "mais de 14 dias sem um turno", urgency: "stalled", link: "hark://board", at: "" };
 
-  it("a chat wears its source and 'ir' hands it over; the forgotten line has no 'focar'", () => {
+  it("a chat wears its source and 'ir' hands it over; the forgotten line has no 'focar' but archives all", () => {
     const onGo = vi.fn();
     const onFocus = vi.fn();
-    const { getByText, getAllByText, queryAllByText } = render(<Demands demands={[patch, forgotten]} onGo={onGo} onDone={() => {}} onLater={() => {}} onFocus={onFocus} />);
+    const onArchiveStale = vi.fn();
+    const { getByText, getAllByText, queryAllByText } = render(<Demands demands={[patch, forgotten]} onGo={onGo} onDone={() => {}} onLater={() => {}} onFocus={onFocus} onArchiveStale={onArchiveStale} />);
     expect(getByText(t("demand_src_session"))).toBeTruthy();
     expect(getByText("12 cards parados há semanas")).toBeTruthy();
     expect(queryAllByText(t("demand_focus"))).toHaveLength(0);
     fireEvent.click(getAllByText(t("demand_go"))[0]);
     expect(onGo).toHaveBeenCalledWith(patch);
+    expect(getAllByText(t("demand_archive_all"))).toHaveLength(1);
+    fireEvent.click(getByText(t("demand_archive_all")));
+    expect(onArchiveStale).toHaveBeenCalled();
   });
 });

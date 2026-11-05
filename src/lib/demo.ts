@@ -578,6 +578,7 @@ const C: Record<string, (a: Args) => unknown> = {
   board_rename: () => undefined,
   board_pin: () => undefined,
   board_archive: () => undefined,
+  board_archive_stale: () => 0,
   board_create: (a) => ({ title: String(a?.title ?? "task"), status: "doing", workspace: a?.workspace ?? null, session_ids: a?.sessionId ? [String(a.sessionId)] : [], updated_at: new Date().toISOString(), pinned: false, subtasks: [] }),
   approve: () => undefined,
   project_add: (a) => ({ name: String(a?.path).split("/").pop() ?? "project", path: String(a?.path) }),

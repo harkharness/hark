@@ -1,4 +1,4 @@
-import { ArrowRight, Check, Clock, Crosshair } from "lucide-react";
+import { Archive, ArrowRight, Check, Clock, Crosshair } from "lucide-react";
 import { t } from "../lib/i18n";
 import type { Demand } from "../types";
 
@@ -25,6 +25,7 @@ export default function Demands({
   onDone,
   onLater,
   onFocus,
+  onArchiveStale,
 }: {
   demands: Demand[];
   colourOf?: (key: string) => string | undefined;
@@ -36,6 +37,8 @@ export default function Demands({
   onLater: (d: Demand) => void;
   /** "focar": Início's composer talks to that chat (board demands only). */
   onFocus?: (d: Demand) => void;
+  /** "arquivar todos" on the forgotten-cards line. */
+  onArchiveStale?: () => void;
 }) {
   if (demands.length === 0) return <div className="demands-empty">{t("demands_empty")}</div>;
   return (
@@ -56,6 +59,11 @@ export default function Demands({
               {onFocus && isCard(d) && (
                 <button className="pill-btn" onClick={() => onFocus(d)} title={t("demand_focus_hint")}>
                   <Crosshair size={11} /> {t("demand_focus")}
+                </button>
+              )}
+              {onArchiveStale && d.id === "board:forgotten" && (
+                <button className="pill-btn" onClick={onArchiveStale} title={t("demand_archive_all_hint")}>
+                  <Archive size={11} /> {t("demand_archive_all")}
                 </button>
               )}
               {(d.link || d.source === "board") && (

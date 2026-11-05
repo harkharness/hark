@@ -22,6 +22,7 @@ export default function InicioBrief({
   onFocus,
   onAll,
   onAsk,
+  onArchiveStale,
 }: {
   userName: string;
   demands: Demand[];
@@ -34,6 +35,7 @@ export default function InicioBrief({
   onAll: () => void;
   /** A hint clicked: its text lands in the composer. */
   onAsk: (text: string) => void;
+  onArchiveStale?: () => void;
 }) {
   const you = demands.filter((d) => d.urgency === "needs_you").length;
   const hints: [string, string][] = [
@@ -50,7 +52,7 @@ export default function InicioBrief({
         {demands.length === 0 ? t("brief_nothing") : t("brief_demands_n", { n: demands.length, you })}
       </div>
       {demands.length > 0 && (
-        <Demands demands={demands.slice(0, SHOWN)} colourOf={colourOf} onGo={onGo} onDone={onDone} onLater={onLater} onFocus={onFocus} />
+        <Demands demands={demands.slice(0, SHOWN)} colourOf={colourOf} onGo={onGo} onDone={onDone} onLater={onLater} onFocus={onFocus} onArchiveStale={onArchiveStale} />
       )}
       {demands.length > SHOWN && (
         <button className="link-btn brief-all" onClick={onAll}>

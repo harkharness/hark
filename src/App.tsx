@@ -3155,6 +3155,17 @@ export default function App({
     });
   };
 
+  /** The forgotten-cards line, cleared: the board and the list reload. */
+  const archiveStale = () => {
+    void ipc
+      .boardArchiveStale()
+      .then(() => {
+        refresh();
+        reloadDemands();
+      })
+      .catch(() => {});
+  };
+
   /** "ir" on a demand: a page opens in Artefatos, a chat of the day is
    *  recovered where it lives, the forgotten-cards line opens the board,
    *  a card opens its chat. */
@@ -3802,6 +3813,7 @@ export default function App({
                     colourOf={(key) => colourOf(key.startsWith("/") ? key : allProjects.find((p) => p.name === key)?.path)}
                     onGo={goToDemand}
                     onDone={(d) => ipc.requestDone(d.id).then(reloadDemands).catch(() => {})}
+                    onArchiveStale={archiveStale}
                     onFocus={(d) => void enterFocus(d.title)}
                     onLater={(d) => setLater((old) => (old.includes(d.id) ? old : [...old, d.id]))}
                   />
@@ -4086,6 +4098,7 @@ export default function App({
                   colourOf={(key) => colourOf(key.startsWith("/") ? key : allProjects.find((p) => p.name === key)?.path)}
                   onGo={goToDemand}
                   onDone={(d) => ipc.requestDone(d.id).then(reloadDemands).catch(() => {})}
+                  onArchiveStale={archiveStale}
                   onLater={(d) => setLater((old) => (old.includes(d.id) ? old : [...old, d.id]))}
                   onFocus={(d) => void enterFocus(d.title)}
                   onAll={() => setView("demandas")}

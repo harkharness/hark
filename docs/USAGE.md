@@ -93,8 +93,12 @@ conversation over every project (*Hoje*), with the artifacts beside it.
 **Code** is where the work lives: **Criar** starts a new chat (the project
 comes first; a folder not yet registered becomes a project; folders the
 CLI worked in that are no project yet are listed there, one click each),
-then **Procurar**, **artifacts**, the **board** and the projects with
-their chats. A project group folds to one line (the chevron, remembered)
+then **Procurar**, **artifacts**, the **board** shortcut and the projects
+with their chats. The rows of a project are its recent chats, from the
+local index, newest first; a card decorates the chat it is tied to (its
+name, its status dot, a count of the tasks the conversation carries), and
+only pinned cards keep a row of their own. A project group folds to one
+line (the chevron, remembered)
 and its menu holds the rest: new chat, files, every chat of it in the
 palette, collapse, remove. Settings (costs inside) sit at the
 foot of either door. The door is remembered; opening a chat brings Code
@@ -129,8 +133,9 @@ by urgency; *ir* opens the chat or the page, *depois* sinks a row for the
 day, *feito* closes a request. The board stays the team's: a demand may
 point at a card, it never replaces one. "O que eu tenho hoje?" in Hoje
 answers from this list, zero tokens. Cards stalled for more than two weeks
-are forgotten work: they collapse into one line that counts them and
-opens the board. `hark demands` prints the same list from the terminal.
+are forgotten work: they collapse into one line that counts them, opens
+the board, and archives them all with one click. `hark demands` prints
+the same list from the terminal.
 
 **What answers for free, and what goes up.** Short, whole questions about
 the running workers, the board, the spend and the list of the day are
@@ -306,10 +311,19 @@ Two spoken commands move between agents:
 
 ## The board
 
-A kanban of your demands where the cards *are* the sessions. Moving a card does
-not move a ticket somewhere else — it tracks the conversation that is doing the
-work, so resuming means resuming, not starting over. The board is global (a
-view of the main window) and a detached project window shows its slice.
+A kanban of tasks, in Início next to Hoje and Demandas (the Code door keeps
+a shortcut that opens it as a panel beside the chat). A **task is a
+deliberate record**: nothing creates one for you. It is born when you ask
+for it — "cria uma task patch do windows", "registra a task chamada PR da
+subnet", "create task fix the dns" — when you accept the chat's own offer
+(after a few turns in a chat no card has, one line above the composer says
+"este chat não tem task · registrar · agora não", once), or on the board
+itself. The model and the dispatcher only move cards that exist. A task is
+linked to the chat it was asked in, and one chat may carry several tasks,
+as in an issue tracker; a task may also gather several chats. Moving a
+card does not move a ticket somewhere else — it tracks the conversations
+doing the work, so resuming means resuming, not starting over. The board
+is global and a detached project window shows its slice.
 
 ## Costs
 

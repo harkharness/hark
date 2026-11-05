@@ -211,6 +211,21 @@ pub fn archive(tasks: Vec<Task>, title: &str) -> Vec<Task> {
     tasks.into_iter().filter(|t| t.title != title).collect()
 }
 
+/// Archive every doing card without a turn for more than `max_days`:
+/// the forgotten work the Demandas line counts, cleared with one verb.
+pub fn archive_stale(tasks: Vec<Task>, now: &str, max_days: i64) -> Vec<Task> {
+    let Ok(now) = chrono::DateTime::parse_from_rfc3339(now) else { return tasks };
+    tasks
+        .into_iter()
+        .filter(|t| {
+            t.status != TaskStatus::Doing
+                || chrono::DateTime::parse_from_rfc3339(&t.updated_at)
+                    .map(|at| (now - at).num_days() <= max_days)
+                    .unwrap_or(true)
+        })
+        .collect()
+}
+
 /// Rename in place, keeping status, sessions and note.
 pub fn rename(mut tasks: Vec<Task>, title: &str, new_title: &str, now: &str) -> Vec<Task> {
     if let Some(task) = tasks.iter_mut().find(|t| t.title == title) {
@@ -371,6 +386,22 @@ mod tests {
         let (tasks, card) = create_task(board, "deploy", NOW, Some("/home/dev/ws"), Some("s-2"));
         assert_eq!(card.title, "deploy (2)");
         assert_eq!(tasks.len(), 2);
+    }
+
+    #[test]
+    fn forgotten_cards_are_archived_together_and_fresh_ones_stay() {
+        // The Demandas line "12 cards parados há semanas" gets one verb:
+        // archive them all. Only doing cards past the limit go; waiting,
+        // backlog and fresh work are not forgotten.
+        let mut old = linked("Old migration", "/home/dev/ws", "s-1");
+        old.updated_at = "2026-08-31T09:00:00Z".into();
+        let mut fresh = linked("Fresh", "/home/dev/ws", "s-2");
+        fresh.updated_at = "2026-11-03T09:00:00Z".into();
+        let mut waiting = linked("Waiting", "/home/dev/ws", "s-3");
+        waiting.updated_at = "2026-08-31T09:00:00Z".into();
+        waiting.status = TaskStatus::Waiting;
+        let kept = archive_stale(vec![old, fresh, waiting], "2026-11-05T09:00:00Z", 14);
+        assert_eq!(kept.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(), vec!["Fresh", "Waiting"]);
     }
 
     #[test]
