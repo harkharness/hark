@@ -14,6 +14,8 @@ pub enum TaskCommand {
         instruction: Option<String>,
     },
     Rename { query: String, title: String },
+    /// Create a task by name, in the chat you are in (a deliberate record).
+    Create { title: String },
     Pin(String),
     Archive(String),
     /// Move a task to done. `None` means the one you are in — closing the
@@ -104,6 +106,18 @@ const SWITCH_VERBS: &[&str] = &[
     // "abre o chat de X" = go back to WORK on X, not the read-only log.
     "abre o chat", "abre a thread", "abra o chat", "abrir o chat",
 ];
+/// Creating a task: the verb AND the noun, so "cria uma rota" (work) and
+/// "cria um chat" (a chat) never match. "nova task …" stays gated.
+const CREATE_TASK_VERBS: &[&str] = &[
+    "cria uma task", "cria a task", "cria task", "criar uma task", "criar a task", "criar task",
+    "cria uma tarefa", "cria a tarefa", "cria tarefa", "criar uma tarefa", "criar tarefa",
+    "registra uma task", "registra a task", "registra task", "registrar uma task", "registrar a task", "registrar task",
+    "registra uma tarefa", "registra a tarefa", "registra tarefa",
+    "anota uma task", "anota a task", "anota task",
+    "create a task", "create task", "register a task", "register task", "add a task", "add task",
+];
+/// Words between the verb and the name: "cria uma task chamada X".
+const CREATE_TASK_LEADS: &[&str] = &["chamada ", "chamado ", "called ", "named ", ": ", ":"];
 const RENAME_VERBS: &[&str] =
     &["renomeia", "renomear", "muda o titulo", "muda o título", "renomeie", "rename"];
 const PIN_VERBS: &[&str] = &["fixa ", "fixar ", "prende ", "pin "];
@@ -352,6 +366,18 @@ pub fn parse(utterance: &str) -> Option<TaskCommand> {
         let rest = after(verb)?;
         let path = crate::domain::project::path_from_speech(clean_path_lead(&rest));
         return (!path.is_empty()).then_some(TaskCommand::AddProject { path });
+    }
+    if let Some(verb) = CREATE_TASK_VERBS.iter().find(|v| lower.contains(**v)) {
+        let mut rest = after(verb)?;
+        loop {
+            let lower_rest = rest.to_lowercase();
+            match CREATE_TASK_LEADS.iter().find(|l| lower_rest.starts_with(**l)) {
+                Some(lead) => rest = rest[lead.len()..].trim().to_string(),
+                None => break,
+            }
+        }
+        let title = rest.trim_matches(|c: char| c == '"' || c == '«' || c == '»' || c == '.').trim().to_string();
+        return (!title.is_empty()).then_some(TaskCommand::Create { title });
     }
     let chat_verb = NEW_CHAT_VERBS
         .iter()
@@ -878,6 +904,18 @@ mod tests {
             parse("mostra os custos"),
             Some(TaskCommand::OpenHq { tab: "custos".into() })
         );
+    }
+
+    #[test]
+    fn a_task_is_created_by_asking_for_one_by_name() {
+        // A task is a deliberate record (05/11): the verb and the noun
+        // "task" together, then the name. Not "nova task …", which stays
+        // real work for the gate, and not "cria um chat", which is a chat.
+        assert_eq!(parse("cria uma task patch do windows"), Some(TaskCommand::Create { title: "patch do windows".into() }));
+        assert_eq!(parse("registra a task chamada PR da subnet"), Some(TaskCommand::Create { title: "PR da subnet".into() }));
+        assert_eq!(parse("create task fix the dns"), Some(TaskCommand::Create { title: "fix the dns".into() }));
+        assert_eq!(parse("registra task: alertas do cluster"), Some(TaskCommand::Create { title: "alertas do cluster".into() }));
+        assert_eq!(parse("cria uma task"), None);
     }
 
     #[test]

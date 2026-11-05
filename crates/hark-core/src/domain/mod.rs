@@ -40,6 +40,7 @@ pub mod report;
 pub mod savings;
 pub mod scope;
 pub mod shell_path;
+pub mod task_nudge;
 pub mod precheck;
 pub mod snapshot;
 pub mod speech_model;

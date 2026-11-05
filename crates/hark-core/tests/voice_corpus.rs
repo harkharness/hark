@@ -205,6 +205,7 @@ fn command_outcome(cmd: TaskCommand) -> (String, Option<String>) {
         TaskCommand::Compact => ("compact", None),
         TaskCommand::SetMode { .. } => ("set_mode", None),
         TaskCommand::OpenSettings => ("open_settings", None),
+        TaskCommand::Create { title } => ("create_task", Some(title)),
         TaskCommand::Handoff { target } => ("handoff", Some(target)),
         TaskCommand::Done(q) => ("done", q),
     };

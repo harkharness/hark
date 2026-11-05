@@ -5678,6 +5678,10 @@ fn task_command(
         }));
     }
 
+    // Creating is the window's to do, with the chat it has on screen.
+    if let TaskCommand::Create { title } = &command {
+        return Ok(Some(serde_json::json!({ "kind": "create_task", "title": title })));
+    }
     let query = match &command {
         TaskCommand::Pin(q) | TaskCommand::Archive(q) => q,
         // "fechamos essa task?" names nothing: it means the one on screen.
@@ -5708,6 +5712,7 @@ fn task_command(
         }
         TaskCommand::Rename { query, .. } => query,
         TaskCommand::Open(_)
+        | TaskCommand::Create { .. }
         | TaskCommand::Switch { .. }
         | TaskCommand::OpenFile { .. }
         | TaskCommand::AddProject { .. }
@@ -5765,8 +5770,33 @@ fn task_command(
             | TaskCommand::Compact
             | TaskCommand::SetMode { .. }
             | TaskCommand::OpenSettings
+            | TaskCommand::Create { .. }
             | TaskCommand::Handoff { .. } => unreachable!("handled above"),
         }
+    })
+}
+
+/// A task created on request: by the command ("cria uma task X"), the
+/// chat's own offer, or the board. Linked to the chat it was asked in;
+/// a chat may carry several. Answers with the card as saved (the title
+/// may have gained a "(2)").
+#[tauri::command]
+fn board_create(
+    title: String,
+    session_id: Option<String>,
+    workspace: Option<String>,
+) -> Result<hark_core::domain::board::Task, String> {
+    with_board(|store, tasks| {
+        use hark_core::ports::SessionStore;
+        let (tasks, card) = hark_core::domain::board::create_task(
+            tasks,
+            title.trim(),
+            &now_iso(),
+            workspace.as_deref().filter(|w| !w.is_empty()),
+            session_id.as_deref().filter(|s| !s.is_empty()),
+        );
+        store.save_board(&tasks)?;
+        Ok(card)
     })
 }
 
@@ -6376,6 +6406,7 @@ pub fn run() {
             session_candidates,
             project_sessions,
             chat_from_session,
+            board_create,
             open_project_window,
             open_task,
             artifacts_spaces,

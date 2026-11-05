@@ -281,6 +281,10 @@ export const chatFromSession = (sessionId: string) =>
     { sessionId },
   );
 
+/** A task created on request, linked to the chat it was asked in. */
+export const boardCreate = (title: string, sessionId?: string | null, workspace?: string | null) =>
+  invoke<import("../types").BoardTask>("board_create", { title, sessionId: sessionId ?? null, workspace: workspace ?? null });
+
 export const findSession = (query: string) =>
   invoke<{ session_id: string; title?: string; cwd?: string | null } | null>("find_session", {
     query,

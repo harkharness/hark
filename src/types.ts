@@ -371,6 +371,8 @@ export type TaskCommandResult =
   | { kind: "open_file"; query: string; project?: string | null }
   | { kind: "project_added"; title: string; path: string }
   | { kind: "project_error"; title: string }
+  /** "cria uma task X": the window creates it in the chat on screen. */
+  | { kind: "create_task"; title: string }
   | { kind: "new_chat"; title: string; path: string; instruction?: string | null; agent?: string | null }
   | { kind: "open_project"; title: string; path: string; instruction?: string | null }
   /** "troca esse chat pro gemini": the focused thread moves to `agent`. */

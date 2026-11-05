@@ -53,6 +53,8 @@ import { bypassFloorFor, modelPillFor, terminalResumeFor, unsupported } from "./
 import { useHarkEvents } from "./hooks/useHarkEvents";
 import { useRepoStates } from "./hooks/useRepoStates";
 import RepoRuler from "./components/RepoRuler";
+import TaskNudge from "./components/TaskNudge";
+import { offerTask } from "./lib/taskNudge";
 import { ContextRing } from "./components/Meter";
 import { agentError, askReplyMsg, firstSentence, isAuthError } from "./lib/format";
 import Settings, { type Section as SettingsSection } from "./components/Settings";
@@ -1816,6 +1818,8 @@ export default function App({
         // "abre um novo projeto": registering IS half the intent — the
         // window is the other half.
         await ipc.openTask(cmd.title, cmd.path).catch(() => {});
+      } else if (cmd.kind === "create_task") {
+        await createTaskHere(cmd.title);
       } else if (cmd.kind === "project_error") {
         push({ who: "sys", text: cmd.title });
         say(st("sp_project_add_fail"));
@@ -3106,6 +3110,51 @@ export default function App({
    * topic match) and focus it. The single door used by the sidebar, the
    * board cards and the global board of the mother window.
    */
+  /** A task created on request — the command, the chat's own offer —
+   *  linked to the chat on screen, in its folder. A chat may carry
+   *  several; the card comes back with the title the board really has. */
+  async function createTaskHere(title: string) {
+    const workspace =
+      board.find((t) => t.title === focusedTask?.title)?.workspace || activeProject?.path || null;
+    try {
+      const card = await ipc.boardCreate(title, focusedTask?.sessionId || null, workspace);
+      push({ who: "sys", text: t("sys_task_created", { t: card.title }), task: focusedTask?.title });
+      refresh();
+    } catch (err) {
+      push({ who: "sys", text: t("sys_task_create_err", { e: String(err) }), task: focusedTask?.title });
+    }
+  }
+
+  /** The offer of a task for the chat on screen: after some turns of
+   *  yours, when no card has this session, until you say not now. */
+  const [nudgeDismissed, setNudgeDismissed] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("hark.nudge.dismissed") ?? "[]") as string[];
+    } catch {
+      return [];
+    }
+  });
+  const nudgeOffered = (() => {
+    const session = focusedTask?.sessionId;
+    if (!session) return false;
+    const hasTask = board.some((t) => t.session_ids.includes(session));
+    const userTurns = messages.filter((m) => m.who === "user" && m.task === focusedTask?.title).length;
+    return offerTask(userTurns, hasTask, nudgeDismissed.includes(session));
+  })();
+  const dismissNudge = () => {
+    const session = focusedTask?.sessionId;
+    if (!session) return;
+    setNudgeDismissed((old) => {
+      const next = old.includes(session) ? old : [...old, session];
+      try {
+        localStorage.setItem("hark.nudge.dismissed", JSON.stringify(next));
+      } catch {
+        /* private window */
+      }
+      return next;
+    });
+  };
+
   /** "ir" on a demand: a page opens in Artefatos, a chat of the day is
    *  recovered where it lives, the forgotten-cards line opens the board,
    *  a card opens its chat. */
@@ -4166,7 +4215,16 @@ export default function App({
                 onStop={focused ? () => interruptWorker(focused) : undefined}
                 onAnswerPermission={answerPermission}
                 trailing={trailingControls}
-                banner={focusedRepo ? <RepoRuler state={focusedRepo} /> : undefined}
+                banner={
+                  focusedRepo || nudgeOffered ? (
+                    <>
+                      {focusedRepo ? <RepoRuler state={focusedRepo} /> : null}
+                      {nudgeOffered ? (
+                        <TaskNudge onRegister={() => void createTaskHere(focusedTask?.title ?? "")} onLater={dismissNudge} />
+                      ) : null}
+                    </>
+                  ) : undefined
+                }
                 prefill={composerPrefill}
                 voice={
                   isMain && voice.active ? (
