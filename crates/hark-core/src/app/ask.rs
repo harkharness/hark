@@ -3,6 +3,7 @@
 use crate::config::Config;
 use crate::domain::context::{self, ContextDef};
 use crate::domain::prompt::{self, Snapshot};
+use crate::domain::snapshot::SessionSummary;
 use crate::ports::{AgentRunner, HistoryIndexer, LiveSessions, RepoCollector, SessionStore};
 use hark_agent::{AgentEvent, TurnResult};
 use chrono::{Duration, SecondsFormat, Utc};
@@ -317,6 +318,25 @@ pub fn build_snapshot(deps: &mut AskDeps) -> anyhow::Result<Snapshot> {
     build_snapshot_with(deps, hours, context.as_ref())
 }
 
+/// How far back a chat still counts as "of the day".
+pub const DAY_HOURS: i64 = 24;
+
+/// The chats of the day for Demandas: every session with a turn inside
+/// the window, minus Hark's own asks. Those run `claude -p` from the data
+/// dir, and showed up as chats titled "## Quem você é" (05/11).
+pub fn chats_of_the_day(
+    store: &dyn crate::ports::SessionStore,
+    data_dir: &std::path::Path,
+) -> anyhow::Result<Vec<SessionSummary>> {
+    let since = (Utc::now() - Duration::hours(DAY_HOURS)).to_rfc3339_opts(SecondsFormat::Millis, true);
+    let own = data_dir.to_string_lossy();
+    Ok(store
+        .sessions_since(&since)?
+        .into_iter()
+        .filter(|s| s.cwd.as_deref().is_none_or(|c| c.trim_end_matches('/') != own.trim_end_matches('/')))
+        .collect())
+}
+
 fn build_snapshot_with(
     deps: &mut AskDeps,
     hours: i64,
@@ -341,4 +361,40 @@ fn build_snapshot_with(
         workers: deps.workers.clone(),
         board: crate::domain::board::render(&deps.store.board().unwrap_or_default()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::sqlite_store::SqliteStore;
+    use crate::domain::snapshot::RecentPrompt;
+
+    fn summary(id: &str, cwd: &str, ts: &str) -> SessionSummary {
+        SessionSummary {
+            session_id: id.into(),
+            cwd: Some(cwd.into()),
+            git_branch: None,
+            title: Some(id.into()),
+            last_prompt: Some("…".into()),
+            last_ts: Some(ts.into()),
+            recent_prompts: vec![RecentPrompt { ts: ts.into(), text: "…".into() }],
+            last_reply: None,
+        }
+    }
+
+    #[test]
+    fn harks_own_asks_are_not_chats_of_the_day() {
+        let mut store = SqliteStore::in_memory().unwrap();
+        let fresh = (Utc::now() - Duration::hours(1)).to_rfc3339_opts(SecondsFormat::Millis, true);
+        let stale = (Utc::now() - Duration::hours(30)).to_rfc3339_opts(SecondsFormat::Millis, true);
+        store.save_file_state("a.jsonl", &summary("patch", "/home/dev/infra", &fresh), 0, 0).unwrap();
+        store.save_file_state("b.jsonl", &summary("own", "/home/dev/.hark/", &fresh), 0, 0).unwrap();
+        store.save_file_state("c.jsonl", &summary("old", "/home/dev/infra", &stale), 0, 0).unwrap();
+        let ids: Vec<String> = chats_of_the_day(&store, std::path::Path::new("/home/dev/.hark"))
+            .unwrap()
+            .into_iter()
+            .map(|s| s.session_id)
+            .collect();
+        assert_eq!(ids, vec!["patch"]);
+    }
 }

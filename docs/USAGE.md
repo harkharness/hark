@@ -117,16 +117,20 @@ projects, the Claude Code history, a few actions — with a tab per kind.
 Before you type it shows what needs you, what moved last and what you can
 do. Local index, zero tokens.
 
-**Início › Demandas is the list of the day**: what asks for you, from four
-sources — a board card stopped at a permission or waiting for you, one
-stalled for days, a page an agent wrote in the last day, and your own
-requests ("me lembra de ligar pro banco às 14h", typed or spoken, kept in
-the local index with the time it names). Ordered by urgency; *ir* opens
-the chat or the page, *depois* sinks a row for the day, *feito* closes a
-request. The board stays the team's: a demand may point at a card, it
-never replaces one. "O que eu tenho hoje?" in Hoje answers from this list,
-zero tokens. A card stalled for more than two weeks is forgotten work, not
-a demand: it stays on the board and leaves the list.
+**Início › Demandas is the list of the day**: what asks for you, from five
+sources — the chats of the last 24 hours (every session in the index, not
+only the board's), a board card stopped at a permission or waiting for
+you, one stalled for days, a page an agent wrote in the last day, and your
+own requests ("me lembra de ligar pro banco às 14h", typed or spoken, kept
+in the local index with the time it names). A chat whose last word is the
+agent's is waiting for you; one where you spoke last is *working*. A card
+tied to a live chat is told by the chat, under the card's name. Ordered
+by urgency; *ir* opens the chat or the page, *depois* sinks a row for the
+day, *feito* closes a request. The board stays the team's: a demand may
+point at a card, it never replaces one. "O que eu tenho hoje?" in Hoje
+answers from this list, zero tokens. Cards stalled for more than two weeks
+are forgotten work: they collapse into one line that counts them and
+opens the board. `hark demands` prints the same list from the terminal.
 
 **What answers for free, and what goes up.** Short, whole questions about
 the running workers, the board, the spend and the list of the day are
@@ -357,6 +361,7 @@ hark index                                    # (re)index session history
 hark sessions                                 # what is on disk
 hark use <context> | hark contexts            # kubectl-style focus areas
 hark board                                    # the board, as text
+hark demands                                  # the list of the day, as the window computes it
 ```
 
 ## Updates

@@ -2104,8 +2104,9 @@ fn gather_demands(
         }
     }
     let requests = store.requests().unwrap_or_default();
+    let sessions = hark_core::app::ask::chats_of_the_day(store, &config.data_dir()).unwrap_or_default();
     let local = hark_core::chrono::Local::now().fixed_offset();
-    hark_core::domain::demands::collect(&board, &waiting_refs, &pages, &requests, local, config.lang())
+    hark_core::domain::demands::collect(&board, &waiting_refs, &pages, &requests, &sessions, local, config.lang())
 }
 
 /// One event behind the bell: worded, stored, announced to the windows.

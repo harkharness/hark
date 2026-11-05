@@ -3092,6 +3092,32 @@ export default function App({
    * topic match) and focus it. The single door used by the sidebar, the
    * board cards and the global board of the mother window.
    */
+  /** "ir" on a demand: a page opens in Artefatos, a chat of the day is
+   *  recovered where it lives, the forgotten-cards line opens the board,
+   *  a card opens its chat. */
+  function goToDemand(d: import("./types").Demand) {
+    const page = d.link?.match(/^hark:\/\/artifacts\/([^/]+)\/(.+)$/);
+    if (page) {
+      setView("artefatos");
+      setArtSel({ space: decodeURIComponent(page[1]), id: decodeURIComponent(page[2]) });
+      return;
+    }
+    const chat = d.link?.match(/^hark:\/\/chat\/(.+)$/);
+    if (chat) {
+      setView("chat");
+      void recoverSession({ session_id: decodeURIComponent(chat[1]), title: d.title, cwd: d.project });
+      return;
+    }
+    if (d.link === "hark://board") {
+      setView("board");
+      return;
+    }
+    if (d.source === "board") {
+      setView("chat");
+      void openTaskByTitle(d.title);
+    }
+  }
+
   async function openTaskByTitle(title: string, sessionId?: string, note?: string) {
     setReading(null);
     let session = sessionId;
@@ -3705,18 +3731,7 @@ export default function App({
                     // A board demand carries the project path; an artifact
                     // one carries its space, which is the project's name.
                     colourOf={(key) => colourOf(key.startsWith("/") ? key : allProjects.find((p) => p.name === key)?.path)}
-                    onGo={(d) => {
-                      const page = d.link?.match(/^hark:\/\/artifacts\/([^/]+)\/(.+)$/);
-                      if (page) {
-                        setView("artefatos");
-                        setArtSel({ space: decodeURIComponent(page[1]), id: decodeURIComponent(page[2]) });
-                        return;
-                      }
-                      if (d.source === "board") {
-                        setView("chat");
-                        void openTaskByTitle(d.title);
-                      }
-                    }}
+                    onGo={goToDemand}
                     onDone={(d) => ipc.requestDone(d.id).then(reloadDemands).catch(() => {})}
                     onFocus={(d) => void enterFocus(d.title)}
                     onLater={(d) => setLater((old) => (old.includes(d.id) ? old : [...old, d.id]))}
@@ -4000,16 +4015,7 @@ export default function App({
                   userName={overview?.user_name ?? ""}
                   demands={demandsOrdered}
                   colourOf={(key) => colourOf(key.startsWith("/") ? key : allProjects.find((p) => p.name === key)?.path)}
-                  onGo={(d) => {
-                    const page = d.link?.match(/^hark:\/\/artifacts\/([^/]+)\/(.+)$/);
-                    if (page) {
-                      setView("artefatos");
-                      setArtSel({ space: decodeURIComponent(page[1]), id: decodeURIComponent(page[2]) });
-                    } else if (d.source === "board") {
-                      setView("chat");
-                      void openTaskByTitle(d.title);
-                    }
-                  }}
+                  onGo={goToDemand}
                   onDone={(d) => ipc.requestDone(d.id).then(reloadDemands).catch(() => {})}
                   onLater={(d) => setLater((old) => (old.includes(d.id) ? old : [...old, d.id]))}
                   onFocus={(d) => void enterFocus(d.title)}

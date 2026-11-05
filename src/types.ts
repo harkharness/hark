@@ -14,12 +14,12 @@ export type ArtifactKind = "doc" | "slides" | "design";
 /** One item of the list of the day (domain::demands). */
 export type Demand = {
   id: string;
-  source: "board" | "agenda" | "artifact" | "request";
+  source: "board" | "agenda" | "artifact" | "request" | "session";
   /** The project path (board) or the artifact space: the colour it wears. */
   project: string | null;
   title: string;
   why: string;
-  urgency: "needs_you" | "scheduled" | "stalled" | "review" | "reminder";
+  urgency: "needs_you" | "scheduled" | "working" | "stalled" | "review" | "reminder";
   link: string | null;
   at: string;
 };

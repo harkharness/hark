@@ -7,7 +7,11 @@ const SOURCE_KEY = {
   agenda: "demand_src_agenda",
   artifact: "demand_src_artifact",
   request: "demand_src_request",
+  session: "demand_src_session",
 } as const;
+
+/** A board line that counts cards instead of naming one: no chat to focus. */
+const isCard = (d: Demand) => d.source === "board" && d.link === null;
 
 /**
  * The list of the day (Início › Demandas): what asks for the person, from
@@ -49,7 +53,7 @@ export default function Demands({
             <span className="demand-why">{d.why}</span>
             <span className="demand-src">{t(SOURCE_KEY[d.source])}</span>
             <span className="demand-acts">
-              {onFocus && d.source === "board" && (
+              {onFocus && isCard(d) && (
                 <button className="pill-btn" onClick={() => onFocus(d)} title={t("demand_focus_hint")}>
                   <Crosshair size={11} /> {t("demand_focus")}
                 </button>

@@ -1,12 +1,16 @@
-//! Demandas: what asks for the person today, from four sources — the board,
-//! the agenda, the artifacts and the requests they made ("me lembra de…").
+//! Demandas: what asks for the person today, from five sources — the board,
+//! the agenda, the artifacts, the requests they made ("me lembra de…") and
+//! the chats of the day, where the agent's last word means the ball is
+//! with the person.
 //! The team's board stays the team's; a demand is the person's and may
 //! point at a task without depending on it. Pure: the shell gathers, this
 //! decides and orders.
 
 use crate::domain::artifacts::Node;
 use crate::domain::board::{Task, TaskStatus};
+use crate::domain::deep_link;
 use crate::domain::lang::Lang;
+use crate::domain::snapshot::SessionSummary;
 use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveTime, SecondsFormat, TimeZone, Weekday};
 use serde::{Deserialize, Serialize};
 
@@ -17,15 +21,20 @@ pub enum Source {
     Agenda,
     Artifact,
     Request,
+    /// A chat of the day, from the index: not a card, the conversation itself.
+    Session,
 }
 
-/// Most pressing first: what stopped on you, what is due today, what
-/// stalled, what waits for a look, what you asked to be reminded of.
+/// Most pressing first: what stopped on you, what is due today, what is
+/// being worked on, what stalled, what waits for a look, what you asked
+/// to be reminded of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Urgency {
     NeedsYou,
     Scheduled,
+    /// A chat where you spoke last: the agent is on it, nothing to do yet.
+    Working,
     Stalled,
     Review,
     Reminder,
@@ -74,6 +83,10 @@ const STALLED_DAYS: i64 = 3;
 const STALLED_MAX_DAYS: i64 = 14;
 /// A page younger than this, written by an agent, is waiting for a look.
 const REVIEW_HOURS: i64 = 24;
+/// A chat with a turn inside this window is a chat of the day.
+const SESSION_LIVE_HOURS: i64 = 24;
+/// Where the forgotten-cards line points.
+pub const BOARD_LINK: &str = "hark://board";
 
 /// The list of the day: board (with the titles whose permission waits),
 /// pages by space, requests. Ordered by urgency, then newest first.
@@ -82,19 +95,34 @@ pub fn collect(
     permissions_waiting: &[&str],
     pages: &[(String, Node)],
     requests: &[Request],
+    sessions: &[SessionSummary],
     now: DateTime<FixedOffset>,
     lang: Lang,
 ) -> Vec<Demand> {
     let mut out = Vec::new();
+    let live: Vec<&SessionSummary> = sessions
+        .iter()
+        .filter(|s| s.last_ts.as_deref().is_some_and(|ts| age_hours(ts, now) < SESSION_LIVE_HOURS))
+        .collect();
+    let is_live = |task: &Task| task.session_ids.iter().any(|id| live.iter().any(|s| s.session_id == *id));
+    // Cards that keep the floor: their chats stay off the list.
+    let mut covered: Vec<&str> = Vec::new();
+    let mut forgotten = 0usize;
     for task in board {
         let (urgency, why) = if permissions_waiting.contains(&task.title.as_str()) {
             (Urgency::NeedsYou, lang.pick("parou numa permissão", "stopped at a permission").to_string())
         } else {
             match task.status {
                 TaskStatus::Waiting => (Urgency::NeedsYou, lang.pick("esperando você", "waiting for you").to_string()),
+                // A doing card with a chat of the day is told by the chat.
+                TaskStatus::Doing if is_live(task) => continue,
                 TaskStatus::Doing => {
                     let days = age_days(&task.updated_at, now);
-                    if !(STALLED_DAYS..=STALLED_MAX_DAYS).contains(&days) {
+                    if days > STALLED_MAX_DAYS {
+                        forgotten += 1;
+                        continue;
+                    }
+                    if days < STALLED_DAYS {
                         continue;
                     }
                     (Urgency::Stalled, format!("{} {days} {}", lang.pick("parado há", "stalled for"), lang.pick("dias", "days")))
@@ -102,6 +130,7 @@ pub fn collect(
                 TaskStatus::Backlog | TaskStatus::Done => continue,
             }
         };
+        covered.extend(task.session_ids.iter().map(String::as_str));
         out.push(Demand {
             id: format!("task:{}", task.title),
             source: Source::Board,
@@ -111,6 +140,59 @@ pub fn collect(
             urgency,
             link: None,
             at: task.updated_at.clone(),
+        });
+    }
+    if forgotten > 0 {
+        out.push(Demand {
+            id: "board:forgotten".into(),
+            source: Source::Board,
+            project: None,
+            title: format!("{forgotten} {}", lang.pick("cards parados há semanas", "cards stalled for weeks")),
+            why: format!("{} {STALLED_MAX_DAYS} {}", lang.pick("mais de", "over"), lang.pick("dias sem um turno", "days without a turn")),
+            urgency: Urgency::Stalled,
+            link: Some(BOARD_LINK.into()),
+            at: String::new(),
+        });
+    }
+    for session in &live {
+        if covered.contains(&session.session_id.as_str()) {
+            continue;
+        }
+        let spoke = session.recent_prompts.iter().map(|p| p.ts.as_str()).max();
+        let replied = session.last_reply.as_ref().map(|r| r.ts.as_str());
+        let (urgency, why, at) = match (spoke, replied) {
+            (Some(s), Some(r)) if r < s => (
+                Urgency::Working,
+                format!("{} {}, {}", lang.pick("você falou às", "you spoke at"), clock(s, now), lang.pick("agente trabalhando", "agent working")),
+                s,
+            ),
+            (_, Some(r)) => (
+                Urgency::NeedsYou,
+                format!("{} {}, {}", lang.pick("agente respondeu às", "agent replied at"), clock(r, now), lang.pick("esperando você", "waiting for you")),
+                r,
+            ),
+            (Some(s), None) => (
+                Urgency::Working,
+                format!("{} {}, {}", lang.pick("você falou às", "you spoke at"), clock(s, now), lang.pick("agente trabalhando", "agent working")),
+                s,
+            ),
+            (None, None) => continue,
+        };
+        let card = board.iter().find(|t| t.session_ids.contains(&session.session_id));
+        let title = card
+            .map(|t| t.title.clone())
+            .or_else(|| session.title.clone())
+            .or_else(|| session.last_prompt.clone())
+            .unwrap_or_else(|| session.session_id.clone());
+        out.push(Demand {
+            id: format!("session:{}", session.session_id),
+            source: Source::Session,
+            project: card.and_then(|t| t.workspace.clone()).or_else(|| session.cwd.clone()),
+            title,
+            why,
+            urgency,
+            link: Some(deep_link::chat_link(&session.session_id)),
+            at: at.to_string(),
         });
     }
     for (space, page) in pages {
@@ -165,6 +247,11 @@ fn age_days(ts: &str, now: DateTime<FixedOffset>) -> i64 {
 
 fn age_hours(ts: &str, now: DateTime<FixedOffset>) -> i64 {
     parse_ts(ts).map(|t| (now - t).num_hours()).unwrap_or(i64::MAX)
+}
+
+/// "08:52" in the person's zone.
+fn clock(ts: &str, now: DateTime<FixedOffset>) -> String {
+    parse_ts(ts).map(|t| t.with_timezone(now.offset()).format("%H:%M").to_string()).unwrap_or_default()
 }
 
 /// "ontem, 18:10" / "hoje, 08:00" / "03/11, 18:10".
@@ -275,6 +362,7 @@ mod tests {
     use crate::domain::artifacts::{Kind, Node, Origin};
     use crate::domain::board::{Task, TaskStatus};
     use crate::domain::lang::Lang;
+    use crate::domain::snapshot::{RecentPrompt, SessionSummary};
     use chrono::{DateTime, FixedOffset};
 
     fn at(s: &str) -> DateTime<FixedOffset> {
@@ -282,6 +370,18 @@ mod tests {
     }
     fn task(title: &str, status: TaskStatus, updated: &str, ws: &str) -> Task {
         Task { title: title.into(), status, workspace: Some(ws.into()), session_ids: vec![], updated_at: updated.into(), note: None, pinned: false, subtasks: vec![] }
+    }
+    fn session(id: &str, title: &str, prompt_ts: &str, reply_ts: &str, cwd: &str) -> SessionSummary {
+        SessionSummary {
+            session_id: id.into(),
+            cwd: Some(cwd.into()),
+            git_branch: None,
+            title: Some(title.into()),
+            last_prompt: Some("…".into()),
+            last_ts: Some(prompt_ts.max(reply_ts).into()),
+            recent_prompts: vec![RecentPrompt { ts: prompt_ts.into(), text: "…".into() }],
+            last_reply: Some(RecentPrompt { ts: reply_ts.into(), text: "…".into() }),
+        }
     }
     fn page(id: &str, updated: &str, origin: bool) -> Node {
         Node { id: id.into(), title: id.into(), path: format!("{id}.html"), parent: None, kind: Kind::Slides, origin: origin.then(|| Origin { session_id: None, task: Some("Redesign".into()) }), links: vec![], updated_at: updated.into() }
@@ -294,7 +394,7 @@ mod tests {
             task("Quick-add", TaskStatus::Doing, "2026-10-31T09:00:00-03:00", "/p/tulipa"),
             task("Billing v2", TaskStatus::Doing, "2026-11-04T09:50:00-03:00", "/p/hark"),
         ];
-        let out = collect(&board, &["Billing v2"], &[], &[], now, Lang::Pt);
+        let out = collect(&board, &["Billing v2"], &[], &[], &[], now, Lang::Pt);
         assert_eq!(out[0].title, "Billing v2");
         assert_eq!(out[0].urgency, Urgency::NeedsYou);
         assert_eq!(out[0].source, Source::Board);
@@ -305,16 +405,74 @@ mod tests {
     }
 
     #[test]
-    fn work_abandoned_for_weeks_is_not_a_demand_of_the_day() {
-        // Thirteen "parado há 65 dias" rows buried the real list: after two
-        // weeks a doing task is forgotten work, not something asking today.
+    fn forgotten_cards_collapse_into_one_line_instead_of_burying_the_list() {
+        // Thirteen "parado há 65 dias" rows buried the real list; hiding
+        // them left "nada pede você hoje" over a full board (05/11). One
+        // line counts them and points at the board.
         let now = at("2026-11-04T10:00:00-03:00");
         let board = vec![
             task("Old migration", TaskStatus::Doing, "2026-08-31T09:00:00-03:00", "/p/hark"),
+            task("Older chart", TaskStatus::Doing, "2026-08-31T09:00:00-03:00", "/p/tulipa"),
             task("Last week", TaskStatus::Doing, "2026-10-26T09:00:00-03:00", "/p/hark"),
         ];
-        let out = collect(&board, &[], &[], &[], now, Lang::Pt);
-        assert_eq!(out.iter().map(|d| d.title.as_str()).collect::<Vec<_>>(), vec!["Last week"]);
+        let out = collect(&board, &[], &[], &[], &[], now, Lang::Pt);
+        assert_eq!(out.iter().map(|d| d.title.as_str()).collect::<Vec<_>>(), vec!["Last week", "2 cards parados há semanas"]);
+        assert_eq!((out[1].urgency, out[1].source, out[1].link.as_deref()), (Urgency::Stalled, Source::Board, Some("hark://board")));
+    }
+
+    #[test]
+    fn a_session_whose_last_word_is_the_agents_asks_for_you() {
+        // The real list of the day: three chats where the agent answered
+        // and waits. None was on the board, so Demandas showed nothing.
+        let now = at("2026-11-05T09:00:00-03:00");
+        let sessions = vec![session("s1", "Patch de segurança", "2026-11-05T08:40:00-03:00", "2026-11-05T08:52:00-03:00", "/p/infra")];
+        let out = collect(&[], &[], &[], &[], &sessions, now, Lang::Pt);
+        assert_eq!(out.len(), 1);
+        assert_eq!((out[0].source, out[0].urgency), (Source::Session, Urgency::NeedsYou));
+        assert_eq!(out[0].title, "Patch de segurança");
+        assert_eq!(out[0].why, "agente respondeu às 08:52, esperando você");
+        assert_eq!(out[0].link.as_deref(), Some("hark://chat/s1"));
+        assert_eq!(out[0].project.as_deref(), Some("/p/infra"));
+    }
+
+    #[test]
+    fn a_session_where_you_spoke_last_is_working_not_asking() {
+        let now = at("2026-11-05T09:00:00-03:00");
+        let sessions = vec![session("s1", "Patch", "2026-11-05T08:55:00-03:00", "2026-11-05T08:52:00-03:00", "/p/infra")];
+        let out = collect(&[], &[], &[], &[], &sessions, now, Lang::En);
+        assert_eq!(out[0].urgency, Urgency::Working);
+        assert_eq!(out[0].why, "you spoke at 08:55, agent working");
+    }
+
+    #[test]
+    fn a_session_silent_for_a_day_is_not_a_demand() {
+        let now = at("2026-11-05T09:00:00-03:00");
+        let sessions = vec![session("s1", "Yesterday", "2026-11-04T08:00:00-03:00", "2026-11-04T08:30:00-03:00", "/p/infra")];
+        assert!(collect(&[], &[], &[], &[], &sessions, now, Lang::Pt).is_empty());
+    }
+
+    #[test]
+    fn a_card_tied_to_a_live_session_yields_to_the_session_and_lends_its_name() {
+        // The card says "parado há 5 dias"; the chat says the agent spoke
+        // ten minutes ago. The chat is the truth, the card names it.
+        let now = at("2026-11-05T09:00:00-03:00");
+        let mut card = task("KR 1.3 incidentes", TaskStatus::Doing, "2026-10-31T09:00:00-03:00", "/p/sre");
+        card.session_ids = vec!["s1".into()];
+        let sessions = vec![session("s1", "kr 1.3 estrutura", "2026-11-05T08:40:00-03:00", "2026-11-05T08:50:00-03:00", "/p/sre")];
+        let out = collect(&[card], &[], &[], &[], &sessions, now, Lang::Pt);
+        assert_eq!(out.len(), 1);
+        assert_eq!((out[0].source, out[0].title.as_str()), (Source::Session, "KR 1.3 incidentes"));
+    }
+
+    #[test]
+    fn a_card_stopped_at_a_permission_keeps_the_floor_over_its_session() {
+        let now = at("2026-11-05T09:00:00-03:00");
+        let mut card = task("Billing v2", TaskStatus::Doing, "2026-11-05T08:50:00-03:00", "/p/hark");
+        card.session_ids = vec!["s1".into()];
+        let sessions = vec![session("s1", "billing", "2026-11-05T08:40:00-03:00", "2026-11-05T08:50:00-03:00", "/p/hark")];
+        let out = collect(&[card], &["Billing v2"], &[], &[], &sessions, now, Lang::Pt);
+        assert_eq!(out.len(), 1);
+        assert_eq!((out[0].source, out[0].why.as_str()), (Source::Board, "parou numa permissão"));
     }
 
     #[test]
@@ -325,7 +483,7 @@ mod tests {
             task("Fresh", TaskStatus::Doing, "2026-11-04T09:00:00-03:00", "/p/hark"),
             task("Someday", TaskStatus::Backlog, "2026-10-01T09:00:00-03:00", "/p/hark"),
         ];
-        assert!(collect(&board, &[], &[], &[], now, Lang::Pt).is_empty());
+        assert!(collect(&board, &[], &[], &[], &[], now, Lang::Pt).is_empty());
     }
 
     #[test]
@@ -333,7 +491,7 @@ mod tests {
         let now = at("2026-11-04T10:00:00-03:00");
         let board = vec![task("Retry", TaskStatus::Waiting, "2026-11-03T09:00:00-03:00", "/p/hark")];
         let pages = vec![("landing".to_string(), page("deck", "2026-11-03T17:40:00-03:00", true)), ("landing".to_string(), page("old", "2026-10-20T17:40:00-03:00", true)), ("landing".to_string(), page("home", "2026-11-04T09:00:00-03:00", false))];
-        let out = collect(&board, &[], &pages, &[], now, Lang::Pt);
+        let out = collect(&board, &[], &pages, &[], &[], now, Lang::Pt);
         assert_eq!(out.len(), 2);
         assert_eq!((out[0].title.as_str(), out[0].urgency), ("Retry", Urgency::NeedsYou));
         assert_eq!((out[1].title.as_str(), out[1].urgency, out[1].source), ("deck", Urgency::Review, Source::Artifact));
@@ -349,7 +507,7 @@ mod tests {
             Request { id: "r3".into(), text: "depois".into(), said_at: "2026-11-04T08:00:00-03:00".into(), due: Some("2026-11-06T09:00:00-03:00".into()), origin: Said::Voice, done_at: None },
             Request { id: "r4".into(), text: "feito".into(), said_at: "2026-11-01T08:00:00-03:00".into(), due: None, origin: Said::Text, done_at: Some("2026-11-02T08:00:00-03:00".into()) },
         ];
-        let out = collect(&[], &[], &[], &reqs, now, Lang::Pt);
+        let out = collect(&[], &[], &[], &reqs, &[], now, Lang::Pt);
         let titles: Vec<&str> = out.iter().map(|d| d.title.as_str()).collect();
         assert_eq!(titles, vec!["ligar pro banco", "responder o contador"]);
         assert_eq!(out[0].urgency, Urgency::Scheduled);

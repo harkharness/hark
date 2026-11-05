@@ -42,6 +42,7 @@ fn main() {
         Some((cmd, rest)) if cmd == "ps" => cmd_ps(rest.first().is_some_and(|f| f == "--clear")),
         Some((cmd, rest)) if cmd == "spend" => cmd_spend(rest),
         Some((cmd, _)) if cmd == "board" => cmd_board(),
+        Some((cmd, _)) if cmd == "demands" => cmd_demands(),
         Some((cmd, rest)) if cmd == "setup" => cmd_setup(rest),
         Some((cmd, _)) if cmd == "update" => cmd_update(),
         Some((cmd, _)) if cmd == "hear" => cmd_hear(),
@@ -760,6 +761,38 @@ fn cmd_board() -> i32 {
         }
         Ok(tasks) => {
             println!("{}", hark_core::domain::board::render(&tasks));
+            0
+        }
+        Err(err) => {
+            eprintln!("hark: {err:#}");
+            1
+        }
+    }
+}
+
+/// The list of the day as the window computes it, minus what only the
+/// window knows (permissions waiting, pages): to see why Demandas shows
+/// what it shows, with the real index.
+fn cmd_demands() -> i32 {
+    use hark_core::chrono::Local;
+    use hark_core::ports::SessionStore;
+    let config = Config::load();
+    let result = open_store(&config).and_then(|store| {
+        let board = store.board()?;
+        let requests = store.requests()?;
+        let sessions = hark_core::app::ask::chats_of_the_day(&store, &config.data_dir())?;
+        let now = Local::now().fixed_offset();
+        Ok(hark_core::domain::demands::collect(&board, &[], &[], &requests, &sessions, now, config.lang()))
+    });
+    match result {
+        Ok(list) if list.is_empty() => {
+            println!("nada pede voce hoje");
+            0
+        }
+        Ok(list) => {
+            for d in list {
+                println!("[{:?}] {} — {} ({:?}{})", d.urgency, d.title, d.why, d.source, d.link.map(|l| format!(", {l}")).unwrap_or_default());
+            }
             0
         }
         Err(err) => {
