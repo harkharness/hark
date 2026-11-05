@@ -85,6 +85,7 @@ const pt = {
   // sidebar
   side_board: "Board",
   side_board_hint: "board do projeto (abre como painel ao lado do chat)",
+  side_board_inicio_hint: "o board de todos os projetos",
   code_open_path: "abrir {p}",
   compaction_folded: "contexto compactado — abrir o resumo",
   history_older: "↑ carregar histórico anterior",
@@ -1034,6 +1035,7 @@ const en: Record<keyof typeof pt, string> = {
 
   side_board: "Board",
   side_board_hint: "project board (opens as a panel beside the chat)",
+  side_board_inicio_hint: "the board of every project",
   code_open_path: "open {p}",
   compaction_folded: "context compacted — open the summary",
   history_older: "↑ load earlier history",

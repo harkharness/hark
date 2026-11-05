@@ -33,13 +33,17 @@ const base = {
 };
 
 describe("the two doors of the sidebar", () => {
-  it("Início lists Hoje and artifacts, and no project", () => {
-    const { getByText, queryByText } = render(<Sidebar {...base} door="inicio" />);
+  it("Início lists Hoje, the board and artifacts, and no project", () => {
+    // The board is planning, not code: it moved to Início (05/11). The
+    // Code door keeps its shortcut, which opens the board as a panel.
+    const onToggleBoard = vi.fn();
+    const { getByText, queryByText } = render(<Sidebar {...base} door="inicio" onToggleBoard={onToggleBoard} />);
     expect(getByText(t("side_today"))).toBeTruthy();
     expect(getByText(t("side_artifacts"))).toBeTruthy();
+    fireEvent.click(getByText(t("side_board")));
+    expect(onToggleBoard).toHaveBeenCalled();
     expect(queryByText("vox")).toBeNull();
     expect(queryByText(t("side_create"))).toBeNull();
-    expect(queryByText(t("side_board"))).toBeNull();
   });
 
   it("Code lists Criar, search, artifacts, board and the projects, and no Hoje", () => {

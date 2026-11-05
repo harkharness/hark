@@ -319,6 +319,15 @@ export default function Sidebar({
           <span className="side-count" style={{ color: "var(--err, #f7768e)", fontWeight: 700 }}>{notifCount}</span>
         </button>
       )}
+      {inicio && onToggleBoard && (
+        <button
+          className={`side-board ${boardOpen ? "on" : ""}`}
+          onClick={onToggleBoard}
+          title={t("side_board_inicio_hint")}
+        >
+          <SquareKanban size={13} /> {t("side_board")}
+        </button>
+      )}
       {!inicio && onCreate && (
         <button className="side-board side-create" onClick={onCreate} title={t("side_create_hint")}>
           <Plus size={13} /> {t("side_create")}
