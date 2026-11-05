@@ -1430,6 +1430,22 @@ fn start_worker_titled(
                     }
                     // Turn done, worker stays alive for the next message.
                     update_worker_summary(&config, &task2, &turn.raw);
+                    // The light model's name for this chat (chat_start) goes
+                    // into the session's own history now that the file
+                    // exists: the CLI's resume list shows it from here on.
+                    let pending = app2.state::<PendingTitles>().0.lock().unwrap().remove(&task2);
+                    if let Some(title) = pending.filter(|_| !current_session.is_empty()) {
+                        let (app3, sid) = (app2.clone(), current_session.clone());
+                        std::thread::spawn(move || {
+                            match name_session(&Config::load(), &sid, &title, hark_agent::TitleSource::Generated) {
+                                Ok(title) => emit_event(
+                                    &app3,
+                                    serde_json::json!({ "kind": "chat_renamed", "session_id": sid, "title": title }),
+                                ),
+                                Err(e) => diag(&app3, &format!("generated title not written: {e}")),
+                            }
+                        });
+                    }
                     if task2 != HARK_CHAT_TASK {
                         // (the chat's cwd is the data dir — no .hark there)
                         let _ = memory_files::append_state(
@@ -1802,6 +1818,9 @@ fn chat_start(
     // of "gerei um artefato hark://…" are not a name). A failed or empty
     // answer keeps the old rule; the cost lands in the ledger as a gate.
     let title = chat_title(&config, &instruction);
+    if let Some(name) = &title {
+        app.state::<PendingTitles>().0.lock().unwrap().insert(task_id.clone(), name.clone());
+    }
     update_registry_and_board(
         &config,
         &agent,
@@ -1992,6 +2011,12 @@ pub(crate) struct LiftedCaps(pub(crate) Mutex<std::collections::HashSet<String>>
 /// (spent so far, the ceiling). The result reads it once and clears it.
 #[derive(Default)]
 pub(crate) struct CeilingHits(pub(crate) Mutex<HashMap<String, (f64, f64)>>);
+
+/// Names the light model wrote for brand-new chats, waiting for the
+/// session to have a file on disk: task id → title. The first turn's
+/// result writes it into the session's history and clears it.
+#[derive(Default)]
+pub(crate) struct PendingTitles(pub(crate) Mutex<HashMap<String, String>>);
 
 /// What each worker is holding: the turn it is running, and the messages
 /// you typed while it ran (`domain::outbox`).
@@ -6321,6 +6346,7 @@ pub fn run() {
         .manage(Interrupting::default())
         .manage(LiftedCaps::default())
         .manage(CeilingHits::default())
+        .manage(PendingTitles::default())
         .manage(MicLease::default())
         .manage(LiveWorkers(Mutex::new(HashMap::new())))
         .manage(LiveLimits::default())

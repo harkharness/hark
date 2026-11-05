@@ -43,13 +43,14 @@ fn main() {
         Some((cmd, rest)) if cmd == "spend" => cmd_spend(rest),
         Some((cmd, _)) if cmd == "board" => cmd_board(),
         Some((cmd, _)) if cmd == "demands" => cmd_demands(),
+        Some((cmd, rest)) if cmd == "rename" && rest.len() >= 2 => cmd_rename(&rest[0], &rest[1..].join(" ")),
         Some((cmd, rest)) if cmd == "setup" => cmd_setup(rest),
         Some((cmd, _)) if cmd == "update" => cmd_update(),
         Some((cmd, _)) if cmd == "hear" => cmd_hear(),
         Some((cmd, _)) if cmd == "listen" => cmd_listen(),
         _ => {
             eprintln!(
-                "usage: hark listen | hark hear | hark setup [--model small|large-v3-turbo] | hark update | hark ask \"<q>\" | hark dispatch [--session <id>] \"<instruction>\" | hark ps | hark spend [--day|--week|--project] [--rebuild] [--export csv|json] | hark index | hark sessions | hark use <context> | hark contexts"
+                "usage: hark listen | hark hear | hark setup [--model small|large-v3-turbo] | hark update | hark ask \"<q>\" | hark dispatch [--session <id>] \"<instruction>\" | hark ps | hark spend [--day|--week|--project] [--rebuild] [--export csv|json] | hark index | hark sessions | hark rename <session-id> <name> | hark use <context> | hark contexts"
             );
             2
         }
@@ -322,6 +323,65 @@ impl hark_core::ports::HistoryIndexer for BothHistories {
         let files = refresh_index(projects_dir, store)?;
         let records = hark_core::adapters::recorder::refresh(&Config::load().data_dir(), store)?;
         Ok(files + records)
+    }
+
+    fn set_title(
+        &self,
+        path: &std::path::Path,
+        session_id: &str,
+        title: &str,
+        source: hark_agent::TitleSource,
+    ) -> anyhow::Result<bool> {
+        let config = Config::load();
+        if path.starts_with(&config.projects_dir) && path.is_file() {
+            hark_plugin_claude::history::set_title(path, session_id, title, source)?;
+            return Ok(true);
+        }
+        hark_core::adapters::recorder::RecordedHistory { data_dir: config.data_dir() }
+            .set_title(path, session_id, title, source)
+    }
+}
+
+/// `hark rename <session-id> <name>`: the name goes into the session's
+/// own history (the CLI's `custom-title` line for claude, a title line in
+/// Hark's record otherwise), so every reader of it — `claude --resume`,
+/// Hark's windows, this tool — shows the same name. A prefix of the id
+/// is enough when it is unambiguous.
+fn cmd_rename(session: &str, title: &str) -> i32 {
+    use hark_core::ports::{HistoryIndexer, SessionStore};
+    let config = Config::load();
+    let result = (|| -> anyhow::Result<String> {
+        let title = title.trim();
+        anyhow::ensure!(!title.is_empty(), "empty name");
+        let mut store = open_store(&config)?;
+        BothHistories.refresh(&config.projects_dir, &mut store)?;
+        let hits: Vec<_> = store
+            .sessions_since("1970-01-01T00:00:00Z")?
+            .into_iter()
+            .filter(|s| s.session_id.starts_with(session))
+            .collect();
+        let hit = match hits.as_slice() {
+            [one] => one,
+            [] => anyhow::bail!("no session starts with {session}"),
+            many => anyhow::bail!("{} sessions start with {session} — give more of the id", many.len()),
+        };
+        let path = store
+            .session_path(&hit.session_id)?
+            .ok_or_else(|| anyhow::anyhow!("no history on disk for {}", hit.session_id))?;
+        let written = BothHistories.set_title(std::path::Path::new(&path), &hit.session_id, title, hark_agent::TitleSource::User)?;
+        anyhow::ensure!(written, "this session's agent keeps no name");
+        BothHistories.refresh(&config.projects_dir, &mut store)?;
+        Ok(hit.session_id.clone())
+    })();
+    match result {
+        Ok(id) => {
+            println!("{id}  {title}");
+            0
+        }
+        Err(e) => {
+            eprintln!("hark rename: {e}");
+            1
+        }
     }
 }
 

@@ -386,6 +386,7 @@ hark ps [--clear]                             # running workers
 hark spend [--day|--week|--project] [--rebuild] [--export csv|json]
 hark index                                    # (re)index session history
 hark sessions                                 # what is on disk
+hark rename <session-id> <name>               # name a chat, in its own history (the CLI sees it)
 hark use <context> | hark contexts            # kubectl-style focus areas
 hark board                                    # the board, as text
 hark demands                                  # the list of the day, as the window computes it
