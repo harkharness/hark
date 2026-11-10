@@ -25,6 +25,7 @@ import type {
   UsageReport,
   VoicePlan,
   SheetView,
+  DashView,
 } from "../types";
 
 /**
@@ -171,8 +172,9 @@ const TREES: Record<string, ArtifactTree> = {
       node("billing-v2-rollout", "Billing v2 · rollout deck", "billing-v2-rollout.html", "slides", null, 70, { session_id: "s-billing", task: "Billing endpoint v2" }),
       node("cells-design", "Cells · how a region is wired", "cells-design.html", "design", null, 240, { session_id: "s-keys", task: "Webhook signing keys: rotation plan" }),
       node("infra-costs", "Infra costs by month", "infra-costs.sheet.json", "sheet", null, 25, { session_id: "s-billing", task: "Billing endpoint v2" }),
+      node("usage", "Dashboard: webhook usage", "usage.dash.json", "data", null, 40, { session_id: "s-billing", task: "Billing endpoint v2" }),
     ],
-    order: { "": ["overview", "decisions", "billing-v2-rollout", "cells-design", "infra-costs"], decisions: ["adr-003-spend-ceiling", "adr-004-one-window"] },
+    order: { "": ["overview", "decisions", "billing-v2-rollout", "cells-design", "infra-costs", "usage"], decisions: ["adr-003-spend-ceiling", "adr-004-one-window"] },
   },
   infra: {
     nodes: [
@@ -527,6 +529,31 @@ const C: Record<string, (a: Args) => unknown> = {
     raw: "{}",
   }),
   sheet_set_cell: () => undefined,
+  dash_view: (): DashView => ({
+    title: "Dashboard: webhook usage",
+    refresh: "hourly",
+    sources: [{ id: "db", kind: "sqlite", path: "data/app.db" }, { id: "ev", kind: "csv", path: "data/events.csv" }, { id: "st", kind: "command", command: "./scripts/stats.sh" }],
+    queries: [
+      { id: "deliveries_day", source: "db", sql: "SELECT date(created_at) AS day, count(*) AS n\nFROM deliveries\nWHERE created_at >= date('now', '-28 days')\nGROUP BY day ORDER BY day;", columns: [], certified: true, changed: false, preview: { columns: ["day", "n"], rows: [["11/03", 3412], ["11/04", 3508], ["11/05", 3470]] } },
+      { id: "active_7d", source: "st", sql: null, columns: [], certified: true, changed: false, preview: { columns: ["n", "before"], rows: [[1284, 1209]] } },
+      { id: "retention_d7", source: "ev", sql: null, columns: ["month", "d7"], certified: false, changed: true, preview: { columns: ["month", "d7"], rows: [["sep", 38], ["oct", 41], ["nov", 52]] } },
+      { id: "ttfd", source: "db", sql: "SELECT avg(seconds) AS s FROM first_delivery", columns: [], certified: false, changed: true, preview: null, error: "no such table: first_delivery" },
+    ],
+    panels: [
+      { title: "active users · 7 days", query: "active_7d", chart: "number", certified: true, number: 1284, delta: 0.062 },
+      { title: "deliveries per day", query: "deliveries_day", chart: "number", certified: true, number: 3910, delta: 0.11 },
+      { title: "time to first delivery", query: "ttfd", chart: "number", certified: false, error: "no such table: first_delivery" },
+      { title: "deliveries per day · 4 weeks", query: "deliveries_day", chart: "bar", certified: true, labels: ["13/10", "14", "15", "16", "17", "20", "21", "22", "23", "24", "27", "28", "29", "30", "31", "03/11", "04", "05", "06", "07"], values: [30, 34, 28, 40, 44, 41, 38, 52, 55, 49, 58, 62, 60, 71, 76, 73, 80, 85, 82, 88] },
+      { title: "retention D7 · %", query: "retention_d7", chart: "line", certified: false, labels: ["sep", "oct", "nov"], values: [38, 41, 52] },
+      { title: "last deliveries", query: "deliveries_day", chart: "table", certified: true, table: { columns: ["day", "n"], rows: [["11/03", 3412], ["11/04", 3508], ["11/05", 3470]] } },
+    ],
+    cache_at: ago(20),
+    stale: false,
+    changed: ["retention_d7", "ttfd"],
+    versions: 3,
+    raw: "{}",
+  }),
+  dash_certify: () => undefined,
   artifact_strip_pager: () => true,
   artifact_remove: () => [],
   export_file: (a) => `/Users/ana/.hark/exports/${String(a?.name)}`,

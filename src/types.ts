@@ -78,6 +78,45 @@ export type SheetCell = { raw: string; text: string; formula: boolean; number?: 
 export type SheetTab = { name: string; columns: string[]; cells: SheetCell[][] };
 export type CellRef = { tab: number; row: number; col: number };
 /** A sheet page computed, with the agent's changes marked (app::artifacts::SheetView). */
+/** A dashboard's table (domain::dash::Table). */
+export type DataTable = { columns: string[]; rows: unknown[][] };
+export type DashSource = { id: string; kind: "sqlite" | "csv" | "json" | "command"; path?: string | null; command?: string | null };
+export type DashQuery = {
+  id: string;
+  source: string;
+  sql?: string | null;
+  columns: string[];
+  certified: boolean;
+  changed: boolean;
+  preview?: DataTable | null;
+  error?: string | null;
+};
+export type DashPanel = {
+  title: string;
+  query: string;
+  chart: "number" | "bar" | "line" | "table";
+  certified: boolean;
+  error?: string | null;
+  number?: number | null;
+  delta?: number | null;
+  labels?: string[];
+  values?: number[];
+  table?: DataTable | null;
+};
+/** A dashboard page as the viewer shows it (app::artifacts::DashView). */
+export type DashView = {
+  title?: string | null;
+  refresh: "manual" | "hourly" | "daily";
+  sources: DashSource[];
+  queries: DashQuery[];
+  panels: DashPanel[];
+  cache_at?: string | null;
+  stale: boolean;
+  changed: string[];
+  versions: number;
+  error?: string | null;
+  raw: string;
+};
 export type SheetView = {
   computed: { title?: string | null; tabs: SheetTab[] };
   changed: CellRef[];

@@ -7,6 +7,7 @@ import { childrenOf, crumbOf, kindCounts, recents, rows } from "../lib/artifacts
 import FileViewer from "./FileViewer";
 import SharePopover, { type ShareRow } from "./SharePopover";
 import SheetView from "./SheetView";
+import DashView from "./DashView";
 import Markdown from "./Markdown";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -957,7 +958,7 @@ function Page({
           </span>
         </div>
         <span className="art-actions">
-          {(html || node.kind === "sheet") && (
+          {(html || node.kind === "sheet" || node.kind === "data") && (
             <>
               <button className={`pill-btn ${source ? "on" : ""}`} onClick={onSource} title={t("art_source_hint")}>
                 <Code2 size={11} /> {t("art_source")}
@@ -1005,6 +1006,8 @@ function Page({
       <div className="art-body">
         {node.kind === "sheet" && !source ? (
           <SheetView space={space} id={node.id} onChanged={onSaved} />
+        ) : node.kind === "data" && !source ? (
+          <DashView space={space} id={node.id} onChanged={onSaved} />
         ) : html && !source && node.kind === "slides" ? (
           <DeckViewer title={node.title} html={page.text} scripts={scripts} onStripPager={() => ipc.artifactStripPager(space, node.id).then(onSaved)} />
         ) : html && !source && node.kind === "design" ? (

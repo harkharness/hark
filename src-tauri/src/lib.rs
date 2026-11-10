@@ -2636,6 +2636,39 @@ fn sheet_set_cell(space: String, id: String, tab: usize, row: usize, col: usize,
     hark_core::app::artifacts::sheet_set_cell(&artifact_store(), &space, &id, at, &typed, &now_iso()).map_err(|e| e.to_string())
 }
 
+/// The project folder a space's sources are read in: the registered
+/// project of the same name, if any.
+fn space_project(config: &Config, space: &str) -> Option<std::path::PathBuf> {
+    load_projects(config)
+        .into_iter()
+        .find(|p| p.name == space)
+        .map(|p| std::path::PathBuf::from(hark_core::config::expand_home(&p.path)))
+}
+
+/// A dashboard page computed from its cache; `run` is the person's
+/// "atualizar agora" (the only time a command source runs).
+#[tauri::command(async)]
+fn dash_view(space: String, id: String, run: bool) -> Result<hark_core::app::artifacts::DashView, String> {
+    let config = Config::load();
+    let project = space_project(&config, &space);
+    hark_core::app::artifacts::dash_view(
+        &artifact_store(),
+        &hark_core::adapters::dash_sources::LocalRunner,
+        project.as_deref(),
+        &space,
+        &id,
+        &now_iso(),
+        run,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// The person certifies a query of a dashboard, or takes it back.
+#[tauri::command]
+fn dash_certify(space: String, id: String, query: String, on: bool) -> Result<(), String> {
+    hark_core::app::artifacts::dash_certify(&artifact_store(), &space, &id, &query, on, &now_iso()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn artifact_remove(space: String, id: String) -> Result<Vec<String>, String> {
     hark_core::app::artifacts::remove(&artifact_store(), &space, &id).map_err(|e| e.to_string())
@@ -6557,6 +6590,8 @@ pub fn run() {
             artifact_restore,
             sheet_view,
             sheet_set_cell,
+            dash_view,
+            dash_certify,
             focus_main,
             subscription_limits,
             usage_report,
