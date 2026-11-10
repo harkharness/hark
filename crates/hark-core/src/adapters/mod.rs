@@ -6,6 +6,7 @@ pub mod cpal_audio;
 pub mod dash_sources;
 pub mod fs_files;
 pub mod git_collect;
+pub mod log_read;
 pub mod memory_files;
 pub mod model_fetch;
 pub mod diag_log;

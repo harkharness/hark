@@ -84,6 +84,10 @@ impl SqliteStore {
     }
 
     fn from_conn(conn: Connection) -> anyhow::Result<Self> {
+        // Every command opens its own connection and the indexer writes
+        // while chats open: a reader that fails at once on a lock sent a
+        // chat to the wrong session (10/11). Wait a little instead.
+        conn.busy_timeout(std::time::Duration::from_millis(1500))?;
         conn.execute_batch(SCHEMA)?;
         Self::migrate_reply_column(&conn)?;
         Self::migrate_titled_by_user(&conn)?;
@@ -1306,5 +1310,15 @@ mod tests {
         assert_eq!(weight.total, 2 + 301_000 + 900);
         assert_eq!(weight.cache_read, 301_000);
         assert_eq!(weight.context_window, Some(1_000_000), "the window the model ran with");
+    }
+
+    /// Every command opens its own connection, and the indexer writes
+    /// while a chat opens: without a wait, the reader got "database is
+    /// locked" and the chat fell back to a session that was not its own.
+    #[test]
+    fn a_connection_waits_for_a_writer_instead_of_failing_at_once() {
+        let store = SqliteStore::in_memory().unwrap();
+        let ms: i64 = store.conn.query_row("PRAGMA busy_timeout", [], |r| r.get(0)).unwrap();
+        assert!(ms >= 1000, "busy_timeout is {ms} ms");
     }
 }

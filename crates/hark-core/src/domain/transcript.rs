@@ -112,6 +112,15 @@ pub fn tail_entries<'a>(lines: impl Iterator<Item = &'a str>, n: usize) -> Vec<E
     entries.into_iter().skip(skip).collect()
 }
 
+/// Where a mirror read starts: from the offset it kept, never more than
+/// `max` bytes before the end. A log truncated or replaced under us
+/// (offset past the end) starts over; a chat held at a terminal can be a
+/// 237 MB desktop log, and reading it from zero froze the window.
+pub fn mirror_start(from: u64, len: u64, max: u64) -> u64 {
+    let from = if from > len { 0 } else { from };
+    from.max(len.saturating_sub(max))
+}
+
 /// A LOCAL, zero-token summary of a conversation: the user/assistant turns
 /// (tool noise dropped), newest kept when the budget cuts. Feeds the
 /// "restart light" flow — a fresh session opens with this instead of a
@@ -280,5 +289,17 @@ mod tests {
         assert_eq!(tail.len(), 3);
         assert_eq!(tail[0].text, "p7");
         assert_eq!(tail[2].text, "p9");
+    }
+
+    /// The mirror follows a log from a byte offset. A chat held at a
+    /// terminal can be a 237 MB log (a desktop session of 70k lines): read
+    /// from zero, it parsed every line and froze the window. The read
+    /// starts at most `max` bytes before the end, whatever the offset.
+    #[test]
+    fn the_mirror_never_reads_more_than_its_ceiling_in_one_go() {
+        assert_eq!(mirror_start(0, 237_000_000, 8_000_000), 229_000_000);
+        assert_eq!(mirror_start(100, 200, 8_000_000), 100, "small growth reads from where it left");
+        assert_eq!(mirror_start(0, 8_000_000, 8_000_000), 0, "exactly the ceiling is fine");
+        assert_eq!(mirror_start(500, 200, 8_000_000), 0, "truncated under us: start over");
     }
 }

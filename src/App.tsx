@@ -42,6 +42,7 @@ import Notifications from "./components/Notifications";
 import InicioBrief from "./components/InicioBrief";
 import { Bell } from "lucide-react";
 import { condense } from "./lib/mirror";
+import { recoverSession as replacementFor, sessionVanished } from "./lib/recovery";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
@@ -797,7 +798,11 @@ export default function App({
     if (!task || !heldBy) return;
     let alive = true;
     const tick = () => {
-      const at = mirror.current.get(task.title) ?? 0;
+      // Until the chat has loaded its history there is no offset to
+      // follow from; reading "from zero" on a held desktop session meant
+      // its whole log (10/11). The next tick finds the offset set.
+      const at = mirror.current.get(task.title);
+      if (at == null) return;
       ipc
         .transcriptSince(task.sessionId, at)
         .then((out) => {
@@ -829,7 +834,8 @@ export default function App({
     }
     if (!heldBy && previouslyHeld) {
       // One last read: the final turns land before the chat unlocks.
-      const at = mirror.current.get(title) ?? 0;
+      const at = mirror.current.get(title);
+      if (at == null) return;
       ipc
         .transcriptSince(previouslyHeld.session_id, at)
         .then((out) => {
@@ -2976,10 +2982,15 @@ export default function App({
     loadedTasks.current.add(title);
     try {
       const out = await ipc.readTranscript(sessionId, HISTORY_TAIL).catch(async (err) => {
-        // Linked session vanished from disk (os error 2): fall back to the
-        // best topic match instead of a dead end.
-        const hit = await ipc.findSession(title).catch(() => null);
-        if (!hit || hit.session_id === sessionId) throw err;
+        // Linked session vanished from disk: fall back to the best topic
+        // match IN THE SAME FOLDER instead of a dead end. Any other
+        // failure (a locked index, 10/11) is reported as it is: a topic
+        // match once swapped this chat for a 237 MB desktop session held
+        // at a terminal, which froze the window and locked the composer.
+        if (!sessionVanished(err)) throw err;
+        const workspace = board.find((t) => t.title === title)?.workspace;
+        const hit = replacementFor(err, { title, sessionId, workspace }, await ipc.findSession(title).catch(() => null));
+        if (!hit) throw err;
         setFocusedTask({ title, sessionId: hit.session_id, note });
         push({
           who: "sys",
@@ -3010,7 +3021,8 @@ export default function App({
         task: title,
       });
     } catch (err) {
-      push({ who: "sys", text: t("sys_history_read_err", { e: String(err) }), task: title });
+      const e = (err instanceof Error ? err.message : String(err)).replace(/^vanished:\s*/, "");
+      push({ who: "sys", text: t("sys_history_read_err", { e }), task: title });
     }
   }
 

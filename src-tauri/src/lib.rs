@@ -4655,7 +4655,6 @@ struct MirrorOut {
 #[tauri::command(async)]
 fn transcript_since(session_id: String, offset: u64) -> Result<MirrorOut, String> {
     use hark_core::ports::SessionStore;
-    use std::io::{Read, Seek};
     let config = Config::load();
     let store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
@@ -4663,22 +4662,21 @@ fn transcript_since(session_id: String, offset: u64) -> Result<MirrorOut, String
         .session_path(&session_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| ui("sessão não está no índice", "session is not in the index"))?;
-    let mut file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
-    let len = file.metadata().map_err(|e| e.to_string())?.len();
-    // Truncated or replaced under us: start over rather than read garbage.
-    let from = if offset > len { 0 } else { offset };
-    file.seek(std::io::SeekFrom::Start(from)).map_err(|e| e.to_string())?;
-    let mut buf = String::new();
-    file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
-    // A line still being written has no newline yet: leave it for next time.
-    let complete = buf.rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let entries = buf[..complete]
-        .lines()
-        .filter_map(hark_core::domain::transcript::parse_entry)
-        .collect();
+    // Never more than this in one read: a chat held at a terminal can be
+    // a desktop session of hundreds of megabytes, and a mirror that
+    // started from zero parsed all of it and froze the window (10/11).
+    // Far behind, the mirror shows the newest turns and moves on.
+    const MIRROR_MAX_BYTES: u64 = 8 << 20;
+    const MIRROR_MAX_ENTRIES: usize = 400;
+    let grew = hark_core::adapters::log_read::read_since(
+        std::path::Path::new(&path),
+        offset,
+        MIRROR_MAX_BYTES,
+    )
+    .map_err(|e| e.to_string())?;
     Ok(MirrorOut {
-        entries,
-        offset: from + complete as u64,
+        entries: hark_core::domain::transcript::tail_entries(grew.text.lines(), MIRROR_MAX_ENTRIES),
+        offset: grew.next,
     })
 }
 
@@ -4699,21 +4697,27 @@ fn read_transcript(session_id: String, limit: Option<usize>) -> Result<Transcrip
     let config = Config::load();
     let store =
         SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    // "vanished:" is the one failure the window may recover from, by
+    // taking another session of the same folder. Everything else (a
+    // locked index, a bad line) is reported and the chat stays its own.
     let path = store
         .session_path(&session_id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| ui("sessão não está no índice (rode: hark index)", "session is not in the index (run: hark index)"))?;
+        .ok_or_else(|| format!("vanished: {}", ui("sessão não está no índice (rode: hark index)", "session is not in the index (run: hark index)")))?;
     let (session_title, _, _) = store
         .file_state(&path)
         .map_err(|e| e.to_string())?
         .map(|(s, o, m)| (s.title, o, m))
         .unwrap_or_default();
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    Ok(TranscriptOut {
-        session_title,
-        entries: hark_core::domain::transcript::tail_entries(content.lines(), limit.unwrap_or(200)),
-        offset: content.len() as u64,
-    })
+    // The tail only: a desktop session can be hundreds of megabytes, and
+    // the chat shows its last turns.
+    let (entries, offset) =
+        hark_core::adapters::log_read::read_tail(std::path::Path::new(&path), limit.unwrap_or(200))
+            .map_err(|e| match e.kind() {
+                std::io::ErrorKind::NotFound => format!("vanished: {e}"),
+                _ => e.to_string(),
+            })?;
+    Ok(TranscriptOut { session_title, entries, offset })
 }
 
 /// Best session for a spoken/typed query, via the same topic search the
