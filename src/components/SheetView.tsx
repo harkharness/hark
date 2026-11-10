@@ -165,7 +165,7 @@ export default function SheetView({ space, id, onChanged }: { space: string; id:
                   return (
                     <td
                       key={c}
-                      className={`${cell.number != null ? "num" : ""} ${cell.formula ? "f" : ""} ${isChanged(r, c) ? "changed" : ""} ${on ? "sel" : ""} ${cell.error ? "err" : ""}`}
+                      className={`${cell.number != null ? "num" : ""} ${cell.formula ? "f" : ""} ${isChanged(r, c) ? "changed" : ""} ${on ? "sel" : ""} ${cell.error ? "err" : ""} ${edit ? "editing" : ""}`}
                       title={cell.error ?? (cell.formula ? cell.raw : undefined)}
                       onClick={() => setSel({ row: r, col: c })}
                       onDoubleClick={() => setEditing({ row: r, col: c, value: cell.raw })}
@@ -173,6 +173,7 @@ export default function SheetView({ space, id, onChanged }: { space: string; id:
                       {edit ? (
                         <input
                           autoFocus
+                          size={1}
                           className="sheet-input mono"
                           value={editing.value}
                           onChange={(e) => setEditing({ ...editing, value: e.target.value })}
@@ -193,10 +194,11 @@ export default function SheetView({ space, id, onChanged }: { space: string; id:
             <tr className="sheet-add">
               <th className="rh">{current.cells.length + 2}</th>
               {current.columns.map((_, c) => (
-                <td key={c} className="empty" onDoubleClick={() => setEditing({ row: current.cells.length, col: c, value: "" })}>
+                <td key={c} className={`empty ${editing?.row === current.cells.length && editing.col === c ? "editing" : ""}`} onDoubleClick={() => setEditing({ row: current.cells.length, col: c, value: "" })}>
                   {editing?.row === current.cells.length && editing.col === c ? (
                     <input
                       autoFocus
+                      size={1}
                       className="sheet-input mono"
                       value={editing.value}
                       onChange={(e) => setEditing({ ...editing, value: e.target.value })}
