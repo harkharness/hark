@@ -187,7 +187,7 @@ pub fn stem(path: &str) -> &str {
 }
 
 /// The path without its page extension: what names the page's folder.
-fn without_ext(path: &str) -> &str {
+pub fn without_ext(path: &str) -> &str {
     let ext = ext_of(path);
     if ext.is_empty() { path } else { &path[..path.len() - ext.len() - 1] }
 }

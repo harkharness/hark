@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, History, Plus, Sparkles, Undo2, X } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
-import type { CellRef, SheetFormat, SheetOp, SheetView as View } from "../types";
+import type { CellRef, CommentAnchor, SheetFormat, SheetOp, SheetView as View } from "../types";
 
 /** A column index as its letter name: 0 → A, 26 → AA. */
 export function columnName(i: number): string {
@@ -58,7 +58,21 @@ type Menu = { kind: "col"; col: number } | { kind: "row"; row: number } | { kind
  * renamed on a double click. Numbers are formatted in the window's
  * locale, in the column's format when it has one.
  */
-export default function SheetView({ space, id, onChanged }: { space: string; id: string; onChanged?: () => void }) {
+export default function SheetView({
+  space,
+  id,
+  onChanged,
+  onAnchor,
+  marks = [],
+}: {
+  space: string;
+  id: string;
+  onChanged?: () => void;
+  /** The selected cell, as a comment's anchor (fase 14.3). */
+  onAnchor?: (a: CommentAnchor | null) => void;
+  /** Cells that carry an open comment: marked. */
+  marks?: CommentAnchor[];
+}) {
   const [view, setView] = useState<View | null>(null);
   const [tab, setTab] = useState(0);
   const [sel, setSel] = useState<{ row: number; col: number } | null>(null);
@@ -88,6 +102,11 @@ export default function SheetView({ space, id, onChanged }: { space: string; id:
   const changedHere = (view?.changed ?? []).filter((c) => c.tab === tabIndex);
   const isChanged = (row: number, col: number) => changedHere.some((c) => c.row === row && c.col === col);
   const selected = sel && current ? current.cells[sel.row]?.[sel.col] : undefined;
+  useEffect(() => {
+    onAnchor?.(sel && current ? { kind: "cell", tab: tabIndex, row: sel.row, col: sel.col, tab_name: current.name } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel?.row, sel?.col, tabIndex]);
+  const marked = (r: number, c: number) => marks.some((m) => m.kind === "cell" && m.tab === tabIndex && m.row === r && m.col === c);
 
   async function accept() {
     await ipc.artifactAccept(space, id);
@@ -343,7 +362,7 @@ export default function SheetView({ space, id, onChanged }: { space: string; id:
                   return (
                     <td
                       key={c}
-                      className={`${cell.number != null ? "num" : ""} ${cell.formula ? "f" : ""} ${isChanged(r, c) ? "changed" : ""} ${on ? "sel" : ""} ${cell.error ? "err" : ""} ${edit_ ? "editing" : ""}`}
+                      className={`${cell.number != null ? "num" : ""} ${cell.formula ? "f" : ""} ${isChanged(r, c) ? "changed" : ""} ${on ? "sel" : ""} ${cell.error ? "err" : ""} ${edit_ ? "editing" : ""} ${marked(r, c) ? "cm" : ""}`}
                       style={colStyle(c)}
                       title={cell.error ?? (cell.formula ? cell.raw : undefined)}
                       onClick={() => setSel({ row: r, col: c })}

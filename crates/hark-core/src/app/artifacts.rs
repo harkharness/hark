@@ -473,6 +473,69 @@ pub fn dash_edit(store: &dyn ArtifactStore, space: &str, id: &str, op: crate::do
     accept(store, space, id, now)
 }
 
+// ---------- comments (fase 14.3) ----------
+
+use crate::domain::comments::{self, Anchor, Comment, Thread};
+
+fn thread_of(store: &dyn ArtifactStore, space: &str, path: &str) -> anyhow::Result<(String, Thread)> {
+    let file = comments::comments_path(path);
+    let text = store.read_aside(space, &file)?.unwrap_or_default();
+    Ok((file, comments::parse(&text)))
+}
+
+/// A page's comments, oldest first.
+pub fn comments_of(store: &dyn ArtifactStore, space: &str, id: &str) -> anyhow::Result<Vec<Comment>> {
+    let path = path_of(store, space, id)?;
+    Ok(thread_of(store, space, &path)?.1.comments)
+}
+
+fn with_thread(store: &dyn ArtifactStore, space: &str, id: &str, f: impl FnOnce(&mut Thread) -> Result<(), String>) -> anyhow::Result<()> {
+    let path = path_of(store, space, id)?;
+    let (file, mut thread) = thread_of(store, space, &path)?;
+    f(&mut thread).map_err(anyhow::Error::msg)?;
+    store.write_aside(space, &file, &comments::to_json(&thread))
+}
+
+pub fn comment_add(store: &dyn ArtifactStore, space: &str, id: &str, text: &str, anchor: Anchor, now: &str) -> anyhow::Result<Comment> {
+    let path = path_of(store, space, id)?;
+    let (file, mut thread) = thread_of(store, space, &path)?;
+    let c = comments::add(&mut thread, text, anchor, now).map_err(anyhow::Error::msg)?;
+    store.write_aside(space, &file, &comments::to_json(&thread))?;
+    Ok(c)
+}
+
+pub fn comment_resolve(store: &dyn ArtifactStore, space: &str, id: &str, cid: &str, on: bool) -> anyhow::Result<()> {
+    with_thread(store, space, id, |th| comments::resolve(th, cid, on))
+}
+
+pub fn comment_remove(store: &dyn ArtifactStore, space: &str, id: &str, cid: &str) -> anyhow::Result<()> {
+    with_thread(store, space, id, |th| comments::remove(th, cid))
+}
+
+/// The comment became a message to a chat: the request text comes back
+/// and the comment remembers where it went.
+pub fn comment_send(store: &dyn ArtifactStore, space: &str, id: &str, cid: &str, session_id: Option<&str>, task: Option<&str>, now: &str) -> anyhow::Result<String> {
+    let path = path_of(store, space, id)?;
+    let tree = load(store, space, now)?;
+    let title = tree.nodes.iter().find(|n| n.id == id).map(|n| n.title.clone()).unwrap_or_else(|| id.to_string());
+    let (file, mut thread) = thread_of(store, space, &path)?;
+    comments::sent(&mut thread, cid, session_id, task, now).map_err(anyhow::Error::msg)?;
+    let c = thread.comments.iter().find(|c| c.id == cid).cloned().ok_or_else(|| anyhow::anyhow!("comentário \"{cid}\" não existe"))?;
+    store.write_aside(space, &file, &comments::to_json(&thread))?;
+    Ok(comments::request_text(&crate::domain::deep_link::page_link(space, id), &title, &c))
+}
+
+/// A chat wrote the page: the requests sent to it are answered. Returns
+/// the ids answered; a page with no comments file costs one read.
+pub fn comments_answered(store: &dyn ArtifactStore, space: &str, path: &str, session_id: Option<&str>, task: Option<&str>, now: &str) -> anyhow::Result<Vec<String>> {
+    let (file, mut thread) = thread_of(store, space, path)?;
+    let ids = comments::answered(&mut thread, session_id, task, now);
+    if !ids.is_empty() {
+        store.write_aside(space, &file, &comments::to_json(&thread))?;
+    }
+    Ok(ids)
+}
+
 /// A whiteboard page as the viewer shows it: laid out, with the notes
 /// the agent changed since the baseline named.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -730,6 +793,27 @@ mod tests {
         assert!(view.changed.is_empty(), "your own edit is not something to review");
         assert_eq!(view.versions, 3, "the baseline and one per edit");
         assert!(sheet_edit(&s, "hark", &page.id, Op::RemoveTab { tab: 0 }, NOW).is_err(), "the last tab stays");
+    }
+
+    #[test]
+    fn a_comment_sits_beside_its_page_and_a_hark_request_is_answered_by_the_chat_that_wrote_it() {
+        let (_d, s) = store();
+        let page = create(&s, "hark", None, "Custos", Kind::Sheet, None, NOW).unwrap();
+        let c = comment_add(&s, "hark", &page.id, "@hark tira a linha do legado", Anchor::Cell { tab: 0, row: 1, col: 0, tab_name: None }, NOW).unwrap();
+        assert!(s.read_aside("hark", "custos.comments.json").unwrap().is_some(), "the comments file sits beside the page");
+        let text = comment_send(&s, "hark", &page.id, &c.id, Some("s-1"), Some("Billing"), "2026-10-28T10:05:00Z").unwrap();
+        assert!(text.contains("hark://artifacts/hark/custos"), "{text}");
+        assert!(text.contains("\"Custos\""));
+        assert!(!text.contains("@hark"));
+        // The page is written by that chat: the request is answered; another chat's write is not.
+        assert!(comments_answered(&s, "hark", &page.path, Some("s-2"), Some("Outra"), "2026-10-28T10:06:00Z").unwrap().is_empty());
+        assert_eq!(comments_answered(&s, "hark", &page.path, Some("s-1"), None, "2026-10-28T10:07:00Z").unwrap(), vec![c.id.clone()]);
+        let list = comments_of(&s, "hark", &page.id).unwrap();
+        assert_eq!(list[0].answered_at.as_deref(), Some("2026-10-28T10:07:00Z"));
+        comment_resolve(&s, "hark", &page.id, &c.id, true).unwrap();
+        comment_remove(&s, "hark", &page.id, &c.id).unwrap();
+        assert!(comments_of(&s, "hark", &page.id).unwrap().is_empty());
+        assert!(comment_remove(&s, "hark", &page.id, "c9").is_err());
     }
 
     /// A runner that answers from memory: sqlite and files by name, a

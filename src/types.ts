@@ -158,6 +158,23 @@ export type DashView = {
 export type BoardNote = { id: string; text: string; x?: number | null; y?: number | null; color?: string | null; owner?: string | null; date?: string | null; group?: string | null };
 export type BoardGroup = { id: string; title: string; x?: number | null; y?: number | null; w?: number | null; h?: number | null };
 export type BoardMilestone = { date: string; title: string; owner?: string | null };
+/** A comment on a page and what it points at (domain::comments). */
+export type CommentAnchor =
+  | { kind: "page" }
+  | { kind: "cell"; tab: number; row: number; col: number; tab_name?: string | null }
+  | { kind: "note"; id: string }
+  | { kind: "panel"; index: number; title?: string | null }
+  | { kind: "slide"; n: number }
+  | { kind: "quote"; text: string };
+export type PageComment = {
+  id: string;
+  at: string;
+  text: string;
+  anchor: CommentAnchor;
+  resolved: boolean;
+  sent?: { at: string; session_id?: string | null; task?: string | null } | null;
+  answered_at?: string | null;
+};
 export type BoardLink = { from: string; to: string; label?: string | null };
 export type Whiteboard = { title?: string | null; groups: BoardGroup[]; notes: BoardNote[]; timeline?: BoardMilestone[]; links?: BoardLink[] };
 export type BoardOp =

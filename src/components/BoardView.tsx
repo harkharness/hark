@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, FileText, History, Link2, ListChecks, MessageSquare, Plus, Presentation, Sparkles, Trash2 } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
-import type { BoardLink, BoardMilestone, BoardNote, BoardOp, BoardView as View } from "../types";
+import type { BoardLink, BoardMilestone, BoardNote, BoardOp, BoardView as View, CommentAnchor } from "../types";
 
 const NOTE_W = 150;
 const NOTE_H = 96;
@@ -52,7 +52,23 @@ type MilestoneForm = { index: number | null; date: string; title: string; owner:
  * and "ask about the selection" takes them to a chat as text. The notes
  * the agent changed since you last accepted wear a mark.
  */
-export default function BoardView({ space, id, onChanged, onAsk }: { space: string; id: string; onChanged?: () => void; onAsk?: (text: string) => void }) {
+export default function BoardView({
+  space,
+  id,
+  onChanged,
+  onAsk,
+  onAnchor,
+  marks = [],
+}: {
+  space: string;
+  id: string;
+  onChanged?: () => void;
+  onAsk?: (text: string) => void;
+  /** The one selected note, as a comment's anchor (fase 14.3). */
+  onAnchor?: (a: CommentAnchor | null) => void;
+  /** Notes that carry an open comment: marked. */
+  marks?: CommentAnchor[];
+}) {
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sel, setSel] = useState<string[]>([]);
@@ -75,6 +91,10 @@ export default function BoardView({ space, id, onChanged, onAsk }: { space: stri
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    onAnchor?.(sel.length === 1 ? { kind: "note", id: sel[0] } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel.join(",")]);
   useEffect(() => {
     if (!linking) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setLinking(null);
@@ -331,7 +351,7 @@ export default function BoardView({ space, id, onChanged, onAsk }: { space: stri
             return (
               <div
                 key={n.id}
-                className={`board-note ${n.color ?? "yellow"} ${view.changed.includes(n.id) ? "changed" : ""} ${sel.includes(n.id) ? "sel" : ""} ${linking === n.id ? "linking-from" : ""}`}
+                className={`board-note ${n.color ?? "yellow"} ${view.changed.includes(n.id) ? "changed" : ""} ${sel.includes(n.id) ? "sel" : ""} ${linking === n.id ? "linking-from" : ""} ${marks.some((m) => m.kind === "note" && m.id === n.id) ? "cm" : ""}`}
                 style={{ left: p.x, top: p.y }}
                 title={n.id}
                 onMouseDown={(e) => {

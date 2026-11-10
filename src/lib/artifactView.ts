@@ -126,6 +126,13 @@ const EDIT_RUNTIME = `<style data-hark-edit>
     if (e.key === 'Enter' && !e.shiftKey && /^H[1-6]$/.test(open.tagName)) { e.preventDefault(); close(true); }
   }, true);
   document.addEventListener('focusout', function () { setTimeout(function () { if (open && document.activeElement !== open) close(true); }, 0); });
+  // A passage selected while not editing: a comment may anchor to it.
+  document.addEventListener('mouseup', function () {
+    if (open) return;
+    var s = window.getSelection();
+    var text = s ? s.toString().trim() : '';
+    if (text) parent.postMessage({ hark: 'quote', text: text.slice(0, 500) }, '*');
+  });
 })();
 </script>`;
 

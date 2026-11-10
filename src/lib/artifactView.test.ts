@@ -47,6 +47,7 @@ describe("a page's text edited in place (fase 14.2)", () => {
     expect(doc).toContain("hark-edit");
     expect(doc).toContain("contentEditable");
     expect(doc).toContain("removeAttribute('contenteditable')");
+    expect(doc).toContain("hark: 'quote'");
     expect(doc).not.toContain("contentEditable = 'false'");
     expect(doc.indexOf("hark-edit")).toBeLessThan(doc.indexOf("</body>"));
     expect(editableDocument("<h1>no body</h1>")).toContain("hark-edit");

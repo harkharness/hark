@@ -704,6 +704,15 @@ export const dashView = (space: string, id: string, run = false) =>
 /** A whiteboard page laid out, with the agent's changes named. */
 export const boardView = (space: string, id: string) => invoke<import("../types").BoardView>("board_view", { space, id });
 export const boardEdit = (space: string, id: string, op: import("../types").BoardOp) => invoke("board_edit", { space, id, op });
+/** A page's comments (fase 14.3), oldest first; kept beside the page. */
+export const artifactComments = (space: string, id: string) => invoke<import("../types").PageComment[]>("artifact_comments", { space, id });
+export const artifactCommentAdd = (space: string, id: string, text: string, anchor: import("../types").CommentAnchor) =>
+  invoke<import("../types").PageComment>("artifact_comment_add", { space, id, text, anchor });
+export const artifactCommentResolve = (space: string, id: string, cid: string, on: boolean) => invoke("artifact_comment_resolve", { space, id, cid, on });
+export const artifactCommentRemove = (space: string, id: string, cid: string) => invoke("artifact_comment_remove", { space, id, cid });
+/** A @hark comment as the message to send; the comment remembers the chat. */
+export const artifactCommentSend = (space: string, id: string, cid: string, sessionId?: string | null, task?: string | null) =>
+  invoke<string>("artifact_comment_send", { space, id, cid, sessionId: sessionId ?? null, task: task ?? null });
 /** The selected notes as the text that goes to a chat. */
 export const boardSelection = (space: string, id: string, ids: string[]) => invoke<string>("board_selection", { space, id, ids });
 /** One paragraph over the panels from the light model (a few cents, when asked). */

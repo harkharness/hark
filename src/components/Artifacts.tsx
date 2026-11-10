@@ -13,8 +13,10 @@ import Markdown from "./Markdown";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { pageHtml } from "../lib/export";
-import { ARTIFACT_KINDS, type ArtifactKind, type ArtifactNode, type ArtifactPage, type ArtifactSpace, type ArtifactTree } from "../types";
+import { ARTIFACT_KINDS, type ArtifactKind, type ArtifactNode, type ArtifactPage, type ArtifactSpace, type ArtifactTree, type CommentAnchor, type PageComment } from "../types";
 import { destinations, type Destination, type RecentChat } from "../lib/takeTo";
+import Comments from "./Comments";
+import { sameAnchor } from "../lib/comments";
 
 /** An html page that brought no style of its own gets the reading base:
  *  system font, a column, dark and light. A page with its own `<style>`
@@ -82,6 +84,7 @@ export default function Artifacts({
   linksOn,
   onToggleLinks,
   onTakeTo,
+  onSendTo,
   recentChats = [],
 }: {
   sel: ArtSel | null;
@@ -99,6 +102,8 @@ export default function Artifacts({
   /** "Levar para…": the page goes to Hark, its origin chat, another chat
    *  or a new one — the person picks, never a silent default. */
   onTakeTo: (page: ArtifactPage, space: string, dest: Destination, extra?: string) => void;
+  /** A @hark comment's request goes to a chat as a message (fase 14.3). */
+  onSendTo: (dest: Destination, text: string) => Promise<void> | void;
   /** The chats the menu offers besides the origin, newest first. */
   recentChats?: RecentChat[];
 }) {
@@ -437,6 +442,7 @@ export default function Artifacts({
             onNewChild={() => setNaming({ parent: page.node.id, kind: "doc" })}
             onSaved={() => void load()}
             onTakeTo={(dest, extra) => onTakeTo(page, sel.space, dest, extra)}
+            onSendTo={onSendTo}
             recentChats={recentChats}
           />
         ) : (
@@ -856,6 +862,7 @@ function Page({
   onNewChild,
   onSaved,
   onTakeTo,
+  onSendTo,
   recentChats,
 }: {
   page: ArtifactPage;
@@ -873,6 +880,7 @@ function Page({
   onNewChild: () => void;
   onSaved: () => void;
   onTakeTo: (dest: Destination, extra?: string) => void;
+  onSendTo: (dest: Destination, text: string) => Promise<void> | void;
   recentChats: RecentChat[];
 }) {
   const { node } = page;
@@ -880,6 +888,38 @@ function Page({
   const Icon = KIND_ICON[node.kind];
   const kids = childrenOf(tree, node.id);
   const [shareOpen, setShareOpen] = useState(false);
+  // Comments (fase 14.3): the column, what is selected as the anchor,
+  // and the comments themselves, read from beside the page.
+  const [commenting, setCommenting] = useState(false);
+  const [comments, setComments] = useState<PageComment[]>([]);
+  const [anchor, setAnchor] = useState<CommentAnchor>({ kind: "page" });
+  const loadComments = () => ipc.artifactComments(space, node.id).then(setComments).catch(() => setComments([]));
+  useEffect(() => {
+    void loadComments();
+    setAnchor({ kind: "page" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [space, node.id, page.text]);
+  const marks = comments.filter((c) => !c.resolved).map((c) => c.anchor);
+  const onAnchor = (a: CommentAnchor | null) => setAnchor(a ?? { kind: "page" });
+  // A passage selected in a rendered document (or quoted by a frame).
+  useEffect(() => {
+    if (!commenting) return;
+    const onUp = () => {
+      const s = window.getSelection();
+      const text = s?.toString().trim() ?? "";
+      if (text && s?.anchorNode && document.querySelector(".art-body")?.contains(s.anchorNode)) setAnchor({ kind: "quote", text: text.slice(0, 500) });
+    };
+    const onMessage = (e: MessageEvent) => {
+      const m = e.data as { hark?: string; text?: unknown } | null;
+      if (m?.hark === "quote" && typeof m.text === "string" && m.text.trim()) setAnchor({ kind: "quote", text: m.text.trim() });
+    };
+    document.addEventListener("mouseup", onUp);
+    window.addEventListener("message", onMessage);
+    return () => {
+      document.removeEventListener("mouseup", onUp);
+      window.removeEventListener("message", onMessage);
+    };
+  }, [commenting]);
   // In-place edits (fase 14.2): a frame says which words changed; the
   // change is placed in the file by the old text, or refused.
   const [inPlace, setInPlace] = useState<string | null>(null);
@@ -1009,6 +1049,10 @@ function Page({
               )}
             </>
           )}
+          <button className={`pill-btn ${commenting ? "on" : ""}`} onClick={() => setCommenting((v) => !v)} title={t("cm_btn_hint")}>
+            <MessageSquare size={11} /> {t("cm_btn")}
+            {comments.some((c) => !c.resolved) && <span className="cm-count">{comments.filter((c) => !c.resolved).length}</span>}
+          </button>
           <span className="share-anchor">
             <button className={`pill-btn ${takeOpen ? "on" : ""}`} onClick={() => setTakeOpen(!takeOpen)} title={t("art_take_to_hint")}>
               <MessageSquare size={11} /> {t("art_take_to")}
@@ -1048,13 +1092,14 @@ function Page({
           </>
         )}
       </div>
+      <div className={`art-main ${commenting ? "with-comments" : ""}`}>
       <div className="art-body">
         {node.kind === "sheet" && !source ? (
-          <SheetView space={space} id={node.id} onChanged={onSaved} />
+          <SheetView space={space} id={node.id} onChanged={onSaved} onAnchor={onAnchor} marks={marks} />
         ) : node.kind === "data" && !source ? (
-          <DashView space={space} id={node.id} onChanged={onSaved} onAsk={(text) => setTakeOpen(true, text)} onDoc={(pid) => { onSaved(); onOpen(pid); }} />
+          <DashView space={space} id={node.id} onChanged={onSaved} onAsk={(text) => setTakeOpen(true, text)} onDoc={(pid) => { onSaved(); onOpen(pid); }} onAnchor={onAnchor} marks={marks} />
         ) : node.kind === "board" && !source ? (
-          <BoardView space={space} id={node.id} onChanged={onSaved} onAsk={(text) => setTakeOpen(true, text)} />
+          <BoardView space={space} id={node.id} onChanged={onSaved} onAsk={(text) => setTakeOpen(true, text)} onAnchor={onAnchor} marks={marks} />
         ) : html && !source && node.kind === "slides" ? (
           <DeckViewer title={node.title} html={page.text} scripts={scripts} onStripPager={() => ipc.artifactStripPager(space, node.id).then(onSaved)} />
         ) : html && !source && node.kind === "design" ? (
@@ -1069,6 +1114,19 @@ function Page({
         ) : (
           <FileViewer file={{ abs: page.abs, rel: node.path, project: { name: space, path: "" } }} io={io} />
         )}
+      </div>
+      {commenting && (
+        <Comments
+          space={space}
+          id={node.id}
+          comments={comments}
+          anchor={anchor}
+          destinations={destinations(node.origin?.task ?? undefined, recentChats, space)}
+          onChanged={() => void loadComments()}
+          onSend={onSendTo}
+          onPick={(c) => setAnchor(comments.some((x) => sameAnchor(x.anchor, c.anchor)) ? c.anchor : anchor)}
+        />
+      )}
       </div>
       <div className="art-children">
         <span className="dim">{t("art_children")}</span>

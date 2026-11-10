@@ -304,6 +304,9 @@ fn attach_pending_pages(
     pending.retain(|(page, origin)| {
         match hark_core::app::artifacts::attach_origin(&store, &page.space, &page.path, origin.clone(), &now_iso()) {
             Ok(node) => {
+                // The chat wrote the page: the @hark comments sent to it
+                // are answered (the version it wrote is the answer).
+                let _ = hark_core::app::artifacts::comments_answered(&store, &page.space, &page.path, origin.session_id.as_deref(), origin.task.as_deref(), &now_iso());
                 emit_event(app, serde_json::json!({ "kind": "artifact_written", "space": page.space, "id": node.id, "task_id": task_id }));
                 notify(app, hark_core::domain::notifications::Event::ArtifactWritten {
                     space: page.space.clone(),
@@ -2754,6 +2757,33 @@ fn sheet_edit(space: String, id: String, op: hark_core::domain::sheet::Op) -> Re
 #[tauri::command]
 fn dash_edit(space: String, id: String, op: hark_core::domain::dash::Op) -> Result<(), String> {
     hark_core::app::artifacts::dash_edit(&artifact_store(), &space, &id, op, &now_iso()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn artifact_comments(space: String, id: String) -> Result<Vec<hark_core::domain::comments::Comment>, String> {
+    hark_core::app::artifacts::comments_of(&artifact_store(), &space, &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn artifact_comment_add(space: String, id: String, text: String, anchor: hark_core::domain::comments::Anchor) -> Result<hark_core::domain::comments::Comment, String> {
+    hark_core::app::artifacts::comment_add(&artifact_store(), &space, &id, &text, anchor, &now_iso()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn artifact_comment_resolve(space: String, id: String, cid: String, on: bool) -> Result<(), String> {
+    hark_core::app::artifacts::comment_resolve(&artifact_store(), &space, &id, &cid, on).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn artifact_comment_remove(space: String, id: String, cid: String) -> Result<(), String> {
+    hark_core::app::artifacts::comment_remove(&artifact_store(), &space, &id, &cid).map_err(|e| e.to_string())
+}
+
+/// A `@hark` comment becomes a message: the text to send comes back and
+/// the comment remembers the chat it went to.
+#[tauri::command]
+fn artifact_comment_send(space: String, id: String, cid: String, session_id: Option<String>, task: Option<String>) -> Result<String, String> {
+    hark_core::app::artifacts::comment_send(&artifact_store(), &space, &id, &cid, session_id.as_deref(), task.as_deref(), &now_iso()).map_err(|e| e.to_string())
 }
 
 /// The selected notes as the text that goes to a chat.
@@ -6694,6 +6724,11 @@ pub fn run() {
             board_edit,
             sheet_edit,
             dash_edit,
+            artifact_comments,
+            artifact_comment_add,
+            artifact_comment_resolve,
+            artifact_comment_remove,
+            artifact_comment_send,
             board_selection,
             focus_main,
             subscription_limits,

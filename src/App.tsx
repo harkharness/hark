@@ -4103,6 +4103,30 @@ export default function App({
                   linksOn={artLinksOn}
                   onToggleLinks={() => setArtLinksOn((v) => !v)}
                   recentChats={recentChats}
+                  onSendTo={async (dest, text) => {
+                    // A @hark comment: the request is sent, not typed. To
+                    // a chat that exists it goes straight; Hark's chat and
+                    // a new chat get it in the field, to send.
+                    if (dest.kind === "origin" || dest.kind === "chat") {
+                      const session = dest.sessionId ?? (await ipc.findSession(dest.title).catch(() => null))?.session_id;
+                      if (session) {
+                        await openTaskByTitle(dest.title, session);
+                        await sendToFocusedTaskWith(dest.title, session, text);
+                        return;
+                      }
+                    }
+                    if (dest.kind === "hark") {
+                      leaveFocus();
+                      leaveChat();
+                      setDoor("inicio");
+                      setView("chat");
+                    } else if (dest.kind === "new") {
+                      const project = allProjects.find((p) => p.name === dest.project) ?? activeProject ?? allProjects[0];
+                      if (project) startDraftChat(project);
+                      else setView("chat");
+                    }
+                    setComposerPrefill({ text, nonce: Date.now() });
+                  }}
                   onTakeTo={(page, space, dest, extra) => {
                     // The link goes in the chosen chat's field; the message
                     // carries the page (artifact_cites). Decision 5: the

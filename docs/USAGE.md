@@ -263,6 +263,17 @@ a file dropped there by hand is adopted at the root on the next read.
   that text is not in the file exactly once ("edit the source" then). A
   markdown document edits with the source on the left and the rendered
   page on the right.
+- **Comments, and `@hark`.** "Comment" opens a column beside the page.
+  Whatever is selected is the anchor (a cell, a note, a panel, a
+  passage you selected in a document or a deck; else the whole page),
+  and the comment is kept beside the page in `x.comments.json`, never
+  inside it. A comment that names `@hark` is a request: "send to hark"
+  checks itself, the chat the page was born in is the default (any
+  recent chat, Hark's chat or a new one can be picked), and the request
+  goes as a message naming the page's link, the anchor and your words.
+  When that chat writes the page, the comment reads "answered by hark"
+  and the page shows the agent's version with accept and undo, as
+  always. Plain comments stay yours and never enter a chat.
 - **Versions and marked changes.** A page keeps the versions you saw:
   the first opening takes the baseline, "accept" takes the current text,
   going back keeps the current one first. Thirty live hidden beside the

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Copy, Database, FileText, History, Lock, MessageSquare, Pencil, Plus, RefreshCw, ShieldCheck, ShieldOff, Sparkles, Terminal, Trash2 } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
-import type { DashChart, DashOp, DashPanel, DashQuery, DashSource, DashView as View } from "../types";
+import type { CommentAnchor, DashChart, DashOp, DashPanel, DashQuery, DashSource, DashView as View } from "../types";
 
 const fmtNumber = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const fmtDelta = (d: number) => `${d >= 0 ? "▲" : "▼"} ${Math.abs(d * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
@@ -230,6 +230,8 @@ export default function DashView({
   onChanged,
   onAsk,
   onDoc,
+  onAnchor,
+  marks = [],
 }: {
   space: string;
   id: string;
@@ -238,6 +240,10 @@ export default function DashView({
   onAsk?: (text: string) => void;
   /** A child document page was made from the story; open it. */
   onDoc?: (pageId: string) => void;
+  /** The panel clicked, as a comment's anchor (fase 14.3). */
+  onAnchor?: (a: CommentAnchor | null) => void;
+  /** Panels that carry an open comment: marked. */
+  marks?: CommentAnchor[];
 }) {
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -250,6 +256,12 @@ export default function DashView({
   const [queryForm, setQueryForm] = useState<{ isNew: boolean; draft: QueryDraft } | null>(null);
   const [sourceForm, setSourceForm] = useState<{ isNew: boolean; draft: SourceDraft } | null>(null);
   const [editErr, setEditErr] = useState<string | null>(null);
+  const [focusPanel, setFocusPanel] = useState<number | null>(null);
+  useEffect(() => {
+    const p = focusPanel != null ? view?.panels[focusPanel] : undefined;
+    onAnchor?.(p && focusPanel != null ? { kind: "panel", index: focusPanel, title: p.title } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusPanel]);
 
   const load = useCallback(
     async (run = false) => {
@@ -455,7 +467,7 @@ export default function DashView({
                 />
               </div>
             ) : (
-            <div key={i} className={`dash-panel ${p.chart}`}>
+            <div key={i} className={`dash-panel ${p.chart} ${focusPanel === i ? "picked" : ""} ${marks.some((m) => m.kind === "panel" && m.index === i) ? "cm" : ""}`} onClick={() => setFocusPanel(focusPanel === i ? null : i)}>
               <div className="dash-panel-title">
                 <span>{p.title}</span>
                 <button className="dash-csv dash-gear" title={t("dash_edit_panel")} onClick={() => setPanelForm({ index: i, draft: panelDraft(p) })}>
