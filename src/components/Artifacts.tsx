@@ -16,6 +16,7 @@ import { pageHtml } from "../lib/export";
 import { ARTIFACT_KINDS, type ArtifactKind, type ArtifactNode, type ArtifactPage, type ArtifactSpace, type ArtifactTree, type CommentAnchor, type PageComment } from "../types";
 import { destinations, type Destination, type RecentChat } from "../lib/takeTo";
 import Comments from "./Comments";
+import { ThumbBoard, ThumbDash, ThumbDoc, ThumbSheet } from "./Thumbs";
 import { sameAnchor } from "../lib/comments";
 
 /** An html page that brought no style of its own gets the reading base:
@@ -804,9 +805,10 @@ function CanvasViewer({ title, html, scripts }: { title: string; html: string; s
 }
 
 /**
- * A card's picture is the page itself: an html page renders small in a
- * sandboxed frame (scripts on, so a deck shows its first slide; no
- * origin, no reach into Hark); a markdown page shows its opening lines.
+ * A card's picture is the page itself, at scale (round "miniaturas"):
+ * an html deck through Hark's deck runtime on its first slide, a design
+ * in its frame, and the json kinds and documents drawn by Hark from
+ * the file the card already reads. Nothing is computed for a card.
  */
 function Thumb({ space, node }: { space: string; node: ArtifactNode }) {
   const [text, setText] = useState<string | null>(null);
@@ -825,18 +827,25 @@ function Thumb({ space, node }: { space: string; node: ArtifactNode }) {
   const html = node.path.endsWith(".html");
   return (
     <div className={`art-thumb ${node.kind}`}>
-      {text == null ? null : html ? (
+      {text == null ? null : html && node.kind === "slides" ? (
+        <iframe
+          className="art-thumb-frame"
+          title={node.title}
+          sandbox="allow-scripts"
+          srcDoc={deckDocument(withBaseStyle(text))}
+          tabIndex={-1}
+          onLoad={(e) => e.currentTarget.contentWindow?.postMessage({ hark: "slide", n: 0 }, "*")}
+        />
+      ) : html ? (
         <iframe className="art-thumb-frame" title={node.title} sandbox="allow-scripts" srcDoc={withBaseStyle(text)} tabIndex={-1} />
+      ) : node.kind === "sheet" ? (
+        <ThumbSheet text={text} />
+      ) : node.kind === "board" ? (
+        <ThumbBoard text={text} />
+      ) : node.kind === "data" ? (
+        <ThumbDash text={text} />
       ) : (
-        <div className="art-thumb-sheet">
-          <b>{node.title}</b>
-          {text
-            .replace(/^---[\s\S]*?---/, "")
-            .split("\n")
-            .filter((l) => l.trim() && !l.startsWith("#"))
-            .slice(0, 6)
-            .join(" ")}
-        </div>
+        <ThumbDoc text={text} title={node.title} />
       )}
     </div>
   );
