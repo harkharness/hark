@@ -24,6 +24,7 @@ import type {
   TranscriptEntry,
   UsageReport,
   VoicePlan,
+  SheetView,
 } from "../types";
 
 /**
@@ -169,8 +170,9 @@ const TREES: Record<string, ArtifactTree> = {
       node("adr-004-one-window", "ADR 004: one window, every project", "decisions/adr-004-one-window.md", "doc", "decisions", 12, { session_id: "s-billing", task: "Billing endpoint v2" }),
       node("billing-v2-rollout", "Billing v2 · rollout deck", "billing-v2-rollout.html", "slides", null, 70, { session_id: "s-billing", task: "Billing endpoint v2" }),
       node("cells-design", "Cells · how a region is wired", "cells-design.html", "design", null, 240, { session_id: "s-keys", task: "Webhook signing keys: rotation plan" }),
+      node("infra-costs", "Infra costs by month", "infra-costs.sheet.json", "sheet", null, 25, { session_id: "s-billing", task: "Billing endpoint v2" }),
     ],
-    order: { "": ["overview", "decisions", "billing-v2-rollout", "cells-design"], decisions: ["adr-003-spend-ceiling", "adr-004-one-window"] },
+    order: { "": ["overview", "decisions", "billing-v2-rollout", "cells-design", "infra-costs"], decisions: ["adr-003-spend-ceiling", "adr-004-one-window"] },
   },
   infra: {
     nodes: [
@@ -500,6 +502,31 @@ const C: Record<string, (a: Args) => unknown> = {
   artifact_move: () => undefined,
   artifact_rename: () => undefined,
   artifact_set_kind: () => undefined,
+  artifact_versions: () => [{ at: ago(60), bytes: 420 }, { at: ago(25), bytes: 468 }],
+  artifact_accept: () => undefined,
+  artifact_restore: () => undefined,
+  sheet_view: (): SheetView => ({
+    computed: {
+      title: "Infra costs by month",
+      tabs: [
+        {
+          name: "Monthly",
+          columns: ["month", "infra", "db", "total"],
+          cells: [
+            [{ raw: "sep/26", text: "sep/26", formula: false }, { raw: "412", text: "412", formula: false, number: 412 }, { raw: "96", text: "96", formula: false, number: 96 }, { raw: "=B2+C2", text: "508", formula: true, number: 508 }],
+            [{ raw: "oct/26", text: "oct/26", formula: false }, { raw: "438", text: "438", formula: false, number: 438 }, { raw: "101", text: "101", formula: false, number: 101 }, { raw: "=B3+C3", text: "539", formula: true, number: 539 }],
+            [{ raw: "nov/26", text: "nov/26", formula: false }, { raw: "=B3*1.03", text: "451.14", formula: true, number: 451.14 }, { raw: "=ARRED(C3*1.03;0)", text: "104", formula: true, number: 104 }, { raw: "=B4+C4", text: "555.14", formula: true, number: 555.14 }],
+            [{ raw: "average", text: "average", formula: false }, { raw: "=MÉDIA(B2:B4)", text: "433.71", formula: true, number: 433.71 }, { raw: "=MÉDIA(C2:C4)", text: "100.33", formula: true, number: 100.33 }, { raw: "=FOO(D2)", text: "#NOME?", formula: true, error: "#NOME?" }],
+          ],
+        },
+        { name: "By service", columns: ["service", "usd"], cells: [[{ raw: "api", text: "api", formula: false }, { raw: "260", text: "260", formula: false, number: 260 }]] },
+      ],
+    },
+    changed: [{ tab: 0, row: 2, col: 0 }, { tab: 0, row: 2, col: 1 }, { tab: 0, row: 2, col: 2 }, { tab: 0, row: 2, col: 3 }],
+    versions: 2,
+    raw: "{}",
+  }),
+  sheet_set_cell: () => undefined,
   artifact_strip_pager: () => true,
   artifact_remove: () => [],
   export_file: (a) => `/Users/ana/.hark/exports/${String(a?.name)}`,

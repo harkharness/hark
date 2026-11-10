@@ -71,6 +71,20 @@ export type ArtifactNode = {
 export type ArtifactTree = { nodes: ArtifactNode[]; order: Record<string, string[]> };
 export type ArtifactSpace = { name: string; project?: string | null; pages: number };
 export type ArtifactPage = { node: ArtifactNode; text: string; abs: string; breadcrumb: string[] };
+/** One kept version of a page (domain::page_history). */
+export type PageVersion = { at: string; bytes: number };
+/** A sheet cell as the viewer shows it (domain::sheet::Shown). */
+export type SheetCell = { raw: string; text: string; formula: boolean; number?: number | null; error?: string | null };
+export type SheetTab = { name: string; columns: string[]; cells: SheetCell[][] };
+export type CellRef = { tab: number; row: number; col: number };
+/** A sheet page computed, with the agent's changes marked (app::artifacts::SheetView). */
+export type SheetView = {
+  computed: { title?: string | null; tabs: SheetTab[] };
+  changed: CellRef[];
+  versions: number;
+  error?: string | null;
+  raw: string;
+};
 
 /** Where a message lands: the scope chip of the window. Mirrors the Rust
  *  `domain::scope::Scope`. "all" = nothing selected; "project" = a project

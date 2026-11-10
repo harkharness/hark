@@ -683,3 +683,14 @@ export const artifactStripPager = (space: string, id: string) => invoke<boolean>
 /** What a page is, said by the person: document, deck or design. */
 export const artifactSetKind = (space: string, id: string, kind: import("../types").ArtifactKind) =>
   invoke("artifact_set_kind", { space, id, kind });
+/** The versions a page keeps, oldest first. */
+export const artifactVersions = (space: string, id: string) =>
+  invoke<import("../types").PageVersion[]>("artifact_versions", { space, id });
+/** "aceitar": the agent's changes become the baseline; the marks clear. */
+export const artifactAccept = (space: string, id: string) => invoke("artifact_accept", { space, id });
+/** "voltar para": the page goes back to a version (what is there is kept). */
+export const artifactRestore = (space: string, id: string, at: string) => invoke("artifact_restore", { space, id, at });
+/** A sheet page computed by Hark, zero tokens, with the changed cells. */
+export const sheetView = (space: string, id: string) => invoke<import("../types").SheetView>("sheet_view", { space, id });
+export const sheetSetCell = (space: string, id: string, at: import("../types").CellRef, typed: string) =>
+  invoke("sheet_set_cell", { space, id, tab: at.tab, row: at.row, col: at.col, typed });

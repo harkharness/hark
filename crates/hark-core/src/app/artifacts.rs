@@ -226,6 +226,63 @@ pub fn restore(store: &dyn ArtifactStore, space: &str, id: &str, at: &str, now: 
     save(store, space, &tree)
 }
 
+/// A sheet page as the viewer shows it: computed, with the cells that
+/// differ from the baseline marked, and the file's error when it is not
+/// a sheet (the raw text rides along, so nothing is hidden).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct SheetView {
+    pub computed: crate::domain::sheet::Computed,
+    pub changed: Vec<crate::domain::sheet::CellRef>,
+    pub versions: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub raw: String,
+}
+
+pub fn sheet_view(store: &dyn ArtifactStore, space: &str, id: &str, now: &str, today: &str) -> anyhow::Result<SheetView> {
+    use crate::domain::sheet;
+    let path = path_of(store, space, id)?;
+    let raw = store.read_page(space, &path)?;
+    let base_text = baseline(store, space, id, now)?;
+    let versions = store.list_versions(space, &path)?.len();
+    match sheet::parse(&raw) {
+        Ok(sheet) => {
+            let changed = sheet::parse(&base_text).map(|base| sheet::changed(&base, &sheet)).unwrap_or_default();
+            Ok(SheetView { computed: sheet::compute(&sheet, today), changed, versions, error: None, raw })
+        }
+        Err(e) => Ok(SheetView {
+            computed: sheet::Computed { title: None, tabs: vec![] },
+            changed: vec![],
+            versions,
+            error: Some(e),
+            raw,
+        }),
+    }
+}
+
+/// The person typed into a cell: the file is rewritten and becomes the
+/// baseline at once — one's own edit is nothing to review.
+pub fn sheet_set_cell(
+    store: &dyn ArtifactStore,
+    space: &str,
+    id: &str,
+    at: crate::domain::sheet::CellRef,
+    typed: &str,
+    now: &str,
+) -> anyhow::Result<()> {
+    use crate::domain::sheet;
+    let path = path_of(store, space, id)?;
+    let mut sheet = sheet::parse(&store.read_page(space, &path)?).map_err(anyhow::Error::msg)?;
+    sheet::set_cell(&mut sheet, at, typed).map_err(anyhow::Error::msg)?;
+    store.write_page(space, &path, &sheet::to_json(&sheet))?;
+    let mut tree = load(store, space, now)?;
+    if let Some(n) = tree.nodes.iter_mut().find(|n| n.id == id) {
+        n.updated_at = now.to_string();
+    }
+    save(store, space, &tree)?;
+    accept(store, space, id, now)
+}
+
 /// An agent wrote a page: the page learns where it came from. The first
 /// origin sticks (a page is born once); every write records the touch.
 pub fn attach_origin(store: &dyn ArtifactStore, space: &str, path: &str, origin: Origin, now: &str) -> anyhow::Result<Node> {
@@ -367,6 +424,44 @@ mod tests {
         assert_eq!(list.len(), 4);
         assert_eq!(s.read_version("hark", &page.path, &list[3].at).unwrap(), base, "the text before the edit");
         assert!(restore(&s, "hark", &page.id, "2000-01-01T00:00:00Z", NOW).is_err(), "a version that is not there");
+    }
+
+    #[test]
+    fn a_sheet_is_shown_computed_with_the_cells_the_agent_changed_marked() {
+        use crate::domain::sheet::CellRef;
+        let (_d, s) = store();
+        let page = create(&s, "hark", None, "Custos", Kind::Sheet, None, NOW).unwrap();
+        s.write_page("hark", &page.path, r#"{"title":"Custos","tabs":[{"name":"Mensal","columns":["mês","infra"],"rows":[["set", 412],["out", "=B2*1.03"]]}]}"#).unwrap();
+        // First sight: computed, nothing marked, the baseline taken.
+        let view = sheet_view(&s, "hark", &page.id, NOW, "2026-10-28").unwrap();
+        assert!(view.error.is_none());
+        assert_eq!(view.computed.tabs[0].cells[1][1].text, "424.36");
+        assert!(view.changed.is_empty());
+        assert_eq!(view.versions, 1);
+        // The agent changed a value and added a row: marked until accepted.
+        s.write_page("hark", &page.path, r#"{"title":"Custos","tabs":[{"name":"Mensal","columns":["mês","infra"],"rows":[["set", 412],["out", 438],["nov", "=B3*1.03"]]}]}"#).unwrap();
+        let view = sheet_view(&s, "hark", &page.id, "2026-10-28T10:05:00Z", "2026-10-28").unwrap();
+        assert_eq!(view.changed, vec![CellRef { tab: 0, row: 1, col: 1 }, CellRef { tab: 0, row: 2, col: 0 }, CellRef { tab: 0, row: 2, col: 1 }]);
+        accept(&s, "hark", &page.id, "2026-10-28T10:06:00Z").unwrap();
+        assert!(sheet_view(&s, "hark", &page.id, "2026-10-28T10:07:00Z", "2026-10-28").unwrap().changed.is_empty());
+        // A broken file is shown as an error with the raw text, never refused.
+        s.write_page("hark", &page.path, "{ not json").unwrap();
+        let view = sheet_view(&s, "hark", &page.id, "2026-10-28T10:08:00Z", "2026-10-28").unwrap();
+        assert!(view.error.as_deref().unwrap_or("").contains("json"));
+        assert_eq!(view.raw, "{ not json");
+    }
+
+    #[test]
+    fn typing_into_a_sheet_cell_writes_the_file_and_needs_no_review() {
+        use crate::domain::sheet::CellRef;
+        let (_d, s) = store();
+        let page = create(&s, "hark", None, "Custos", Kind::Sheet, None, NOW).unwrap();
+        sheet_view(&s, "hark", &page.id, NOW, "2026-10-28").unwrap();
+        sheet_set_cell(&s, "hark", &page.id, CellRef { tab: 0, row: 0, col: 0 }, "=1+1", "2026-10-28T10:05:00Z").unwrap();
+        let view = sheet_view(&s, "hark", &page.id, "2026-10-28T10:06:00Z", "2026-10-28").unwrap();
+        assert_eq!(view.computed.tabs[0].cells[0][0].text, "2");
+        assert!(view.changed.is_empty(), "your own edit is not something to review");
+        assert!(sheet_set_cell(&s, "hark", &page.id, CellRef { tab: 9, row: 0, col: 0 }, "x", NOW).is_err());
     }
 
     #[test]

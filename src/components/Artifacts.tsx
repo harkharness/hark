@@ -6,6 +6,7 @@ import { t } from "../lib/i18n";
 import { childrenOf, crumbOf, recents, rows } from "../lib/artifacts";
 import FileViewer from "./FileViewer";
 import SharePopover, { type ShareRow } from "./SharePopover";
+import SheetView from "./SheetView";
 import Markdown from "./Markdown";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -941,12 +942,12 @@ function Page({
           </span>
         </div>
         <span className="art-actions">
-          {html && (
+          {(html || node.kind === "sheet") && (
             <>
               <button className={`pill-btn ${source ? "on" : ""}`} onClick={onSource} title={t("art_source_hint")}>
                 <Code2 size={11} /> {t("art_source")}
               </button>
-              {!source && (
+              {!source && html && (
                 <button className={`pill-btn ${scripts ? "warn" : ""}`} onClick={onScripts} title={t("art_scripts_hint")}>
                   {scripts ? <ShieldOff size={11} /> : <ShieldCheck size={11} />} {scripts ? t("art_scripts_on") : t("art_scripts_off")}
                 </button>
@@ -987,7 +988,9 @@ function Page({
         <span className="mono">{node.path}</span>
       </div>
       <div className="art-body">
-        {html && !source && node.kind === "slides" ? (
+        {node.kind === "sheet" && !source ? (
+          <SheetView space={space} id={node.id} onChanged={onSaved} />
+        ) : html && !source && node.kind === "slides" ? (
           <DeckViewer title={node.title} html={page.text} scripts={scripts} onStripPager={() => ipc.artifactStripPager(space, node.id).then(onSaved)} />
         ) : html && !source && node.kind === "design" ? (
           <CanvasViewer title={node.title} html={withBaseStyle(page.text)} scripts={scripts} />

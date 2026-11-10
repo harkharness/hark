@@ -2604,6 +2604,38 @@ fn artifact_set_kind(space: String, id: String, kind: String) -> Result<(), Stri
     hark_core::app::artifacts::set_kind(&artifact_store(), &space, &id, kind).map_err(|e| e.to_string())
 }
 
+/// The versions a page keeps, oldest first.
+#[tauri::command]
+fn artifact_versions(space: String, id: String) -> Result<Vec<hark_core::ports::PageVersion>, String> {
+    hark_core::app::artifacts::versions(&artifact_store(), &space, &id).map_err(|e| e.to_string())
+}
+
+/// "aceitar": what the agent changed becomes the baseline.
+#[tauri::command]
+fn artifact_accept(space: String, id: String) -> Result<(), String> {
+    hark_core::app::artifacts::accept(&artifact_store(), &space, &id, &now_iso()).map_err(|e| e.to_string())
+}
+
+/// "voltar para": the page goes back to a version; what is there is kept.
+#[tauri::command]
+fn artifact_restore(space: String, id: String, at: String) -> Result<(), String> {
+    hark_core::app::artifacts::restore(&artifact_store(), &space, &id, &at, &now_iso()).map_err(|e| e.to_string())
+}
+
+/// A sheet page computed, with the agent's changes marked.
+#[tauri::command]
+fn sheet_view(space: String, id: String) -> Result<hark_core::app::artifacts::SheetView, String> {
+    let today = hark_core::chrono::Local::now().format("%Y-%m-%d").to_string();
+    hark_core::app::artifacts::sheet_view(&artifact_store(), &space, &id, &now_iso(), &today).map_err(|e| e.to_string())
+}
+
+/// The person typed into a cell of a sheet page.
+#[tauri::command]
+fn sheet_set_cell(space: String, id: String, tab: usize, row: usize, col: usize, typed: String) -> Result<(), String> {
+    let at = hark_core::domain::sheet::CellRef { tab, row, col };
+    hark_core::app::artifacts::sheet_set_cell(&artifact_store(), &space, &id, at, &typed, &now_iso()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn artifact_remove(space: String, id: String) -> Result<Vec<String>, String> {
     hark_core::app::artifacts::remove(&artifact_store(), &space, &id).map_err(|e| e.to_string())
@@ -6520,6 +6552,11 @@ pub fn run() {
             request_done,
             artifact_strip_pager,
             artifact_remove,
+            artifact_versions,
+            artifact_accept,
+            artifact_restore,
+            sheet_view,
+            sheet_set_cell,
             focus_main,
             subscription_limits,
             usage_report,
