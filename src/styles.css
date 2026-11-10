@@ -3383,7 +3383,7 @@ html.demo .side-drag::before {
 
 /* ---- the gallery head (round "início e galeria"): a title, tabs by kind, tiles to create ---- */
 .art-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
-.art-title { margin: 0; font-size: var(--fs-display); font-weight: 500; letter-spacing: -.01em; color: var(--text-strong); line-height: 1.1; }
+.art-h1 { margin: 0; font-size: var(--fs-display); font-weight: 500; letter-spacing: -.01em; color: var(--text-strong); line-height: 1.1; }
 .art-sub { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: var(--fs-meta); }
 .art-tabs { display: flex; gap: 2px; flex-wrap: wrap; }
 .art-tab { background: none; border: 0; border-radius: 8px; padding: 6px 12px; font: inherit; font-size: var(--fs-ui); color: var(--dim); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
@@ -3393,7 +3393,8 @@ html.demo .side-drag::before {
 .art-create { display: flex; flex-direction: column; gap: 8px; font-size: var(--fs-meta); }
 .art-tiles { display: flex; gap: 12px; flex-wrap: wrap; }
 .art-tile { width: 112px; background: none; border: 0; padding: 0; font: inherit; font-size: var(--fs-ui); color: var(--text); cursor: pointer; display: flex; flex-direction: column; gap: 7px; text-align: left; }
-.art-tile > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.art-tile > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+.art-tile .art-tile-pic svg { margin: 0; }
 .art-tile-pic { height: 72px; border-radius: 10px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1a2234, #0f131b); }
 .art-tile-pic.slides { background: linear-gradient(135deg, #1e3a8a, #0f131b); }
 .art-tile-pic.design { background: linear-gradient(135deg, #3b2a6b, #0f131b); }

@@ -527,7 +527,7 @@ function Home({
     <div className="art-home">
       <div className="art-head">
         <div>
-          <h1 className="art-title">{t("art_title")}</h1>
+          <h1 className="art-h1">{t("art_title")}</h1>
           <div className="art-sub dim" title={path}>
             {space?.project ? <span className="art-dot" style={colour ? { background: colour } : undefined} /> : <User size={11} />} {name} · {t("art_pages_n", { n: tree.nodes.length })}
           </div>
