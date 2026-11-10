@@ -224,7 +224,12 @@ a file dropped there by hand is adopted at the root on the next read.
   CONT.SE, SOMA.SE, SE/IF, ARRED, HOJE…), zero tokens. An error the
   engine cannot resolve is named in the cell (`#NOME?`, `#CICLO!`,
   `#DIV/0!`). Double-click edits a cell and writes the file; the open tab
-  copies as csv with values.
+  copies as csv with values. The grid is yours to shape: a column's
+  letter opens its menu (insert, remove, a format: money, percent,
+  integer, date, text), dragging the letter moves the column, its edge
+  resizes it; a row number inserts or removes rows; a tab renames on a
+  double click and the plus adds one. Formulas follow their cells when
+  rows and columns move (a removed cell leaves `#REF!`).
 - **A dashboard** is panels over data on this machine: a csv or json
   file of the project, a sqlite file (read-only, SELECT only) or a
   command of the project that prints csv or json. The numbers are cached
@@ -232,22 +237,32 @@ a file dropped there by hand is adopted at the root on the next read.
   "refresh now" runs every source, and that is the only time a command
   runs. A query you **certify** is yours: the agent uses it and never
   rewrites it; a panel on an uncertified query says "agent's draft".
-  "Sources and queries" shows each query, its preview and the badge.
+  "Sources and queries" shows each query, its preview and the badge,
+  and lets you edit it in place (sql for sqlite, a column pick and a
+  limit for the rest), add and remove queries and sources; a query you
+  save is certified by that. A pencil on a panel opens its form (title,
+  query, chart, columns), with move and remove; the cadence is a select
+  in the header.
   "Data story" asks the light model for one paragraph over the panels
   (one call, when you click); it becomes a child document page or goes
   to a chat, after you read it. Every panel copies its data as csv.
 - **A whiteboard** is notes on a canvas, groups around them and a
   timeline. The agent writes notes without coordinates and Hark lays
   them out; you drag them (into a group joins it), double-click to edit,
-  add notes and groups, change colours. A lasso on the background
-  selects notes, and "ask about the selection" takes them to a chat as
-  text (only the excerpt enters, with the page's link).
+  add notes and groups, change colours. A selected note offers "link":
+  the next click names the target and an arrow is drawn (click it to
+  label or remove it). A group renames on a double click and its corner
+  resizes it; the timeline opens a small form to add, edit or remove a
+  milestone. A lasso on the background selects notes, and "ask about
+  the selection" takes them to a chat as text (only the excerpt enters,
+  with the page's link).
 - **Versions and marked changes.** A page keeps the versions you saw:
   the first opening takes the baseline, "accept" takes the current text,
   going back keeps the current one first. Thirty live hidden beside the
   page (`.history/`). What an agent changed since you last accepted is
   marked (green cells in a sheet), with *accept* and *undo all* above;
-  your own edits through Hark are never something to review.
+  your own edits through Hark are never something to review: each one
+  is a version the page accepts on the spot.
 
 Agents write pages through `HARK_ARTIFACTS_DIR`, set on every worker; a
 `Write` into that directory is caught as the page's origin, so the tree
