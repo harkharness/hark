@@ -1414,7 +1414,7 @@ export default function App({
    * modal, the candidate picker) dispatches text the thread has NOT shown,
    * and there the echo is the only record of what was sent.
    */
-  async function runDispatch(instruction: string, sessionId?: string, alreadyShown = false) {
+  async function runDispatch(instruction: string, sessionId?: string, alreadyShown = false, label?: string) {
     setBusy(t("busy_dispatching"));
     const from = currentThread() ?? GENERAL;
     if (!alreadyShown) {
@@ -1436,11 +1436,11 @@ export default function App({
         effortDefault || undefined,
       );
       if (out.status === "started") {
-        const label =
-          focusedTask && sessionId === focusedTask.sessionId
-            ? focusedTask.title
-            : instruction.split(/\s+/).slice(0, 5).join(" ");
-        adoptWorker(out.task_id, label, out.directives, sessionId ?? "");
+        // The caller's title first (a request sent to a chat by title lands
+        // before the focus state catches up), then the focused chat's.
+        const named =
+          label ?? (focusedTask && sessionId === focusedTask.sessionId ? focusedTask.title : instruction.split(/\s+/).slice(0, 5).join(" "));
+        adoptWorker(out.task_id, named, out.directives, sessionId ?? "");
         live = true;
       } else if (out.status === "done") {
         push({ who: "hark", text: out.summary, cost: out.cost_usd });
@@ -3095,7 +3095,7 @@ export default function App({
       });
       return;
     }
-    await runDispatch(text, sessionId, true);
+    await runDispatch(text, sessionId, true, title);
   }
 
   /** "Foca no billing": the board title the words point at. An empty
