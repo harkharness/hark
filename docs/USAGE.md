@@ -225,6 +225,14 @@ a file dropped there by hand is adopted at the root on the next read.
   engine cannot resolve is named in the cell (`#NOME?`, `#CICLO!`,
   `#DIV/0!`). Double-click edits a cell and writes the file; the open tab
   copies as csv with values.
+- **A dashboard** is panels over data on this machine: a csv or json
+  file of the project, a sqlite file (read-only, SELECT only) or a
+  command of the project that prints csv or json. The numbers are cached
+  beside the page (`x.dash.cache.json`) with the instant they were taken;
+  "refresh now" runs every source, and that is the only time a command
+  runs. A query you **certify** is yours: the agent uses it and never
+  rewrites it; a panel on an uncertified query says "agent's draft".
+  "Sources and queries" shows each query, its preview and the badge.
 - **Versions and marked changes.** A page keeps the versions you saw:
   the first opening takes the baseline, "accept" takes the current text,
   going back keeps the current one first. Thirty live hidden beside the

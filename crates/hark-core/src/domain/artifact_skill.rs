@@ -125,6 +125,35 @@ não entende aparece na célula como `#NOME?`, `#CICLO!`, `#DIV/0!`,
 que já existia fica marcado em verde até a pessoa aceitar: mude só o
 que foi pedido.
 
+## Painel de dados (`.dash.json`)
+
+Painéis sobre dados que estão NESTA máquina: um arquivo do projeto
+(`csv`, `json`), um banco `sqlite` (aberto só para leitura) ou um
+`command` do projeto que imprime csv ou json (roda só quando a pessoa
+pede para atualizar). Caminhos são relativos à raiz do projeto, nunca
+sobem com `..`. Uma consulta é `sql` numa fonte sqlite (só SELECT) ou
+`columns` (e `limit`) nas outras. Um painel desenha uma consulta:
+`number` (com `value` e, opcional, `previous` para a variação), `bar` e
+`line` (`x` rótulos, `y` valores; o Hark acha as colunas se faltar),
+`table`. `refresh`: `manual`, `hourly` ou `daily`.
+
+```json
+{{ "title": "Uso do app", "refresh": "hourly",
+  "sources": [ {{ "id": "db", "kind": "sqlite", "path": "data/app.db" }},
+               {{ "id": "ev", "kind": "csv", "path": "data/eventos.csv" }} ],
+  "queries": [ {{ "id": "por_dia", "source": "db",
+                 "sql": "SELECT date(criado_em) AS dia, count(*) AS n FROM lancamentos GROUP BY dia ORDER BY dia" }},
+               {{ "id": "retencao", "source": "ev", "columns": ["mes", "d7"] }} ],
+  "panels":  [ {{ "title": "lançamentos por dia", "query": "por_dia", "chart": "bar", "x": "dia", "y": "n" }},
+               {{ "title": "retenção D7", "query": "retencao", "chart": "line" }} ] }}
+```
+
+`"certified": true` numa consulta é marca da PESSOA: nunca escreva nem
+mude uma consulta certificada; se precisar de outra coisa, crie uma
+consulta nova ao lado. O que você mudar aparece como "rascunho do
+agente" até ela certificar. Nunca ponha segredos nem comandos
+destrutivos numa fonte.
+
 ## Ajustar, renomear
 
 - Ajustar uma página é editar o mesmo arquivo (Edit ou Write no mesmo
@@ -189,6 +218,7 @@ mod tests {
         assert!(md.contains(".sheet.json") && md.contains(".board.json") && md.contains(".dash.json"), "{md}");
         assert!(md.contains("#NOME?"), "the errors are named so the agent fixes the file: {md}");
         assert!(md.contains("\"=SOMA(B3:C3)\""), "a formula is a string starting with =: {md}");
+        assert!(md.contains("\"certified\": true") && md.contains("só SELECT"), "a dashboard's rules: {md}");
     }
 
     #[test]
