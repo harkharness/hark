@@ -56,4 +56,5 @@ pub mod usage;
 pub mod vad;
 pub mod verdict;
 pub mod vocab;
+pub mod whiteboard;
 pub mod voice_intent;

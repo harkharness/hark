@@ -478,6 +478,33 @@ pub fn set_certified(dash: &mut Dash, id: &str, on: bool) -> Result<(), String> 
     Ok(())
 }
 
+/// The dashboard as text for a chat that cites the page: its sources,
+/// its queries (certified marked) and its panels. Never the json.
+pub fn summary(dash: &Dash) -> String {
+    let mut out = String::new();
+    if let Some(t) = &dash.title {
+        out.push_str(&format!("# {t}\n\n"));
+    }
+    out.push_str("## Fontes\n");
+    for s in &dash.sources {
+        let what = match s.kind {
+            SourceKind::Command => format!("comando `{}`", s.command.clone().unwrap_or_default()),
+            k => format!("{} `{}`", format!("{k:?}").to_lowercase(), s.path.clone().unwrap_or_default()),
+        };
+        out.push_str(&format!("- {} · {what}\n", s.id));
+    }
+    out.push_str("\n## Consultas\n");
+    for q in &dash.queries {
+        let body = q.sql.clone().unwrap_or_else(|| if q.columns.is_empty() { "todas as colunas".into() } else { format!("colunas {}", q.columns.join(", ")) });
+        out.push_str(&format!("- {} ({}){}: {}\n", q.id, q.source, if q.certified { " · certificada" } else { "" }, body.replace('\n', " ")));
+    }
+    out.push_str("\n## Painéis\n");
+    for p in &dash.panels {
+        out.push_str(&format!("- {} · {:?} · consulta {}\n", p.title, p.chart, p.query));
+    }
+    out.trim_end().to_string()
+}
+
 /// The dashboard back as the file.
 pub fn to_json(dash: &Dash) -> String {
     let mut s = serde_json::to_string_pretty(dash).unwrap_or_else(|_| "{}".into());
@@ -605,6 +632,15 @@ mod tests {
         assert_eq!(failed.error.as_deref(), Some("no such table"));
         let wrong = Panel { value: Some("zzz".into()), ..d.panels[0].clone() };
         assert!(panel_view(&d, &wrong, cache.results.get("ativos")).error.unwrap().contains("zzz"));
+    }
+
+    #[test]
+    fn the_summary_names_sources_queries_and_panels_not_the_json() {
+        let s = summary(&sample());
+        assert!(s.contains("## Fontes\n- db · sqlite `data/app.db`\n"), "{s}");
+        assert!(s.contains("- por_dia (db) · certificada: SELECT dia, n FROM x"), "{s}");
+        assert!(s.contains("- retenção · Line · consulta retencao"), "{s}");
+        assert!(!s.contains('{'));
     }
 
     #[test]

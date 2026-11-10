@@ -818,6 +818,30 @@ pub fn set_cell(sheet: &mut Sheet, at: CellRef, typed: &str) -> Result<(), Strin
     Ok(())
 }
 
+/// The sheet as text for a chat that cites the page: each tab as rows
+/// of computed values, at most `rows` per tab. Short, never the json.
+pub fn summary(sheet: &Sheet, today: &str, rows: usize) -> String {
+    let computed = compute(sheet, today);
+    let mut out = String::new();
+    if let Some(t) = &sheet.title {
+        out.push_str(&format!("# {t}\n\n"));
+    }
+    for tab in &computed.tabs {
+        out.push_str(&format!("## {}\n", tab.name));
+        out.push_str(&tab.columns.join(" | "));
+        out.push('\n');
+        for row in tab.cells.iter().take(rows) {
+            out.push_str(&row.iter().map(|c| c.text.as_str()).collect::<Vec<_>>().join(" | "));
+            out.push('\n');
+        }
+        if tab.cells.len() > rows {
+            out.push_str(&format!("… mais {} linhas\n", tab.cells.len() - rows));
+        }
+        out.push('\n');
+    }
+    out.trim_end().to_string()
+}
+
 /// The sheet back as the file: two-space json, a newline at the end.
 pub fn to_json(sheet: &Sheet) -> String {
     let mut s = serde_json::to_string_pretty(sheet).unwrap_or_else(|_| "{}".into());
@@ -967,6 +991,14 @@ mod tests {
         assert!(set_cell(&mut s, CellRef { tab: 3, row: 0, col: 0 }, "x").is_err());
         let json = to_json(&s);
         assert_eq!(parse(&json).unwrap(), s, "round-trips through the file");
+    }
+
+    #[test]
+    fn the_summary_is_the_computed_values_as_rows_not_the_json() {
+        let s = summary(&sample(), TODAY, 2);
+        assert!(s.starts_with("# Custos de infra\n\n## Mensal\nmês | infra | banco | total\nset/26 | 412 | 96 | 508\n"), "{s}");
+        assert!(s.contains("… mais 2 linhas"), "{s}");
+        assert!(!s.contains('{'));
     }
 
     #[test]

@@ -56,9 +56,17 @@ fn clean(seg: &str) -> Option<String> {
     (!s.is_empty() && s != "." && s != ".." && !s.contains('/')).then_some(s)
 }
 
+/// What follows `#` in a link: `sel=n1,n2` for a selection; None without one.
+pub fn fragment(url: &str) -> Option<String> {
+    url.split_once('#').map(|(_, f)| f.to_string()).filter(|f| !f.is_empty())
+}
+
 /// The target of a link, or None for anything that is not one of ours.
 pub fn parse(url: &str) -> Option<Target> {
     let rest = url.strip_prefix(SCHEME)?;
+    // `#sel=n1,n2` names a part of the page (a selection); the target is
+    // still the page.
+    let rest = rest.split('#').next().unwrap_or(rest);
     let rest = rest.trim_end_matches('/');
     let mut parts = rest.split('/');
     match (parts.next()?, parts.next(), parts.next(), parts.next()) {
@@ -84,6 +92,9 @@ mod tests {
         assert_eq!(page_link("meu projeto", "a"), "hark://artifacts/meu%20projeto/a");
         assert_eq!(parse("hark://artifacts/meu%20projeto/a"), Some(Target::Page { space: "meu projeto".into(), id: "a".into() }));
         assert_eq!(parse("hark://artifacts/hark/"), None, "a space alone is not a page");
+        assert_eq!(parse("hark://artifacts/hark/plano#sel=n1,n2"), Some(Target::Page { space: "hark".into(), id: "plano".into() }), "a selection fragment still names the page");
+        assert_eq!(fragment("hark://artifacts/hark/plano#sel=n1,n2"), Some("sel=n1,n2".into()));
+        assert_eq!(fragment("hark://artifacts/hark/plano"), None);
     }
 
     #[test]
