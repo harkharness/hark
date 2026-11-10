@@ -128,8 +128,11 @@ you, one stalled for days, a page an agent wrote in the last day, and your
 own requests ("me lembra de ligar pro banco às 14h", typed or spoken, kept
 in the local index with the time it names). A chat whose last word is the
 agent's is waiting for you; one where you spoke last is *working*. A card
-tied to a live chat is told by the chat, under the card's name. Ordered
-by urgency; *ir* opens the chat or the page, *depois* sinks a row for the
+tied to a live chat is told by the chat, under the card's name. The list
+is grouped by what it asks (need you, to review, reminders, scheduled, in
+progress, stalled): the group says it once, a row is the title and when,
+the reason on hover. Ordered by urgency inside each group; *ir* opens the
+chat or the page (clicking the row does too), *depois* sinks a row for the
 day, *feito* closes a request. The board stays the team's: a demand may
 point at a card, it never replaces one. "O que eu tenho hoje?" in Hoje
 answers from this list, zero tokens. Cards stalled for more than two weeks
@@ -165,8 +168,10 @@ them too. A read row leaves the panel ten minutes later; an unread one
 never does; "ver anteriores" brings the history back from the local
 index. The same line lands in Hoje, with "ir" beside it.
 
-**Hoje opens with the day.** With no chat yet, Início greets you and shows
-the list of the day and three ways in; the first message is still yours.
+**Hoje opens with the day.** With no chat yet, Início greets you with one
+line of counts, the composer right under it, the hints, and three boxes
+at a glance (who needs you, what is ready to review, what stalled, three
+rows each with a way to the full list); the first message is still yours.
 Once the day has a chat, Hoje is that chat.
 
 **Início › Hoje is Hark itself**, not an agent session: one chat over every
