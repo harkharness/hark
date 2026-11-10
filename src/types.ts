@@ -75,8 +75,22 @@ export type ArtifactPage = { node: ArtifactNode; text: string; abs: string; brea
 export type PageVersion = { at: string; bytes: number };
 /** A sheet cell as the viewer shows it (domain::sheet::Shown). */
 export type SheetCell = { raw: string; text: string; formula: boolean; number?: number | null; error?: string | null };
-export type SheetTab = { name: string; columns: string[]; cells: SheetCell[][] };
+export type SheetFormat = "money" | "pct" | "int" | "date" | "text";
+export type SheetTab = { name: string; columns: string[]; cells: SheetCell[][]; formats?: (SheetFormat | null)[]; widths?: (number | null)[] };
 export type CellRef = { tab: number; row: number; col: number };
+/** The person's edit on a sheet (domain::sheet::Op). Rows and columns are data positions. */
+export type SheetOp =
+  | { op: "cell"; tab: number; row: number; col: number; typed: string }
+  | { op: "insert_row"; tab: number; at: number }
+  | { op: "remove_row"; tab: number; at: number }
+  | { op: "insert_col"; tab: number; at: number }
+  | { op: "remove_col"; tab: number; at: number }
+  | { op: "move_col"; tab: number; from: number; to: number }
+  | { op: "rename_tab"; tab: number; name: string }
+  | { op: "add_tab"; name: string }
+  | { op: "remove_tab"; tab: number }
+  | { op: "set_format"; tab: number; col: number; format: SheetFormat | null }
+  | { op: "set_width"; tab: number; col: number; width: number | null };
 /** A sheet page computed, with the agent's changes marked (app::artifacts::SheetView). */
 /** A dashboard's table (domain::dash::Table). */
 export type DataTable = { columns: string[]; rows: unknown[][] };
@@ -86,11 +100,30 @@ export type DashQuery = {
   source: string;
   sql?: string | null;
   columns: string[];
+  limit?: number | null;
   certified: boolean;
   changed: boolean;
   preview?: DataTable | null;
   error?: string | null;
 };
+export type DashChart = "number" | "bar" | "line" | "table";
+type PanelFields = { title: string; query: string; chart: DashChart; x?: string | null; y?: string | null; value?: string | null; previous?: string | null };
+type QueryFields = { id: string; source: string; sql?: string | null; columns: string[]; limit?: number | null };
+type SourceFields = { id: string; kind: DashSource["kind"]; path?: string | null; command?: string | null };
+/** The person's edit on a dashboard (domain::dash::Op). */
+export type DashOp =
+  | ({ op: "certify"; id: string; on: boolean })
+  | ({ op: "query" } & QueryFields)
+  | ({ op: "add_query" } & QueryFields)
+  | { op: "remove_query"; id: string }
+  | ({ op: "panel"; index: number } & PanelFields)
+  | ({ op: "add_panel" } & PanelFields)
+  | { op: "move_panel"; from: number; to: number }
+  | { op: "remove_panel"; index: number }
+  | ({ op: "source" } & SourceFields)
+  | ({ op: "add_source" } & SourceFields)
+  | { op: "remove_source"; id: string }
+  | { op: "refresh"; refresh: "manual" | "hourly" | "daily" };
 export type DashPanel = {
   title: string;
   query: string;
@@ -121,7 +154,8 @@ export type DashView = {
 export type BoardNote = { id: string; text: string; x?: number | null; y?: number | null; color?: string | null; owner?: string | null; date?: string | null; group?: string | null };
 export type BoardGroup = { id: string; title: string; x?: number | null; y?: number | null; w?: number | null; h?: number | null };
 export type BoardMilestone = { date: string; title: string; owner?: string | null };
-export type Whiteboard = { title?: string | null; groups: BoardGroup[]; notes: BoardNote[]; timeline?: BoardMilestone[] };
+export type BoardLink = { from: string; to: string; label?: string | null };
+export type Whiteboard = { title?: string | null; groups: BoardGroup[]; notes: BoardNote[]; timeline?: BoardMilestone[]; links?: BoardLink[] };
 export type BoardOp =
   | { op: "move"; id: string; x: number; y: number }
   | { op: "text"; id: string; text: string }
@@ -131,7 +165,15 @@ export type BoardOp =
   | { op: "group"; id: string; group: string | null }
   | { op: "move_group"; id: string; x: number; y: number }
   | { op: "add_group"; title: string; x: number; y: number }
-  | { op: "remove_group"; id: string };
+  | { op: "remove_group"; id: string }
+  | { op: "group_title"; id: string; title: string }
+  | { op: "resize_group"; id: string; w: number; h: number }
+  | { op: "link"; from: string; to: string; label?: string | null }
+  | { op: "unlink"; from: string; to: string }
+  | { op: "link_label"; from: string; to: string; label?: string | null }
+  | { op: "add_milestone"; date: string; title: string; owner?: string | null }
+  | { op: "edit_milestone"; index: number; date: string; title: string; owner?: string | null }
+  | { op: "remove_milestone"; index: number };
 export type BoardView = { board: Whiteboard; changed: string[]; versions: number; error?: string | null; raw: string };
 export type SheetView = {
   computed: { title?: string | null; tabs: SheetTab[] };

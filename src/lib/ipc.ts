@@ -694,6 +694,10 @@ export const artifactRestore = (space: string, id: string, at: string) => invoke
 export const sheetView = (space: string, id: string) => invoke<import("../types").SheetView>("sheet_view", { space, id });
 export const sheetSetCell = (space: string, id: string, at: import("../types").CellRef, typed: string) =>
   invoke("sheet_set_cell", { space, id, tab: at.tab, row: at.row, col: at.col, typed });
+/** The person's structural edit on a sheet (rows, columns, tabs, formats): one version. */
+export const sheetEdit = (space: string, id: string, op: import("../types").SheetOp) => invoke("sheet_edit", { space, id, op });
+/** The person's edit on a dashboard (queries, panels, sources, cadence): one version. */
+export const dashEdit = (space: string, id: string, op: import("../types").DashOp) => invoke("dash_edit", { space, id, op });
 /** A dashboard page from its cache; `run` = "atualizar agora" (commands run only then). */
 export const dashView = (space: string, id: string, run = false) =>
   invoke<import("../types").DashView>("dash_view", { space, id, run });

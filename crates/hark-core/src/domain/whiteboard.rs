@@ -27,6 +27,9 @@ pub struct Board {
     pub notes: Vec<Note>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub timeline: Vec<Milestone>,
+    /// Arrows between notes, drawn by the person or the agent.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<Link>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -59,6 +62,15 @@ pub struct Note {
     pub date: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+}
+
+/// An arrow from one note to another, with a word on it when it helps.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Link {
+    pub from: String,
+    pub to: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -107,6 +119,13 @@ pub fn parse(json: &str) -> Result<Board, String> {
         }
         if !seen.insert(g.id.as_str()) {
             return Err(format!("grupo {}: id repetido", g.id));
+        }
+    }
+    for l in &board.links {
+        for end in [&l.from, &l.to] {
+            if !board.notes.iter().any(|n| &n.id == end) {
+                return Err(format!("ligação {} → {}: nota \"{end}\" não existe", l.from, l.to));
+            }
         }
     }
     Ok(board)
@@ -188,6 +207,28 @@ pub enum Op {
     MoveGroup { id: String, x: f64, y: f64 },
     AddGroup { title: String, x: f64, y: f64 },
     RemoveGroup { id: String },
+    GroupTitle { id: String, title: String },
+    ResizeGroup { id: String, w: f64, h: f64 },
+    Link { from: String, to: String, #[serde(default)] label: Option<String> },
+    Unlink { from: String, to: String },
+    LinkLabel { from: String, to: String, #[serde(default)] label: Option<String> },
+    AddMilestone { date: String, title: String, #[serde(default)] owner: Option<String> },
+    EditMilestone { index: usize, date: String, title: String, #[serde(default)] owner: Option<String> },
+    RemoveMilestone { index: usize },
+}
+
+/// A milestone's date is a day, yyyy-mm-dd; its title is not blank.
+fn milestone(date: String, title: String, owner: Option<String>) -> Result<Milestone, String> {
+    let ok_date = date.len() == 10
+        && date.bytes().enumerate().all(|(i, b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() });
+    if !ok_date {
+        return Err(format!("data \"{date}\": use aaaa-mm-dd"));
+    }
+    let title = title.trim().to_string();
+    if title.is_empty() {
+        return Err("um marco tem título".into());
+    }
+    Ok(Milestone { date, title, owner: owner.map(|o| o.trim().to_string()).filter(|o| !o.is_empty()) })
 }
 
 /// A fresh id for a note or a group: n1, n2… not yet taken.
@@ -226,6 +267,7 @@ pub fn apply(board: &mut Board, op: Op) -> Result<(), String> {
             if board.notes.len() == before {
                 return Err(format!("nota \"{id}\" não existe"));
             }
+            board.links.retain(|l| l.from != id && l.to != id);
         }
         Op::Color { id, color } => {
             if !COLORS.contains(&color.as_str()) {
@@ -264,6 +306,61 @@ pub fn apply(board: &mut Board, op: Op) -> Result<(), String> {
             for n in board.notes.iter_mut().filter(|n| n.group.as_deref() == Some(&id)) {
                 n.group = None;
             }
+        }
+        Op::GroupTitle { id, title } => {
+            let title = title.trim().to_string();
+            if title.is_empty() {
+                return Err("um grupo tem título".into());
+            }
+            board.groups.iter_mut().find(|g| g.id == id).ok_or_else(|| format!("grupo \"{id}\" não existe"))?.title = title;
+        }
+        Op::ResizeGroup { id, w, h } => {
+            if w < NOTE_W + 2.0 * GAP || h < NOTE_H + 2.0 * GAP {
+                return Err("um grupo cabe pelo menos uma nota".into());
+            }
+            let g = board.groups.iter_mut().find(|g| g.id == id).ok_or_else(|| format!("grupo \"{id}\" não existe"))?;
+            g.w = Some(w);
+            g.h = Some(h);
+        }
+        Op::Link { from, to, label } => {
+            if from == to {
+                return Err("uma nota não se liga a si mesma".into());
+            }
+            for end in [&from, &to] {
+                note(board, end)?;
+            }
+            if board.links.iter().any(|l| l.from == from && l.to == to) {
+                return Err("essas notas já estão ligadas".into());
+            }
+            board.links.push(Link { from, to, label: label.map(|l| l.trim().to_string()).filter(|l| !l.is_empty()) });
+        }
+        Op::Unlink { from, to } => {
+            let before = board.links.len();
+            board.links.retain(|l| !(l.from == from && l.to == to));
+            if board.links.len() == before {
+                return Err("ligação inexistente".into());
+            }
+        }
+        Op::LinkLabel { from, to, label } => {
+            let l = board.links.iter_mut().find(|l| l.from == from && l.to == to).ok_or("ligação inexistente")?;
+            l.label = label.map(|l| l.trim().to_string()).filter(|l| !l.is_empty());
+        }
+        Op::AddMilestone { date, title, owner } => {
+            board.timeline.push(milestone(date, title, owner)?);
+            board.timeline.sort_by(|a, b| a.date.cmp(&b.date));
+        }
+        Op::EditMilestone { index, date, title, owner } => {
+            if index >= board.timeline.len() {
+                return Err("marco inexistente".into());
+            }
+            board.timeline[index] = milestone(date, title, owner)?;
+            board.timeline.sort_by(|a, b| a.date.cmp(&b.date));
+        }
+        Op::RemoveMilestone { index } => {
+            if index >= board.timeline.len() {
+                return Err("marco inexistente".into());
+            }
+            board.timeline.remove(index);
         }
     }
     Ok(())
@@ -325,6 +422,13 @@ pub fn summary(board: &Board) -> String {
         out.push_str("## Soltas\n");
         out.push_str(&selection_text(board, &loose));
         out.push('\n');
+    }
+    if !board.links.is_empty() {
+        out.push_str("## Ligações\n");
+        let text = |id: &str| board.notes.iter().find(|n| n.id == id).map(|n| n.text.clone()).unwrap_or_else(|| id.to_string());
+        for l in &board.links {
+            out.push_str(&format!("- {} → {}{}\n", text(&l.from), text(&l.to), l.label.as_ref().map(|x| format!(" ({x})")).unwrap_or_default()));
+        }
     }
     if !board.timeline.is_empty() {
         out.push_str("## Linha do tempo\n");
@@ -443,5 +547,57 @@ mod tests {
         assert!(s.contains("## Soltas\n- Entra na 0.11? (Bruno)"), "{s}");
         assert!(s.contains("## Linha do tempo\n- 2026-11-12 · beta (Ana)\n- 2026-12-03 · release"), "{s}");
         assert!(!s.contains('{'));
+    }
+
+    // ---------- fase 14.1: links, the timeline, the groups ----------
+
+    #[test]
+    fn notes_are_linked_with_an_arrow_and_a_removed_note_takes_its_links() {
+        let mut b = parse(SAMPLE).unwrap();
+        apply(&mut b, Op::Link { from: "n1".into(), to: "n2".into(), label: Some("depende".into()) }).unwrap();
+        apply(&mut b, Op::Link { from: "n2".into(), to: "n5".into(), label: None }).unwrap();
+        assert_eq!(b.links.len(), 2);
+        assert!(apply(&mut b, Op::Link { from: "n1".into(), to: "n2".into(), label: None }).is_err(), "one link per pair");
+        assert!(apply(&mut b, Op::Link { from: "n1".into(), to: "n1".into(), label: None }).is_err(), "not to itself");
+        assert!(apply(&mut b, Op::Link { from: "n1".into(), to: "zz".into(), label: None }).is_err());
+        apply(&mut b, Op::LinkLabel { from: "n1".into(), to: "n2".into(), label: None }).unwrap();
+        assert_eq!(b.links[0].label, None);
+        // The link survives the file and reads in the summary.
+        let again = parse(&to_json(&b)).unwrap();
+        assert_eq!(again.links, b.links);
+        assert!(summary(&b).contains("Voz local → Entra na 0.11?"), "{}", summary(&b));
+        assert!(parse(r#"{"notes":[{"id":"a","text":"x"}],"links":[{"from":"a","to":"b"}]}"#).unwrap_err().contains("b"), "a link names notes that exist");
+        apply(&mut b, Op::Remove { id: "n2".into() }).unwrap();
+        assert!(b.links.is_empty(), "both links went with n2");
+        apply(&mut b, Op::Link { from: "n1".into(), to: "n5".into(), label: None }).unwrap();
+        apply(&mut b, Op::Unlink { from: "n1".into(), to: "n5".into() }).unwrap();
+        assert!(b.links.is_empty());
+    }
+
+    #[test]
+    fn the_timeline_is_edited_in_place_and_stays_in_date_order() {
+        let mut b = parse(SAMPLE).unwrap();
+        apply(&mut b, Op::AddMilestone { date: "2026-11-20".into(), title: "corte".into(), owner: Some("Bruno".into()) }).unwrap();
+        assert_eq!(b.timeline.iter().map(|m| m.date.as_str()).collect::<Vec<_>>(), vec!["2026-11-12", "2026-11-20", "2026-12-03"], "sorted on write");
+        apply(&mut b, Op::EditMilestone { index: 1, date: "2026-12-10".into(), title: "corte".into(), owner: None }).unwrap();
+        assert_eq!(b.timeline[2].title, "corte", "moved past the release");
+        assert_eq!(b.timeline[2].owner, None);
+        assert!(apply(&mut b, Op::EditMilestone { index: 9, date: "2026-12-10".into(), title: "x".into(), owner: None }).is_err());
+        assert!(apply(&mut b, Op::AddMilestone { date: "amanhã".into(), title: "x".into(), owner: None }).is_err(), "a date is yyyy-mm-dd");
+        assert!(apply(&mut b, Op::AddMilestone { date: "2026-12-11".into(), title: " ".into(), owner: None }).is_err(), "a milestone has a title");
+        apply(&mut b, Op::RemoveMilestone { index: 0 }).unwrap();
+        assert_eq!(b.timeline.len(), 2);
+    }
+
+    #[test]
+    fn a_group_is_retitled_and_resized_by_the_person() {
+        let mut b = lay_out(&parse(SAMPLE).unwrap());
+        apply(&mut b, Op::GroupTitle { id: "g1".into(), title: "Entrada rápida".into() }).unwrap();
+        assert_eq!(b.groups[0].title, "Entrada rápida");
+        assert!(apply(&mut b, Op::GroupTitle { id: "g1".into(), title: "".into() }).is_err());
+        apply(&mut b, Op::ResizeGroup { id: "g1".into(), w: 500.0, h: 320.0 }).unwrap();
+        assert_eq!((b.groups[0].w, b.groups[0].h), (Some(500.0), Some(320.0)));
+        assert!(apply(&mut b, Op::ResizeGroup { id: "g1".into(), w: 10.0, h: 10.0 }).is_err(), "a group holds at least one note");
+        assert!(apply(&mut b, Op::ResizeGroup { id: "zz".into(), w: 500.0, h: 320.0 }).is_err());
     }
 }

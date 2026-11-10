@@ -531,6 +531,7 @@ const C: Record<string, (a: Args) => unknown> = {
     raw: "{}",
   }),
   sheet_set_cell: () => undefined,
+  sheet_edit: () => undefined,
   dash_view: (): DashView => ({
     title: "Dashboard: webhook usage",
     refresh: "hourly",
@@ -556,6 +557,7 @@ const C: Record<string, (a: Args) => unknown> = {
     raw: "{}",
   }),
   dash_certify: () => undefined,
+  dash_edit: () => undefined,
   dash_story: () => "Active users grew 6% in a week and deliveries per day are at their highest since the quick-add beta; time to first delivery still misses the 30 s goal.",
   board_view: (): BoardView => ({
     board: {

@@ -17,7 +17,7 @@
 //! named so the agent can fix it; the file is never refused for it.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Sheet {
@@ -34,7 +34,16 @@ pub struct Tab {
     pub columns: Vec<String>,
     #[serde(default)]
     pub rows: Vec<Vec<serde_json::Value>>,
+    /// Per column, by letter: "money", "pct", "int", "date" or "text".
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub formats: BTreeMap<String, String>,
+    /// Per column, by letter: its width in pixels, when the person set one.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub widths: BTreeMap<String, u32>,
 }
+
+/// The formats a column may carry; the viewer renders them.
+pub const FORMATS: [&str; 5] = ["money", "pct", "int", "date", "text"];
 
 /// One cell as the viewer shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -57,6 +66,12 @@ pub struct ComputedTab {
     pub name: String,
     pub columns: Vec<String>,
     pub cells: Vec<Vec<Shown>>,
+    /// One per column: its format, when set.
+    #[serde(default)]
+    pub formats: Vec<Option<String>>,
+    /// One per column: its width, when set.
+    #[serde(default)]
+    pub widths: Vec<Option<u32>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -470,9 +485,15 @@ impl Engine<'_> {
         let value = match &lit {
             serde_json::Value::String(s) if s.starts_with('=') => {
                 self.visiting.push((row, col));
-                let v = match parse_formula(&s[1..]) {
-                    Ok(e) => self.eval(&e),
-                    Err(e) => Value::Error(e),
+                let v = if s.contains("#REF!") {
+                    // Left by a removed row or column: the formula points
+                    // at a cell that is gone.
+                    Value::Error("#REF!".into())
+                } else {
+                    match parse_formula(&s[1..]) {
+                        Ok(e) => self.eval(&e),
+                        Err(e) => Value::Error(e),
+                    }
                 };
                 self.visiting.pop();
                 v
@@ -746,7 +767,9 @@ pub fn compute(sheet: &Sheet, today: &str) -> Computed {
             while columns.len() < width {
                 columns.push(column_name(columns.len()));
             }
-            ComputedTab { name: tab.name.clone(), columns, cells }
+            let formats = (0..width).map(|c| tab.formats.get(&column_name(c)).cloned()).collect();
+            let widths = (0..width).map(|c| tab.widths.get(&column_name(c)).copied()).collect();
+            ComputedTab { name: tab.name.clone(), columns, cells, formats, widths }
         })
         .collect();
     Computed { title: sheet.title.clone(), tabs }
@@ -811,11 +834,302 @@ pub fn set_cell(sheet: &mut Sheet, at: CellRef, typed: &str) -> Result<(), Strin
     } else if typed.starts_with('=') {
         serde_json::Value::String(typed.to_string())
     } else if let Ok(n) = typed.replace(',', ".").parse::<f64>() {
-        serde_json::json!(n)
+        // A whole number is written as one: the file stays the agent's.
+        if n.fract() == 0.0 && n.abs() < 1e15 { serde_json::json!(n as i64) } else { serde_json::json!(n) }
     } else {
         serde_json::Value::String(typed.to_string())
     };
     Ok(())
+}
+
+// ---------- the person's edits (fase 14.1) ----------
+
+/// One edit of the person on a sheet. Rows and columns are data
+/// positions (row 0 = grid row 2, col 0 = A); every op is one version.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum Op {
+    Cell { tab: usize, row: usize, col: usize, typed: String },
+    InsertRow { tab: usize, at: usize },
+    RemoveRow { tab: usize, at: usize },
+    InsertCol { tab: usize, at: usize },
+    RemoveCol { tab: usize, at: usize },
+    MoveCol { tab: usize, from: usize, to: usize },
+    RenameTab { tab: usize, name: String },
+    AddTab { name: String },
+    RemoveTab { tab: usize },
+    SetFormat { tab: usize, col: usize, format: Option<String> },
+    SetWidth { tab: usize, col: usize, width: Option<u32> },
+}
+
+/// Where a grid position goes after a structural edit: moved, or gone.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Moved {
+    To(usize),
+    Gone,
+}
+
+fn after_insert(at: usize) -> impl Fn(usize) -> Moved {
+    move |i| if i >= at { Moved::To(i + 1) } else { Moved::To(i) }
+}
+fn after_remove(at: usize) -> impl Fn(usize) -> Moved {
+    move |i| match i.cmp(&at) {
+        std::cmp::Ordering::Less => Moved::To(i),
+        std::cmp::Ordering::Equal => Moved::Gone,
+        std::cmp::Ordering::Greater => Moved::To(i - 1),
+    }
+}
+fn after_move(from: usize, to: usize) -> impl Fn(usize) -> Moved {
+    move |i| {
+        if i == from {
+            Moved::To(to)
+        } else if from < to && i > from && i <= to {
+            Moved::To(i - 1)
+        } else if to < from && i >= to && i < from {
+            Moved::To(i + 1)
+        } else {
+            Moved::To(i)
+        }
+    }
+}
+
+/// A range's endpoint after an edit: a removed endpoint shrinks the range
+/// to what is left (the start moves to the next cell, the end to the one
+/// before); the whole range gone is `None`.
+fn range_after(a: usize, b: usize, at_removed: Option<usize>, f: &dyn Fn(usize) -> Moved) -> Option<(usize, usize)> {
+    let (lo, hi) = (a.min(b), a.max(b));
+    match (f(lo), f(hi)) {
+        (Moved::To(x), Moved::To(y)) => Some((x.min(y), x.max(y))),
+        (Moved::Gone, Moved::Gone) => None,
+        (Moved::Gone, Moved::To(y)) => Some((at_removed.unwrap_or(lo), y)),
+        (Moved::To(x), Moved::Gone) => Some((x, at_removed.map(|r| r - 1).unwrap_or(hi))),
+    }
+}
+
+/// Every A1 reference of a formula rewritten: rows through `row`,
+/// columns through `col`. Text in quotes is left alone.
+fn rewrite_refs(formula: &str, row: &dyn Fn(usize) -> Moved, col: &dyn Fn(usize) -> Moved, removed: (Option<usize>, Option<usize>)) -> String {
+    let chars: Vec<char> = formula.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    // One reference token at `i`, if the text there is one.
+    let read_ref = |i: usize| -> Option<(usize, (usize, usize))> {
+        let mut j = i;
+        while j < chars.len() && (chars[j].is_ascii_alphabetic() || chars[j] == '$') {
+            j += 1;
+        }
+        while j < chars.len() && (chars[j].is_ascii_digit() || chars[j] == '$') {
+            j += 1;
+        }
+        if j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_' || chars[j] == '.') {
+            return None;
+        }
+        let tok: String = chars[i..j].iter().filter(|c| **c != '$').collect();
+        parse_ref(&tok).map(|r| (j, r))
+    };
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '"' {
+            out.push(c);
+            i += 1;
+            while i < chars.len() {
+                out.push(chars[i]);
+                i += 1;
+                if chars[i - 1] == '"' {
+                    break;
+                }
+            }
+            continue;
+        }
+        let starts_word = c.is_alphabetic() && (i == 0 || !(chars[i - 1].is_alphanumeric() || chars[i - 1] == '_' || chars[i - 1] == '.'));
+        if starts_word {
+            if let Some((j, (r1, c1))) = read_ref(i) {
+                // A range: the two endpoints move together.
+                if chars.get(j) == Some(&':') {
+                    if let Some((k, (r2, c2))) = read_ref(j + 1) {
+                        let rows = range_after(r1, r2, removed.0, row);
+                        let cols = range_after(c1, c2, removed.1, col);
+                        match (rows, cols) {
+                            (Some((ra, rb)), Some((ca, cb))) => out.push_str(&format!("{}{}:{}{}", column_name(ca), ra, column_name(cb), rb)),
+                            _ => out.push_str("#REF!"),
+                        }
+                        i = k;
+                        continue;
+                    }
+                }
+                match (row(r1), col(c1)) {
+                    (Moved::To(r), Moved::To(cc)) => out.push_str(&format!("{}{}", column_name(cc), r)),
+                    _ => out.push_str("#REF!"),
+                }
+                i = j;
+                continue;
+            }
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
+fn same(i: usize) -> Moved {
+    Moved::To(i)
+}
+
+/// Every formula of the tab rewritten, and the per-column maps remapped.
+fn restructure(tab: &mut Tab, row: &dyn Fn(usize) -> Moved, col: &dyn Fn(usize) -> Moved, removed: (Option<usize>, Option<usize>)) {
+    for r in tab.rows.iter_mut() {
+        for cell in r.iter_mut() {
+            if let serde_json::Value::String(s) = cell {
+                if s.starts_with('=') {
+                    *s = format!("={}", rewrite_refs(&s[1..], row, col, removed));
+                }
+            }
+        }
+    }
+    let remap = |letters: &BTreeMap<String, String>| -> BTreeMap<String, String> {
+        letters
+            .iter()
+            .filter_map(|(k, v)| match col(parse_ref(&format!("{k}1"))?.1) {
+                Moved::To(c) => Some((column_name(c), v.clone())),
+                Moved::Gone => None,
+            })
+            .collect()
+    };
+    tab.formats = remap(&tab.formats);
+    tab.widths = tab
+        .widths
+        .iter()
+        .filter_map(|(k, v)| match col(parse_ref(&format!("{k}1"))?.1) {
+            Moved::To(c) => Some((column_name(c), *v)),
+            Moved::Gone => None,
+        })
+        .collect();
+}
+
+/// The sheet after the person's edit; a position that is not there is
+/// an error, and a sheet keeps its last tab.
+pub fn apply(sheet: &mut Sheet, op: Op) -> Result<(), String> {
+    fn tab_mut(s: &mut Sheet, i: usize) -> Result<&mut Tab, String> {
+        s.tabs.get_mut(i).ok_or_else(|| "aba inexistente".to_string())
+    }
+    match op {
+        Op::Cell { tab, row, col, typed } => set_cell(sheet, CellRef { tab, row, col }, &typed),
+        Op::InsertRow { tab, at } => {
+            let t = tab_mut(sheet, tab)?;
+            let at = at.min(t.rows.len());
+            let width = t.columns.len();
+            t.rows.insert(at, vec![serde_json::Value::Null; width]);
+            restructure(t, &after_insert(at + 2), &same, (None, None));
+            Ok(())
+        }
+        Op::RemoveRow { tab, at } => {
+            let t = tab_mut(sheet, tab)?;
+            if at >= t.rows.len() {
+                return Err("linha inexistente".into());
+            }
+            t.rows.remove(at);
+            restructure(t, &after_remove(at + 2), &same, (Some(at + 2), None));
+            Ok(())
+        }
+        Op::InsertCol { tab, at } => {
+            let t = tab_mut(sheet, tab)?;
+            let at = at.min(t.columns.len());
+            t.columns.insert(at, column_name(at));
+            for r in t.rows.iter_mut() {
+                while r.len() < at {
+                    r.push(serde_json::Value::Null);
+                }
+                r.insert(at, serde_json::Value::Null);
+            }
+            restructure(t, &same, &after_insert(at), (None, None));
+            Ok(())
+        }
+        Op::RemoveCol { tab, at } => {
+            let t = tab_mut(sheet, tab)?;
+            if at >= t.columns.len() {
+                return Err("coluna inexistente".into());
+            }
+            if t.columns.len() == 1 {
+                return Err("a aba fica com pelo menos uma coluna".into());
+            }
+            t.columns.remove(at);
+            for r in t.rows.iter_mut() {
+                if at < r.len() {
+                    r.remove(at);
+                }
+            }
+            restructure(t, &same, &after_remove(at), (None, Some(at)));
+            Ok(())
+        }
+        Op::MoveCol { tab, from, to } => {
+            let t = tab_mut(sheet, tab)?;
+            if from >= t.columns.len() || to >= t.columns.len() {
+                return Err("coluna inexistente".into());
+            }
+            if from == to {
+                return Ok(());
+            }
+            let name = t.columns.remove(from);
+            t.columns.insert(to, name);
+            for r in t.rows.iter_mut() {
+                while r.len() < from.max(to) + 1 {
+                    r.push(serde_json::Value::Null);
+                }
+                let v = r.remove(from);
+                r.insert(to, v);
+            }
+            restructure(t, &same, &after_move(from, to), (None, None));
+            Ok(())
+        }
+        Op::RenameTab { tab, name } => {
+            let name = name.trim().to_string();
+            if name.is_empty() {
+                return Err("a aba precisa de um nome".into());
+            }
+            tab_mut(sheet, tab)?.name = name;
+            Ok(())
+        }
+        Op::AddTab { name } => {
+            let name = name.trim().to_string();
+            if name.is_empty() {
+                return Err("a aba precisa de um nome".into());
+            }
+            sheet.tabs.push(Tab { name, columns: vec!["A".into(), "B".into(), "C".into()], ..Tab::default() });
+            Ok(())
+        }
+        Op::RemoveTab { tab } => {
+            if sheet.tabs.len() <= 1 {
+                return Err("a planilha fica com pelo menos uma aba".into());
+            }
+            if tab >= sheet.tabs.len() {
+                return Err("aba inexistente".into());
+            }
+            sheet.tabs.remove(tab);
+            Ok(())
+        }
+        Op::SetFormat { tab, col, format } => {
+            let t = tab_mut(sheet, tab)?;
+            match format {
+                Some(f) if !FORMATS.contains(&f.as_str()) => Err(format!("formato \"{f}\": use {}", FORMATS.join(", "))),
+                Some(f) => {
+                    t.formats.insert(column_name(col), f);
+                    Ok(())
+                }
+                None => {
+                    t.formats.remove(&column_name(col));
+                    Ok(())
+                }
+            }
+        }
+        Op::SetWidth { tab, col, width } => {
+            let t = tab_mut(sheet, tab)?;
+            match width {
+                Some(w) => t.widths.insert(column_name(col), w.clamp(40, 800)),
+                None => t.widths.remove(&column_name(col)),
+            };
+            Ok(())
+        }
+    }
 }
 
 /// The sheet as text for a chat that cites the page: each tab as rows
@@ -971,7 +1285,7 @@ mod tests {
         assert_eq!(diff, vec![CellRef { tab: 0, row: 2, col: 1 }, CellRef { tab: 0, row: 4, col: 0 }]);
         assert!(changed(&before, &before).is_empty());
         // A new tab: every cell of it changed.
-        after.tabs.push(Tab { name: "Nova".into(), columns: vec!["x".into()], rows: vec![vec![serde_json::json!(1)]] });
+        after.tabs.push(Tab { name: "Nova".into(), columns: vec!["x".into()], rows: vec![vec![serde_json::json!(1)]], ..Tab::default() });
         assert!(changed(&before, &after).contains(&CellRef { tab: 1, row: 0, col: 0 }));
     }
 
@@ -1009,5 +1323,104 @@ mod tests {
         assert_eq!(column_name(27), "AB");
         assert_eq!(parse_ref("AA3"), Some((3, 26)));
         assert_eq!(parse_ref("3A"), None);
+    }
+
+    // ---------- fase 14.1: the person's edits beyond one cell ----------
+
+    fn tab(s: &Sheet) -> &Tab {
+        &s.tabs[0]
+    }
+    fn raw(s: &Sheet, row: usize, col: usize) -> String {
+        match &s.tabs[0].rows[row][col] {
+            serde_json::Value::String(t) => t.clone(),
+            serde_json::Value::Null => String::new(),
+            other => other.to_string(),
+        }
+    }
+
+    #[test]
+    fn inserting_and_removing_a_row_moves_the_formulas_below_it() {
+        let mut s = sample();
+        // A row above "out/26" (data row 1 = grid row 3): everything from
+        // row 3 down moves one, and the formulas follow their cells.
+        apply(&mut s, Op::InsertRow { tab: 0, at: 1 }).unwrap();
+        assert_eq!(tab(&s).rows.len(), 5);
+        assert!(tab(&s).rows[1].iter().all(serde_json::Value::is_null), "the new row is empty");
+        assert_eq!(raw(&s, 2, 3), "=SOMA(B4:C4)", "out/26's own total points at its new row");
+        assert_eq!(raw(&s, 3, 1), "=B4*1.03");
+        assert_eq!(raw(&s, 4, 1), "=MÉDIA(B2:B5)", "a range over the moved rows stretches");
+        assert_eq!(raw(&s, 4, 3), "=SE(D5>D4; \"subiu\"; \"caiu\")");
+        apply(&mut s, Op::RemoveRow { tab: 0, at: 1 }).unwrap();
+        assert_eq!(s, sample(), "removing it again restores the file byte for byte");
+    }
+
+    #[test]
+    fn a_removed_cell_leaves_ref_errors_and_a_range_shrinks() {
+        let mut s = sample();
+        apply(&mut s, Op::RemoveRow { tab: 0, at: 1 }).unwrap();
+        // nov/26 (now data row 1) was "=B3*1.03": B3 is gone.
+        assert_eq!(raw(&s, 1, 1), "=#REF!*1.03");
+        assert_eq!(raw(&s, 2, 1), "=MÉDIA(B2:B3)", "the average now spans the two rows left");
+        assert_eq!(compute(&s, TODAY).tabs[0].cells[1][1].error.as_deref(), Some("#REF!"));
+    }
+
+    #[test]
+    fn inserting_removing_and_moving_a_column_keeps_every_reference_true() {
+        let mut s = sample();
+        apply(&mut s, Op::InsertCol { tab: 0, at: 1 }).unwrap();
+        assert_eq!(tab(&s).columns, vec!["mês", "B", "infra", "banco", "total"]);
+        assert_eq!(raw(&s, 0, 4), "=C2+D2");
+        assert_eq!(raw(&s, 1, 4), "=SOMA(C3:D3)");
+        apply(&mut s, Op::RemoveCol { tab: 0, at: 1 }).unwrap();
+        assert_eq!(s, sample());
+        // "banco" before "infra": B and C swap in every formula.
+        apply(&mut s, Op::MoveCol { tab: 0, from: 2, to: 1 }).unwrap();
+        assert_eq!(tab(&s).columns, vec!["mês", "banco", "infra", "total"]);
+        assert_eq!(raw(&s, 0, 1), "96");
+        assert_eq!(raw(&s, 0, 3), "=C2+B2");
+        assert_eq!(raw(&s, 3, 2), "=MÉDIA(C2:C4)");
+        let c = compute(&s, TODAY);
+        assert_eq!(c.tabs[0].cells[0][3].text, "508", "the total is the same number");
+    }
+
+    #[test]
+    fn tabs_are_renamed_added_and_removed_and_the_last_one_stays() {
+        let mut s = sample();
+        apply(&mut s, Op::RenameTab { tab: 0, name: "2026".into() }).unwrap();
+        assert_eq!(tab(&s).name, "2026");
+        assert!(apply(&mut s, Op::RenameTab { tab: 0, name: "  ".into() }).is_err(), "a tab has a name");
+        apply(&mut s, Op::AddTab { name: "Notas".into() }).unwrap();
+        assert_eq!(s.tabs.len(), 2);
+        assert_eq!(s.tabs[1].columns, vec!["A", "B", "C"], "a new tab opens with a few columns");
+        apply(&mut s, Op::RemoveTab { tab: 1 }).unwrap();
+        assert!(apply(&mut s, Op::RemoveTab { tab: 0 }).is_err(), "a sheet keeps its last tab");
+    }
+
+    #[test]
+    fn a_column_format_is_kept_in_the_file_and_shown_by_the_computed_tab() {
+        let mut s = sample();
+        apply(&mut s, Op::SetFormat { tab: 0, col: 1, format: Some("money".into()) }).unwrap();
+        apply(&mut s, Op::SetWidth { tab: 0, col: 0, width: Some(140) }).unwrap();
+        assert_eq!(tab(&s).formats.get("B").map(String::as_str), Some("money"));
+        assert_eq!(tab(&s).widths.get("A"), Some(&140));
+        let c = compute(&s, TODAY);
+        assert_eq!(c.tabs[0].formats, vec![None, Some("money".to_string()), None, None]);
+        assert_eq!(c.tabs[0].widths, vec![Some(140), None, None, None]);
+        assert!(apply(&mut s, Op::SetFormat { tab: 0, col: 1, format: Some("neon".into()) }).is_err(), "only the known formats");
+        // A column that moves takes its format along.
+        apply(&mut s, Op::MoveCol { tab: 0, from: 1, to: 3 }).unwrap();
+        assert_eq!(tab(&s).formats.get("D").map(String::as_str), Some("money"));
+        assert!(tab(&s).formats.get("B").is_none());
+        apply(&mut s, Op::SetFormat { tab: 0, col: 3, format: None }).unwrap();
+        assert!(tab(&s).formats.is_empty());
+        assert!(!to_json(&s).contains("formats"), "an empty map is not written");
+    }
+
+    #[test]
+    fn a_cell_op_is_the_old_set_cell() {
+        let mut s = sample();
+        apply(&mut s, Op::Cell { tab: 0, row: 0, col: 1, typed: "500".into() }).unwrap();
+        assert_eq!(raw(&s, 0, 1), "500");
+        assert!(apply(&mut s, Op::Cell { tab: 7, row: 0, col: 0, typed: "x".into() }).is_err());
     }
 }

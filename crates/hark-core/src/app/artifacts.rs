@@ -283,6 +283,16 @@ pub fn sheet_set_cell(
     accept(store, space, id, now)
 }
 
+/// The person's edit on a sheet (fase 14.1): one op, one accepted version.
+pub fn sheet_edit(store: &dyn ArtifactStore, space: &str, id: &str, op: crate::domain::sheet::Op, now: &str) -> anyhow::Result<()> {
+    use crate::domain::sheet;
+    let path = path_of(store, space, id)?;
+    let mut sheet = sheet::parse(&store.read_page(space, &path)?).map_err(anyhow::Error::msg)?;
+    sheet::apply(&mut sheet, op).map_err(anyhow::Error::msg)?;
+    write(store, space, id, &sheet::to_json(&sheet), now)?;
+    accept(store, space, id, now)
+}
+
 /// One query as the dashboard's "fontes e consultas" screen lists it.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct QueryView {
@@ -291,6 +301,8 @@ pub struct QueryView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sql: Option<String>,
     pub columns: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
     pub certified: bool,
     /// The agent changed or added it since the baseline.
     pub changed: bool,
@@ -415,6 +427,7 @@ pub fn dash_view(
                 source: q.source.clone(),
                 sql: q.sql.clone(),
                 columns: q.columns.clone(),
+                limit: q.limit,
                 certified: q.certified,
                 changed: changed.contains(&q.id),
                 preview: r.and_then(|r| r.table.as_ref()).map(|t| dash::Table { columns: t.columns.clone(), rows: t.rows.iter().take(PREVIEW_ROWS).cloned().collect() }),
@@ -445,6 +458,17 @@ pub fn dash_certify(store: &dyn ArtifactStore, space: &str, id: &str, query: &st
     let path = path_of(store, space, id)?;
     let mut dash = dash::parse(&store.read_page(space, &path)?).map_err(anyhow::Error::msg)?;
     dash::set_certified(&mut dash, query, on).map_err(anyhow::Error::msg)?;
+    write(store, space, id, &dash::to_json(&dash), now)?;
+    accept(store, space, id, now)
+}
+
+/// The person's edit on a dashboard (fase 14.1): one op, one accepted
+/// version; a query she writes is certified by that.
+pub fn dash_edit(store: &dyn ArtifactStore, space: &str, id: &str, op: crate::domain::dash::Op, now: &str) -> anyhow::Result<()> {
+    use crate::domain::dash;
+    let path = path_of(store, space, id)?;
+    let mut dash = dash::parse(&store.read_page(space, &path)?).map_err(anyhow::Error::msg)?;
+    dash::apply(&mut dash, op).map_err(anyhow::Error::msg)?;
     write(store, space, id, &dash::to_json(&dash), now)?;
     accept(store, space, id, now)
 }
@@ -692,6 +716,22 @@ mod tests {
         assert!(sheet_set_cell(&s, "hark", &page.id, CellRef { tab: 9, row: 0, col: 0 }, "x", NOW).is_err());
     }
 
+    #[test]
+    fn a_structural_edit_on_a_sheet_is_one_accepted_version() {
+        use crate::domain::sheet::Op;
+        let (_d, s) = store();
+        let page = create(&s, "hark", None, "Custos", Kind::Sheet, None, NOW).unwrap();
+        sheet_view(&s, "hark", &page.id, NOW, "2026-10-28").unwrap();
+        sheet_edit(&s, "hark", &page.id, Op::InsertCol { tab: 0, at: 0 }, "2026-10-28T10:05:00Z").unwrap();
+        sheet_edit(&s, "hark", &page.id, Op::SetFormat { tab: 0, col: 1, format: Some("money".into()) }, "2026-10-28T10:06:00Z").unwrap();
+        let view = sheet_view(&s, "hark", &page.id, "2026-10-28T10:07:00Z", "2026-10-28").unwrap();
+        assert_eq!(view.computed.tabs[0].columns[0], "A");
+        assert_eq!(view.computed.tabs[0].formats[1].as_deref(), Some("money"));
+        assert!(view.changed.is_empty(), "your own edit is not something to review");
+        assert_eq!(view.versions, 3, "the baseline and one per edit");
+        assert!(sheet_edit(&s, "hark", &page.id, Op::RemoveTab { tab: 0 }, NOW).is_err(), "the last tab stays");
+    }
+
     /// A runner that answers from memory: sqlite and files by name, a
     /// command by its text. Counts the commands it ran.
     struct FakeRunner(std::cell::Cell<usize>);
@@ -763,6 +803,8 @@ mod tests {
         assert_eq!(v.changed, vec!["por_dia"]);
         assert!(v.queries[0].changed);
         dash_certify(&s, "hark", &page.id, "ret", true, "2026-10-28T10:06:00Z").unwrap();
+        dash_edit(&s, "hark", &page.id, crate::domain::dash::Op::Refresh { refresh: crate::domain::dash::Refresh::Daily }, "2026-10-28T10:06:30Z").unwrap();
+        assert!(dash_edit(&s, "hark", &page.id, crate::domain::dash::Op::RemoveSource { id: "zzz".into() }, NOW).is_err());
         let v = dash_view(&s, &runner, Some(project), "hark", &page.id, "2026-10-28T10:07:00Z", false).unwrap();
         assert!(v.queries[1].certified);
         assert!(v.changed.is_empty(), "certifying is the person's edit: the baseline moves");

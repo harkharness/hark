@@ -2744,6 +2744,18 @@ fn board_edit(space: String, id: String, op: hark_core::domain::whiteboard::Op) 
     hark_core::app::artifacts::board_edit(&artifact_store(), &space, &id, op, &now_iso()).map_err(|e| e.to_string())
 }
 
+/// The person's edit on a sheet: one op, one accepted version.
+#[tauri::command]
+fn sheet_edit(space: String, id: String, op: hark_core::domain::sheet::Op) -> Result<(), String> {
+    hark_core::app::artifacts::sheet_edit(&artifact_store(), &space, &id, op, &now_iso()).map_err(|e| e.to_string())
+}
+
+/// The person's edit on a dashboard: one op, one accepted version.
+#[tauri::command]
+fn dash_edit(space: String, id: String, op: hark_core::domain::dash::Op) -> Result<(), String> {
+    hark_core::app::artifacts::dash_edit(&artifact_store(), &space, &id, op, &now_iso()).map_err(|e| e.to_string())
+}
+
 /// The selected notes as the text that goes to a chat.
 #[tauri::command]
 fn board_selection(space: String, id: String, ids: Vec<String>) -> Result<String, String> {
@@ -6680,6 +6692,8 @@ pub fn run() {
             dash_story,
             board_view,
             board_edit,
+            sheet_edit,
+            dash_edit,
             board_selection,
             focus_main,
             subscription_limits,

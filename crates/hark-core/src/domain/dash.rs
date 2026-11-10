@@ -152,7 +152,19 @@ pub fn parse(json: &str) -> Result<Dash, String> {
         return Err("o painel é um objeto com \"sources\", \"queries\" e \"panels\"".into());
     }
     let dash: Dash = serde_json::from_value(v).map_err(|e| format!("painel inválido: {e}"))?;
+    validate(&dash)?;
+    Ok(dash)
+}
+
+/// What every dashboard must hold: sources with a path or a command
+/// inside the project, queries over sources that exist (sql for sqlite),
+/// panels over queries that exist; ids unique.
+pub fn validate(dash: &Dash) -> Result<(), String> {
+    let mut ids = std::collections::HashSet::new();
     for s in &dash.sources {
+        if s.id.trim().is_empty() || !ids.insert(format!("s:{}", s.id)) {
+            return Err(format!("fonte \"{}\": id vazio ou repetido", s.id));
+        }
         match s.kind {
             SourceKind::Command if s.command.as_deref().unwrap_or("").trim().is_empty() => {
                 return Err(format!("fonte {}: sem \"command\"", s.id))
@@ -166,19 +178,28 @@ pub fn parse(json: &str) -> Result<Dash, String> {
         }
     }
     for q in &dash.queries {
+        if q.id.trim().is_empty() || !ids.insert(format!("q:{}", q.id)) {
+            return Err(format!("consulta \"{}\": id vazio ou repetido", q.id));
+        }
         let Some(src) = dash.sources.iter().find(|s| s.id == q.source) else {
             return Err(format!("consulta {}: fonte \"{}\" não existe", q.id, q.source));
         };
         if src.kind == SourceKind::Sqlite && q.sql.as_deref().unwrap_or("").trim().is_empty() {
             return Err(format!("consulta {}: uma fonte sqlite pede \"sql\"", q.id));
         }
+        if let Some(sql) = &q.sql {
+            read_only_sql(sql).map_err(|e| format!("consulta {}: {e}", q.id))?;
+        }
     }
     for p in &dash.panels {
+        if p.title.trim().is_empty() {
+            return Err("um painel tem título".into());
+        }
         if !dash.queries.iter().any(|q| q.id == p.query) {
             return Err(format!("painel \"{}\": consulta \"{}\" não existe", p.title, p.query));
         }
     }
-    Ok(dash)
+    Ok(())
 }
 
 /// A source path is relative to the project and stays inside it.
@@ -478,6 +499,110 @@ pub fn set_certified(dash: &mut Dash, id: &str, on: bool) -> Result<(), String> 
     Ok(())
 }
 
+// ---------- the person's edits (fase 14.1) ----------
+
+/// One edit of the person on a dashboard. A query the person writes is
+/// certified by that; every op is checked against the whole file and
+/// refused whole when it would leave it invalid.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum Op {
+    Certify { id: String, on: bool },
+    Query { id: String, source: String, #[serde(default)] sql: Option<String>, #[serde(default)] columns: Vec<String>, #[serde(default)] limit: Option<usize> },
+    AddQuery { id: String, source: String, #[serde(default)] sql: Option<String>, #[serde(default)] columns: Vec<String>, #[serde(default)] limit: Option<usize> },
+    RemoveQuery { id: String },
+    Panel { index: usize, title: String, query: String, #[serde(default)] chart: Chart, #[serde(default)] x: Option<String>, #[serde(default)] y: Option<String>, #[serde(default)] value: Option<String>, #[serde(default)] previous: Option<String> },
+    AddPanel { title: String, query: String, #[serde(default)] chart: Chart, #[serde(default)] x: Option<String>, #[serde(default)] y: Option<String>, #[serde(default)] value: Option<String>, #[serde(default)] previous: Option<String> },
+    MovePanel { from: usize, to: usize },
+    RemovePanel { index: usize },
+    Source { id: String, kind: SourceKind, #[serde(default)] path: Option<String>, #[serde(default)] command: Option<String> },
+    AddSource { id: String, kind: SourceKind, #[serde(default)] path: Option<String>, #[serde(default)] command: Option<String> },
+    RemoveSource { id: String },
+    Refresh { refresh: Refresh },
+}
+
+fn clean(s: Option<String>) -> Option<String> {
+    s.map(|x| x.trim().to_string()).filter(|x| !x.is_empty())
+}
+
+pub fn apply(dash: &mut Dash, op: Op) -> Result<(), String> {
+    let mut next = dash.clone();
+    match op {
+        Op::Certify { id, on } => set_certified(&mut next, &id, on)?,
+        Op::Query { id, source, sql, columns, limit } => {
+            let q = next.queries.iter_mut().find(|q| q.id == id).ok_or_else(|| format!("consulta \"{id}\" não existe"))?;
+            q.source = source.trim().to_string();
+            q.sql = clean(sql);
+            q.columns = columns.into_iter().map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect();
+            q.limit = limit;
+            q.certified = true;
+        }
+        Op::AddQuery { id, source, sql, columns, limit } => {
+            next.queries.push(Query {
+                id: id.trim().to_string(),
+                source: source.trim().to_string(),
+                sql: clean(sql),
+                columns: columns.into_iter().map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect(),
+                limit,
+                certified: true,
+            });
+        }
+        Op::RemoveQuery { id } => {
+            if let Some(p) = next.panels.iter().find(|p| p.query == id) {
+                return Err(format!("o painel \"{}\" ainda usa essa consulta", p.title));
+            }
+            let before = next.queries.len();
+            next.queries.retain(|q| q.id != id);
+            if next.queries.len() == before {
+                return Err(format!("consulta \"{id}\" não existe"));
+            }
+        }
+        Op::Panel { index, title, query, chart, x, y, value, previous } => {
+            let p = next.panels.get_mut(index).ok_or("painel inexistente")?;
+            *p = Panel { title: title.trim().to_string(), query: query.trim().to_string(), chart, x: clean(x), y: clean(y), value: clean(value), previous: clean(previous) };
+        }
+        Op::AddPanel { title, query, chart, x, y, value, previous } => {
+            next.panels.push(Panel { title: title.trim().to_string(), query: query.trim().to_string(), chart, x: clean(x), y: clean(y), value: clean(value), previous: clean(previous) });
+        }
+        Op::MovePanel { from, to } => {
+            if from >= next.panels.len() || to >= next.panels.len() {
+                return Err("painel inexistente".into());
+            }
+            let p = next.panels.remove(from);
+            next.panels.insert(to, p);
+        }
+        Op::RemovePanel { index } => {
+            if index >= next.panels.len() {
+                return Err("painel inexistente".into());
+            }
+            next.panels.remove(index);
+        }
+        Op::Source { id, kind, path, command } => {
+            let s = next.sources.iter_mut().find(|s| s.id == id).ok_or_else(|| format!("fonte \"{id}\" não existe"))?;
+            s.kind = kind;
+            s.path = clean(path);
+            s.command = clean(command);
+        }
+        Op::AddSource { id, kind, path, command } => {
+            next.sources.push(Source { id: id.trim().to_string(), kind, path: clean(path), command: clean(command) });
+        }
+        Op::RemoveSource { id } => {
+            if let Some(q) = next.queries.iter().find(|q| q.source == id) {
+                return Err(format!("a consulta \"{}\" ainda lê essa fonte", q.id));
+            }
+            let before = next.sources.len();
+            next.sources.retain(|s| s.id != id);
+            if next.sources.len() == before {
+                return Err(format!("fonte \"{id}\" não existe"));
+            }
+        }
+        Op::Refresh { refresh } => next.refresh = refresh,
+    }
+    validate(&next)?;
+    *dash = next;
+    Ok(())
+}
+
 /// The dashboard as text for a chat that cites the page: its sources,
 /// its queries (certified marked) and its panels. Never the json.
 pub fn summary(dash: &Dash) -> String {
@@ -713,5 +838,63 @@ mod tests {
         assert!(after.queries[3].certified);
         assert!(set_certified(&mut after, "zzz", true).is_err());
         assert_eq!(parse(&to_json(&after)).unwrap(), after);
+    }
+
+    // ---------- fase 14.1: the person edits queries, panels, sources ----------
+
+    #[test]
+    fn a_query_the_person_writes_is_hers_and_must_read_only() {
+        let mut d = sample();
+        apply(&mut d, Op::Query { id: "retencao".into(), source: "ev".into(), sql: None, columns: vec!["mes".into(), "d30".into()], limit: Some(6) }).unwrap();
+        let q = d.queries.iter().find(|q| q.id == "retencao").unwrap();
+        assert_eq!(q.columns, vec!["mes", "d30"]);
+        assert_eq!(q.limit, Some(6));
+        assert!(q.certified, "edited by the person: certified");
+        let bad = apply(&mut d, Op::Query { id: "por_dia".into(), source: "db".into(), sql: Some("DELETE FROM x".into()), columns: vec![], limit: None });
+        assert!(bad.is_err(), "only SELECT");
+        assert_eq!(d.queries[0].sql.as_deref(), Some("SELECT dia, n FROM x"), "a refused edit changes nothing");
+        assert!(apply(&mut d, Op::Query { id: "por_dia".into(), source: "zz".into(), sql: Some("SELECT 1".into()), columns: vec![], limit: None }).is_err(), "the source exists");
+        assert!(apply(&mut d, Op::Query { id: "nope".into(), source: "db".into(), sql: Some("SELECT 1".into()), columns: vec![], limit: None }).is_err());
+        apply(&mut d, Op::AddQuery { id: "novos".into(), source: "db".into(), sql: Some("SELECT dia, novos FROM x".into()), columns: vec![], limit: None }).unwrap();
+        assert_eq!(d.queries.len(), 4);
+        assert!(d.queries[3].certified);
+        assert!(apply(&mut d, Op::AddQuery { id: "novos".into(), source: "db".into(), sql: Some("SELECT 1".into()), columns: vec![], limit: None }).is_err(), "ids are unique");
+        assert!(apply(&mut d, Op::RemoveQuery { id: "por_dia".into() }).is_err(), "two panels still draw it");
+        apply(&mut d, Op::RemoveQuery { id: "novos".into() }).unwrap();
+        assert_eq!(d.queries.len(), 3);
+    }
+
+    #[test]
+    fn panels_are_edited_added_moved_and_removed() {
+        let mut d = sample();
+        apply(&mut d, Op::Panel { index: 1, title: "por dia (n)".into(), query: "por_dia".into(), chart: Chart::Line, x: Some("dia".into()), y: Some("n".into()), value: None, previous: None }).unwrap();
+        assert_eq!(d.panels[1].title, "por dia (n)");
+        assert_eq!(d.panels[1].chart, Chart::Line);
+        assert!(apply(&mut d, Op::Panel { index: 1, title: "x".into(), query: "zz".into(), chart: Chart::Table, x: None, y: None, value: None, previous: None }).is_err(), "the query exists");
+        assert!(apply(&mut d, Op::Panel { index: 1, title: " ".into(), query: "por_dia".into(), chart: Chart::Table, x: None, y: None, value: None, previous: None }).is_err(), "a panel has a title");
+        apply(&mut d, Op::AddPanel { title: "ativos (tabela)".into(), query: "ativos".into(), chart: Chart::Table, x: None, y: None, value: None, previous: None }).unwrap();
+        assert_eq!(d.panels.len(), 5);
+        apply(&mut d, Op::MovePanel { from: 4, to: 0 }).unwrap();
+        assert_eq!(d.panels[0].title, "ativos (tabela)");
+        apply(&mut d, Op::RemovePanel { index: 0 }).unwrap();
+        assert_eq!(d.panels.len(), 4);
+        assert!(apply(&mut d, Op::RemovePanel { index: 9 }).is_err());
+    }
+
+    #[test]
+    fn sources_and_the_cadence_are_the_persons_too() {
+        let mut d = sample();
+        apply(&mut d, Op::AddSource { id: "custos".into(), kind: SourceKind::Csv, path: Some("data/custos.csv".into()), command: None }).unwrap();
+        assert_eq!(d.sources.len(), 4);
+        assert!(apply(&mut d, Op::AddSource { id: "fora".into(), kind: SourceKind::Csv, path: Some("/etc/passwd".into()), command: None }).is_err(), "inside the project");
+        assert!(apply(&mut d, Op::AddSource { id: "db".into(), kind: SourceKind::Csv, path: Some("x.csv".into()), command: None }).is_err(), "ids are unique");
+        apply(&mut d, Op::Source { id: "custos".into(), kind: SourceKind::Json, path: Some("data/custos.json".into()), command: None }).unwrap();
+        assert_eq!(d.sources[3].kind, SourceKind::Json);
+        assert!(apply(&mut d, Op::RemoveSource { id: "db".into() }).is_err(), "a query reads it");
+        apply(&mut d, Op::RemoveSource { id: "custos".into() }).unwrap();
+        assert_eq!(d.sources.len(), 3);
+        apply(&mut d, Op::Refresh { refresh: Refresh::Daily }).unwrap();
+        assert_eq!(d.refresh, Refresh::Daily);
+        assert_eq!(parse(&to_json(&d)).unwrap(), d, "every edit survives the file");
     }
 }
