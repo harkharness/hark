@@ -40,6 +40,7 @@ import Demands from "./components/Demands";
 import Mirror from "./components/Mirror";
 import Notifications from "./components/Notifications";
 import InicioBrief from "./components/InicioBrief";
+import InicioGlance from "./components/InicioGlance";
 import { Bell } from "lucide-react";
 import { condense } from "./lib/mirror";
 import { recoverSession as replacementFor, sessionVanished } from "./lib/recovery";
@@ -4171,18 +4172,7 @@ export default function App({
               ) : visibleMessages.length === 0 && isMain && door === "inicio" && !inicioFocus && !dayShown ? (
                 // Hoje with no chat yet: the day opens with the brief, not
                 // with an invitation to start something (04/11).
-                <InicioBrief
-                  userName={overview?.user_name ?? ""}
-                  demands={demandsOrdered}
-                  colourOf={(key) => colourOf(key.startsWith("/") ? key : allProjects.find((p) => p.name === key)?.path)}
-                  onGo={goToDemand}
-                  onDone={(d) => ipc.requestDone(d.id).then(reloadDemands).catch(() => {})}
-                  onArchiveStale={archiveStale}
-                  onLater={(d) => setLater((old) => (old.includes(d.id) ? old : [...old, d.id]))}
-                  onFocus={(d) => void enterFocus(d.title)}
-                  onAll={() => setView("demandas")}
-                  onAsk={(text) => setComposerPrefill({ text, nonce: Date.now() })}
-                />
+                <InicioBrief userName={overview?.user_name ?? ""} demands={demandsOrdered} />
               ) : visibleMessages.length === 0 ? (
                 <EmptyProject
                   project={activeProject}
@@ -4375,6 +4365,19 @@ export default function App({
                   }
                 />
               </Composer>
+              {visibleMessages.length === 0 && isMain && door === "inicio" && !inicioFocus && !dayShown && (
+                // The glance of the day sits under the composer: the hints
+                // and three boxes (need you · to review · stalled).
+                <InicioGlance
+                  demands={demandsOrdered}
+                  colourOf={(key) => colourOf(key.startsWith("/") ? key : allProjects.find((p) => p.name === key)?.path)}
+                  onGo={goToDemand}
+                  onAll={() => setView("demandas")}
+                  onArtifacts={() => setView("artefatos")}
+                  onBoard={() => setView("board")}
+                  onAsk={(text) => setComposerPrefill({ text, nonce: Date.now() })}
+                />
+              )}
               </>
               )}
               </>
