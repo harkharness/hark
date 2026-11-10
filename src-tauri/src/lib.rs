@@ -289,6 +289,39 @@ fn emit_event(app: &AppHandle, payload: serde_json::Value) {
 /// One line into the app log. Scrubbed on the way in; silent if the log
 /// could not be opened (a report without a log beats an app that cannot
 /// boot for want of one).
+/// Pages written this turn get their origin as soon as the file is on
+/// disk. A page the index still does not know stays queued (another
+/// tool's result may have come first); at the end of the turn what is
+/// left is reported once and dropped.
+fn attach_pending_pages(
+    app: &AppHandle,
+    task_id: &str,
+    root: &std::path::Path,
+    pending: &mut Vec<(hark_core::domain::artifact_links::Written, hark_core::domain::artifacts::Origin)>,
+    last_chance: bool,
+) {
+    let store = FsArtifacts::new(root.to_path_buf());
+    pending.retain(|(page, origin)| {
+        match hark_core::app::artifacts::attach_origin(&store, &page.space, &page.path, origin.clone(), &now_iso()) {
+            Ok(node) => {
+                emit_event(app, serde_json::json!({ "kind": "artifact_written", "space": page.space, "id": node.id, "task_id": task_id }));
+                notify(app, hark_core::domain::notifications::Event::ArtifactWritten {
+                    space: page.space.clone(),
+                    id: node.id.clone(),
+                    title: node.title.clone(),
+                    task: Some(task_id.to_string()),
+                });
+                false
+            }
+            Err(err) if !last_chance && err.to_string().contains("not a page") => true,
+            Err(err) => {
+                diag(app, &format!("artifact origin: {err}"));
+                false
+            }
+        }
+    });
+}
+
 fn diag(app: &AppHandle, line: &str) {
     if let Some(d) = app.try_state::<Diag>() {
         d.0.append(line);
@@ -1218,6 +1251,11 @@ fn start_worker_titled(
         use hark_core::adapters::recorder::now_iso as record_ts;
         use hark_core::domain::transcript::{Entry, Role};
         let config = Config::load();
+        // Pages a tool is writing this turn: the tool_use names the file
+        // before the tool runs, and a permission prompt can sit between
+        // the two for minutes. The origin is attached once the result is
+        // in, when the file is there (a 5 s retry used to give up first).
+        let mut pending_pages: Vec<(hark_core::domain::artifact_links::Written, hark_core::domain::artifacts::Origin)> = Vec::new();
         for event in rx.iter() {
             match event {
                 ClaudeEvent::SessionStarted { session_id, slash_commands } => {
@@ -1302,40 +1340,14 @@ fn start_worker_titled(
                         rec.entry(Entry { ts: record_ts(), role: Role::ToolUse, text: input.clone(), tool: Some(name.clone()), is_error: false });
                     }
                     // A page written inside the artifacts root learns the
-                    // chat and task that wrote it; the index adopts it.
+                    // chat and task that wrote it once the tool has run.
                     let root = artifacts_root(&config);
                     if let Some(page) = hark_core::domain::artifact_links::written_page(&name, &input, &root.to_string_lossy()) {
-                        let store = FsArtifacts::new(root);
                         let origin = hark_core::domain::artifacts::Origin {
                             session_id: Some(current_session.clone()).filter(|s| !s.is_empty()),
                             task: Some(board_title.clone()),
                         };
-                        // The tool_use arrives before the tool ran: the
-                        // file lands a moment later (longer when a prompt
-                        // sits in between). Retried off this thread, so
-                        // the page gets its origin instead of a diag line.
-                        let (app3, task3) = (app2.clone(), task2.clone());
-                        std::thread::spawn(move || {
-                            for attempt in 0..10 {
-                                match hark_core::app::artifacts::attach_origin(&store, &page.space, &page.path, origin.clone(), &now_iso()) {
-                                    Ok(node) => {
-                                        emit_event(&app3, serde_json::json!({ "kind": "artifact_written", "space": page.space, "id": node.id, "task_id": task3 }));
-                                        notify(&app3, hark_core::domain::notifications::Event::ArtifactWritten {
-                                            space: page.space.clone(),
-                                            id: node.id.clone(),
-                                            title: node.title.clone(),
-                                            task: Some(task3.clone()),
-                                        });
-                                        return;
-                                    }
-                                    Err(err) if attempt == 9 || !err.to_string().contains("not a page") => {
-                                        diag(&app3, &format!("artifact origin: {err}"));
-                                        return;
-                                    }
-                                    Err(_) => std::thread::sleep(std::time::Duration::from_millis(500)),
-                                }
-                            }
-                        });
+                        pending_pages.push((page, origin));
                     }
                     // An APPROVED plan becomes the task's visible checklist.
                     if name == "ExitPlanMode" {
@@ -1370,6 +1382,9 @@ fn start_worker_titled(
                 ClaudeEvent::ToolResult { content, is_error } => {
                     if let Some(rec) = &recorder {
                         rec.entry(Entry { ts: record_ts(), role: Role::ToolResult, text: content.clone(), tool: None, is_error });
+                    }
+                    if !pending_pages.is_empty() {
+                        attach_pending_pages(&app2, &task2, &artifacts_root(&config), &mut pending_pages, false);
                     }
                     emit_event(
                         &app2,
@@ -1416,6 +1431,9 @@ fn start_worker_titled(
                     // The next turn starts from scratch: re-announce its
                     // first phase even if it matches this turn's last.
                     last_phase = None;
+                    if !pending_pages.is_empty() {
+                        attach_pending_pages(&app2, &task2, &artifacts_root(&config), &mut pending_pages, true);
+                    }
                     if let Some(rec) = &recorder {
                         // The record's token history, one line per model;
                         // the dollars are the live ledger row's below.

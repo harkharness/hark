@@ -183,6 +183,10 @@ destrutivos numa fonte.
   pasta: continua a mesma página. Uma página cujo arquivo some sai da
   árvore.
 - Mudar de pasta (de mãe) é da pessoa, arrastando na árvore.
+- Para apontar para uma página numa resposta ou em outra página, o link
+  é `hark://artifacts/<espaço>/<id>`, onde `<id>` é o nome do arquivo
+  sem a extensão (`custos.sheet.json` → `hark://artifacts/tulipa/custos`).
+  O Hark abre o link no visor de artefatos.
 
 ## O que nunca fazer
 
@@ -239,6 +243,13 @@ mod tests {
         assert!(md.contains("\"=SOMA(B3:C3)\""), "a formula is a string starting with =: {md}");
         assert!(md.contains("\"certified\": true") && md.contains("só SELECT"), "a dashboard's rules: {md}");
         assert!(md.contains("Não escreva\ncoordenadas") && md.contains("\"timeline\""), "a board's rules: {md}");
+    }
+
+    #[test]
+    fn the_skill_says_how_a_page_is_linked() {
+        let skill = skill_md("/home/ana/.hark/artifacts");
+        assert!(skill.contains("hark://artifacts/<espaço>/<id>"), "the link form");
+        assert!(skill.contains("sem a extensão"), "the id is the file name without its extension");
     }
 
     #[test]

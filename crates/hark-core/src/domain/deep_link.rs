@@ -71,7 +71,12 @@ pub fn parse(url: &str) -> Option<Target> {
     let mut parts = rest.split('/');
     match (parts.next()?, parts.next(), parts.next(), parts.next()) {
         ("chat", Some(session), None, None) => Some(Target::Chat { session: clean(session)? }),
-        ("artifacts", Some(space), Some(id), None) => Some(Target::Page { space: clean(space)?, id: clean(id)? }),
+        // An agent links the file it wrote (`custos.sheet.json`); the
+        // page is known by its id, the name without the extension.
+        ("artifacts", Some(space), Some(id), None) => {
+            let id = clean(id)?;
+            Some(Target::Page { space: clean(space)?, id: crate::domain::artifacts::stem(&id).to_string() })
+        }
         _ => None,
     }
 }
@@ -95,6 +100,17 @@ mod tests {
         assert_eq!(parse("hark://artifacts/hark/plano#sel=n1,n2"), Some(Target::Page { space: "hark".into(), id: "plano".into() }), "a selection fragment still names the page");
         assert_eq!(fragment("hark://artifacts/hark/plano#sel=n1,n2"), Some("sel=n1,n2".into()));
         assert_eq!(fragment("hark://artifacts/hark/plano"), None);
+    }
+
+    /// An agent writes the link the way it sees the file; the page is
+    /// known by its id (the name without the page extension).
+    #[test]
+    fn a_link_may_name_the_page_by_its_file() {
+        let page = |id: &str| Some(Target::Page { space: "tulipa".into(), id: id.into() });
+        assert_eq!(parse("hark://artifacts/tulipa/custos.sheet.json"), page("custos"));
+        assert_eq!(parse("hark://artifacts/tulipa/home.html"), page("home"));
+        assert_eq!(parse("hark://artifacts/tulipa/plano.board.json#sel=n1"), page("plano"));
+        assert_eq!(parse("hark://artifacts/tulipa/v1.2"), page("v1.2"), "a dot that is not a page extension stays");
     }
 
     #[test]

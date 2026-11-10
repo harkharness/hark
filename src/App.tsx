@@ -43,6 +43,7 @@ import InicioBrief from "./components/InicioBrief";
 import { Bell } from "lucide-react";
 import { condense } from "./lib/mirror";
 import { recoverSession as replacementFor, sessionVanished } from "./lib/recovery";
+import { harkTarget } from "./lib/harkLink";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
@@ -1589,6 +1590,19 @@ export default function App({
     let path = raw.trim();
     if (/^https?:/i.test(path)) {
       ipc.openExternal(path).catch(() => {});
+      return;
+    }
+    // A `hark://` link in a reply is a page or a chat, never a file: it
+    // used to fall through to the file panel as "<project>/<link>".
+    const target = harkTarget(path);
+    if (target?.kind === "page") {
+      setView("artefatos");
+      setArtSel({ space: target.space, id: target.id });
+      return;
+    }
+    if (target?.kind === "chat") {
+      setView("chat");
+      void recoverSession({ session_id: target.session, title: target.session.slice(0, 8) });
       return;
     }
     // "src/lib.rs:38" is how every tool prints a location: the number
@@ -3197,10 +3211,10 @@ export default function App({
    *  recovered where it lives, the forgotten-cards line opens the board,
    *  a card opens its chat. */
   function goToDemand(d: import("./types").Demand) {
-    const page = d.link?.match(/^hark:\/\/artifacts\/([^/]+)\/(.+)$/);
-    if (page) {
+    const page = d.link ? harkTarget(d.link) : null;
+    if (page?.kind === "page") {
       setView("artefatos");
-      setArtSel({ space: decodeURIComponent(page[1]), id: decodeURIComponent(page[2]) });
+      setArtSel({ space: page.space, id: page.id });
       return;
     }
     const chat = d.link?.match(/^hark:\/\/chat\/(.+)$/);

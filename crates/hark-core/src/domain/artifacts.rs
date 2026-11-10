@@ -178,7 +178,9 @@ fn fold(c: char) -> Option<char> {
 }
 
 /// The file name without its page extension (compound ones included).
-fn stem(path: &str) -> &str {
+/// A page's id: the file name without its page extension. Also what a
+/// `hark://artifacts/<space>/<id>` link names.
+pub fn stem(path: &str) -> &str {
     let file = path.rsplit('/').next().unwrap_or(path);
     let ext = ext_of(file);
     if ext.is_empty() { file } else { &file[..file.len() - ext.len() - 1] }
