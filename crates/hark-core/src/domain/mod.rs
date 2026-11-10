@@ -28,6 +28,7 @@ pub mod memory;
 pub mod notifications;
 pub mod outbox;
 pub mod owner;
+pub mod page_history;
 pub mod persona;
 pub mod prodgate;
 pub mod reply;

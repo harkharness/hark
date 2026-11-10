@@ -2,8 +2,12 @@
 //! checked by the domain (`validate_path`) and the one rule only the disk
 //! can enforce lives here: never through a symlink, never outside the root.
 
-use crate::ports::ArtifactStore;
+use crate::domain::page_history;
+use crate::ports::{ArtifactStore, PageVersion};
 use std::path::{Path, PathBuf};
+
+/// Where a space keeps its pages' versions: hidden, so never a page.
+const HISTORY_DIR: &str = ".history";
 
 pub struct FsArtifacts {
     root: PathBuf,
@@ -63,6 +67,27 @@ impl FsArtifacts {
             }
         }
         Ok(cur)
+    }
+
+    /// The folder of a page's versions: `<space>/.history/<page path>/`.
+    fn history_dir(&self, space: &str, path: &str) -> anyhow::Result<PathBuf> {
+        crate::domain::artifacts::validate_path(path).map_err(anyhow::Error::msg)?;
+        let mut cur = self.space_dir(space)?.join(HISTORY_DIR);
+        for seg in path.split('/') {
+            cur.push(seg);
+            if is_symlink(&cur) {
+                anyhow::bail!("refused: {} is a symlink", cur.display());
+            }
+        }
+        Ok(cur)
+    }
+
+    fn version_file(&self, space: &str, path: &str, at: &str) -> anyhow::Result<PathBuf> {
+        let name = page_history::file_name(at);
+        if name.is_empty() || name.contains('/') || name.starts_with('.') {
+            anyhow::bail!("{at}: not a version");
+        }
+        Ok(self.history_dir(space, path)?.join(name))
     }
 
     fn walk(dir: &Path, rel: &str, out: &mut Vec<String>) -> anyhow::Result<()> {
@@ -160,6 +185,51 @@ impl ArtifactStore for FsArtifacts {
     fn absolute(&self, space: &str, path: &str) -> anyhow::Result<PathBuf> {
         self.page_path(space, path)
     }
+
+    fn list_versions(&self, space: &str, path: &str) -> anyhow::Result<Vec<PageVersion>> {
+        let dir = self.history_dir(space, path)?;
+        let mut out = vec![];
+        if !dir.is_dir() {
+            return Ok(out);
+        }
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
+            let file = entry.path();
+            if hidden(&entry.file_name()) || is_symlink(&file) || !file.is_file() {
+                continue;
+            }
+            let bytes = entry.metadata().map(|m| m.len()).unwrap_or(0);
+            out.push(PageVersion { at: page_history::instant(&entry.file_name().to_string_lossy()), bytes });
+        }
+        out.sort_by(|a, b| a.at.cmp(&b.at));
+        Ok(out)
+    }
+
+    fn read_version(&self, space: &str, path: &str, at: &str) -> anyhow::Result<String> {
+        let file = self.version_file(space, path, at)?;
+        if is_symlink(&file) || !file.is_file() {
+            anyhow::bail!("{at}: no such version of {path}");
+        }
+        Ok(std::fs::read_to_string(file)?)
+    }
+
+    fn write_version(&self, space: &str, path: &str, at: &str, text: &str) -> anyhow::Result<()> {
+        let file = self.version_file(space, path, at)?;
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(file, text)?;
+        Ok(())
+    }
+
+    fn remove_version(&self, space: &str, path: &str, at: &str) -> anyhow::Result<()> {
+        let file = self.version_file(space, path, at)?;
+        if !file.is_file() {
+            anyhow::bail!("{at}: no such version of {path}");
+        }
+        std::fs::remove_file(file)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -238,6 +308,23 @@ mod tests {
         let dir_link = d.path().join("artifacts").join("hark").join("linked");
         std::os::unix::fs::symlink(d.path(), &dir_link).unwrap();
         assert!(s.read_page("hark", "linked/outside.md").is_err());
+    }
+
+    #[test]
+    fn versions_live_hidden_beside_the_page_and_list_oldest_first() {
+        let (_d, s) = store();
+        s.write_page("hark", "notas/custos.sheet.json", "{}").unwrap();
+        s.write_version("hark", "notas/custos.sheet.json", "2026-10-28T10:05:00Z", "b").unwrap();
+        s.write_version("hark", "notas/custos.sheet.json", "2026-10-28T10:00:00Z", "a").unwrap();
+        let list = s.list_versions("hark", "notas/custos.sheet.json").unwrap();
+        assert_eq!(list.iter().map(|v| v.at.as_str()).collect::<Vec<_>>(), vec!["2026-10-28T10:00:00Z", "2026-10-28T10:05:00Z"]);
+        assert_eq!(list[0].bytes, 1);
+        assert_eq!(s.read_version("hark", "notas/custos.sheet.json", "2026-10-28T10:00:00Z").unwrap(), "a");
+        assert_eq!(s.list_pages("hark").unwrap(), vec!["notas/custos.sheet.json"], "versions are not pages");
+        s.remove_version("hark", "notas/custos.sheet.json", "2026-10-28T10:00:00Z").unwrap();
+        assert_eq!(s.list_versions("hark", "notas/custos.sheet.json").unwrap().len(), 1);
+        assert!(s.read_version("hark", "notas/custos.sheet.json", "nope").is_err());
+        assert!(s.list_versions("hark", "outra.md").unwrap().is_empty(), "no history is an empty list");
     }
 
     #[test]

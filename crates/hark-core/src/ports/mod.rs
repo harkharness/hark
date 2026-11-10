@@ -334,4 +334,17 @@ pub trait ArtifactStore {
     fn remove_page(&self, space: &str, path: &str) -> anyhow::Result<()>;
     /// The absolute path of a page, for the viewer and the Finder.
     fn absolute(&self, space: &str, path: &str) -> anyhow::Result<std::path::PathBuf>;
+    /// The versions a page keeps (domain::page_history), oldest first;
+    /// none is an empty list.
+    fn list_versions(&self, space: &str, path: &str) -> anyhow::Result<Vec<PageVersion>>;
+    fn read_version(&self, space: &str, path: &str, at: &str) -> anyhow::Result<String>;
+    fn write_version(&self, space: &str, path: &str, at: &str, text: &str) -> anyhow::Result<()>;
+    fn remove_version(&self, space: &str, path: &str, at: &str) -> anyhow::Result<()>;
+}
+
+/// One kept version of a page: when it was taken, how big it is.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PageVersion {
+    pub at: String,
+    pub bytes: u64,
 }

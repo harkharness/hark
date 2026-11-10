@@ -3,7 +3,8 @@
 //! index back; the disk is behind the `ArtifactStore` port.
 
 use crate::domain::artifacts::{Kind, Node, Origin, Tree};
-use crate::ports::ArtifactStore;
+use crate::domain::page_history;
+use crate::ports::{ArtifactStore, PageVersion};
 
 fn save(store: &dyn ArtifactStore, space: &str, tree: &Tree) -> anyhow::Result<()> {
     store.write_index(space, &tree.to_json())
@@ -120,10 +121,16 @@ pub fn create(
     Ok(node)
 }
 
-/// The page's text replaced, its touch recorded.
+/// The page's text replaced by the person, its touch recorded, and the
+/// text before it kept as a version.
 pub fn write(store: &dyn ArtifactStore, space: &str, id: &str, text: &str, now: &str) -> anyhow::Result<()> {
     let mut tree = load(store, space, now)?;
     let path = tree.path_for(id).ok_or_else(|| anyhow::anyhow!("{id}: not found"))?.to_string();
+    if let Ok(before) = store.read_page(space, &path) {
+        if before != text {
+            keep(store, space, &path, &before, now)?;
+        }
+    }
     store.write_page(space, &path, text)?;
     if let Some(n) = tree.nodes.iter_mut().find(|n| n.id == id) {
         n.updated_at = now.to_string();
@@ -155,6 +162,68 @@ pub fn remove(store: &dyn ArtifactStore, space: &str, id: &str) -> anyhow::Resul
     }
     save(store, space, &tree)?;
     Ok(gone)
+}
+
+fn path_of(store: &dyn ArtifactStore, space: &str, id: &str) -> anyhow::Result<String> {
+    let tree = load(store, space, "")?;
+    tree.path_for(id).map(str::to_string).ok_or_else(|| anyhow::anyhow!("{id}: not found"))
+}
+
+/// A text kept as a version of the page, the oldest beyond the limit
+/// dropped (domain::page_history).
+fn keep(store: &dyn ArtifactStore, space: &str, path: &str, text: &str, now: &str) -> anyhow::Result<()> {
+    store.write_version(space, path, now, text)?;
+    let instants: Vec<String> = store.list_versions(space, path)?.into_iter().map(|v| v.at).collect();
+    for at in page_history::to_prune(&instants) {
+        let _ = store.remove_version(space, path, &at);
+    }
+    Ok(())
+}
+
+/// The versions a page keeps, oldest first.
+pub fn versions(store: &dyn ArtifactStore, space: &str, id: &str) -> anyhow::Result<Vec<PageVersion>> {
+    let path = path_of(store, space, id)?;
+    store.list_versions(space, &path)
+}
+
+/// The text the person last accepted: the newest version. A page seen
+/// for the first time takes its current text as that baseline, so the
+/// next agent write has something to be compared with.
+pub fn baseline(store: &dyn ArtifactStore, space: &str, id: &str, now: &str) -> anyhow::Result<String> {
+    let path = path_of(store, space, id)?;
+    match store.list_versions(space, &path)?.last() {
+        Some(v) => store.read_version(space, &path, &v.at),
+        None => {
+            let text = store.read_page(space, &path)?;
+            keep(store, space, &path, &text, now)?;
+            Ok(text)
+        }
+    }
+}
+
+/// The current text becomes the baseline: what the agent changed is
+/// taken, and the marks clear.
+pub fn accept(store: &dyn ArtifactStore, space: &str, id: &str, now: &str) -> anyhow::Result<()> {
+    let path = path_of(store, space, id)?;
+    let text = store.read_page(space, &path)?;
+    keep(store, space, &path, &text, now)
+}
+
+/// The page goes back to a version. What is there now is kept first,
+/// so going back is never a loss.
+pub fn restore(store: &dyn ArtifactStore, space: &str, id: &str, at: &str, now: &str) -> anyhow::Result<()> {
+    let path = path_of(store, space, id)?;
+    let old = store.read_version(space, &path, at)?;
+    let current = store.read_page(space, &path)?;
+    if current != old {
+        keep(store, space, &path, &current, now)?;
+    }
+    store.write_page(space, &path, &old)?;
+    let mut tree = load(store, space, now)?;
+    if let Some(n) = tree.nodes.iter_mut().find(|n| n.id == id) {
+        n.updated_at = now.to_string();
+    }
+    save(store, space, &tree)
 }
 
 /// An agent wrote a page: the page learns where it came from. The first
@@ -267,6 +336,49 @@ mod tests {
         assert_eq!(gone.len(), 3);
         assert!(s.list_pages("hark").unwrap().is_empty(), "the files went with the pages");
         assert!(load(&s, "hark", NOW).unwrap().children(None).is_empty());
+    }
+
+    #[test]
+    fn a_page_keeps_the_version_before_each_change_and_can_go_back() {
+        let (_d, s) = store();
+        let page = create(&s, "hark", None, "Custos", Kind::Sheet, None, NOW).unwrap();
+        // First sight: the page's content becomes its baseline.
+        assert_eq!(versions(&s, "hark", &page.id).unwrap().len(), 0);
+        let base = baseline(&s, "hark", &page.id, NOW).unwrap();
+        assert_eq!(base, s.read_page("hark", &page.path).unwrap());
+        assert_eq!(versions(&s, "hark", &page.id).unwrap().len(), 1);
+        // The agent rewrote the file (straight to disk). The baseline is
+        // still what you last accepted; accepting makes the new text the
+        // baseline.
+        s.write_page("hark", &page.path, "{\"tabs\":[]}\n").unwrap();
+        assert_eq!(baseline(&s, "hark", &page.id, "2026-10-28T10:05:00Z").unwrap(), base, "a baseline is not retaken on its own");
+        accept(&s, "hark", &page.id, "2026-10-28T10:10:00Z").unwrap();
+        assert_eq!(baseline(&s, "hark", &page.id, "2026-10-28T10:11:00Z").unwrap(), "{\"tabs\":[]}\n");
+        let list = versions(&s, "hark", &page.id).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].at, NOW, "oldest first, the ISO instant it was taken");
+        // Going back keeps what is there as a version too, so nothing is lost.
+        restore(&s, "hark", &page.id, &list[0].at, "2026-10-28T10:20:00Z").unwrap();
+        assert_eq!(s.read_page("hark", &page.path).unwrap(), base);
+        assert_eq!(versions(&s, "hark", &page.id).unwrap().len(), 3);
+        // Your own edit through Hark keeps the text before it.
+        write(&s, "hark", &page.id, "{\"tabs\":[{\"name\":\"x\"}]}\n", "2026-10-28T10:30:00Z").unwrap();
+        let list = versions(&s, "hark", &page.id).unwrap();
+        assert_eq!(list.len(), 4);
+        assert_eq!(s.read_version("hark", &page.path, &list[3].at).unwrap(), base, "the text before the edit");
+        assert!(restore(&s, "hark", &page.id, "2000-01-01T00:00:00Z", NOW).is_err(), "a version that is not there");
+    }
+
+    #[test]
+    fn old_versions_are_pruned_to_the_last_thirty() {
+        let (_d, s) = store();
+        let page = create(&s, "hark", None, "Nota", Kind::Doc, None, NOW).unwrap();
+        for i in 0..40 {
+            accept(&s, "hark", &page.id, &format!("2026-10-28T11:{i:02}:00Z")).unwrap();
+        }
+        let list = versions(&s, "hark", &page.id).unwrap();
+        assert_eq!(list.len(), crate::domain::page_history::KEEP);
+        assert_eq!(list[0].at, "2026-10-28T11:10:00Z", "the oldest went first");
     }
 
     #[test]
