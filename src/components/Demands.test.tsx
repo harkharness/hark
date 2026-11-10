@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
-import Demands from "./Demands";
+import Demands, { when } from "./Demands";
 import { t } from "../lib/i18n";
 import type { Demand } from "../types";
 
@@ -13,12 +13,21 @@ const contador: Demand = { id: "req:r1", source: "request", project: null, title
 const base = { demands: [billing, deck, contador], onGo: () => {}, onDone: () => {}, onLater: () => {} };
 
 describe("Demandas: the list of the day", () => {
-  it("shows each demand with its why and its source", () => {
-    const { getByText } = render(<Demands {...base} />);
+  it("groups the demands by what they ask, says the why on hover, and keeps the row to title and when", () => {
+    const { getByText, getByTitle } = render(<Demands {...base} />);
     expect(getByText("Billing v2")).toBeTruthy();
-    expect(getByText("parou numa permissão")).toBeTruthy();
-    expect(getByText(t("demand_src_artifact"))).toBeTruthy();
-    expect(getByText(t("demand_src_request"))).toBeTruthy();
+    expect(getByTitle("parou numa permissão")).toBeTruthy();
+    expect(getByText(t("demand_group_needs_you"))).toBeTruthy();
+    expect(getByText(t("demand_group_review"))).toBeTruthy();
+    expect(getByText(t("demand_group_reminder"))).toBeTruthy();
+    expect(getByText("Billing v2").closest(".demand-group")!.querySelector(".demand-group-title")!.textContent).toContain(t("demand_group_needs_you"));
+  });
+
+  it("when is the hour today and the day otherwise", () => {
+    const now = new Date("2026-11-04T18:00:00-03:00");
+    expect(when("2026-11-04T09:50:00-03:00", now)).toBe(new Date("2026-11-04T09:50:00-03:00").toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }));
+    expect(when("2026-11-01T09:50:00-03:00", now)).toBe(new Date("2026-11-01T09:50:00-03:00").toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" }));
+    expect(when("", now)).toBe("");
   });
 
   it("'ir' hands the demand over; 'feito' only exists for a request", () => {
@@ -56,7 +65,7 @@ describe("Demandas: the chats of the day", () => {
     const onFocus = vi.fn();
     const onArchiveStale = vi.fn();
     const { getByText, getAllByText, queryAllByText } = render(<Demands demands={[patch, forgotten]} onGo={onGo} onDone={() => {}} onLater={() => {}} onFocus={onFocus} onArchiveStale={onArchiveStale} />);
-    expect(getByText(t("demand_src_session"))).toBeTruthy();
+    expect(getByText(t("demand_group_stalled"))).toBeTruthy();
     expect(getByText("12 cards parados há semanas")).toBeTruthy();
     expect(queryAllByText(t("demand_focus"))).toHaveLength(0);
     fireEvent.click(getAllByText(t("demand_go"))[0]);
