@@ -521,42 +521,48 @@ function Home({
   const counts = useMemo(() => kindCounts(tree), [tree]);
   const recent = useMemo(() => (filter ? recents(tree, 200, filter) : recents(tree, 12)), [tree, filter]);
   const name = space?.project ? space.name : t("art_space_personal");
+  const path = `~/.hark/artifacts/${space?.name ?? ""}`;
+  const kindsLabel = (k: ArtifactKind) => t(`art_kinds_${k}`);
   return (
     <div className="art-home">
-      <div className="art-crumb">
-        {space?.project ? <span className="art-dot" style={colour ? { background: colour } : undefined} /> : <User size={12} />}
-        <b>{name}</b>
-        <span className="dim">
-          · {space?.project ? t("art_space_project") : t("art_space_personal_hint")} · {t("art_pages_n", { n: tree.nodes.length })} ·{" "}
-          <span className="mono">~/.hark/artifacts/{space?.name}</span>
-        </span>
+      <div className="art-head">
+        <div>
+          <h1 className="art-title">{t("art_title")}</h1>
+          <div className="art-sub dim" title={path}>
+            {space?.project ? <span className="art-dot" style={colour ? { background: colour } : undefined} /> : <User size={11} />} {name} · {t("art_pages_n", { n: tree.nodes.length })}
+          </div>
+        </div>
       </div>
-      <div className="art-home-bar">
-        <span className="art-kinds art-filter">
-          <button className={`pill-btn ${filter === null ? "on" : ""}`} onClick={() => setFilter(null)}>
-            {t("art_all")} · {tree.nodes.length}
+      <div className="art-tabs">
+        <button className={`art-tab ${filter === null ? "on" : ""}`} onClick={() => setFilter(null)}>
+          {t("art_tab_all")}
+          {filter === null && <span className="art-tab-n">{tree.nodes.length}</span>}
+        </button>
+        {ARTIFACT_KINDS.filter((k) => counts[k]).map((k) => (
+          <button key={k} className={`art-tab ${filter === k ? "on" : ""}`} onClick={() => setFilter(filter === k ? null : k)}>
+            {kindsLabel(k)}
+            {filter === k && <span className="art-tab-n">{counts[k]}</span>}
           </button>
-          {ARTIFACT_KINDS.filter((k) => counts[k]).map((k) => {
-            const Icon = KIND_ICON[k];
-            return (
-              <button key={k} className={`pill-btn ${filter === k ? "on" : ""}`} onClick={() => setFilter(filter === k ? null : k)}>
-                <Icon size={11} className={`art-kind ${k}`} /> {kindLabel(k)} · {counts[k]}
-              </button>
-            );
-          })}
-        </span>
-        <span className="art-home-title">{filter ? kindLabel(filter) : t("art_recent")}</span>
-        <span className="art-kinds">
-          {ARTIFACT_KINDS.map((k) => {
-            const Icon = KIND_ICON[k];
-            return (
-              <button key={k} className="pill-btn" onClick={() => onNew(k)}>
-                <Plus size={11} /> {kindLabel(k)}
-              </button>
-            );
-          })}
-        </span>
+        ))}
       </div>
+      {!filter && (
+        <div className="art-create">
+          <div className="dim">{t("art_create_new")}</div>
+          <div className="art-tiles">
+            {ARTIFACT_KINDS.map((k) => {
+              const Icon = KIND_ICON[k];
+              return (
+                <button key={k} className="art-tile" onClick={() => onNew(k)} title={t("art_new_page")}>
+                  <span className={`art-tile-pic ${k}`}>
+                    <Icon size={24} className={`art-kind ${k}`} strokeWidth={1.7} />
+                  </span>
+                  <span>{kindsLabel(k)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {recent.length === 0 ? (
         <div className="art-empty">
           <FileText size={22} strokeWidth={1.6} />
@@ -569,14 +575,13 @@ function Home({
             const Icon = KIND_ICON[n.kind];
             const crumb = crumbOf(tree, n.id).slice(0, -1);
             return (
-              <button key={n.id} className="art-card" onClick={() => onOpen(n.id)} title={n.path}>
+              <button key={n.id} className="art-card" onClick={() => onOpen(n.id)} title={crumb.length ? `${crumb.join(" › ")} · ${n.path}` : n.path}>
                 <Thumb space={space?.name ?? ""} node={n} />
                 <div className="art-card-foot">
-                  <Icon size={14} className={`art-kind ${n.kind}`} />
                   <div className="art-card-text">
                     <span className="art-card-title">{n.title}</span>
-                    <span className="dim">
-                      {crumb.length ? crumb.join(" › ") : t("art_root")} · {ago(n.updated_at)}
+                    <span className="dim art-card-meta">
+                      <Icon size={11} className={`art-kind ${n.kind}`} /> {crumb.length ? `${crumb[crumb.length - 1]} · ` : ""}{ago(n.updated_at)}
                     </span>
                   </div>
                 </div>
