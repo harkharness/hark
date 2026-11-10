@@ -6,6 +6,7 @@ import type { DashView as View } from "../types";
 const calls = vi.hoisted(() => ({
   view: vi.fn(),
   certify: vi.fn(async () => undefined),
+  edit: vi.fn(async () => undefined),
   accept: vi.fn(async () => undefined),
   story: vi.fn(async () => "A retenção subiu 23 pontos."),
   create: vi.fn(async () => ({ id: "historia-uso-do-app", title: "x", path: "x.md", kind: "doc", updated_at: "" })),
@@ -41,6 +42,7 @@ const view: View = {
 vi.mock("../lib/ipc", () => ({
   dashView: calls.view,
   dashCertify: calls.certify,
+  dashEdit: calls.edit,
   artifactAccept: calls.accept,
   dashStory: calls.story,
   artifactCreate: calls.create,
@@ -109,5 +111,38 @@ describe("the dashboard viewer", () => {
     calls.view.mockResolvedValue({ ...view, error: "não é json: x", panels: [] });
     const { findByText } = render(<DashView space="tulipa" id="uso" />);
     expect(await findByText(t("dash_file_err", { e: "não é json: x" }))).toBeTruthy();
+  });
+
+  it("a query is edited in a form and saved as the person's", async () => {
+    calls.view.mockResolvedValue(view);
+    const { findByText, getByText, getByDisplayValue } = render(<DashView space="tulipa" id="uso" />);
+    await findByText("usuários ativos");
+    fireEvent.click(getByText(t("dash_sources_tab")));
+    fireEvent.click(getByText(t("dash_edit_query")));
+    const sql = getByDisplayValue("SELECT dia, n FROM lancamentos") as HTMLTextAreaElement;
+    fireEvent.change(sql, { target: { value: "SELECT dia, n FROM lancamentos WHERE n > 0" } });
+    fireEvent.click(getByText(t("board_save")));
+    await waitFor(() =>
+      expect(calls.edit).toHaveBeenCalledWith("tulipa", "uso", { op: "query", id: "por_dia", source: "db", sql: "SELECT dia, n FROM lancamentos WHERE n > 0", columns: [], limit: null }),
+    );
+  });
+
+  it("a panel is edited through its gear and a new source through the sources screen", async () => {
+    calls.view.mockResolvedValue(view);
+    const { findByText, getByText, getAllByTitle, getByDisplayValue, getByPlaceholderText } = render(<DashView space="tulipa" id="uso" />);
+    await findByText("usuários ativos");
+    fireEvent.click(getAllByTitle(t("dash_edit_panel"))[1]);
+    const title = getByDisplayValue("por dia") as HTMLInputElement;
+    fireEvent.change(title, { target: { value: "lançamentos por dia" } });
+    fireEvent.click(getByText(t("board_save")));
+    await waitFor(() =>
+      expect(calls.edit).toHaveBeenCalledWith("tulipa", "uso", { op: "panel", index: 1, title: "lançamentos por dia", query: "por_dia", chart: "bar", x: null, y: null, value: null, previous: null }),
+    );
+    fireEvent.click(getByText(t("dash_sources_tab")));
+    fireEvent.click(getByText(t("dash_new_source")));
+    fireEvent.change(getByPlaceholderText(t("dash_query_id")), { target: { value: "custos" } });
+    fireEvent.change(getByPlaceholderText(t("dash_path")), { target: { value: "data/custos.csv" } });
+    fireEvent.click(getByText(t("board_save")));
+    await waitFor(() => expect(calls.edit).toHaveBeenCalledWith("tulipa", "uso", { op: "add_source", id: "custos", kind: "csv", path: "data/custos.csv", command: null }));
   });
 });

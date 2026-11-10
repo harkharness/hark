@@ -3279,3 +3279,21 @@ html.demo .side-drag::before {
 .board-milestone-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
 .board-milestone-form input { background: var(--panel-2); color: var(--text-strong); border: 1px solid var(--border-strong); border-radius: 6px; padding: 4px 7px; font-size: 12px; outline: none; }
 .board-milestone-form input.mono { width: 100px; }
+
+/* ---- dashboard editing (fase 14.1): forms for panels, queries and sources ---- */
+.dash-form { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.dash-form label { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: 8px; }
+.dash-form input, .dash-form select, .dash-form textarea { background: var(--panel-2); color: var(--text-strong); border: 1px solid var(--border-strong); border-radius: 6px; padding: 4px 7px; font-size: 12px; outline: none; width: 100%; box-sizing: border-box; }
+.dash-form textarea { resize: vertical; line-height: 1.45; }
+.dash-form-acts { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.dash-panel.form { gap: 6px; }
+.dash-panel.add { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 90px; border-style: dashed; color: var(--dim); background: none; cursor: pointer; font-size: 12px; }
+.dash-panel.add:hover { color: var(--text-strong); border-color: var(--border-strong); }
+.dash-gear { opacity: 0; }
+.dash-panel:hover .dash-gear { opacity: 1; }
+.dash-cadence { background: none; border: 0; color: var(--dim); font-size: inherit; cursor: pointer; padding: 0; }
+.dash-cadence:hover { color: var(--text); }
+.dash-source-row { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 4px; }
+.dash-source-row button { background: none; border: 0; color: var(--dim); cursor: pointer; padding: 2px; display: inline-flex; }
+.dash-source-row button:hover { color: var(--text-strong); }
+.dash-edit-err { font-size: 12px; }

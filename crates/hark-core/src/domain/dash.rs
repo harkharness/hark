@@ -378,6 +378,15 @@ pub struct PanelView {
     pub query: String,
     pub chart: Chart,
     pub certified: bool,
+    /// The panel's own column picks, as the file holds them (the form edits them).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// number: the value; bar/line: unused.
@@ -436,6 +445,10 @@ pub fn panel_view(dash: &Dash, panel: &Panel, result: Option<&Result_>) -> Panel
         query: panel.query.clone(),
         chart: panel.chart,
         certified,
+        x: panel.x.clone(),
+        y: panel.y.clone(),
+        value: panel.value.clone(),
+        previous: panel.previous.clone(),
         error: None,
         number: None,
         delta: None,
@@ -814,8 +827,8 @@ mod tests {
     fn the_story_prompt_carries_the_numbers_and_the_answer_is_read_back() {
         let d = sample();
         let panels = vec![
-            PanelView { title: "ativos".into(), query: "ativos".into(), chart: Chart::Number, certified: true, error: None, number: Some(1284.0), delta: Some(0.062), labels: vec![], values: vec![], table: None },
-            PanelView { title: "por dia".into(), query: "por_dia".into(), chart: Chart::Bar, certified: false, error: None, number: None, delta: None, labels: vec!["01".into(), "02".into()], values: vec![3.0, 5.0], table: None },
+            PanelView { title: "ativos".into(), query: "ativos".into(), chart: Chart::Number, certified: true, x: None, y: None, value: None, previous: None, error: None, number: Some(1284.0), delta: Some(0.062), labels: vec![], values: vec![], table: None },
+            PanelView { title: "por dia".into(), query: "por_dia".into(), chart: Chart::Bar, certified: false, x: None, y: None, value: None, previous: None, error: None, number: None, delta: None, labels: vec!["01".into(), "02".into()], values: vec![3.0, 5.0], table: None },
         ];
         let p = story_prompt(&d, &panels);
         assert!(p.contains("- ativos: 1284 (+6.2% vs anterior)"), "{p}");

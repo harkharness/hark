@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, Database, FileText, History, Lock, MessageSquare, RefreshCw, ShieldCheck, ShieldOff, Sparkles, Terminal } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Copy, Database, FileText, History, Lock, MessageSquare, Pencil, Plus, RefreshCw, ShieldCheck, ShieldOff, Sparkles, Terminal, Trash2 } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
-import type { DashPanel, DashSource, DashView as View } from "../types";
+import type { DashChart, DashOp, DashPanel, DashQuery, DashSource, DashView as View } from "../types";
 
 const fmtNumber = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const fmtDelta = (d: number) => `${d >= 0 ? "▲" : "▼"} ${Math.abs(d * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
@@ -80,6 +80,130 @@ function Grid({ columns, rows }: { columns: string[]; rows: unknown[][] }) {
   );
 }
 
+const CHARTS: DashChart[] = ["number", "bar", "line", "table"];
+type PanelDraft = { title: string; query: string; chart: DashChart; x: string; y: string; value: string; previous: string };
+type QueryDraft = { id: string; source: string; sql: string; columns: string; limit: string };
+type SourceDraft = { id: string; kind: DashSource["kind"]; path: string; command: string };
+
+const orNull = (s: string) => (s.trim() ? s.trim() : null);
+
+/** A panel's fields: its title, the query it draws, the chart and its columns. */
+function PanelForm({ draft, queries, onChange, onSave, onCancel, extra }: { draft: PanelDraft; queries: DashQuery[]; onChange: (d: PanelDraft) => void; onSave: () => void; onCancel: () => void; extra?: React.ReactNode }) {
+  const axes = draft.chart === "number" ? (["value", "previous"] as const) : draft.chart === "table" ? ([] as const) : (["x", "y"] as const);
+  return (
+    <div className="dash-form" onClick={(e) => e.stopPropagation()}>
+      <label>
+        <span className="dim">{t("dash_panel_title")}</span>
+        <input autoFocus value={draft.title} onChange={(e) => onChange({ ...draft, title: e.target.value })} />
+      </label>
+      <label>
+        <span className="dim">{t("dash_panel_query")}</span>
+        <select value={draft.query} onChange={(e) => onChange({ ...draft, query: e.target.value })}>
+          {queries.map((q) => (
+            <option key={q.id} value={q.id}>{q.id}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span className="dim">{t("dash_chart")}</span>
+        <select value={draft.chart} onChange={(e) => onChange({ ...draft, chart: e.target.value as DashChart })}>
+          {CHARTS.map((c) => (
+            <option key={c} value={c}>{t(`dash_chart_${c}`)}</option>
+          ))}
+        </select>
+      </label>
+      {axes.map((a) => (
+        <label key={a}>
+          <span className="dim">{t(`dash_${a}`)}</span>
+          <input className="mono" value={draft[a]} onChange={(e) => onChange({ ...draft, [a]: e.target.value })} />
+        </label>
+      ))}
+      <span className="dash-form-acts">
+        <button className="pill-btn on" onClick={onSave} disabled={!draft.title.trim() || !draft.query}>
+          <Check size={11} /> {t("board_save")}
+        </button>
+        <button className="pill-btn" onClick={onCancel}>{t("board_cancel")}</button>
+        {extra}
+      </span>
+    </div>
+  );
+}
+
+/** A query's fields: sql for sqlite, a column pick for the rest. */
+function QueryForm({ draft, sources, isNew, onChange, onSave, onCancel }: { draft: QueryDraft; sources: DashSource[]; isNew: boolean; onChange: (d: QueryDraft) => void; onSave: () => void; onCancel: () => void }) {
+  const src = sources.find((s) => s.id === draft.source);
+  const sqlish = src?.kind === "sqlite";
+  return (
+    <div className="dash-form">
+      {isNew && (
+        <label>
+          <span className="dim">{t("dash_query_id")}</span>
+          <input autoFocus className="mono" placeholder={t("dash_query_id")} value={draft.id} onChange={(e) => onChange({ ...draft, id: e.target.value })} />
+        </label>
+      )}
+      <label>
+        <span className="dim">{t("dash_source")}</span>
+        <select value={draft.source} onChange={(e) => onChange({ ...draft, source: e.target.value })}>
+          {sources.map((s) => (
+            <option key={s.id} value={s.id}>{s.id} · {s.kind}</option>
+          ))}
+        </select>
+      </label>
+      {sqlish ? (
+        <textarea className="mono" rows={4} placeholder={t("dash_sql_ph")} value={draft.sql} onChange={(e) => onChange({ ...draft, sql: e.target.value })} />
+      ) : (
+        <>
+          <input className="mono" placeholder={t("dash_columns_ph")} value={draft.columns} onChange={(e) => onChange({ ...draft, columns: e.target.value })} />
+          <label>
+            <span className="dim">{t("dash_limit")}</span>
+            <input className="mono" value={draft.limit} onChange={(e) => onChange({ ...draft, limit: e.target.value.replace(/[^0-9]/g, "") })} />
+          </label>
+        </>
+      )}
+      <span className="dash-form-acts">
+        <button className="pill-btn on" onClick={onSave} disabled={!draft.source || (isNew && !draft.id.trim()) || (sqlish && !draft.sql.trim())}>
+          <Check size={11} /> {t("board_save")}
+        </button>
+        <button className="pill-btn" onClick={onCancel}>{t("board_cancel")}</button>
+      </span>
+    </div>
+  );
+}
+
+/** A source's fields: a file in the project, a sqlite file or a command. */
+function SourceForm({ draft, isNew, onChange, onSave, onCancel }: { draft: SourceDraft; isNew: boolean; onChange: (d: SourceDraft) => void; onSave: () => void; onCancel: () => void }) {
+  const cmd = draft.kind === "command";
+  return (
+    <div className="dash-form">
+      {isNew && (
+        <label>
+          <span className="dim">{t("dash_query_id")}</span>
+          <input autoFocus className="mono" placeholder={t("dash_query_id")} value={draft.id} onChange={(e) => onChange({ ...draft, id: e.target.value })} />
+        </label>
+      )}
+      <label>
+        <span className="dim">{t("dash_kind")}</span>
+        <select value={draft.kind} onChange={(e) => onChange({ ...draft, kind: e.target.value as DashSource["kind"] })}>
+          {(["csv", "json", "sqlite", "command"] as const).map((k) => (
+            <option key={k} value={k}>{k}</option>
+          ))}
+        </select>
+      </label>
+      {cmd ? (
+        <input className="mono" placeholder={t("dash_command")} value={draft.command} onChange={(e) => onChange({ ...draft, command: e.target.value })} />
+      ) : (
+        <input className="mono" placeholder={t("dash_path")} value={draft.path} onChange={(e) => onChange({ ...draft, path: e.target.value })} />
+      )}
+      <span className="dash-form-acts">
+        <button className="pill-btn on" onClick={onSave} disabled={(isNew && !draft.id.trim()) || (cmd ? !draft.command.trim() : !draft.path.trim())}>
+          <Check size={11} /> {t("board_save")}
+        </button>
+        <button className="pill-btn" onClick={onCancel}>{t("board_cancel")}</button>
+      </span>
+    </div>
+  );
+}
+
 const SOURCE_ICON = { sqlite: Database, csv: FileText, json: FileText, command: Terminal } as const;
 
 function SourceChip({ s }: { s: DashSource }) {
@@ -121,6 +245,11 @@ export default function DashView({
   const [query, setQuery] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [story, setStory] = useState<{ text?: string; busy: boolean; error?: string }>({ busy: false });
+  // The person's forms (fase 14.1): one open at a time.
+  const [panelForm, setPanelForm] = useState<{ index: number | null; draft: PanelDraft } | null>(null);
+  const [queryForm, setQueryForm] = useState<{ isNew: boolean; draft: QueryDraft } | null>(null);
+  const [sourceForm, setSourceForm] = useState<{ isNew: boolean; draft: SourceDraft } | null>(null);
+  const [editErr, setEditErr] = useState<string | null>(null);
 
   const load = useCallback(
     async (run = false) => {
@@ -150,6 +279,28 @@ export default function DashView({
     await load(false);
     onChanged?.();
   }
+  async function edit(op: DashOp) {
+    try {
+      await ipc.dashEdit(space, id, op);
+      setEditErr(null);
+      setPanelForm(null);
+      setQueryForm(null);
+      setSourceForm(null);
+      await load(false);
+      onChanged?.();
+    } catch (err) {
+      setEditErr(String(err));
+    }
+  }
+  const panelDraft = (p?: DashPanel): PanelDraft => ({ title: p?.title ?? "", query: p?.query ?? view?.queries[0]?.id ?? "", chart: p?.chart ?? "table", x: p?.x ?? "", y: p?.y ?? "", value: p?.value ?? "", previous: p?.previous ?? "" });
+  const panelOp = (d: PanelDraft) => ({ title: d.title.trim(), query: d.query, chart: d.chart, x: orNull(d.x), y: orNull(d.y), value: orNull(d.value), previous: orNull(d.previous) });
+  const queryDraft = (q?: DashQuery): QueryDraft => ({ id: q?.id ?? "", source: q?.source ?? view?.sources[0]?.id ?? "", sql: q?.sql ?? "", columns: (q?.columns ?? []).join(", "), limit: q?.limit != null ? String(q.limit) : "" });
+  const queryOp = (d: QueryDraft) => {
+    const sqlish = view?.sources.find((s) => s.id === d.source)?.kind === "sqlite";
+    return { id: d.id.trim(), source: d.source, sql: sqlish ? orNull(d.sql) : null, columns: sqlish ? [] : d.columns.split(",").map((c) => c.trim()).filter(Boolean), limit: !sqlish && d.limit ? Number(d.limit) : null };
+  };
+  const sourceDraft = (s?: DashSource): SourceDraft => ({ id: s?.id ?? "", kind: s?.kind ?? "csv", path: s?.path ?? "", command: s?.command ?? "" });
+  const sourceOp = (d: SourceDraft) => ({ id: d.id.trim(), kind: d.kind, path: d.kind === "command" ? null : orNull(d.path), command: d.kind === "command" ? orNull(d.command) : null });
   async function writeStory() {
     setStory({ busy: true });
     try {
@@ -212,7 +363,12 @@ export default function DashView({
           </button>
         </span>
         <span className="dash-when dim">
-          {when ? t("dash_numbers_at", { when }) : t("dash_numbers_none")} · {t(`dash_refresh_${view.refresh}`)}
+          {when ? t("dash_numbers_at", { when }) : t("dash_numbers_none")} ·{" "}
+          <select className="dash-cadence" title={t("dash_cadence")} value={view.refresh} onChange={(e) => void edit({ op: "refresh", refresh: e.target.value as View["refresh"] })}>
+            {(["manual", "hourly", "daily"] as const).map((r) => (
+              <option key={r} value={r}>{t(`dash_refresh_${r}`)}</option>
+            ))}
+          </select>
           {view.stale && <span className="dash-stale"> · {t("dash_stale")}</span>}
         </span>
         <span className="dash-head-acts">
@@ -225,7 +381,7 @@ export default function DashView({
         </span>
       </div>
       <div className="dash-sources">
-        {view.sources.map((s) => (
+        {screen === "panels" && view.sources.map((s) => (
           <SourceChip key={s.id} s={s} />
         ))}
         <span className="pill dim" title={t("dash_local_hint")}>
@@ -234,7 +390,17 @@ export default function DashView({
       </div>
       {screen === "panels" ? (
         <div className="dash-panels">
+          {editErr && <div className="dash-err dash-edit-err">{t("dash_edit_err", { e: editErr })}</div>}
           {view.panels.length === 0 && <div className="dim dash-empty">{t("dash_no_panels")}</div>}
+          {panelForm?.index == null && panelForm ? (
+            <div className="dash-panel form">
+              <PanelForm draft={panelForm.draft} queries={view.queries} onChange={(draft) => setPanelForm({ index: null, draft })} onSave={() => void edit({ op: "add_panel", ...panelOp(panelForm.draft) })} onCancel={() => setPanelForm(null)} />
+            </div>
+          ) : (
+            <button className="dash-panel add" onClick={() => setPanelForm({ index: null, draft: panelDraft() })} disabled={view.queries.length === 0}>
+              <Plus size={14} /> {t("dash_new_panel")}
+            </button>
+          )}
           <div className="dash-panel story">
             <div className="dash-panel-title">
               <span>
@@ -270,10 +436,31 @@ export default function DashView({
               </span>
             )}
           </div>
-          {view.panels.map((p, i) => (
+          {view.panels.map((p, i) =>
+            panelForm?.index === i ? (
+              <div key={i} className="dash-panel form">
+                <PanelForm
+                  draft={panelForm.draft}
+                  queries={view.queries}
+                  onChange={(draft) => setPanelForm({ index: i, draft })}
+                  onSave={() => void edit({ op: "panel", index: i, ...panelOp(panelForm.draft) })}
+                  onCancel={() => setPanelForm(null)}
+                  extra={
+                    <>
+                      <button className="pill-btn" title={t("dash_move_left")} disabled={i === 0} onClick={() => void edit({ op: "move_panel", from: i, to: i - 1 })}><ArrowLeft size={11} /></button>
+                      <button className="pill-btn" title={t("dash_move_right")} disabled={i === view.panels.length - 1} onClick={() => void edit({ op: "move_panel", from: i, to: i + 1 })}><ArrowRight size={11} /></button>
+                      <button className="pill-btn" title={t("dash_remove_panel")} onClick={() => void edit({ op: "remove_panel", index: i })}><Trash2 size={11} /> {t("dash_remove_panel")}</button>
+                    </>
+                  }
+                />
+              </div>
+            ) : (
             <div key={i} className={`dash-panel ${p.chart}`}>
               <div className="dash-panel-title">
                 <span>{p.title}</span>
+                <button className="dash-csv dash-gear" title={t("dash_edit_panel")} onClick={() => setPanelForm({ index: i, draft: panelDraft(p) })}>
+                  <Pencil size={9} />
+                </button>
                 {p.chart !== "number" && !p.error && (
                   <button className="dash-csv" title={t("dash_copy_csv_hint")} onClick={() => void navigator.clipboard.writeText(panelCsv(p))}>
                     <Copy size={9} /> {t("dash_copy_csv")}
@@ -307,11 +494,27 @@ export default function DashView({
                 </div>
               )}
             </div>
-          ))}
+            ),
+          )}
         </div>
       ) : (
         <div className="dash-sources-screen">
           <div className="dash-queries">
+            <div className="dash-list-title dim">{t("dash_sources")}</div>
+            {view.sources.map((s) => (
+              <span key={s.id} className="dash-source-row">
+                <SourceChip s={s} />
+                <button title={t("dash_edit")} onClick={() => setSourceForm({ isNew: false, draft: sourceDraft(s) })}><Pencil size={9} /></button>
+                <button title={t("dash_remove_source")} onClick={() => void edit({ op: "remove_source", id: s.id })}><Trash2 size={9} /></button>
+              </span>
+            ))}
+            {sourceForm ? (
+              <SourceForm draft={sourceForm.draft} isNew={sourceForm.isNew} onChange={(draft) => setSourceForm({ ...sourceForm, draft })} onSave={() => void edit(sourceForm.isNew ? { op: "add_source", ...sourceOp(sourceForm.draft) } : { op: "source", ...sourceOp(sourceForm.draft) })} onCancel={() => setSourceForm(null)} />
+            ) : (
+              <button className="pill-btn" onClick={() => setSourceForm({ isNew: true, draft: sourceDraft() })}>
+                <Plus size={11} /> {t("dash_new_source")}
+              </button>
+            )}
             <div className="dash-list-title dim">{t("dash_queries")}</div>
             {view.queries.map((q) => (
               <button key={q.id} className={`dash-query ${picked?.id === q.id ? "on" : ""} ${q.changed ? "changed" : ""}`} onClick={() => setQuery(q.id)}>
@@ -321,6 +524,14 @@ export default function DashView({
                 <span className="dim">{q.source}</span>
               </button>
             ))}
+            {queryForm?.isNew ? (
+              <QueryForm draft={queryForm.draft} sources={view.sources} isNew onChange={(draft) => setQueryForm({ isNew: true, draft })} onSave={() => void edit({ op: "add_query", ...queryOp(queryForm.draft) })} onCancel={() => setQueryForm(null)} />
+            ) : (
+              <button className="pill-btn" onClick={() => setQueryForm({ isNew: true, draft: queryDraft() })} disabled={view.sources.length === 0}>
+                <Plus size={11} /> {t("dash_new_query")}
+              </button>
+            )}
+            {editErr && <div className="dash-err dash-edit-err">{t("dash_edit_err", { e: editErr })}</div>}
           </div>
           {picked && (
             <div className="dash-query-detail">
@@ -329,6 +540,12 @@ export default function DashView({
                 <span className="dim">· {picked.source}</span>
                 {picked.changed && <span className="dash-changed-tag">{t("dash_query_changed")}</span>}
                 <span className="dash-query-acts">
+                  <button className="pill-btn" onClick={() => setQueryForm({ isNew: false, draft: queryDraft(picked) })}>
+                    <Pencil size={11} /> {t("dash_edit_query")}
+                  </button>
+                  <button className="pill-btn" title={t("dash_remove_query")} onClick={() => void edit({ op: "remove_query", id: picked.id })}>
+                    <Trash2 size={11} />
+                  </button>
                   {picked.certified ? (
                     <button className="pill-btn" onClick={() => void certify(picked.id, false)} title={t("dash_uncertify_hint")}>
                       <ShieldOff size={11} /> {t("dash_uncertify")}
@@ -340,7 +557,9 @@ export default function DashView({
                   )}
                 </span>
               </div>
-              {picked.sql ? (
+              {queryForm && !queryForm.isNew ? (
+                <QueryForm draft={queryForm.draft} sources={view.sources} isNew={false} onChange={(draft) => setQueryForm({ isNew: false, draft })} onSave={() => void edit({ op: "query", ...queryOp(queryForm.draft) })} onCancel={() => setQueryForm(null)} />
+              ) : picked.sql ? (
                 <pre className="dash-sql mono">{picked.sql}</pre>
               ) : (
                 <div className="dim dash-pick">{picked.columns.length ? t("dash_columns", { c: picked.columns.join(", ") }) : t("dash_all_columns")}</div>

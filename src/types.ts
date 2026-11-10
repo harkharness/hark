@@ -129,6 +129,10 @@ export type DashPanel = {
   query: string;
   chart: "number" | "bar" | "line" | "table";
   certified: boolean;
+  x?: string | null;
+  y?: string | null;
+  value?: string | null;
+  previous?: string | null;
   error?: string | null;
   number?: number | null;
   delta?: number | null;

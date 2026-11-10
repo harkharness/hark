@@ -986,16 +986,14 @@ fn restructure(tab: &mut Tab, row: &dyn Fn(usize) -> Moved, col: &dyn Fn(usize) 
             }
         }
     }
-    let remap = |letters: &BTreeMap<String, String>| -> BTreeMap<String, String> {
-        letters
-            .iter()
-            .filter_map(|(k, v)| match col(parse_ref(&format!("{k}1"))?.1) {
-                Moved::To(c) => Some((column_name(c), v.clone())),
-                Moved::Gone => None,
-            })
-            .collect()
-    };
-    tab.formats = remap(&tab.formats);
+    tab.formats = tab
+        .formats
+        .iter()
+        .filter_map(|(k, v)| match col(parse_ref(&format!("{k}1"))?.1) {
+            Moved::To(c) => Some((column_name(c), v.clone())),
+            Moved::Gone => None,
+        })
+        .collect();
     tab.widths = tab
         .widths
         .iter()
@@ -1410,7 +1408,7 @@ mod tests {
         // A column that moves takes its format along.
         apply(&mut s, Op::MoveCol { tab: 0, from: 1, to: 3 }).unwrap();
         assert_eq!(tab(&s).formats.get("D").map(String::as_str), Some("money"));
-        assert!(tab(&s).formats.get("B").is_none());
+        assert!(!tab(&s).formats.contains_key("B"));
         apply(&mut s, Op::SetFormat { tab: 0, col: 3, format: None }).unwrap();
         assert!(tab(&s).formats.is_empty());
         assert!(!to_json(&s).contains("formats"), "an empty map is not written");
