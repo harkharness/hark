@@ -117,6 +117,22 @@ export type DashView = {
   error?: string | null;
   raw: string;
 };
+/** A whiteboard (domain::whiteboard). */
+export type BoardNote = { id: string; text: string; x?: number | null; y?: number | null; color?: string | null; owner?: string | null; date?: string | null; group?: string | null };
+export type BoardGroup = { id: string; title: string; x?: number | null; y?: number | null; w?: number | null; h?: number | null };
+export type BoardMilestone = { date: string; title: string; owner?: string | null };
+export type Whiteboard = { title?: string | null; groups: BoardGroup[]; notes: BoardNote[]; timeline?: BoardMilestone[] };
+export type BoardOp =
+  | { op: "move"; id: string; x: number; y: number }
+  | { op: "text"; id: string; text: string }
+  | { op: "add"; text: string; x: number; y: number; group?: string | null; color?: string | null }
+  | { op: "remove"; id: string }
+  | { op: "color"; id: string; color: string }
+  | { op: "group"; id: string; group: string | null }
+  | { op: "move_group"; id: string; x: number; y: number }
+  | { op: "add_group"; title: string; x: number; y: number }
+  | { op: "remove_group"; id: string };
+export type BoardView = { board: Whiteboard; changed: string[]; versions: number; error?: string | null; raw: string };
 export type SheetView = {
   computed: { title?: string | null; tabs: SheetTab[] };
   changed: CellRef[];

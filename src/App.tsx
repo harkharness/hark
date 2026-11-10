@@ -4077,7 +4077,7 @@ export default function App({
                   linksOn={artLinksOn}
                   onToggleLinks={() => setArtLinksOn((v) => !v)}
                   recentChats={recentChats}
-                  onTakeTo={(page, space, dest) => {
+                  onTakeTo={(page, space, dest, extra) => {
                     // The link goes in the chosen chat's field; the message
                     // carries the page (artifact_cites). Decision 5: the
                     // person picks the chat, never a silent default.
@@ -4094,7 +4094,9 @@ export default function App({
                       if (project) startDraftChat(project);
                       else setView("chat");
                     }
-                    setComposerPrefill({ text: `${link} `, nonce: Date.now() });
+                    // A board's selection rides as text before the link: only
+                    // the excerpt enters the chat, the page stays a reference.
+                    setComposerPrefill({ text: extra ? `${extra}\n${link} ` : `${link} `, nonce: Date.now() });
                   }}
                 />
               ) : reading ? (

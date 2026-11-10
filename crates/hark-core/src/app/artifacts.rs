@@ -449,6 +449,68 @@ pub fn dash_certify(store: &dyn ArtifactStore, space: &str, id: &str, query: &st
     accept(store, space, id, now)
 }
 
+/// A whiteboard page as the viewer shows it: laid out, with the notes
+/// the agent changed since the baseline named.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct BoardView {
+    pub board: crate::domain::whiteboard::Board,
+    pub changed: Vec<String>,
+    pub versions: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub raw: String,
+}
+
+pub fn board_view(store: &dyn ArtifactStore, space: &str, id: &str, now: &str) -> anyhow::Result<BoardView> {
+    use crate::domain::whiteboard as wb;
+    let path = path_of(store, space, id)?;
+    let raw = store.read_page(space, &path)?;
+    let base_text = baseline(store, space, id, now)?;
+    let versions = store.list_versions(space, &path)?.len();
+    match wb::parse(&raw) {
+        Ok(board) => {
+            let changed = wb::parse(&base_text).map(|b| wb::changed(&b, &board)).unwrap_or_default();
+            Ok(BoardView { board: wb::lay_out(&board), changed, versions, error: None, raw })
+        }
+        Err(e) => Ok(BoardView { board: wb::Board::default(), changed: vec![], versions, error: Some(e), raw }),
+    }
+}
+
+/// The person edited the board on the canvas: the file is rewritten,
+/// laid out, and becomes the baseline — one's own edit is not reviewed.
+pub fn board_edit(store: &dyn ArtifactStore, space: &str, id: &str, op: crate::domain::whiteboard::Op, now: &str) -> anyhow::Result<()> {
+    use crate::domain::whiteboard as wb;
+    let path = path_of(store, space, id)?;
+    let mut board = wb::lay_out(&wb::parse(&store.read_page(space, &path)?).map_err(anyhow::Error::msg)?);
+    wb::apply(&mut board, op).map_err(anyhow::Error::msg)?;
+    store.write_page(space, &path, &wb::to_json(&board))?;
+    let mut tree = load(store, space, now)?;
+    if let Some(n) = tree.nodes.iter_mut().find(|n| n.id == id) {
+        n.updated_at = now.to_string();
+    }
+    save(store, space, &tree)?;
+    accept(store, space, id, now)
+}
+
+/// The selected notes as the text that goes to a chat.
+pub fn board_selection(store: &dyn ArtifactStore, space: &str, id: &str, ids: &[String]) -> anyhow::Result<String> {
+    use crate::domain::whiteboard as wb;
+    let path = path_of(store, space, id)?;
+    let board = wb::parse(&store.read_page(space, &path)?).map_err(anyhow::Error::msg)?;
+    Ok(wb::selection_text(&board, ids))
+}
+
+/// A page's text as a chat should read it: a json page becomes its
+/// summary (rows, notes, queries), any other page is its own text.
+pub fn page_excerpt(kind: Kind, text: &str, today: &str) -> String {
+    match kind {
+        Kind::Sheet => crate::domain::sheet::parse(text).map(|s| crate::domain::sheet::summary(&s, today, 40)).unwrap_or_else(|e| format!("(planilha inválida: {e})\n{text}")),
+        Kind::Board => crate::domain::whiteboard::parse(text).map(|b| crate::domain::whiteboard::summary(&b)).unwrap_or_else(|e| format!("(quadro inválido: {e})\n{text}")),
+        Kind::Data => crate::domain::dash::parse(text).map(|d| crate::domain::dash::summary(&d)).unwrap_or_else(|e| format!("(painel inválido: {e})\n{text}")),
+        Kind::Doc | Kind::Slides | Kind::Design => text.to_string(),
+    }
+}
+
 /// An agent wrote a page: the page learns where it came from. The first
 /// origin sticks (a page is born once); every write records the touch.
 pub fn attach_origin(store: &dyn ArtifactStore, space: &str, path: &str, origin: Origin, now: &str) -> anyhow::Result<Node> {
@@ -709,6 +771,32 @@ mod tests {
         s.write_page("hark", &page.path, "{ nope").unwrap();
         let v = dash_view(&s, &runner, Some(project), "hark", &page.id, "2026-10-28T10:08:00Z", false).unwrap();
         assert!(v.error.as_deref().unwrap().contains("json"));
+    }
+
+    #[test]
+    fn a_whiteboard_is_laid_out_edited_on_the_canvas_and_read_as_text() {
+        use crate::domain::whiteboard::Op;
+        let (_d, s) = store();
+        let page = create(&s, "hark", None, "Plano", Kind::Board, None, NOW).unwrap();
+        s.write_page("hark", &page.path, r#"{"title":"Plano","groups":[{"id":"g1","title":"Quick-add"}],"notes":[{"id":"n1","text":"Atalho","group":"g1","owner":"Ana"},{"id":"n2","text":"Solta"}]}"#).unwrap();
+        let v = board_view(&s, "hark", &page.id, NOW).unwrap();
+        assert!(v.error.is_none());
+        assert!(v.board.notes[0].x.is_some(), "laid out for the canvas");
+        assert!(v.changed.is_empty());
+        // The agent added a note: marked until accepted.
+        s.write_page("hark", &page.path, r#"{"title":"Plano","groups":[{"id":"g1","title":"Quick-add"}],"notes":[{"id":"n1","text":"Atalho","group":"g1","owner":"Ana"},{"id":"n2","text":"Solta"},{"id":"n3","text":"Nova"}]}"#).unwrap();
+        let v = board_view(&s, "hark", &page.id, "2026-10-28T10:05:00Z").unwrap();
+        assert_eq!(v.changed, vec!["n3"]);
+        // The person drags a note: the file is rewritten and it is no longer "changed".
+        board_edit(&s, "hark", &page.id, Op::Move { id: "n3".into(), x: 500.0, y: 600.0 }, "2026-10-28T10:06:00Z").unwrap();
+        let v = board_view(&s, "hark", &page.id, "2026-10-28T10:07:00Z").unwrap();
+        assert!(v.changed.is_empty());
+        assert_eq!(v.board.notes[2].x, Some(500.0));
+        assert!(board_edit(&s, "hark", &page.id, Op::Remove { id: "zz".into() }, NOW).is_err());
+        assert_eq!(board_selection(&s, "hark", &page.id, &["n1".into()]).unwrap(), "- [Quick-add] Atalho (Ana)\n");
+        assert!(page_excerpt(Kind::Board, &s.read_page("hark", &page.path).unwrap(), "2026-10-28").starts_with("# Plano\n\n## Quick-add\n- Atalho (Ana)"));
+        assert_eq!(page_excerpt(Kind::Doc, "# x", "2026-10-28"), "# x");
+        assert!(page_excerpt(Kind::Sheet, "{ nope", "2026-10-28").contains("inválida"));
     }
 
     #[test]

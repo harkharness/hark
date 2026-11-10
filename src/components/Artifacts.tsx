@@ -8,6 +8,7 @@ import FileViewer from "./FileViewer";
 import SharePopover, { type ShareRow } from "./SharePopover";
 import SheetView from "./SheetView";
 import DashView from "./DashView";
+import BoardView from "./BoardView";
 import Markdown from "./Markdown";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -97,7 +98,7 @@ export default function Artifacts({
   /** "Conversar": open the page's chat with the page attached. */
   /** "Levar para…": the page goes to Hark, its origin chat, another chat
    *  or a new one — the person picks, never a silent default. */
-  onTakeTo: (page: ArtifactPage, space: string, dest: Destination) => void;
+  onTakeTo: (page: ArtifactPage, space: string, dest: Destination, extra?: string) => void;
   /** The chats the menu offers besides the origin, newest first. */
   recentChats?: RecentChat[];
 }) {
@@ -435,7 +436,7 @@ export default function Artifacts({
             onOpenTask={onOpenTask}
             onNewChild={() => setNaming({ parent: page.node.id, kind: "doc" })}
             onSaved={() => void load()}
-            onTakeTo={(dest) => onTakeTo(page, sel.space, dest)}
+            onTakeTo={(dest, extra) => onTakeTo(page, sel.space, dest, extra)}
             recentChats={recentChats}
           />
         ) : (
@@ -871,7 +872,7 @@ function Page({
   onOpenTask: (title: string, sessionId?: string) => void;
   onNewChild: () => void;
   onSaved: () => void;
-  onTakeTo: (dest: Destination) => void;
+  onTakeTo: (dest: Destination, extra?: string) => void;
   recentChats: RecentChat[];
 }) {
   const { node } = page;
@@ -879,7 +880,10 @@ function Page({
   const Icon = KIND_ICON[node.kind];
   const kids = childrenOf(tree, node.id);
   const [shareOpen, setShareOpen] = useState(false);
-  const [takeOpen, setTakeOpen] = useState(false);
+  // The menu may open with an excerpt (a board's selection) to carry along.
+  const [take, setTake] = useState<{ open: boolean; extra?: string }>({ open: false });
+  const takeOpen = take.open;
+  const setTakeOpen = (open: boolean, extra?: string) => setTake({ open, extra });
   const link = `hark://artifacts/${encodeURIComponent(space)}/${encodeURIComponent(node.id)}`;
   const takeRows: ShareRow[] = destinations(node.origin?.task ?? undefined, recentChats, space).map((dest) => {
     const row = (icon: ReactNode, label: string, hint: string): ShareRow => ({
@@ -887,8 +891,9 @@ function Page({
       label,
       hint,
       run: () => {
+        const extra = take.extra;
         setTakeOpen(false);
-        onTakeTo(dest);
+        onTakeTo(dest, extra);
       },
     });
     switch (dest.kind) {
@@ -958,7 +963,7 @@ function Page({
           </span>
         </div>
         <span className="art-actions">
-          {(html || node.kind === "sheet" || node.kind === "data") && (
+          {(html || node.kind === "sheet" || node.kind === "data" || node.kind === "board") && (
             <>
               <button className={`pill-btn ${source ? "on" : ""}`} onClick={onSource} title={t("art_source_hint")}>
                 <Code2 size={11} /> {t("art_source")}
@@ -971,7 +976,7 @@ function Page({
             </>
           )}
           <span className="share-anchor">
-            <button className={`pill-btn ${takeOpen ? "on" : ""}`} onClick={() => setTakeOpen((o) => !o)} title={t("art_take_to_hint")}>
+            <button className={`pill-btn ${takeOpen ? "on" : ""}`} onClick={() => setTakeOpen(!takeOpen)} title={t("art_take_to_hint")}>
               <MessageSquare size={11} /> {t("art_take_to")}
             </button>
             {takeOpen && <SharePopover title={t("art_take_title")} rows={takeRows} onClose={() => setTakeOpen(false)} soon={false} />}
@@ -1008,6 +1013,8 @@ function Page({
           <SheetView space={space} id={node.id} onChanged={onSaved} />
         ) : node.kind === "data" && !source ? (
           <DashView space={space} id={node.id} onChanged={onSaved} />
+        ) : node.kind === "board" && !source ? (
+          <BoardView space={space} id={node.id} onChanged={onSaved} onAsk={(text) => setTakeOpen(true, text)} />
         ) : html && !source && node.kind === "slides" ? (
           <DeckViewer title={node.title} html={page.text} scripts={scripts} onStripPager={() => ipc.artifactStripPager(space, node.id).then(onSaved)} />
         ) : html && !source && node.kind === "design" ? (

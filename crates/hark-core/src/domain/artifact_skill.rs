@@ -125,6 +125,25 @@ não entende aparece na célula como `#NOME?`, `#CICLO!`, `#DIV/0!`,
 que já existia fica marcado em verde até a pessoa aceitar: mude só o
 que foi pedido.
 
+## Quadro (`.board.json`)
+
+Notas num quadro, com grupos e uma linha do tempo. Não escreva
+coordenadas: o Hark arruma as notas dentro dos grupos; a pessoa arrasta
+depois. Cores: `yellow`, `blue`, `green`, `pink`, `gray`.
+
+```json
+{{ "title": "Plano da release",
+  "groups": [ {{ "id": "g1", "title": "Quick-add" }}, {{ "id": "g2", "title": "Dúvidas" }} ],
+  "notes": [ {{ "id": "n1", "text": "Atalho no celular", "group": "g1", "owner": "Ana", "date": "2026-11-12" }},
+             {{ "id": "n2", "text": "Entra na 0.11?", "group": "g2", "color": "pink" }} ],
+  "timeline": [ {{ "date": "2026-11-12", "title": "quick-add beta", "owner": "Ana" }} ] }}
+```
+
+Para agrupar por tema, dê `group` às notas e crie os grupos; para montar
+uma linha do tempo do que a pessoa falou, preencha `timeline`. Ids
+únicos (`n1`, `n2`…). Notas que você mudar ou criar ficam marcadas até
+a pessoa aceitar; nunca apague notas que não foram pedidas.
+
 ## Painel de dados (`.dash.json`)
 
 Painéis sobre dados que estão NESTA máquina: um arquivo do projeto
@@ -219,6 +238,7 @@ mod tests {
         assert!(md.contains("#NOME?"), "the errors are named so the agent fixes the file: {md}");
         assert!(md.contains("\"=SOMA(B3:C3)\""), "a formula is a string starting with =: {md}");
         assert!(md.contains("\"certified\": true") && md.contains("só SELECT"), "a dashboard's rules: {md}");
+        assert!(md.contains("Não escreva\ncoordenadas") && md.contains("\"timeline\""), "a board's rules: {md}");
     }
 
     #[test]

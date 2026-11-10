@@ -233,6 +233,12 @@ a file dropped there by hand is adopted at the root on the next read.
   runs. A query you **certify** is yours: the agent uses it and never
   rewrites it; a panel on an uncertified query says "agent's draft".
   "Sources and queries" shows each query, its preview and the badge.
+- **A whiteboard** is notes on a canvas, groups around them and a
+  timeline. The agent writes notes without coordinates and Hark lays
+  them out; you drag them (into a group joins it), double-click to edit,
+  add notes and groups, change colours. A lasso on the background
+  selects notes, and "ask about the selection" takes them to a chat as
+  text (only the excerpt enters, with the page's link).
 - **Versions and marked changes.** A page keeps the versions you saw:
   the first opening takes the baseline, "accept" takes the current text,
   going back keeps the current one first. Thirty live hidden beside the

@@ -3190,3 +3190,41 @@ html.demo .side-drag::before {
 .dash-loading, .dash-empty { padding: 14px; font-size: 12.5px; }
 @keyframes dash-spin { to { transform: rotate(360deg); } }
 .dash-head-acts .spin { animation: dash-spin 1s linear infinite; }
+
+/* ---- whiteboard pages (fase 13.3): notes on a canvas ---- */
+.board-view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
+.board-banner { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 6%, transparent); border-radius: 10px; font-size: 12.5px; color: var(--warn); }
+.board-banner b { color: var(--text-strong); font-weight: 600; }
+.board-banner-acts { margin-left: auto; display: inline-flex; gap: 6px; }
+.board-tools { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.board-tools .spacer { flex: 1; }
+.board-canvas-wrap { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border-strong); border-radius: 10px; background: radial-gradient(rgba(128,128,128,.18) 1px, transparent 1px) 0 0 / 22px 22px, var(--bg-deep); position: relative; user-select: none; }
+.board-canvas { position: relative; min-width: 100%; min-height: 100%; }
+.board-group { position: absolute; border: 1.5px dashed var(--border-strong); border-radius: 14px; }
+.board-group .board-group-title { position: absolute; top: -10px; left: 12px; background: var(--bg-deep); padding: 0 6px; font-size: 11px; color: var(--dim); font-weight: 600; cursor: grab; display: flex; align-items: center; gap: 6px; }
+.board-group .board-group-title button { opacity: 0; }
+.board-group:hover .board-group-title button { opacity: 1; }
+.board-note { position: absolute; width: 150px; min-height: 96px; border-radius: 8px; padding: 9px 10px; box-sizing: border-box; font-size: 12px; line-height: 1.4; color: #1a1d24; box-shadow: 0 6px 16px rgba(0,0,0,.35); cursor: grab; display: flex; flex-direction: column; }
+.board-note.yellow { background: #f1d77a; } .board-note.blue { background: #9fd3f6; } .board-note.green { background: #b9e6a5; } .board-note.pink { background: #f4b8c6; } .board-note.gray { background: #d5d9e0; }
+.board-note.changed { outline: 2px solid var(--warn); outline-offset: 2px; }
+.board-note.sel { outline: 2px solid var(--accent); outline-offset: 2px; }
+.board-note .board-note-text { flex: 1; white-space: pre-wrap; word-break: break-word; }
+.board-note textarea { flex: 1; width: 100%; box-sizing: border-box; background: rgba(255,255,255,.55); border: 1px solid rgba(0,0,0,.2); border-radius: 4px; font: inherit; color: inherit; resize: none; min-height: 60px; }
+.board-note .board-note-foot { font-size: 10.5px; opacity: .7; margin-top: 6px; display: flex; justify-content: space-between; gap: 6px; }
+.board-note .board-note-acts { position: absolute; top: 4px; right: 4px; display: none; gap: 2px; }
+.board-note:hover .board-note-acts { display: inline-flex; }
+.board-note .board-note-acts button, .board-group-title button { background: rgba(0,0,0,.12); border: 0; border-radius: 4px; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: inherit; padding: 0; }
+.board-swatch { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,.25); display: inline-block; }
+.board-swatch.yellow { background: #f1d77a; } .board-swatch.blue { background: #9fd3f6; } .board-swatch.green { background: #b9e6a5; } .board-swatch.pink { background: #f4b8c6; } .board-swatch.gray { background: #d5d9e0; }
+.board-lasso { position: absolute; border: 1.5px dashed var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: 8px; pointer-events: none; }
+.board-floating { position: absolute; z-index: 3; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 10px; padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,.5); display: flex; gap: 4px; align-items: center; font-size: 12px; }
+.board-timeline { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 8px 14px 10px; }
+.board-timeline-title { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
+.board-timeline-line { position: relative; height: 44px; border-top: 1px solid var(--border-strong); margin-top: 14px; }
+.board-milestone { position: absolute; top: -5px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; white-space: nowrap; }
+.board-milestone .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+.board-milestone b { color: var(--text-strong); font-weight: 500; }
+.board-milestone.last { transform: translateX(-100%); align-items: flex-end; text-align: right; }
+.board-error, .board-broken { padding: 14px; color: var(--err); font-size: 12.5px; }
+.board-broken pre { margin-top: 10px; color: var(--text); font-size: 11.5px; white-space: pre-wrap; }
+.board-loading, .board-empty { padding: 14px; font-size: 12.5px; }

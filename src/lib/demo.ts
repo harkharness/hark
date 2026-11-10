@@ -26,6 +26,7 @@ import type {
   VoicePlan,
   SheetView,
   DashView,
+  BoardView,
 } from "../types";
 
 /**
@@ -173,8 +174,9 @@ const TREES: Record<string, ArtifactTree> = {
       node("cells-design", "Cells · how a region is wired", "cells-design.html", "design", null, 240, { session_id: "s-keys", task: "Webhook signing keys: rotation plan" }),
       node("infra-costs", "Infra costs by month", "infra-costs.sheet.json", "sheet", null, 25, { session_id: "s-billing", task: "Billing endpoint v2" }),
       node("usage", "Dashboard: webhook usage", "usage.dash.json", "data", null, 40, { session_id: "s-billing", task: "Billing endpoint v2" }),
+      node("release-plan", "Release 0.11 plan", "release-plan.board.json", "board", null, 90),
     ],
-    order: { "": ["overview", "decisions", "billing-v2-rollout", "cells-design", "infra-costs", "usage"], decisions: ["adr-003-spend-ceiling", "adr-004-one-window"] },
+    order: { "": ["overview", "decisions", "billing-v2-rollout", "cells-design", "infra-costs", "usage", "release-plan"], decisions: ["adr-003-spend-ceiling", "adr-004-one-window"] },
   },
   infra: {
     nodes: [
@@ -554,6 +556,37 @@ const C: Record<string, (a: Args) => unknown> = {
     raw: "{}",
   }),
   dash_certify: () => undefined,
+  board_view: (): BoardView => ({
+    board: {
+      title: "Release 0.11 plan",
+      groups: [
+        { id: "g1", title: "Quick-add", x: 24, y: 24, w: 338, h: 290 },
+        { id: "g2", title: "Reports", x: 390, y: 24, w: 338, h: 290 },
+        { id: "g3", title: "Open questions", x: 756, y: 24, w: 338, h: 290 },
+      ],
+      notes: [
+        { id: "n1", text: "One tap on the phone: amount, category, done.", x: 48, y: 60, color: "yellow", owner: "Ana", date: "fri", group: "g1" },
+        { id: "n2", text: "Recognise “50 at the market” by voice (local STT).", x: 212, y: 60, color: "yellow", owner: "Ana", date: "fri", group: "g1" },
+        { id: "n3", text: "Offline: local queue, sync later.", x: 48, y: 170, color: "yellow", owner: "agent", date: "18:31", group: "g1" },
+        { id: "n4", text: "Spend by category per month, with a goal.", x: 414, y: 60, color: "blue", owner: "Bruno", date: "fri", group: "g2" },
+        { id: "n5", text: "Export the month as CSV for the accountant.", x: 578, y: 60, color: "blue", owner: "Bruno", date: "fri", group: "g2" },
+        { id: "n6", text: "Hark's dashboard reads the same SQLite.", x: 414, y: 170, color: "blue", owner: "agent", date: "18:31", group: "g2" },
+        { id: "n7", text: "Quick-add in 0.11 or 0.12?", x: 780, y: 60, color: "pink", owner: "Ana", date: "fri", group: "g3" },
+        { id: "n8", text: "Who validates pt-BR STT with accents?", x: 780, y: 170, color: "pink", owner: "Bruno", date: "fri", group: "g3" },
+      ],
+      timeline: [
+        { date: "2026-11-12", title: "quick-add beta", owner: "Ana" },
+        { date: "2026-11-19", title: "reports", owner: "Bruno" },
+        { date: "2026-11-26", title: "voice STT", owner: "Ana" },
+        { date: "2026-12-03", title: "release 0.11", owner: "team" },
+      ],
+    },
+    changed: ["n3", "n6"],
+    versions: 2,
+    raw: "{}",
+  }),
+  board_edit: () => undefined,
+  board_selection: (a) => (Array.isArray(a?.ids) ? (a.ids as string[]).map((id) => `- note ${id}`).join("\n") + "\n" : ""),
   artifact_strip_pager: () => true,
   artifact_remove: () => [],
   export_file: (a) => `/Users/ana/.hark/exports/${String(a?.name)}`,

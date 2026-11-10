@@ -697,6 +697,11 @@ export const sheetSetCell = (space: string, id: string, at: import("../types").C
 /** A dashboard page from its cache; `run` = "atualizar agora" (commands run only then). */
 export const dashView = (space: string, id: string, run = false) =>
   invoke<import("../types").DashView>("dash_view", { space, id, run });
+/** A whiteboard page laid out, with the agent's changes named. */
+export const boardView = (space: string, id: string) => invoke<import("../types").BoardView>("board_view", { space, id });
+export const boardEdit = (space: string, id: string, op: import("../types").BoardOp) => invoke("board_edit", { space, id, op });
+/** The selected notes as the text that goes to a chat. */
+export const boardSelection = (space: string, id: string, ids: string[]) => invoke<string>("board_selection", { space, id, ids });
 /** The person certifies a query, or takes the mark back. */
 export const dashCertify = (space: string, id: string, query: string, on: boolean) =>
   invoke("dash_certify", { space, id, query, on });

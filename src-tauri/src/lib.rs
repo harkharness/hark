@@ -2442,6 +2442,9 @@ fn artifact_cites(text: String) -> Result<Option<ArtifactCitesOut>, String> {
         for id in ids {
             let Some(node) = tree.get(&id) else { continue };
             let Ok(body) = store.read_page(&space, &node.path) else { continue };
+            // A json page travels as its summary (rows, notes, queries), never as json.
+            let today = hark_core::chrono::Local::now().format("%Y-%m-%d").to_string();
+            let body = hark_core::app::artifacts::page_excerpt(node.kind, &body, &today);
             let page = scope::Scope::Page { title: node.title.clone(), path: node.path.clone(), space: space.clone() };
             let crumbs = tree.breadcrumb(&id);
             blocks.push(scope::page_brief(&page, &crumbs, &body, CITED_PAGE_CHARS));
@@ -2667,6 +2670,24 @@ fn dash_view(space: String, id: String, run: bool) -> Result<hark_core::app::art
 #[tauri::command]
 fn dash_certify(space: String, id: String, query: String, on: bool) -> Result<(), String> {
     hark_core::app::artifacts::dash_certify(&artifact_store(), &space, &id, &query, on, &now_iso()).map_err(|e| e.to_string())
+}
+
+/// A whiteboard page laid out, with the agent's changes named.
+#[tauri::command]
+fn board_view(space: String, id: String) -> Result<hark_core::app::artifacts::BoardView, String> {
+    hark_core::app::artifacts::board_view(&artifact_store(), &space, &id, &now_iso()).map_err(|e| e.to_string())
+}
+
+/// The person edited the board on the canvas (domain::whiteboard::Op).
+#[tauri::command]
+fn board_edit(space: String, id: String, op: hark_core::domain::whiteboard::Op) -> Result<(), String> {
+    hark_core::app::artifacts::board_edit(&artifact_store(), &space, &id, op, &now_iso()).map_err(|e| e.to_string())
+}
+
+/// The selected notes as the text that goes to a chat.
+#[tauri::command]
+fn board_selection(space: String, id: String, ids: Vec<String>) -> Result<String, String> {
+    hark_core::app::artifacts::board_selection(&artifact_store(), &space, &id, &ids).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -6592,6 +6613,9 @@ pub fn run() {
             sheet_set_cell,
             dash_view,
             dash_certify,
+            board_view,
+            board_edit,
+            board_selection,
             focus_main,
             subscription_limits,
             usage_report,
