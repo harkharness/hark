@@ -18,7 +18,7 @@ pub fn skill_md(root: &str) -> String {
     format!(
         r#"---
 name: hark-artifact
-description: Escreve ou atualiza uma página da documentação local do Hark (artefatos). Use quando o usuário pedir para documentar, registrar uma decisão, gerar um relatório, uma apresentação ou um design que deva ficar guardado e organizado, ou disser "numa página do Hark".
+description: Escreve ou atualiza uma página da documentação local do Hark (artefatos). Use quando o usuário pedir para documentar, registrar uma decisão, gerar um relatório, uma apresentação, um design, uma planilha, um quadro de notas ou um painel de dados que deva ficar guardado e organizado, ou disser "numa página do Hark".
 ---
 
 # Páginas do Hark
@@ -32,9 +32,11 @@ essa pasta e mostra tudo em árvore.
 
 1. Escolha o espaço: o nome do projeto em que você está, ou `pessoal`.
 2. Escreva o arquivo com a ferramenta Write em
-   `{root}/<espaço>/<slug>.md` (markdown) ou `.html` (apresentação ou
-   design, um arquivo só, sem scripts externos). O slug é o título em
-   minúsculas, sem acentos, com hífens: `adr-004-janela-unica.md`.
+   `{root}/<espaço>/<slug>.md` (markdown), `.html` (apresentação ou
+   design, um arquivo só, sem scripts externos), `.sheet.json`
+   (planilha), `.board.json` (quadro) ou `.dash.json` (painel de dados).
+   O slug é o título em minúsculas, sem acentos, com hífens:
+   `adr-004-janela-unica.md`, `custos-de-infra.sheet.json`.
 3. Para pôr a página embaixo de outra, use uma subpasta com o nome do
    arquivo da mãe: se existe `decisoes.md`, então
    `{root}/<espaço>/decisoes/adr-004.md` fica sob ela. Sem mãe, a página
@@ -94,6 +96,34 @@ Esqueleto de apresentação, para começar:
 <section><h2>Primeira ideia</h2><p>…</p></section>
 </body></html>
 ```
+
+## Planilha (`.sheet.json`)
+
+Um objeto com `title` e `tabs`; cada aba tem `name`, `columns` (a linha 1,
+o cabeçalho) e `rows` (as linhas de dados, da linha 2 em diante). Uma
+célula é número, texto, `true`/`false`, `null`, ou uma fórmula: texto
+começando com `=`. O Hark calcula as fórmulas sozinho, sem gastar
+token; escreva valores como números, não como texto com ponto ou vírgula.
+
+```json
+{{ "title": "Custos de infra", "tabs": [
+  {{ "name": "Mensal", "columns": ["mês", "infra", "banco", "total"],
+    "rows": [
+      ["set/26", 412, 96, "=B2+C2"],
+      ["out/26", 438, 101, "=SOMA(B3:C3)"],
+      ["média", "=MÉDIA(B2:B3)", "=MÉDIA(C2:C3)", "=SE(D3>D2; \"subiu\"; \"caiu\")"]
+    ] }} ] }}
+```
+
+Fórmulas: `+ - * / ^ &`, comparações, referências `B2` e intervalos
+`B2:B9` (a linha 1 é o cabeçalho), e as funções SOMA, MÉDIA, MÍN, MÁX,
+CONT.NÚM, CONT.VALORES, CONT.SE, SOMA.SE, SE, E, OU, NÃO, ARRED, ABS,
+HOJE, CONCATENAR, NUM.CARACT (ou os nomes em inglês). Argumentos
+separados por `;` ou `,`; decimais com ponto. Uma fórmula que o Hark
+não entende aparece na célula como `#NOME?`, `#CICLO!`, `#DIV/0!`,
+`#VALOR!` ou `#ERRO`: corrija o arquivo. O que você mudar numa planilha
+que já existia fica marcado em verde até a pessoa aceitar: mude só o
+que foi pedido.
 
 ## Ajustar, renomear
 
@@ -155,6 +185,10 @@ mod tests {
         assert!(md.contains("/Users/x/.hark/artifacts/<espaço>/"), "{md}");
         assert!(md.contains("HARK_ARTIFACTS_DIR"), "{md}");
         assert!(md.contains("index.json"), "the agent must not touch the index: {md}");
+        // The three json kinds, and the sheet's own rules (10/11).
+        assert!(md.contains(".sheet.json") && md.contains(".board.json") && md.contains(".dash.json"), "{md}");
+        assert!(md.contains("#NOME?"), "the errors are named so the agent fixes the file: {md}");
+        assert!(md.contains("\"=SOMA(B3:C3)\""), "a formula is a string starting with =: {md}");
     }
 
     #[test]

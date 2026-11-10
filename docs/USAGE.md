@@ -214,6 +214,24 @@ a file dropped there by hand is adopted at the root on the next read.
 - **Links** (the panel beside the page) says what the page is, where it
   came from and what it ties to: the origin chat, child pages, citations.
 
+- **Six kinds.** A document (`.md`), a deck and a design (`.html`), and
+  three the agent writes as json and Hark computes and draws: a **sheet**
+  (`.sheet.json`), a **whiteboard** (`.board.json`) and a **dashboard**
+  (`.dash.json`). The extension says what the page is; the home of a
+  space counts them and lists one kind on a click.
+- **A sheet** opens as Hark's own grid: tabs, a formula bar, the values
+  computed here with a small engine (SOMA/SUM, MÉDIA/AVERAGE, MÍN, MÁX,
+  CONT.SE, SOMA.SE, SE/IF, ARRED, HOJE…), zero tokens. An error the
+  engine cannot resolve is named in the cell (`#NOME?`, `#CICLO!`,
+  `#DIV/0!`). Double-click edits a cell and writes the file; the open tab
+  copies as csv with values.
+- **Versions and marked changes.** A page keeps the versions you saw:
+  the first opening takes the baseline, "accept" takes the current text,
+  going back keeps the current one first. Thirty live hidden beside the
+  page (`.history/`). What an agent changed since you last accepted is
+  marked (green cells in a sheet), with *accept* and *undo all* above;
+  your own edits through Hark are never something to review.
+
 Agents write pages through `HARK_ARTIFACTS_DIR`, set on every worker; a
 `Write` into that directory is caught as the page's origin, so the tree
 knows which chat produced which page. Nothing here costs tokens to browse.
