@@ -3297,3 +3297,8 @@ html.demo .side-drag::before {
 .dash-source-row button { background: none; border: 0; color: var(--dim); cursor: pointer; padding: 2px; display: inline-flex; }
 .dash-source-row button:hover { color: var(--text-strong); }
 .dash-edit-err { font-size: 12px; }
+
+/* ---- in-place text edits and the markdown split (fase 14.2) ---- */
+.art-inplace.on { color: var(--ok); }
+.viewer-editwrap.split { display: grid; grid-template-columns: auto 1fr 1fr; }
+.viewer-editwrap.split .viewer-preview { overflow: auto; border-left: 1px solid var(--border); padding: 14px 18px; min-width: 0; }

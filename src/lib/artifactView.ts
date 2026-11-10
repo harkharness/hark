@@ -68,6 +68,7 @@ const DECK_RUNTIME = `<style data-hark-deck>
     var m = e.data || {}; if (m.hark === 'slide') show(m.n);
   });
   window.addEventListener('keydown', function (e) {
+    if (document.activeElement && document.activeElement.isContentEditable) return;
     if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); show(at + 1); }
     if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(at - 1); }
     if (e.key === 'Escape') parent.postMessage({ hark: 'escape' }, '*');
@@ -75,6 +76,79 @@ const DECK_RUNTIME = `<style data-hark-deck>
   show(0);
 })();
 </script>`;
+
+/** Hark's in-place editor (fase 14.2): a double click on a text element
+ *  makes it editable; leaving it (blur, or Enter in a heading) sends the
+ *  element's old and new inner html to the parent, which places the
+ *  change in the file by its old text. Escape puts the old text back.
+ *  The page's own layout is never touched: only words change here. */
+const EDIT_RUNTIME = `<style data-hark-edit>
+  [data-hark-editing] { outline: 2px solid #6ea8fe !important; outline-offset: 2px; cursor: text; }
+</style>
+<script data-hark-edit>
+(function () {
+  var BLOCKS = /^(H1|H2|H3|H4|H5|H6|P|LI|TD|TH|BLOCKQUOTE|FIGCAPTION|LABEL|SPAN|A|STRONG|EM|B|I|SMALL|CODE|PRE|DT|DD|DIV|BUTTON|SUMMARY)$/;
+  function target(el) {
+    while (el && el !== document.body) {
+      if (BLOCKS.test(el.tagName) && el.textContent && el.textContent.trim() && !el.querySelector('section,article,table,ul,ol,img,svg,video,iframe')) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+  var open = null;
+  var before = '';
+  var outerBefore = '';
+  function close(keep) {
+    if (!open) return;
+    var el = open; open = null;
+    // Removed, not set to false: the attribute would ride into the file.
+    el.removeAttribute('contenteditable');
+    el.removeAttribute('data-hark-editing');
+    var after = el.innerHTML;
+    if (!keep) { el.innerHTML = before; return; }
+    // The whole element first (a word repeated in <title> is still one
+    // h1), the words alone as the fallback.
+    if (after !== before) parent.postMessage({ hark: 'edit', before: outerBefore, after: el.outerHTML, inner: { before: before, after: after } }, '*');
+  }
+  document.addEventListener('dblclick', function (e) {
+    var el = target(e.target);
+    if (!el || open === el) return;
+    close(true);
+    open = el; before = el.innerHTML; outerBefore = el.outerHTML;
+    el.contentEditable = 'true';
+    el.setAttribute('data-hark-editing', '');
+    el.focus();
+    var sel = window.getSelection(); if (sel) { sel.removeAllRanges(); var r = document.createRange(); r.selectNodeContents(el); sel.addRange(r); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (!open) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(false); }
+    if (e.key === 'Enter' && !e.shiftKey && /^H[1-6]$/.test(open.tagName)) { e.preventDefault(); close(true); }
+  }, true);
+  document.addEventListener('focusout', function () { setTimeout(function () { if (open && document.activeElement !== open) close(true); }, 0); });
+})();
+</script>`;
+
+/** The document a frame loads when the person may edit words in place:
+ *  the page with Hark's edit runtime at the end of the body. */
+export function editableDocument(html: string): string {
+  const at = html.search(/<\/body>/i);
+  if (at >= 0) return html.slice(0, at) + EDIT_RUNTIME + html.slice(at);
+  return html + EDIT_RUNTIME;
+}
+
+/** The file after one in-place edit: `before` (the element's old inner
+ *  html) must sit in the file exactly once, or the edit is refused (null)
+ *  rather than placed on a guess. */
+export function applyTextEdit(file: string, candidates: { before: string; after: string }[]): string | null {
+  for (const { before, after } of candidates) {
+    if (!before || before === after) continue;
+    const first = file.indexOf(before);
+    if (first < 0 || file.indexOf(before, first + 1) >= 0) continue;
+    return file.slice(0, first) + after + file.slice(first + before.length);
+  }
+  return null;
+}
 
 /** The page's own <script> blocks, gone: in the deck frame only Hark's
  *  runtime runs. The file is untouched (artifactStripPager does that). */
@@ -86,9 +160,10 @@ export function withoutScripts(html: string): string {
  *  Hark's runtime at the end of the body (the slides exist by then). */
 export function deckDocument(html: string): string {
   const clean = withoutScripts(html);
+  const runtime = DECK_RUNTIME + EDIT_RUNTIME;
   const at = clean.search(/<\/body>/i);
-  if (at >= 0) return clean.slice(0, at) + DECK_RUNTIME + clean.slice(at);
-  return clean + DECK_RUNTIME;
+  if (at >= 0) return clean.slice(0, at) + runtime + clean.slice(at);
+  return clean + runtime;
 }
 
 /** A design says its size with <meta name="hark-canvas" content="WxH">. */

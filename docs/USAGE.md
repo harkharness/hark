@@ -256,6 +256,13 @@ a file dropped there by hand is adopted at the root on the next read.
   milestone. A lasso on the background selects notes, and "ask about
   the selection" takes them to a chat as text (only the excerpt enters,
   with the page's link).
+- **Words edited in place.** With scripts on, a double click on a text
+  in a deck, a design or an html document makes it editable right there
+  (Esc cancels; Enter closes a heading). Hark places the change in the
+  file by the element's old text, and refuses rather than guess when
+  that text is not in the file exactly once ("edit the source" then). A
+  markdown document edits with the source on the left and the rendered
+  page on the right.
 - **Versions and marked changes.** A page keeps the versions you saw:
   the first opening takes the baseline, "accept" takes the current text,
   going back keeps the current one first. Thirty live hidden beside the

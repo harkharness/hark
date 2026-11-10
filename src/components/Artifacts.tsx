@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, Download, ExternalLink, FileText, FolderOpen, Link2, Maximize2, MessageSquare, Minimize2, MoreVertical, Palette, Plus, Presentation, Search, Share2, ShieldCheck, ShieldOff, Sparkles, StickyNote, Table2, User } from "lucide-react";
 import * as ipc from "../lib/ipc";
-import { STAGE_H, STAGE_W, ZOOMS, canvasSize, deckDocument, fitZoom, hasOwnScript, slideCount } from "../lib/artifactView";
+import { STAGE_H, STAGE_W, ZOOMS, applyTextEdit, canvasSize, deckDocument, editableDocument, fitZoom, hasOwnScript, slideCount } from "../lib/artifactView";
 import { t } from "../lib/i18n";
 import { childrenOf, crumbOf, kindCounts, recents, rows } from "../lib/artifacts";
 import FileViewer from "./FileViewer";
@@ -880,6 +880,40 @@ function Page({
   const Icon = KIND_ICON[node.kind];
   const kids = childrenOf(tree, node.id);
   const [shareOpen, setShareOpen] = useState(false);
+  // In-place edits (fase 14.2): a frame says which words changed; the
+  // change is placed in the file by the old text, or refused.
+  const [inPlace, setInPlace] = useState<string | null>(null);
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  useEffect(() => {
+    if (!html || source) return;
+    const onMessage = (e: MessageEvent) => {
+      const m = e.data as { hark?: string; before?: unknown; after?: unknown; inner?: { before?: unknown; after?: unknown } } | null;
+      if (!m || m.hark !== "edit" || typeof m.before !== "string" || typeof m.after !== "string") return;
+      const candidates = [{ before: m.before, after: m.after }];
+      if (typeof m.inner?.before === "string" && typeof m.inner?.after === "string") candidates.push({ before: m.inner.before, after: m.inner.after });
+      const next = applyTextEdit(pageRef.current.text, candidates);
+      if (next == null) {
+        setInPlace(t("art_inplace_unplaced"));
+        return;
+      }
+      ipc
+        .artifactWrite(space, node.id, next)
+        .then(() => {
+          setInPlace(t("art_inplace_saved"));
+          onSaved();
+        })
+        .catch((err) => setInPlace(String(err)));
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [html, source, space, node.id]);
+  useEffect(() => {
+    if (!inPlace) return;
+    const id = setTimeout(() => setInPlace(null), 4000);
+    return () => clearTimeout(id);
+  }, [inPlace]);
   // The menu may open with an excerpt (a board's selection) to carry along.
   const [take, setTake] = useState<{ open: boolean; extra?: string }>({ open: false });
   const takeOpen = take.open;
@@ -1007,6 +1041,12 @@ function Page({
         )}
         {" · "}
         <span className="mono">{node.path}</span>
+        {html && !source && (
+          <>
+            {" · "}
+            <span className={inPlace ? "art-inplace on" : "art-inplace dim"}>{inPlace ?? (scripts ? t("art_inplace_hint") : t("art_inplace_needs_scripts"))}</span>
+          </>
+        )}
       </div>
       <div className="art-body">
         {node.kind === "sheet" && !source ? (
@@ -1018,13 +1058,13 @@ function Page({
         ) : html && !source && node.kind === "slides" ? (
           <DeckViewer title={node.title} html={page.text} scripts={scripts} onStripPager={() => ipc.artifactStripPager(space, node.id).then(onSaved)} />
         ) : html && !source && node.kind === "design" ? (
-          <CanvasViewer title={node.title} html={withBaseStyle(page.text)} scripts={scripts} />
+          <CanvasViewer title={node.title} html={scripts ? editableDocument(withBaseStyle(page.text)) : withBaseStyle(page.text)} scripts={scripts} />
         ) : html && !source ? (
           <iframe
             className="art-frame"
             title={node.title}
             sandbox={scripts ? "allow-scripts" : ""}
-            srcDoc={withBaseStyle(page.text)}
+            srcDoc={scripts ? editableDocument(withBaseStyle(page.text)) : withBaseStyle(page.text)}
           />
         ) : (
           <FileViewer file={{ abs: page.abs, rel: node.path, project: { name: space, path: "" } }} io={io} />

@@ -245,7 +245,7 @@ export default function FileViewer({
         </span>
       </div>
       {editing ? (
-        <div className="viewer-editwrap">
+        <div className={`viewer-editwrap ${isMarkdown(file.rel) ? "split" : ""}`}>
           <Gutter count={lineCount(draft)} gutterRef={gutterRef} />
           <div className="viewer-editstack">
             {liveHighlight && (
@@ -289,6 +289,11 @@ export default function FileViewer({
               style={{ top: 12 + (file.line - 1) * 18.6 }}
             />
           ) : null}
+          {isMarkdown(file.rel) && (
+            <div className="viewer-md viewer-preview">
+              <Markdown>{draft}</Markdown>
+            </div>
+          )}
         </div>
       ) : isMarkdown(file.rel) ? (
         <div className="viewer-md">
