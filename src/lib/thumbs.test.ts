@@ -25,6 +25,27 @@ describe("a card's thumbnail is the page at scale, read from its file", () => {
     expect(p!.groups[0].title).toBe("A");
     expect(p!.links.length).toBe(1);
     expect(p!.milestones).toBe(2);
+    // Notes and groups without a place are laid out as the viewer does:
+    // groups side by side, two notes per row, so the thumb is never a
+    // tall thin strip of dots.
+    const laid = boardPreview(`{"groups":[{"id":"g1","title":"A"},{"id":"g2","title":"B"}],"notes":[{"id":"a","text":"1","group":"g1"},{"id":"b","text":"2","group":"g1"},{"id":"c","text":"3","group":"g1"},{"id":"d","text":"4","group":"g2"},{"id":"e","text":"5"}]}`, 240, 80)!;
+    expect(laid.groups[1].x).toBeGreaterThan(laid.groups[0].x + laid.groups[0].w - 1);
+    expect(laid.groups[0].w).toBeGreaterThan(40);
+    const a = laid.notes.find((n) => n.id === "a")!;
+    const c = laid.notes.find((n) => n.id === "c")!;
+    expect(c.y).toBeGreaterThan(a.y);
+    expect(a.w).toBeGreaterThan(14);
+    // Fifteen groups side by side (as the viewer lays them) are re-packed
+    // into rows that fit the box, and a note never shrinks below a few pixels.
+    const wide = { groups: [] as unknown[], notes: [] as unknown[] };
+    for (let i = 0; i < 15; i++) {
+      wide.groups.push({ id: `g${i}`, title: `G${i}`, x: 24 + i * 366, y: 24, w: 338, h: 246 });
+      wide.notes.push({ id: `n${i}`, text: "x", x: 48 + i * 366, y: 60, group: `g${i}` });
+    }
+    const packed = boardPreview(JSON.stringify(wide), 240, 80)!;
+    const rowsY = new Set(packed.groups.map((g) => Math.round(g.y)));
+    expect(rowsY.size).toBeGreaterThan(1);
+    expect(Math.min(...packed.notes.map((n) => n.w))).toBeGreaterThanOrEqual(12);
     expect(boardPreview("{}", 240, 80)!.notes.length).toBe(0);
     expect(boardPreview("nope", 240, 80)).toBeNull();
   });

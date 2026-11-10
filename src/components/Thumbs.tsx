@@ -4,7 +4,9 @@ const NOTE_BG: Record<string, string> = { yellow: "#f1d77a", blue: "#9fd3f6", gr
 
 /** A sheet's first cells as a tiny grid; formulas stay text. */
 export function ThumbSheet({ text }: { text: string }) {
-  const p = sheetPreview(text);
+  // Three data rows under the header: enough to read as a grid, room
+  // for the tab strip, nothing cut at the bottom.
+  const p = sheetPreview(text, 4, 3);
   if (!p) return <div className="thumb-empty dim">{"{ }"}</div>;
   return (
     <div className="thumb-box thumb-sheet">
@@ -33,7 +35,7 @@ export function ThumbBoard({ text, w = 240, h = 80 }: { text: string; w?: number
     <div className="thumb-box thumb-board" style={{ width: w, height: h }}>
       {p.groups.map((g, i) => (
         <div key={i} className="thumb-group" style={{ left: g.x, top: g.y, width: g.w, height: g.h }}>
-          {g.title && <span>{g.title}</span>}
+          {g.title && g.w > 70 && <span>{g.title}</span>}
         </div>
       ))}
       <svg width={w} height={h} className="thumb-links">

@@ -3337,17 +3337,17 @@ html.demo .side-drag::before {
 .art-thumb.data { background: linear-gradient(135deg, #16213a, #0f131b); }
 .thumb-box { width: 92%; height: 84%; background: var(--bg); border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; position: relative; box-sizing: border-box; }
 .thumb-empty { font-size: 11px; }
-.thumb-sheet { font-size: 8.5px; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; }
+.thumb-sheet { font-size: 8px; line-height: 1.3; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; }
 .thumb-sheet-row { display: grid; border-top: 1px solid var(--border); }
 .thumb-sheet-row.head { border-top: 0; background: var(--panel); color: var(--text-strong); font-weight: 600; }
-.thumb-sheet-row span { padding: 2px 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.thumb-sheet-row span { padding: 2px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
 .thumb-sheet-row span.num { text-align: right; font-family: var(--font-mono); }
 .thumb-sheet-row span.f { color: var(--hl-meta, #7dcfff); font-family: var(--font-mono); }
 .thumb-sheet-tabs { margin-top: auto; display: flex; gap: 6px; padding: 2px 5px; font-size: 7.5px; border-top: 1px solid var(--border); }
 .thumb-sheet-tabs .on { color: var(--text-strong); }
 .thumb-board { width: auto; }
 .thumb-group { position: absolute; border: 1px dashed var(--border-strong); border-radius: 3px; }
-.thumb-group span { position: absolute; top: -6px; left: 4px; background: var(--bg); padding: 0 2px; font-size: 6.5px; color: var(--dim); white-space: nowrap; }
+.thumb-group span { position: absolute; top: -6px; left: 4px; max-width: calc(100% - 8px); overflow: hidden; text-overflow: ellipsis; background: var(--bg); padding: 0 2px; font-size: 6.5px; color: var(--dim); white-space: nowrap; }
 .thumb-note { position: absolute; border-radius: 2px; }
 .thumb-links { position: absolute; left: 0; top: 0; pointer-events: none; }
 .thumb-links line { stroke: var(--dim); stroke-width: 1; }
