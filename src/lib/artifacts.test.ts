@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { childrenOf, crumbOf, recents, rows, fold } from "./artifacts";
+import { childrenOf, crumbOf, kindCounts, recents, rows, fold } from "./artifacts";
 import type { ArtifactNode, ArtifactTree } from "../types";
 
 const node = (id: string, title: string, parent: string | null = null, updated_at = "2026-10-28T10:00:00Z"): ArtifactNode => ({
@@ -50,6 +50,22 @@ describe("childrenOf / crumbOf / recents", () => {
     expect(crumbOf(tree, "adr-004")).toEqual(["Decisões", "ADR 004: janela única"]);
     expect(crumbOf(tree, "visao")).toEqual(["Visão geral"]);
   });
+  it("the home counts pages by kind and lists one kind when asked", () => {
+    const mixed: ArtifactTree = {
+      nodes: [
+        { ...node("a", "A", null, "2026-10-20T10:00:00Z"), kind: "sheet", path: "a.sheet.json" },
+        { ...node("b", "B", null, "2026-10-21T10:00:00Z"), kind: "doc" },
+        { ...node("c", "C", null, "2026-10-22T10:00:00Z"), kind: "sheet", path: "c.sheet.json" },
+        { ...node("d", "D", null, "2026-10-23T10:00:00Z"), kind: "data", path: "d.dash.json" },
+      ],
+      order: { "": ["a", "b", "c", "d"] },
+    };
+    expect(kindCounts(mixed)).toEqual({ doc: 1, sheet: 2, data: 1 });
+    expect(recents(mixed, 10, "sheet").map((n) => n.id)).toEqual(["c", "a"]);
+    expect(recents(mixed, 1, "sheet").map((n) => n.id)).toEqual(["c"]);
+    expect(recents(mixed, 10).map((n) => n.id)).toEqual(["d", "c", "b", "a"]);
+  });
+
   it("recents is newest first, at most n", () => {
     expect(recents(tree, 3).map((n) => n.id)).toEqual(["adr-004", "proposta", "fase-10"]);
   });

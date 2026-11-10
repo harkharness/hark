@@ -1,7 +1,7 @@
 // The documentation tree as the screen reads it. Pure: no ipc, no state.
 // The Rust side owns the index (crates/hark-core/src/domain/artifacts.rs);
 // this side only flattens, filters and orders what it was given.
-import type { ArtifactNode, ArtifactTree } from "../types";
+import type { ArtifactKind, ArtifactNode, ArtifactTree } from "../types";
 
 /** One painted line of the tree column. */
 export type Row = { node: ArtifactNode; depth: number; hasChildren: boolean };
@@ -60,6 +60,16 @@ export function crumbOf(tree: ArtifactTree, id: string): string[] {
 }
 
 /** Newest touch first, at most n. */
-export function recents(tree: ArtifactTree, n: number): ArtifactNode[] {
-  return [...tree.nodes].sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0)).slice(0, n);
+export function recents(tree: ArtifactTree, n: number, kind?: ArtifactKind): ArtifactNode[] {
+  return tree.nodes
+    .filter((node) => !kind || node.kind === kind)
+    .sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0))
+    .slice(0, n);
+}
+
+/** How many pages of each kind the space holds; kinds absent are absent. */
+export function kindCounts(tree: ArtifactTree): Partial<Record<ArtifactKind, number>> {
+  const out: Partial<Record<ArtifactKind, number>> = {};
+  for (const node of tree.nodes) out[node.kind] = (out[node.kind] ?? 0) + 1;
+  return out;
 }

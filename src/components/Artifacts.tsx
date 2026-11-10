@@ -3,7 +3,7 @@ import { BarChart3, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, Downloa
 import * as ipc from "../lib/ipc";
 import { STAGE_H, STAGE_W, ZOOMS, canvasSize, deckDocument, fitZoom, hasOwnScript, slideCount } from "../lib/artifactView";
 import { t } from "../lib/i18n";
-import { childrenOf, crumbOf, recents, rows } from "../lib/artifacts";
+import { childrenOf, crumbOf, kindCounts, recents, rows } from "../lib/artifacts";
 import FileViewer from "./FileViewer";
 import SharePopover, { type ShareRow } from "./SharePopover";
 import SheetView from "./SheetView";
@@ -508,7 +508,9 @@ function Home({
   onOpen: (id: string) => void;
   onNew: (kind: ArtifactKind) => void;
 }) {
-  const recent = useMemo(() => recents(tree, 12), [tree]);
+  const [filter, setFilter] = useState<ArtifactKind | null>(null);
+  const counts = useMemo(() => kindCounts(tree), [tree]);
+  const recent = useMemo(() => (filter ? recents(tree, 200, filter) : recents(tree, 12)), [tree, filter]);
   const name = space?.project ? space.name : t("art_space_personal");
   return (
     <div className="art-home">
@@ -521,7 +523,20 @@ function Home({
         </span>
       </div>
       <div className="art-home-bar">
-        <span className="art-home-title">{t("art_recent")}</span>
+        <span className="art-kinds art-filter">
+          <button className={`pill-btn ${filter === null ? "on" : ""}`} onClick={() => setFilter(null)}>
+            {t("art_all")} · {tree.nodes.length}
+          </button>
+          {ARTIFACT_KINDS.filter((k) => counts[k]).map((k) => {
+            const Icon = KIND_ICON[k];
+            return (
+              <button key={k} className={`pill-btn ${filter === k ? "on" : ""}`} onClick={() => setFilter(filter === k ? null : k)}>
+                <Icon size={11} className={`art-kind ${k}`} /> {kindLabel(k)} · {counts[k]}
+              </button>
+            );
+          })}
+        </span>
+        <span className="art-home-title">{filter ? kindLabel(filter) : t("art_recent")}</span>
         <span className="art-kinds">
           {ARTIFACT_KINDS.map((k) => {
             const Icon = KIND_ICON[k];
