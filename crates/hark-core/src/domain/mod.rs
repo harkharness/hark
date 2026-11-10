@@ -39,6 +39,7 @@ pub mod repo;
 pub mod report;
 pub mod savings;
 pub mod scope;
+pub mod sheet;
 pub mod shell_path;
 pub mod task_nudge;
 pub mod precheck;
