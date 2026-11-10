@@ -2596,6 +2596,9 @@ fn artifact_set_kind(space: String, id: String, kind: String) -> Result<(), Stri
         "doc" => hark_core::domain::artifacts::Kind::Doc,
         "slides" => hark_core::domain::artifacts::Kind::Slides,
         "design" => hark_core::domain::artifacts::Kind::Design,
+        "sheet" => hark_core::domain::artifacts::Kind::Sheet,
+        "board" => hark_core::domain::artifacts::Kind::Board,
+        "data" => hark_core::domain::artifacts::Kind::Data,
         other => return Err(format!("{other}: not a kind")),
     };
     hark_core::app::artifacts::set_kind(&artifact_store(), &space, &id, kind).map_err(|e| e.to_string())

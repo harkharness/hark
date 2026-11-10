@@ -65,9 +65,12 @@ pub fn strip_pager(store: &dyn ArtifactStore, space: &str, id: &str) -> anyhow::
     }
 }
 
-/// The person says what a page is: document, deck or design.
+/// The person says what an html page is: document, deck or design. A
+/// json kind is its file's and cannot be re-labelled.
 pub fn set_kind(store: &dyn ArtifactStore, space: &str, id: &str, kind: Kind) -> anyhow::Result<()> {
     let mut tree = load(store, space, "")?;
+    let was = tree.get(id).map(|n| n.kind).ok_or_else(|| anyhow::anyhow!("{id}: not found"))?;
+    anyhow::ensure!(!was.fixed_by_extension() && !kind.fixed_by_extension(), "{id}: the file says what this page is");
     tree.set_kind(id, kind).map_err(anyhow::Error::msg)?;
     save(store, space, &tree)
 }
@@ -75,11 +78,15 @@ pub fn set_kind(store: &dyn ArtifactStore, space: &str, id: &str, kind: Kind) ->
 /// What a fresh page holds: a heading for a document, a shell for the
 /// HTML kinds, so the viewer has something to show before anyone types.
 fn seed(title: &str, kind: Kind) -> String {
+    let t = serde_json::Value::from(title);
     match kind {
         Kind::Doc => format!("# {title}\n\n"),
         Kind::Slides | Kind::Design => format!(
             "<!doctype html>\n<html lang=\"pt-BR\">\n<head>\n<meta charset=\"utf-8\">\n<title>{title}</title>\n</head>\n<body>\n<h1>{title}</h1>\n</body>\n</html>\n"
         ),
+        Kind::Sheet => format!("{{\n  \"title\": {t},\n  \"tabs\": [\n    {{ \"name\": \"Aba 1\", \"columns\": [\"A\", \"B\"], \"rows\": [[\"\", \"\"]] }}\n  ]\n}}\n"),
+        Kind::Board => format!("{{\n  \"title\": {t},\n  \"notes\": [],\n  \"groups\": [],\n  \"timeline\": []\n}}\n"),
+        Kind::Data => format!("{{\n  \"title\": {t},\n  \"sources\": [],\n  \"queries\": [],\n  \"panels\": [],\n  \"refresh\": \"manual\"\n}}\n"),
     }
 }
 
@@ -209,6 +216,28 @@ mod tests {
         assert!(s.read_page("hark", "infra.html").unwrap().starts_with("<!doctype html>"));
         let tree = load(&s, "hark", NOW).unwrap();
         assert_eq!(tree.breadcrumb(&child.id), vec!["Decisões", "ADR 004: janela única"]);
+    }
+
+    #[test]
+    fn a_new_sheet_board_or_dashboard_is_seeded_as_minimal_json_the_viewer_can_open() {
+        let (_d, s) = store();
+        let sheet = create(&s, "hark", None, "Custos de infra", Kind::Sheet, None, NOW).unwrap();
+        assert_eq!(sheet.path, "custos-de-infra.sheet.json");
+        let text = s.read_page("hark", &sheet.path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+        assert_eq!(v["title"], "Custos de infra");
+        assert!(v["tabs"].is_array());
+        let board = create(&s, "hark", None, "Plano", Kind::Board, None, NOW).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&s.read_page("hark", &board.path).unwrap()).unwrap();
+        assert!(v["notes"].is_array());
+        let dash = create(&s, "hark", None, "Uso", Kind::Data, None, NOW).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&s.read_page("hark", &dash.path).unwrap()).unwrap();
+        assert!(v["sources"].is_array() && v["panels"].is_array());
+        // Reloaded, the kinds come from the extension.
+        let tree = load(&s, "hark", NOW).unwrap();
+        assert_eq!(tree.get("plano").unwrap().kind, Kind::Board);
+        // A json kind cannot be re-labelled by hand: the file says what it is.
+        assert!(set_kind(&s, "hark", "plano", Kind::Doc).is_err());
     }
 
     #[test]

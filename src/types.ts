@@ -9,7 +9,9 @@ export type Reply = {
 export type Project = { name: string; path: string };
 
 /** Artifacts: the documentation tree of a space (mirror of domain::artifacts). */
-export type ArtifactKind = "doc" | "slides" | "design";
+export type ArtifactKind = "doc" | "slides" | "design" | "sheet" | "board" | "data";
+/** Every kind, in the order the pickers show them. */
+export const ARTIFACT_KINDS: ArtifactKind[] = ["doc", "slides", "design", "sheet", "board", "data"];
 
 /** One item of the list of the day (domain::demands). */
 export type Demand = {

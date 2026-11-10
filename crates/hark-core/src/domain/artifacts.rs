@@ -15,6 +15,44 @@ pub enum Kind {
     Doc,
     Slides,
     Design,
+    /// A spreadsheet the agent writes as json; Hark computes it.
+    Sheet,
+    /// A whiteboard: notes, groups, a timeline.
+    Board,
+    /// A dashboard over local sources, with saved queries.
+    Data,
+}
+
+impl Kind {
+    /// The file extension of each kind. The three json kinds carry a
+    /// compound one, so the file says what it is and a plain `.json`
+    /// (the index!) is never a page.
+    pub fn extension(self) -> &'static str {
+        match self {
+            Kind::Doc => "md",
+            Kind::Slides | Kind::Design => "html",
+            Kind::Sheet => "sheet.json",
+            Kind::Board => "board.json",
+            Kind::Data => "dash.json",
+        }
+    }
+
+    /// The kind a json extension names, if it is one of ours.
+    pub fn of_json_extension(ext: &str) -> Option<Kind> {
+        match ext {
+            "sheet.json" => Some(Kind::Sheet),
+            "board.json" => Some(Kind::Board),
+            "dash.json" => Some(Kind::Data),
+            _ => None,
+        }
+    }
+
+    /// Whether the file's extension fixes the kind (json kinds) or the
+    /// person may re-label it (an html page is a deck or a design by its
+    /// shape; a document when it says so).
+    pub fn fixed_by_extension(self) -> bool {
+        matches!(self, Kind::Sheet | Kind::Board | Kind::Data)
+    }
 }
 
 /// Where a page came from: the chat (session) and the task that wrote it.
@@ -78,7 +116,8 @@ pub struct Reconciled {
     pub renamed: Vec<String>,
 }
 
-const PAGE_EXTENSIONS: [&str; 2] = ["md", "html"];
+/// Every extension a page may have; the json ones are compound.
+pub const PAGE_EXTENSIONS: [&str; 5] = ["md", "html", "sheet.json", "board.json", "dash.json"];
 
 /// A page path is relative to its space, never climbs out of it, and
 /// names a page format. The adapter still refuses symlinks; this is the
@@ -93,10 +132,10 @@ pub fn validate_path(path: &str) -> Result<(), String> {
     if path.split('/').any(|seg| seg.is_empty() || seg == "." || seg == "..") {
         return Err(format!("{path}: no empty, `.` or `..` segments"));
     }
-    let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
-    match ext {
-        Some(e) if PAGE_EXTENSIONS.contains(&e.as_str()) => Ok(()),
-        _ => Err(format!("{path}: a page is .md or .html")),
+    if PAGE_EXTENSIONS.contains(&ext_of(path)) {
+        Ok(())
+    } else {
+        Err(format!("{path}: a page is .md, .html, .sheet.json, .board.json or .dash.json"))
     }
 }
 
@@ -138,9 +177,17 @@ fn fold(c: char) -> Option<char> {
     })
 }
 
+/// The file name without its page extension (compound ones included).
 fn stem(path: &str) -> &str {
     let file = path.rsplit('/').next().unwrap_or(path);
-    file.rsplit_once('.').map(|(s, _)| s).unwrap_or(file)
+    let ext = ext_of(file);
+    if ext.is_empty() { file } else { &file[..file.len() - ext.len() - 1] }
+}
+
+/// The path without its page extension: what names the page's folder.
+fn without_ext(path: &str) -> &str {
+    let ext = ext_of(path);
+    if ext.is_empty() { path } else { &path[..path.len() - ext.len() - 1] }
 }
 
 impl Tree {
@@ -314,17 +361,14 @@ impl Tree {
     /// of its parent. A parent that is a leaf page gets a folder named
     /// after its file; an `index` page already names its folder.
     pub fn path_under(&self, parent: Option<&str>, slug: &str, kind: Kind) -> String {
-        let ext = match kind {
-            Kind::Doc => "md",
-            Kind::Slides | Kind::Design => "html",
-        };
+        let ext = kind.extension();
         let Some(p) = parent.and_then(|p| self.get(p)) else {
             return format!("{slug}.{ext}");
         };
         let dir = if stem(&p.path) == "index" {
             p.path.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default()
         } else {
-            p.path.rsplit_once('.').map(|(d, _)| d.to_string()).unwrap_or_else(|| p.path.clone())
+            without_ext(&p.path).to_string()
         };
         if dir.is_empty() { format!("{slug}.{ext}") } else { format!("{dir}/{slug}.{ext}") }
     }
@@ -336,8 +380,7 @@ impl Tree {
             .iter()
             .find(|n| {
                 let p = n.path.as_str();
-                let own = p.rsplit_once('.').map(|(d, _)| d).unwrap_or(p);
-                own == folder || (stem(p) == "index" && p.rsplit_once('/').map(|(d, _)| d) == Some(folder))
+                without_ext(p) == folder || (stem(p) == "index" && p.rsplit_once('/').map(|(d, _)| d) == Some(folder))
             })
             .map(|n| n.id.as_str())
     }
@@ -411,16 +454,19 @@ impl Tree {
     }
 }
 
-/// The kind a file's format allows: markdown is a document; html is a
-/// deck unless the page was already one of the html kinds (a design stays
-/// a design through a rewrite).
+/// The kind a file's format allows: markdown is a document; a json kind
+/// is its extension; html is a deck unless the page was already one of
+/// the html kinds (a design stays a design through a rewrite).
 fn kind_for(path: &str, was: Kind) -> Kind {
-    if ext_of(path).eq_ignore_ascii_case("md") {
+    let ext = ext_of(path);
+    if ext == "md" {
         Kind::Doc
-    } else if was == Kind::Doc {
-        Kind::Slides
-    } else {
+    } else if let Some(k) = Kind::of_json_extension(ext) {
+        k
+    } else if matches!(was, Kind::Slides | Kind::Design) {
         was
+    } else {
+        Kind::Slides
     }
 }
 
@@ -428,8 +474,20 @@ fn folder_of(path: &str) -> &str {
     path.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
 }
 
-fn ext_of(path: &str) -> &str {
-    path.rsplit_once('.').map(|(_, e)| e).unwrap_or("")
+/// The page extension of a path, lowercase: a compound json one when the
+/// file carries it, else whatever follows the last dot ("" when none).
+pub fn ext_of(path: &str) -> &'static str {
+    let file = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
+    for ext in ["sheet.json", "board.json", "dash.json"] {
+        if file.ends_with(&format!(".{ext}")) && file.len() > ext.len() + 1 {
+            return ext;
+        }
+    }
+    match file.rsplit_once('.').map(|(_, e)| e) {
+        Some("md") => "md",
+        Some("html") => "html",
+        Some(_) | None => "",
+    }
 }
 
 /// What a page is, from its file. Markdown is a document. An html page
@@ -439,6 +497,9 @@ fn ext_of(path: &str) -> &str {
 /// document. The old default (every html a deck) made the project's home
 /// page and a real deck wear the same icon (03/11).
 pub fn page_kind(path: &str, text: &str) -> Kind {
+    if let Some(k) = Kind::of_json_extension(ext_of(path)) {
+        return k;
+    }
     if !path.to_ascii_lowercase().ends_with(".html") {
         return Kind::Doc;
     }
@@ -615,7 +676,9 @@ fn looks_like_pager(element: &str) -> bool {
 /// of markdown (front matter skipped), the `<title>` or first `<h1>` of
 /// html, else the file name.
 pub fn page_title(path: &str, head: &str) -> String {
-    let found = if path.ends_with(".md") {
+    let found = if Kind::of_json_extension(ext_of(path)).is_some() {
+        json_title(head)
+    } else if path.ends_with(".md") {
         let mut lines = head.lines().map(str::trim);
         let mut body: Vec<&str> = vec![];
         if lines.next() == Some("---") {
@@ -635,6 +698,32 @@ pub fn page_title(path: &str, head: &str) -> String {
         tag_text(head, "title").or_else(|| tag_text(head, "h1"))
     };
     found.filter(|t| !t.is_empty()).unwrap_or_else(|| stem(path).to_string())
+}
+
+/// The `"title"` of a json page's head, when the head holds one. The
+/// head may be cut mid-document, so this is a scan, not a parse.
+fn json_title(head: &str) -> Option<String> {
+    let at = head.find("\"title\"")?;
+    let rest = head[at + 7..].trim_start().strip_prefix(':')?.trim_start();
+    let rest = rest.strip_prefix('"')?;
+    let mut out = String::new();
+    let mut chars = rest.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                if let Some(n) = chars.next() {
+                    out.push(match n {
+                        'n' => '\n',
+                        't' => '\t',
+                        other => other,
+                    });
+                }
+            }
+            '"' => return Some(out.trim().to_string()),
+            _ => out.push(c),
+        }
+    }
+    None
 }
 
 /// The text inside the first `<tag …>…</tag>` of an html head, trimmed.
@@ -940,6 +1029,37 @@ mod tests {
         assert_eq!(page_title("deck.html", "<html><head><title>Infra como plataforma</title></head>"), "Infra como plataforma");
         assert_eq!(page_title("deck.html", "<h1>Só um h1</h1>"), "Só um h1");
         assert_eq!(page_title("deck.html", "<p>nada</p>"), "deck");
+    }
+
+    #[test]
+    fn a_sheet_a_board_and_a_dashboard_are_pages_by_their_compound_extension() {
+        // Three kinds the agent writes as json (10/11): the extension says
+        // what the page is, so the tree needs no tag inside the file. A
+        // plain .json (index.json!) is never a page.
+        assert!(validate_path("custos.sheet.json").is_ok());
+        assert!(validate_path("planos/release.board.json").is_ok());
+        assert!(validate_path("uso.dash.json").is_ok());
+        assert!(validate_path("index.json").is_err());
+        assert!(validate_path("dados.json").is_err());
+        assert_eq!(page_kind("custos.sheet.json", "{}"), Kind::Sheet);
+        assert_eq!(page_kind("planos/release.board.json", "{}"), Kind::Board);
+        assert_eq!(page_kind("uso.dash.json", "{}"), Kind::Data);
+        // The title is the file's own, else the stem without the kind.
+        assert_eq!(page_title("custos.sheet.json", r#"{"title": "Custos de infra", "tabs": []}"#), "Custos de infra");
+        assert_eq!(page_title("custos-de-infra.sheet.json", r#"{"tabs": []}"#), "custos-de-infra");
+        // A new page of each kind gets its compound extension.
+        let t = sample();
+        assert_eq!(t.path_under(None, "custos", Kind::Sheet), "custos.sheet.json");
+        assert_eq!(t.path_under(Some("decisoes"), "plano", Kind::Board), "decisoes/plano.board.json");
+        assert_eq!(t.path_under(None, "uso", Kind::Data), "uso.dash.json");
+        // And its folder, when it gets children, is named without it.
+        let mut t = sample();
+        t.reconcile(&[("decisoes/index.md", None), ("decisoes/adr-003.md", None), ("decisoes/adr-004.md", None), ("home.md", None), ("custos.sheet.json", Some("Custos"))], "x");
+        assert_eq!(t.path_under(Some("custos"), "detalhe", Kind::Doc), "custos/detalhe.md");
+        // Rewritten in another format in one pass: still the same page, now that kind.
+        let out = t.reconcile(&[("decisoes/index.md", None), ("decisoes/adr-003.md", None), ("decisoes/adr-004.md", None), ("home.md", None), ("custos.dash.json", Some("Custos"))], "y");
+        assert_eq!(out.renamed, vec!["custos"]);
+        assert_eq!(t.get("custos").unwrap().kind, Kind::Data);
     }
 
     #[test]

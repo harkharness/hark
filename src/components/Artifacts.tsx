@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, Download, ExternalLink, FileText, FolderOpen, Link2, Maximize2, MessageSquare, Minimize2, MoreVertical, Palette, Plus, Presentation, Search, Share2, ShieldCheck, ShieldOff, Sparkles, User } from "lucide-react";
+import { BarChart3, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, Download, ExternalLink, FileText, FolderOpen, Link2, Maximize2, MessageSquare, Minimize2, MoreVertical, Palette, Plus, Presentation, Search, Share2, ShieldCheck, ShieldOff, Sparkles, StickyNote, Table2, User } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { STAGE_H, STAGE_W, ZOOMS, canvasSize, deckDocument, fitZoom, hasOwnScript, slideCount } from "../lib/artifactView";
 import { t } from "../lib/i18n";
@@ -10,7 +10,7 @@ import Markdown from "./Markdown";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { pageHtml } from "../lib/export";
-import type { ArtifactKind, ArtifactNode, ArtifactPage, ArtifactSpace, ArtifactTree } from "../types";
+import { ARTIFACT_KINDS, type ArtifactKind, type ArtifactNode, type ArtifactPage, type ArtifactSpace, type ArtifactTree } from "../types";
 import { destinations, type Destination, type RecentChat } from "../lib/takeTo";
 
 /** An html page that brought no style of its own gets the reading base:
@@ -34,8 +34,11 @@ function withBaseStyle(html: string): string {
 export type ArtSel = { space: string; id: string | null };
 
 const OPEN_KEY = "hark.artifacts.open";
-const KIND_ICON: Record<ArtifactKind, typeof FileText> = { doc: FileText, slides: Presentation, design: Palette };
-const kindLabel = (k: ArtifactKind) => t(k === "doc" ? "art_kind_doc" : k === "slides" ? "art_kind_slides" : "art_kind_design");
+const KIND_ICON: Record<ArtifactKind, typeof FileText> = { doc: FileText, slides: Presentation, design: Palette, sheet: Table2, board: StickyNote, data: BarChart3 };
+const KIND_LABEL = { doc: "art_kind_doc", slides: "art_kind_slides", design: "art_kind_design", sheet: "art_kind_sheet", board: "art_kind_board", data: "art_kind_data" } as const;
+const kindLabel = (k: ArtifactKind) => t(KIND_LABEL[k]);
+/** The html kinds a person may re-label by hand; a json kind is its file's. */
+const RELABEL_KINDS: ArtifactKind[] = ["doc", "slides", "design"];
 
 /** "há 5 min", "ontem": the touch as the home card prints it. */
 export function ago(iso: string, now = Date.now()): string {
@@ -370,7 +373,7 @@ export default function Artifacts({
                             {t("art_new_child")}
                           </button>
                           {node.path.endsWith(".html") &&
-                            (["doc", "slides", "design"] as ArtifactKind[])
+                            RELABEL_KINDS
                               .filter((k) => k !== node.kind)
                               .map((k) => (
                                 <button key={k} onClick={() => void setKind(sp.name, node.id, k)}>
@@ -470,7 +473,7 @@ function NameBox({
         }}
       />
       <span className="art-kinds">
-        {(["doc", "slides", "design"] as ArtifactKind[]).map((k) => {
+        {ARTIFACT_KINDS.map((k) => {
           const Icon = KIND_ICON[k];
           return (
             <button key={k} className={`pill-btn ${kind === k ? "on" : ""}`} onClick={() => onKind(k)} title={kindLabel(k)}>
@@ -519,7 +522,7 @@ function Home({
       <div className="art-home-bar">
         <span className="art-home-title">{t("art_recent")}</span>
         <span className="art-kinds">
-          {(["doc", "slides", "design"] as ArtifactKind[]).map((k) => {
+          {ARTIFACT_KINDS.map((k) => {
             const Icon = KIND_ICON[k];
             return (
               <button key={k} className="pill-btn" onClick={() => onNew(k)}>

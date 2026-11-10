@@ -9,8 +9,6 @@ pub struct FsArtifacts {
     root: PathBuf,
 }
 
-const PAGE_EXTENSIONS: [&str; 2] = ["md", "html"];
-
 fn is_symlink(path: &Path) -> bool {
     std::fs::symlink_metadata(path).map(|m| m.file_type().is_symlink()).unwrap_or(false)
 }
@@ -81,11 +79,7 @@ impl FsArtifacts {
             let here = if rel.is_empty() { name.to_string_lossy().to_string() } else { format!("{rel}/{}", name.to_string_lossy()) };
             if path.is_dir() {
                 Self::walk(&path, &here, out)?;
-            } else if path
-                .extension()
-                .and_then(|e| e.to_str())
-                .is_some_and(|e| PAGE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
-            {
+            } else if !crate::domain::artifacts::ext_of(&here).is_empty() {
                 out.push(here);
             }
         }
@@ -205,6 +199,18 @@ mod tests {
         std::fs::write(s.absolute("hark", "a/x.html").unwrap().with_file_name("img.png"), b"").unwrap();
         std::fs::write(s.absolute("hark", "b.md").unwrap().with_file_name(".DS_Store"), b"").unwrap();
         assert_eq!(s.list_pages("hark").unwrap(), vec!["a/x.html", "b.md"]);
+    }
+
+    #[test]
+    fn the_json_kinds_are_listed_and_the_index_never_is() {
+        let (_d, s) = store();
+        s.write_page("hark", "custos.sheet.json", "{}").unwrap();
+        s.write_page("hark", "p/plano.board.json", "{}").unwrap();
+        s.write_page("hark", "uso.dash.json", "{}").unwrap();
+        s.write_index("hark", "{}\n").unwrap();
+        std::fs::write(s.absolute("hark", "uso.dash.json").unwrap().with_file_name("dados.json"), b"{}").unwrap();
+        assert_eq!(s.list_pages("hark").unwrap(), vec!["custos.sheet.json", "p/plano.board.json", "uso.dash.json"]);
+        assert!(s.read_page("hark", "dados.json").is_err(), "a plain json is not a page");
     }
 
     #[test]
