@@ -283,6 +283,172 @@ pub fn sheet_set_cell(
     accept(store, space, id, now)
 }
 
+/// One query as the dashboard's "fontes e consultas" screen lists it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct QueryView {
+    pub id: String,
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sql: Option<String>,
+    pub columns: Vec<String>,
+    pub certified: bool,
+    /// The agent changed or added it since the baseline.
+    pub changed: bool,
+    /// The first rows of its cached result.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<crate::domain::dash::Table>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// A dashboard page as the viewer shows it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct DashView {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub refresh: crate::domain::dash::Refresh,
+    pub sources: Vec<crate::domain::dash::Source>,
+    pub queries: Vec<QueryView>,
+    pub panels: Vec<crate::domain::dash::PanelView>,
+    /// When the numbers were taken; None before the first run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_at: Option<String>,
+    pub stale: bool,
+    /// The ids of the queries the agent changed since the baseline.
+    pub changed: Vec<String>,
+    pub versions: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub raw: String,
+}
+
+const PREVIEW_ROWS: usize = 20;
+
+/// The dashboard computed from its cache. `run` is the person's
+/// "atualizar agora": every source runs, commands included. Without it,
+/// a stale cache re-runs the files and sqlite only — a command runs
+/// when the person asks, never on its own.
+pub fn dash_view(
+    store: &dyn ArtifactStore,
+    runner: &dyn crate::ports::DataRunner,
+    project: Option<&std::path::Path>,
+    space: &str,
+    id: &str,
+    now: &str,
+    run: bool,
+) -> anyhow::Result<DashView> {
+    use crate::domain::dash::{self, Cache, Result_, SourceKind};
+    let path = path_of(store, space, id)?;
+    let raw = store.read_page(space, &path)?;
+    let base_text = baseline(store, space, id, now)?;
+    let versions = store.list_versions(space, &path)?.len();
+    let dash = match dash::parse(&raw) {
+        Ok(d) => d,
+        Err(e) => {
+            return Ok(DashView {
+                title: None,
+                refresh: dash::Refresh::Manual,
+                sources: vec![],
+                queries: vec![],
+                panels: vec![],
+                cache_at: None,
+                stale: true,
+                changed: vec![],
+                versions,
+                error: Some(e),
+                raw,
+            })
+        }
+    };
+    let cache_file = dash::cache_path(&path);
+    let mut cache: Cache = store
+        .read_aside(space, &cache_file)?
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let stale = dash::stale(dash.refresh, Some(cache.at.as_str()), now);
+    if run || stale {
+        for q in &dash.queries {
+            let Some(src) = dash.sources.iter().find(|s| s.id == q.source) else { continue };
+            // A command runs on the person's word only; a stale cache
+            // keeps its last answer.
+            if src.kind == SourceKind::Command && !run {
+                continue;
+            }
+            let result = match project {
+                None => Err(anyhow::anyhow!("o espaço não tem projeto: fontes só em projetos")),
+                Some(root) => match src.kind {
+                    SourceKind::Sqlite => runner.sql(root, src.path.as_deref().unwrap_or(""), q.sql.as_deref().unwrap_or("")),
+                    SourceKind::Csv => runner.file(root, src.path.as_deref().unwrap_or("")).and_then(|t| dash::pick(&dash::parse_csv(&t), q).map_err(anyhow::Error::msg)),
+                    SourceKind::Json => runner
+                        .file(root, src.path.as_deref().unwrap_or(""))
+                        .and_then(|t| dash::parse_json_table(&t).and_then(|tb| dash::pick(&tb, q)).map_err(anyhow::Error::msg)),
+                    SourceKind::Command => runner.command(root, src.command.as_deref().unwrap_or("")).and_then(|out| {
+                        let trimmed = out.trim_start();
+                        let table = if trimmed.starts_with('[') || trimmed.starts_with('{') {
+                            dash::parse_json_table(&out).map_err(anyhow::Error::msg)?
+                        } else {
+                            dash::parse_csv(&out)
+                        };
+                        dash::pick(&table, q).map_err(anyhow::Error::msg)
+                    }),
+                },
+            };
+            cache.results.insert(
+                q.id.clone(),
+                match result {
+                    Ok(table) => Result_ { table: Some(table), error: None },
+                    Err(e) => Result_ { table: None, error: Some(e.to_string()) },
+                },
+            );
+        }
+        cache.at = now.to_string();
+        store.write_aside(space, &cache_file, &serde_json::to_string(&cache).unwrap_or_default())?;
+    }
+    let changed = dash::parse(&base_text).map(|b| dash::changed_queries(&b, &dash)).unwrap_or_default();
+    let queries = dash
+        .queries
+        .iter()
+        .map(|q| {
+            let r = cache.results.get(&q.id);
+            QueryView {
+                id: q.id.clone(),
+                source: q.source.clone(),
+                sql: q.sql.clone(),
+                columns: q.columns.clone(),
+                certified: q.certified,
+                changed: changed.contains(&q.id),
+                preview: r.and_then(|r| r.table.as_ref()).map(|t| dash::Table { columns: t.columns.clone(), rows: t.rows.iter().take(PREVIEW_ROWS).cloned().collect() }),
+                error: r.and_then(|r| r.error.clone()),
+            }
+        })
+        .collect();
+    let panels = dash.panels.iter().map(|p| dash::panel_view(&dash, p, cache.results.get(&p.query))).collect();
+    Ok(DashView {
+        title: dash.title.clone(),
+        refresh: dash.refresh,
+        sources: dash.sources.clone(),
+        queries,
+        panels,
+        cache_at: (!cache.at.is_empty()).then(|| cache.at.clone()),
+        stale: dash::stale(dash.refresh, Some(cache.at.as_str()), now),
+        changed,
+        versions,
+        error: None,
+        raw,
+    })
+}
+
+/// The person certifies a query (or takes it back): the file is
+/// rewritten and becomes the baseline, as any edit of theirs.
+pub fn dash_certify(store: &dyn ArtifactStore, space: &str, id: &str, query: &str, on: bool, now: &str) -> anyhow::Result<()> {
+    use crate::domain::dash;
+    let path = path_of(store, space, id)?;
+    let mut dash = dash::parse(&store.read_page(space, &path)?).map_err(anyhow::Error::msg)?;
+    dash::set_certified(&mut dash, query, on).map_err(anyhow::Error::msg)?;
+    write(store, space, id, &dash::to_json(&dash), now)?;
+    accept(store, space, id, now)
+}
+
 /// An agent wrote a page: the page learns where it came from. The first
 /// origin sticks (a page is born once); every write records the touch.
 pub fn attach_origin(store: &dyn ArtifactStore, space: &str, path: &str, origin: Origin, now: &str) -> anyhow::Result<Node> {
@@ -462,6 +628,87 @@ mod tests {
         assert_eq!(view.computed.tabs[0].cells[0][0].text, "2");
         assert!(view.changed.is_empty(), "your own edit is not something to review");
         assert!(sheet_set_cell(&s, "hark", &page.id, CellRef { tab: 9, row: 0, col: 0 }, "x", NOW).is_err());
+    }
+
+    /// A runner that answers from memory: sqlite and files by name, a
+    /// command by its text. Counts the commands it ran.
+    struct FakeRunner(std::cell::Cell<usize>);
+    impl crate::ports::DataRunner for FakeRunner {
+        fn sql(&self, _p: &std::path::Path, path: &str, sql: &str) -> anyhow::Result<crate::domain::dash::Table> {
+            if path == "data/app.db" && sql.contains("lancamentos") {
+                Ok(crate::domain::dash::parse_csv("dia,n\n01,3\n02,5\n"))
+            } else {
+                anyhow::bail!("no such table")
+            }
+        }
+        fn file(&self, _p: &std::path::Path, path: &str) -> anyhow::Result<String> {
+            if path == "data/ev.csv" { Ok("mes,d7\nset,38\nout,41\n".into()) } else { anyhow::bail!("{path}: not found") }
+        }
+        fn command(&self, _p: &std::path::Path, _c: &str) -> anyhow::Result<String> {
+            self.0.set(self.0.get() + 1);
+            Ok("n,antes\n1284,1209\n".into())
+        }
+    }
+
+    const DASH: &str = r#"{ "title": "Uso", "refresh": "hourly",
+      "sources": [ {"id": "db", "kind": "sqlite", "path": "data/app.db"}, {"id": "ev", "kind": "csv", "path": "data/ev.csv"}, {"id": "st", "kind": "command", "command": "./stats.sh"} ],
+      "queries": [ {"id": "por_dia", "source": "db", "sql": "SELECT dia, n FROM lancamentos", "certified": true}, {"id": "ret", "source": "ev"}, {"id": "ativos", "source": "st"} ],
+      "panels": [ {"title": "ativos", "query": "ativos", "chart": "number", "value": "n", "previous": "antes"}, {"title": "por dia", "query": "por_dia", "chart": "bar"}, {"title": "ret", "query": "ret", "chart": "line"} ] }"#;
+
+    #[test]
+    fn a_dashboard_runs_its_sources_caches_the_numbers_and_only_runs_a_command_on_request() {
+        let (_d, s) = store();
+        let page = create(&s, "hark", None, "Uso", Kind::Data, None, NOW).unwrap();
+        s.write_page("hark", &page.path, DASH).unwrap();
+        let runner = FakeRunner(std::cell::Cell::new(0));
+        let project = std::path::Path::new("/p/x");
+        // First view: no cache, so files and sqlite run; the command waits for the person.
+        let v = dash_view(&s, &runner, Some(project), "hark", &page.id, NOW, false).unwrap();
+        assert!(v.error.is_none());
+        assert_eq!(v.panels[1].values, vec![3.0, 5.0]);
+        assert_eq!(v.panels[2].labels, vec!["set", "out"]);
+        assert!(v.panels[0].error.as_deref().unwrap().contains("atualize"));
+        assert_eq!(runner.0.get(), 0, "a command never runs on its own");
+        assert_eq!(v.cache_at.as_deref(), Some(NOW));
+        assert!(!v.stale);
+        assert!(v.panels[1].certified && !v.panels[2].certified);
+        assert!(s.read_aside("hark", "uso.dash.cache.json").unwrap().is_some(), "the cache sits beside the page");
+        // "atualizar agora": everything runs, the command included.
+        let v = dash_view(&s, &runner, Some(project), "hark", &page.id, "2026-10-28T10:10:00Z", true).unwrap();
+        assert_eq!(runner.0.get(), 1);
+        assert_eq!(v.panels[0].number, Some(1284.0));
+        assert_eq!(v.queries[2].preview.as_ref().unwrap().rows.len(), 1);
+        // Within the hour the cache answers; nothing runs again.
+        dash_view(&s, &runner, Some(project), "hark", &page.id, "2026-10-28T10:20:00Z", false).unwrap();
+        assert_eq!(runner.0.get(), 1);
+        // A space without a project cannot read sources, and says so per query.
+        let v = dash_view(&s, &runner, None, "hark", &page.id, "2026-10-28T12:00:00Z", true).unwrap();
+        assert!(v.queries[0].error.as_deref().unwrap().contains("projeto"));
+    }
+
+    #[test]
+    fn the_queries_the_agent_changed_are_marked_until_certified_or_accepted() {
+        let (_d, s) = store();
+        let page = create(&s, "hark", None, "Uso", Kind::Data, None, NOW).unwrap();
+        s.write_page("hark", &page.path, DASH).unwrap();
+        let runner = FakeRunner(std::cell::Cell::new(0));
+        let project = std::path::Path::new("/p/x");
+        let v = dash_view(&s, &runner, Some(project), "hark", &page.id, NOW, false).unwrap();
+        assert!(v.changed.is_empty(), "the first sight is the baseline");
+        let edited = DASH.replace("SELECT dia, n FROM lancamentos", "SELECT dia, n FROM lancamentos WHERE n > 1");
+        s.write_page("hark", &page.path, &edited).unwrap();
+        let v = dash_view(&s, &runner, Some(project), "hark", &page.id, "2026-10-28T10:05:00Z", false).unwrap();
+        assert_eq!(v.changed, vec!["por_dia"]);
+        assert!(v.queries[0].changed);
+        dash_certify(&s, "hark", &page.id, "ret", true, "2026-10-28T10:06:00Z").unwrap();
+        let v = dash_view(&s, &runner, Some(project), "hark", &page.id, "2026-10-28T10:07:00Z", false).unwrap();
+        assert!(v.queries[1].certified);
+        assert!(v.changed.is_empty(), "certifying is the person's edit: the baseline moves");
+        assert!(dash_certify(&s, "hark", &page.id, "zzz", true, NOW).is_err());
+        // A broken file: the error and the raw text, never a blank.
+        s.write_page("hark", &page.path, "{ nope").unwrap();
+        let v = dash_view(&s, &runner, Some(project), "hark", &page.id, "2026-10-28T10:08:00Z", false).unwrap();
+        assert!(v.error.as_deref().unwrap().contains("json"));
     }
 
     #[test]

@@ -400,7 +400,8 @@ fn column(table: &Table, named: Option<&str>, numeric: bool) -> Result<usize, St
         return table.columns.iter().position(|c| c.eq_ignore_ascii_case(name)).ok_or_else(|| format!("coluna \"{name}\" não existe"));
     }
     let first_row = table.rows.first();
-    let is_numeric = |i: usize| first_row.and_then(|r| r.get(i)).and_then(as_f64).is_some();
+    // A json number, not a text that would parse: "01" is a label.
+    let is_numeric = |i: usize| matches!(first_row.and_then(|r| r.get(i)), Some(Value::Number(_)));
     (0..table.columns.len())
         .find(|&i| is_numeric(i) == numeric)
         .ok_or_else(|| if numeric { "nenhuma coluna numérica".to_string() } else { "nenhuma coluna de rótulo".to_string() })

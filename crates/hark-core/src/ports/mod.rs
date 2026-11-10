@@ -340,6 +340,20 @@ pub trait ArtifactStore {
     fn read_version(&self, space: &str, path: &str, at: &str) -> anyhow::Result<String>;
     fn write_version(&self, space: &str, path: &str, at: &str, text: &str) -> anyhow::Result<()>;
     fn remove_version(&self, space: &str, path: &str, at: &str) -> anyhow::Result<()>;
+    /// A file beside the pages that is not a page (a dashboard's cache):
+    /// same folder rules, no page extension required. Absent is None.
+    fn read_aside(&self, space: &str, path: &str) -> anyhow::Result<Option<String>>;
+    fn write_aside(&self, space: &str, path: &str, text: &str) -> anyhow::Result<()>;
+}
+
+/// Runs what a dashboard's sources need, inside one project folder:
+/// a read-only sql over a sqlite file, a file's text, a command's
+/// output. The adapter owns the sandboxing (never outside the project);
+/// the app owns when to run (a command only on the person's refresh).
+pub trait DataRunner {
+    fn sql(&self, project: &std::path::Path, path: &str, sql: &str) -> anyhow::Result<crate::domain::dash::Table>;
+    fn file(&self, project: &std::path::Path, path: &str) -> anyhow::Result<String>;
+    fn command(&self, project: &std::path::Path, command: &str) -> anyhow::Result<String>;
 }
 
 /// One kept version of a page: when it was taken, how big it is.

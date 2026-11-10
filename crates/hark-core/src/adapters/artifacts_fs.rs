@@ -90,6 +90,25 @@ impl FsArtifacts {
         Ok(self.history_dir(space, path)?.join(name))
     }
 
+    /// A non-page file inside the space (a cache): relative, no climb,
+    /// never through a link, never the index.
+    fn aside_path(&self, space: &str, path: &str) -> anyhow::Result<PathBuf> {
+        if path.is_empty() || path.starts_with('/') || path.contains('\\') || path == "index.json" {
+            anyhow::bail!("{path}: not a file of the space");
+        }
+        if path.split('/').any(|seg| seg.is_empty() || seg == "." || seg == "..") {
+            anyhow::bail!("{path}: no empty, `.` or `..` segments");
+        }
+        let mut cur = self.space_dir(space)?;
+        for seg in path.split('/') {
+            cur.push(seg);
+            if is_symlink(&cur) {
+                anyhow::bail!("refused: {} is a symlink", cur.display());
+            }
+        }
+        Ok(cur)
+    }
+
     fn walk(dir: &Path, rel: &str, out: &mut Vec<String>) -> anyhow::Result<()> {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
@@ -184,6 +203,24 @@ impl ArtifactStore for FsArtifacts {
 
     fn absolute(&self, space: &str, path: &str) -> anyhow::Result<PathBuf> {
         self.page_path(space, path)
+    }
+
+    fn read_aside(&self, space: &str, path: &str) -> anyhow::Result<Option<String>> {
+        let file = self.aside_path(space, path)?;
+        match std::fs::read_to_string(&file) {
+            Ok(s) => Ok(Some(s)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn write_aside(&self, space: &str, path: &str, text: &str) -> anyhow::Result<()> {
+        let file = self.aside_path(space, path)?;
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(file, text)?;
+        Ok(())
     }
 
     fn list_versions(&self, space: &str, path: &str) -> anyhow::Result<Vec<PageVersion>> {
@@ -325,6 +362,17 @@ mod tests {
         assert_eq!(s.list_versions("hark", "notas/custos.sheet.json").unwrap().len(), 1);
         assert!(s.read_version("hark", "notas/custos.sheet.json", "nope").is_err());
         assert!(s.list_versions("hark", "outra.md").unwrap().is_empty(), "no history is an empty list");
+    }
+
+    #[test]
+    fn a_file_beside_the_pages_is_read_and_written_but_never_listed_as_a_page() {
+        let (_d, s) = store();
+        assert_eq!(s.read_aside("hark", "uso.dash.cache.json").unwrap(), None);
+        s.write_aside("hark", "uso.dash.cache.json", "{}").unwrap();
+        assert_eq!(s.read_aside("hark", "uso.dash.cache.json").unwrap().as_deref(), Some("{}"));
+        assert!(s.list_pages("hark").unwrap().is_empty());
+        assert!(s.write_aside("hark", "../x.json", "").is_err());
+        assert!(s.write_aside("hark", "index.json", "").is_err(), "the index is the tree's, not a cache");
     }
 
     #[test]
