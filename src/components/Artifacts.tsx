@@ -17,6 +17,7 @@ import { ARTIFACT_KINDS, type ArtifactKind, type ArtifactNode, type ArtifactPage
 import { destinations, type Destination, type RecentChat } from "../lib/takeTo";
 import Comments from "./Comments";
 import { ThumbBoard, ThumbDash, ThumbDoc, ThumbSheet } from "./Thumbs";
+import MarkLayer, { MarkBar, type Mark, type MarkTool, type RegionAnchor } from "./MarkLayer";
 import { sameAnchor } from "../lib/comments";
 
 /** An html page that brought no style of its own gets the reading base:
@@ -605,12 +606,21 @@ function DeckViewer({
   html,
   scripts,
   onStripPager,
+  frameRef,
+  overlay,
+  onSlide,
 }: {
   title: string;
   html: string;
   scripts: boolean;
   /** Take the page's own pager out of its file (Hark's does the job). */
   onStripPager: () => Promise<unknown>;
+  /** The page's frame, for whoever needs to talk to it (marks probe it). */
+  frameRef?: React.RefObject<HTMLIFrameElement>;
+  /** Drawn over the stage, in its pixels (the markup layer). */
+  overlay?: ReactNode;
+  /** The slide on screen changed. */
+  onSlide?: (n: number) => void;
 }) {
   const own = hasOwnScript(html);
   const doc = useMemo(() => (scripts ? deckDocument(html) : html), [html, scripts]);
@@ -618,18 +628,23 @@ function DeckViewer({
   const [at, setAt] = useState(0);
   const [strip, setStrip] = useState(false);
   const [present, setPresent] = useState(false);
-  const frame = useRef<HTMLIFrameElement>(null!);
+  const ownFrame = useRef<HTMLIFrameElement>(null!);
+  const frame = frameRef ?? ownFrame;
   const go = (n: number) => frame.current?.contentWindow?.postMessage({ hark: "slide", n }, "*");
   // The frame says where it is (and how many it has); Esc leaves present.
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const m = e.data as { hark?: string; at?: number } | null;
       if (!m || e.source !== frame.current?.contentWindow) return;
-      if (m.hark === "slide" && typeof m.at === "number") setAt(m.at);
+      if (m.hark === "slide" && typeof m.at === "number") {
+        setAt(m.at);
+        onSlide?.(m.at);
+      }
       if (m.hark === "escape") setPresent(false);
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     if (!present) return;
@@ -644,7 +659,7 @@ function DeckViewer({
   const navigable = scripts && count > 0;
   return (
     <div className={`art-deck ${present ? "present" : ""}`}>
-      <Stage title={title} html={doc} scripts={scripts} frameRef={frame} />
+      <Stage title={title} html={doc} scripts={scripts} frameRef={frame} overlay={overlay} />
       <div className="art-deck-bar">
         {navigable ? (
           <>
@@ -701,11 +716,13 @@ function Stage({
   html,
   scripts,
   frameRef,
+  overlay,
 }: {
   title: string;
   html: string;
   scripts: boolean;
   frameRef?: React.RefObject<HTMLIFrameElement>;
+  overlay?: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -723,14 +740,10 @@ function Stage({
   }, []);
   return (
     <div className="art-stage" ref={ref}>
-      <iframe
-        ref={frameRef}
-        className="art-stage-frame"
-        title={title}
-        sandbox={scripts ? "allow-scripts" : ""}
-        srcDoc={html}
-        style={{ width: STAGE_W, height: STAGE_H, transform: `translate(-50%, -50%) scale(${scale})` }}
-      />
+      <div className="art-stage-box" style={{ width: STAGE_W, height: STAGE_H, transform: `translate(-50%, -50%) scale(${scale})` }}>
+        <iframe ref={frameRef} className="art-stage-frame" title={title} sandbox={scripts ? "allow-scripts" : ""} srcDoc={html} style={{ width: STAGE_W, height: STAGE_H }} />
+        {overlay}
+      </div>
     </div>
   );
 }
@@ -741,7 +754,7 @@ function Stage({
  * 200%) or Cmd+wheel, panned by dragging the board. The page is only
  * the artwork.
  */
-function CanvasViewer({ title, html, scripts }: { title: string; html: string; scripts: boolean }) {
+function CanvasViewer({ title, html, scripts, frameRef, overlay }: { title: string; html: string; scripts: boolean; frameRef?: React.RefObject<HTMLIFrameElement>; overlay?: (size: { w: number; h: number }) => ReactNode }) {
   const size = useMemo(() => canvasSize(html), [html]);
   const ref = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState<number | null>(null); // null = fit
@@ -781,6 +794,7 @@ function CanvasViewer({ title, html, scripts }: { title: string; html: string; s
         className="art-canvas-board"
         ref={ref}
         onMouseDown={(e) => {
+          if ((e.target as HTMLElement).closest?.(".mark-layer.drawing")) return;
           drag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
         }}
         onMouseMove={(e) => {
@@ -802,7 +816,8 @@ function CanvasViewer({ title, html, scripts }: { title: string; html: string; s
         }}
       >
         <div className="art-canvas-sheet" style={{ width: size.w, height: size.h, transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${z})` }}>
-          <iframe className="art-canvas-frame" title={title} sandbox={scripts ? "allow-scripts" : ""} srcDoc={html} style={{ width: size.w, height: size.h }} />
+          <iframe ref={frameRef} className="art-canvas-frame" title={title} sandbox={scripts ? "allow-scripts" : ""} srcDoc={html} style={{ width: size.w, height: size.h }} />
+          {overlay?.(size)}
         </div>
       </div>
     </div>
@@ -915,6 +930,50 @@ function Page({
   }, [space, node.id, page.text]);
   const marks = comments.filter((c) => !c.resolved).map((c) => c.anchor);
   const onAnchor = (a: CommentAnchor | null) => setAnchor(a ?? { kind: "page" });
+  // Marks over an html page (fase 14.3b): the tool, the slide on screen,
+  // the frame to ask what sits under a mark, and a nudge to the bubble.
+  const [tool, setTool] = useState<MarkTool>("select");
+  const [slide, setSlide] = useState(0);
+  const [focusNonce, setFocusNonce] = useState(0);
+  const frameRef = useRef<HTMLIFrameElement>(null!);
+  const regionMarks: Mark[] = comments
+    .filter((c) => !c.resolved && c.anchor.kind === "region")
+    .map((c) => ({ id: c.id, anchor: c.anchor as RegionAnchor, n: comments.indexOf(c) + 1 }));
+  const probe = (x: number, y: number) =>
+    new Promise<string>((resolve) => {
+      const win = frameRef.current?.contentWindow;
+      if (!win) return resolve("");
+      const id = `p${Date.now()}`;
+      const done = (text: string) => {
+        window.removeEventListener("message", onMsg);
+        resolve(text);
+      };
+      const onMsg = (e: MessageEvent) => {
+        const m = e.data as { hark?: string; id?: string; text?: unknown } | null;
+        if (m?.hark === "probe" && m.id === id) done(typeof m.text === "string" ? m.text : "");
+      };
+      window.addEventListener("message", onMsg);
+      win.postMessage({ hark: "probe", x, y, id }, "*");
+      setTimeout(() => done(""), 400);
+    });
+  const onMark = async (a: RegionAnchor) => {
+    const over = await probe(a.x + a.w / 2, a.y + a.h / 2);
+    setAnchor({ ...a, over: over || null });
+    setFocusNonce((n) => n + 1);
+  };
+  const markLayer = (w: number, h: number) =>
+    commenting ? (
+      <MarkLayer w={w} h={h} tool={tool} marks={regionMarks} slide={node.kind === "slides" ? slide : null} onMark={(a) => void onMark(a)} onPick={(m) => setAnchor(m.anchor)} pending={anchor.kind === "region" ? anchor : null} />
+    ) : null;
+  useEffect(() => {
+    if (!commenting) setTool("select");
+  }, [commenting]);
+  useEffect(() => {
+    if (!commenting || tool === "select") return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setTool("select");
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [commenting, tool]);
   // A passage selected in a rendered document (or quoted by a frame).
   useEffect(() => {
     if (!commenting) return;
@@ -1108,6 +1167,8 @@ function Page({
       </div>
       <div className={`art-main ${commenting ? "with-comments" : ""}`}>
       <div className="art-body">
+        {commenting && html && !source && <MarkBar tool={tool} onTool={setTool} onClose={() => setCommenting(false)} />}
+        {commenting && html && !source && tool !== "select" && <div className="mark-on dim">{t("mk_on")}</div>}
         {node.kind === "sheet" && !source ? (
           <SheetView space={space} id={node.id} onChanged={onSaved} onAnchor={onAnchor} marks={marks} />
         ) : node.kind === "data" && !source ? (
@@ -1115,16 +1176,20 @@ function Page({
         ) : node.kind === "board" && !source ? (
           <BoardView space={space} id={node.id} onChanged={onSaved} onAsk={(text) => setTakeOpen(true, text)} onAnchor={onAnchor} marks={marks} />
         ) : html && !source && node.kind === "slides" ? (
-          <DeckViewer title={node.title} html={page.text} scripts={scripts} onStripPager={() => ipc.artifactStripPager(space, node.id).then(onSaved)} />
+          <DeckViewer title={node.title} html={page.text} scripts={scripts} onStripPager={() => ipc.artifactStripPager(space, node.id).then(onSaved)} frameRef={frameRef} overlay={markLayer(STAGE_W, STAGE_H)} onSlide={setSlide} />
         ) : html && !source && node.kind === "design" ? (
-          <CanvasViewer title={node.title} html={scripts ? editableDocument(withBaseStyle(page.text)) : withBaseStyle(page.text)} scripts={scripts} />
+          <CanvasViewer title={node.title} html={scripts ? editableDocument(withBaseStyle(page.text)) : withBaseStyle(page.text)} scripts={scripts} frameRef={frameRef} overlay={(size) => markLayer(size.w, size.h)} />
         ) : html && !source ? (
-          <iframe
-            className="art-frame"
-            title={node.title}
-            sandbox={scripts ? "allow-scripts" : ""}
-            srcDoc={scripts ? editableDocument(withBaseStyle(page.text)) : withBaseStyle(page.text)}
-          />
+          <div className="art-frame-wrap">
+            <iframe
+              ref={frameRef}
+              className="art-frame"
+              title={node.title}
+              sandbox={scripts ? "allow-scripts" : ""}
+              srcDoc={scripts ? editableDocument(withBaseStyle(page.text)) : withBaseStyle(page.text)}
+            />
+            {commenting && <div className="art-frame-marks">{markLayer(1200, 1600)}</div>}
+          </div>
         ) : (
           <FileViewer file={{ abs: page.abs, rel: node.path, project: { name: space, path: "" } }} io={io} />
         )}
@@ -1139,6 +1204,7 @@ function Page({
           onChanged={() => void loadComments()}
           onSend={onSendTo}
           onPick={(c) => setAnchor(comments.some((x) => sameAnchor(x.anchor, c.anchor)) ? c.anchor : anchor)}
+          focusNonce={focusNonce}
         />
       )}
       </div>

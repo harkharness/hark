@@ -279,6 +279,12 @@ a file dropped there by hand is adopted at the root on the next read.
   When that chat writes the page, the comment reads "answered by hark"
   and the page shows the agent's version with accept and undo, as
   always. Plain comments stay yours and never enter a chat.
+  On a deck, a design or an html document the comments column brings
+  a markup bar: select (a click on a text anchors to it), pen, rectangle
+  and text draw over the page, and the mark is the anchor, in page
+  pixels, on the slide it sits on, with the words under it named
+  ("the region at (99, 59), 537×147 px on slide 1, over «Billing v2»").
+  Open marks stay drawn over the page, numbered like their comments.
 - **Versions and marked changes.** A page keeps the versions you saw:
   the first opening takes the baseline, "accept" takes the current text,
   going back keeps the current one first. Thirty live hidden beside the

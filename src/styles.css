@@ -2964,7 +2964,8 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .art-canvas-board:active { cursor: grabbing; }
 .art-canvas-sheet { position: absolute; left: 50%; top: 50%; transform-origin: center center; box-shadow: 0 12px 40px rgba(0,0,0,.45); background: #fff; }
 .art-canvas-frame { border: 0; display: block; pointer-events: none; }
-.art-stage-frame { position: absolute; left: 50%; top: 50%; transform-origin: center center; border: 0; background: #fff; box-shadow: 0 12px 40px rgba(0,0,0,.45); }
+.art-stage-box { position: absolute; left: 50%; top: 50%; transform-origin: center center; box-shadow: 0 12px 40px rgba(0,0,0,.45); }
+.art-stage-frame { position: absolute; left: 0; top: 0; border: 0; background: #fff; }
 .art-children { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--fs-ui); }
 
 /* ---- the global board (phase 10.4): pills over the columns ---- */
@@ -3435,3 +3436,26 @@ html.demo .side-drag::before {
 .demand-when { color: var(--dim); font-size: var(--fs-caps); font-family: var(--font-mono); white-space: nowrap; margin-left: 4px; }
 .demand-acts { opacity: 0; transition: opacity .12s; }
 .demand:hover .demand-acts, .demand:focus-within .demand-acts { opacity: 1; }
+
+/* ---- markup over an html page (fase 14.3b): the bar, the layer, the marks ---- */
+.art-body { position: relative; }
+.mark-bar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 6; display: inline-flex; align-items: center; gap: 2px; padding: 4px; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+.mark-btn { width: 30px; height: 28px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; border-radius: 7px; color: var(--text); cursor: pointer; }
+.mark-btn:hover { background: var(--panel-2); color: var(--text-strong); }
+.mark-btn.on { background: color-mix(in srgb, var(--accent) 22%, var(--panel)); color: var(--accent); }
+.mark-sep { width: 1px; height: 18px; background: var(--border-strong); margin: 0 3px; }
+.mark-on { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); z-index: 6; font-size: var(--fs-caps); }
+.mark-layer { position: absolute; left: 0; top: 0; z-index: 4; pointer-events: none; overflow: visible; }
+.mark-layer.drawing { pointer-events: all; cursor: crosshair; }
+.mark-layer.tool-text { cursor: text; }
+.mark-layer .mark { pointer-events: all; cursor: pointer; }
+.mark-layer .mark rect, .mark-layer .mark polyline, .mark-layer .mark circle { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: var(--accent); stroke-width: 2; }
+.mark-layer .mark polyline { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.mark-layer .mark-badge circle { fill: var(--accent); stroke: none; }
+.mark-layer .mark-badge text { fill: #fff; font-size: 11px; font-weight: 600; font-family: var(--font-ui, inherit); }
+.mark-layer .mark-draft { fill: color-mix(in srgb, var(--accent) 10%, transparent); stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 4; }
+.mark-layer polyline.mark-draft { fill: none; stroke-width: 3; stroke-dasharray: none; stroke-linecap: round; }
+.art-frame-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.art-frame-marks { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; pointer-events: none; }
+.art-frame-marks .mark-layer { pointer-events: inherit; }
+.art-frame-marks .mark-layer.drawing { pointer-events: all; }

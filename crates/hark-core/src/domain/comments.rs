@@ -17,6 +17,21 @@ pub enum Anchor {
     Panel { index: usize, #[serde(default, skip_serializing_if = "Option::is_none")] title: Option<String> },
     Slide { n: usize },
     Quote { text: String },
+    /// A mark drawn over an html page (fase 14.3b): a rectangle in page
+    /// pixels, a stroke (its points, the rectangle is its box) or a
+    /// point (w = h = 0); the slide it sits on, and the words under it.
+    Region {
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        slide: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        points: Option<Vec<[f64; 2]>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        over: Option<String>,
+    },
 }
 
 /// Where a request went: the chat, and when.
@@ -161,6 +176,23 @@ pub fn anchor_label(anchor: &Anchor) -> String {
             let short: String = text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect();
             format!("o trecho «{short}»")
         }
+        Anchor::Region { x, y, w, h, slide, points, over } => {
+            let shape = if points.as_ref().is_some_and(|p| p.len() > 1) {
+                format!("o traço em ({}, {}), {}×{} px", x.round(), y.round(), w.round(), h.round())
+            } else if *w < 1.0 && *h < 1.0 {
+                format!("o ponto ({}, {})", x.round(), y.round())
+            } else {
+                format!("a região em ({}, {}), {}×{} px", x.round(), y.round(), w.round(), h.round())
+            };
+            let at = slide.map(|n| format!(" do slide {}", n + 1)).unwrap_or_default();
+            let on = over
+                .as_ref()
+                .map(|o| o.split_whitespace().collect::<Vec<_>>().join(" "))
+                .filter(|o| !o.is_empty())
+                .map(|o| format!(", sobre «{}»", o.chars().take(100).collect::<String>()))
+                .unwrap_or_default();
+            format!("{shape}{at}{on}")
+        }
     }
 }
 
@@ -225,6 +257,18 @@ mod tests {
         assert_eq!(anchor_label(&Anchor::Slide { n: 2 }), "slide 3");
         assert_eq!(anchor_label(&Anchor::Quote { text: "  um   trecho\ncitado ".into() }), "o trecho «um trecho citado»");
         assert_eq!(anchor_label(&Anchor::Page), "a página inteira");
+        // A mark over the page (14.3b): the shape, the slide, the words under it.
+        assert_eq!(
+            anchor_label(&Anchor::Region { x: 120.4, y: 80.0, w: 300.0, h: 48.0, slide: Some(1), points: None, over: Some("  Billing v2 ".into()) }),
+            "a região em (120, 80), 300×48 px do slide 2, sobre «Billing v2»"
+        );
+        assert_eq!(anchor_label(&Anchor::Region { x: 10.0, y: 10.0, w: 0.0, h: 0.0, slide: None, points: None, over: None }), "o ponto (10, 10)");
+        assert!(anchor_label(&Anchor::Region { x: 10.0, y: 10.0, w: 40.0, h: 20.0, slide: None, points: Some(vec![[10.0, 10.0], [50.0, 30.0]]), over: None }).starts_with("o traço em"));
+        let c = Comment { id: "c1".into(), at: NOW.into(), text: "@hark alinha isto".into(), anchor: Anchor::Region { x: 1.0, y: 2.0, w: 3.0, h: 4.0, slide: Some(0), points: None, over: Some("título".into()) }, resolved: false, sent: None, answered_at: None };
+        let text = request_text("hark://artifacts/t/deck", "Deck", &c);
+        assert!(text.contains("do slide 1, sobre «título»: alinha isto"), "{text}");
+        let again: Thread = serde_json::from_str(&to_json(&Thread { comments: vec![c.clone()] })).unwrap();
+        assert_eq!(again.comments[0].anchor, c.anchor, "a mark survives the file");
     }
 
     #[test]

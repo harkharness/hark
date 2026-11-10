@@ -165,7 +165,9 @@ export type CommentAnchor =
   | { kind: "note"; id: string }
   | { kind: "panel"; index: number; title?: string | null }
   | { kind: "slide"; n: number }
-  | { kind: "quote"; text: string };
+  | { kind: "quote"; text: string }
+  /** A mark drawn over an html page: a rectangle, a stroke (points) or a point (w = h = 0), in page pixels. */
+  | { kind: "region"; x: number; y: number; w: number; h: number; slide?: number | null; points?: [number, number][] | null; over?: string | null };
 export type PageComment = {
   id: string;
   at: string;

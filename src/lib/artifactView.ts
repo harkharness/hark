@@ -126,6 +126,16 @@ const EDIT_RUNTIME = `<style data-hark-edit>
     if (e.key === 'Enter' && !e.shiftKey && /^H[1-6]$/.test(open.tagName)) { e.preventDefault(); close(true); }
   }, true);
   document.addEventListener('focusout', function () { setTimeout(function () { if (open && document.activeElement !== open) close(true); }, 0); });
+  // The window asks what sits at a point (a mark was drawn there): the
+  // element's words come back, so the anchor can name them.
+  window.addEventListener('message', function (e) {
+    var m = e.data || {};
+    if (m.hark !== 'probe') return;
+    var el = document.elementFromPoint(m.x, m.y);
+    while (el && el !== document.body && !(el.innerText && el.innerText.trim())) el = el.parentElement;
+    var text = el && el !== document.body ? (el.innerText || '').trim().slice(0, 160) : '';
+    parent.postMessage({ hark: 'probe', id: m.id, text: text, tag: el ? el.tagName : '' }, '*');
+  });
   // A passage selected while not editing: a comment may anchor to it.
   document.addEventListener('mouseup', function () {
     if (open) return;

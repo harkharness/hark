@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, CheckCircle2, MessageSquare, Send, Trash2, Undo2 } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
@@ -36,6 +36,7 @@ export default function Comments({
   onChanged,
   onSend,
   onPick,
+  focusNonce,
 }: {
   space: string;
   id: string;
@@ -47,6 +48,8 @@ export default function Comments({
   onSend: (dest: Destination, text: string) => Promise<void> | void;
   /** A comment clicked: the page shows its anchor. */
   onPick?: (c: PageComment) => void;
+  /** Bumped when a mark was just drawn: the words go in the box now. */
+  focusNonce?: number;
 }) {
   const [text, setText] = useState("");
   const [send, setSend] = useState(false);
@@ -55,6 +58,10 @@ export default function Comments({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (focusNonce) box.current?.focus();
+  }, [focusNonce]);
 
   // The mention decides the checkbox until the person touches it.
   useEffect(() => {
@@ -108,6 +115,7 @@ export default function Comments({
       <div className="cm-bubble">
         <div className="cm-anchor dim">{t("cm_at", { a: anchorLabel(anchor) })}</div>
         <textarea
+          ref={box}
           rows={3}
           placeholder={t("cm_ph")}
           value={text}
