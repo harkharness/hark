@@ -123,7 +123,10 @@ separados por `;` ou `,`; decimais com ponto. Uma fórmula que o Hark
 não entende aparece na célula como `#NOME?`, `#CICLO!`, `#DIV/0!`,
 `#VALOR!` ou `#ERRO`: corrija o arquivo. O que você mudar numa planilha
 que já existia fica marcado em verde até a pessoa aceitar: mude só o
-que foi pedido.
+que foi pedido. A pessoa também edita a planilha direto (linhas,
+colunas, abas); uma aba pode trazer `formats` (`{{"B": "money"}}`:
+money, pct, int, date, text) e `widths` por letra de coluna: preserve-os
+ao reescrever.
 
 ## Quadro (`.board.json`)
 
@@ -140,9 +143,11 @@ depois. Cores: `yellow`, `blue`, `green`, `pink`, `gray`.
 ```
 
 Para agrupar por tema, dê `group` às notas e crie os grupos; para montar
-uma linha do tempo do que a pessoa falou, preencha `timeline`. Ids
-únicos (`n1`, `n2`…). Notas que você mudar ou criar ficam marcadas até
-a pessoa aceitar; nunca apague notas que não foram pedidas.
+uma linha do tempo do que a pessoa falou, preencha `timeline`. Setas
+entre notas vão em `links` (`[{{"from": "n1", "to": "n2", "label": "depende"}}]`).
+Ids únicos (`n1`, `n2`…). Notas que você mudar ou criar ficam marcadas
+até a pessoa aceitar; nunca apague notas nem ligações que não foram
+pedidas.
 
 ## Painel de dados (`.dash.json`)
 
@@ -243,6 +248,13 @@ mod tests {
         assert!(md.contains("\"=SOMA(B3:C3)\""), "a formula is a string starting with =: {md}");
         assert!(md.contains("\"certified\": true") && md.contains("só SELECT"), "a dashboard's rules: {md}");
         assert!(md.contains("Não escreva\ncoordenadas") && md.contains("\"timeline\""), "a board's rules: {md}");
+    }
+
+    #[test]
+    fn the_skill_names_the_fields_the_person_edits_by_hand() {
+        let skill = skill_md("/home/ana/.hark/artifacts");
+        assert!(skill.contains("`formats`"), "a sheet's column formats");
+        assert!(skill.contains("`links`"), "a board's arrows");
     }
 
     #[test]
