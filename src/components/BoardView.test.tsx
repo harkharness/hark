@@ -18,6 +18,7 @@ const view: View = {
       { id: "n2", text: "Entra na 0.11?", x: 420, y: 300, color: "pink" },
     ],
     timeline: [{ date: "2026-11-12", title: "beta", owner: "Ana" }],
+    links: [{ from: "n1", to: "n2", label: "depende" }],
   },
   changed: ["n2"],
   versions: 2,
@@ -89,5 +90,32 @@ describe("the whiteboard viewer", () => {
     expect(within(view.board.notes, 0, 0, 400, 250)).toEqual(["n1"]);
     expect(within(view.board.notes, 0, 0, 1000, 1000)).toEqual(["n1", "n2"]);
     expect(within(view.board.notes, 0, 0, 10, 10)).toEqual([]);
+  });
+
+  it("links are drawn as arrows and a new one is made by picking the target note", async () => {
+    const { findByText, getByText, container } = render(<BoardView space="tulipa" id="plano" />);
+    await findByText("Atalho no celular");
+    expect(container.querySelectorAll("svg.board-links g.board-link").length).toBe(1);
+    expect(getByText("depende")).toBeTruthy();
+    fireEvent.click(getByText("Entra na 0.11?"));
+    fireEvent.click(getByText(t("board_link")));
+    expect(getByText(t("board_linking"))).toBeTruthy();
+    fireEvent.click(getByText("Atalho no celular"));
+    await waitFor(() => expect(calls.edit).toHaveBeenCalledWith("tulipa", "plano", { op: "link", from: "n2", to: "n1" }));
+  });
+
+  it("a milestone is added through the form and a group is retitled on a double click", async () => {
+    const { findByText, getByText, getByPlaceholderText, getByDisplayValue } = render(<BoardView space="tulipa" id="plano" />);
+    await findByText("Atalho no celular");
+    fireEvent.click(getByText(t("board_add_milestone")));
+    fireEvent.change(getByPlaceholderText(t("board_milestone_date")), { target: { value: "2026-12-03" } });
+    fireEvent.change(getByPlaceholderText(t("board_milestone_title")), { target: { value: "release" } });
+    fireEvent.click(getByText(t("board_save")));
+    await waitFor(() => expect(calls.edit).toHaveBeenCalledWith("tulipa", "plano", { op: "add_milestone", date: "2026-12-03", title: "release", owner: null }));
+    fireEvent.doubleClick(getByText("Quick-add"));
+    const input = getByDisplayValue("Quick-add") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Entrada rápida" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(calls.edit).toHaveBeenCalledWith("tulipa", "plano", { op: "group_title", id: "g1", title: "Entrada rápida" }));
   });
 });
