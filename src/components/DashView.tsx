@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Database, FileText, History, Lock, RefreshCw, ShieldCheck, ShieldOff, Sparkles, Terminal } from "lucide-react";
+import { Check, Copy, Database, FileText, History, Lock, MessageSquare, RefreshCw, ShieldCheck, ShieldOff, Sparkles, Terminal } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
 import type { DashPanel, DashSource, DashView as View } from "../types";
@@ -100,12 +100,27 @@ function SourceChip({ s }: { s: DashSource }) {
  * preview and the person's certification; a query the agent changed is
  * marked until certified or accepted.
  */
-export default function DashView({ space, id, onChanged }: { space: string; id: string; onChanged?: () => void }) {
+export default function DashView({
+  space,
+  id,
+  onChanged,
+  onAsk,
+  onDoc,
+}: {
+  space: string;
+  id: string;
+  onChanged?: () => void;
+  /** Text to take to a chat (the story), through "take to…". */
+  onAsk?: (text: string) => void;
+  /** A child document page was made from the story; open it. */
+  onDoc?: (pageId: string) => void;
+}) {
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [screen, setScreen] = useState<"panels" | "sources">("panels");
   const [query, setQuery] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [story, setStory] = useState<{ text?: string; busy: boolean; error?: string }>({ busy: false });
 
   const load = useCallback(
     async (run = false) => {
@@ -135,6 +150,27 @@ export default function DashView({ space, id, onChanged }: { space: string; id: 
     await load(false);
     onChanged?.();
   }
+  async function writeStory() {
+    setStory({ busy: true });
+    try {
+      setStory({ busy: false, text: await ipc.dashStory(space, id) });
+    } catch (err) {
+      setStory({ busy: false, error: String(err) });
+    }
+  }
+  async function storyToDoc() {
+    if (!story.text || !view) return;
+    const title = t("dash_story_doc_title", { t: view.title ?? id });
+    const node = await ipc.artifactCreate(space, id, title, "doc");
+    await ipc.artifactWrite(space, node.id, `# ${title}\n\n${story.text}\n`);
+    onChanged?.();
+    onDoc?.(node.id);
+  }
+  const panelCsv = (p: DashPanel) => {
+    const q = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+    if (p.table) return [p.table.columns.map(q).join(","), ...p.table.rows.map((r) => r.map((v) => q(v == null ? "" : String(v))).join(","))].join("\n") + "\n";
+    return ["label,value", ...(p.labels ?? []).map((l, i) => `${q(l)},${p.values?.[i] ?? ""}`)].join("\n") + "\n";
+  };
 
   if (error) return <div className="dash-error">{t("dash_open_err", { e: error })}</div>;
   if (!view) return <div className="dash-loading dim">…</div>;
@@ -199,10 +235,50 @@ export default function DashView({ space, id, onChanged }: { space: string; id: 
       {screen === "panels" ? (
         <div className="dash-panels">
           {view.panels.length === 0 && <div className="dim dash-empty">{t("dash_no_panels")}</div>}
+          <div className="dash-panel story">
+            <div className="dash-panel-title">
+              <span>
+                <Sparkles size={11} /> {t("dash_story")}
+              </span>
+              <span className="dash-draft dim" title={t("dash_story_hint")}>
+                {t("dash_story_hint").split(";")[1]?.trim() ?? ""}
+              </span>
+            </div>
+            {story.text ? (
+              <>
+                <p className="dash-story-text">{story.text}</p>
+                <span className="dash-story-acts">
+                  <button className="pill-btn" onClick={() => void storyToDoc()} title={t("dash_story_to_doc_hint")}>
+                    <FileText size={11} /> {t("dash_story_to_doc")}
+                  </button>
+                  {onAsk && (
+                    <button className="pill-btn" onClick={() => onAsk(story.text ?? "")}>
+                      <MessageSquare size={11} /> {t("dash_story_to_chat")}
+                    </button>
+                  )}
+                  <button className="pill-btn" onClick={() => void writeStory()} disabled={story.busy}>
+                    <RefreshCw size={11} /> {t("dash_story_write")}
+                  </button>
+                </span>
+              </>
+            ) : (
+              <span className="dash-story-acts">
+                {story.error && <span className="dash-err">{t("dash_story_err", { e: story.error })}</span>}
+                <button className="pill-btn on" onClick={() => void writeStory()} disabled={story.busy || view.panels.length === 0} title={t("dash_story_hint")}>
+                  <Sparkles size={11} className={story.busy ? "spin" : ""} /> {t("dash_story_write")}
+                </button>
+              </span>
+            )}
+          </div>
           {view.panels.map((p, i) => (
             <div key={i} className={`dash-panel ${p.chart}`}>
               <div className="dash-panel-title">
                 <span>{p.title}</span>
+                {p.chart !== "number" && !p.error && (
+                  <button className="dash-csv" title={t("dash_copy_csv_hint")} onClick={() => void navigator.clipboard.writeText(panelCsv(p))}>
+                    <Copy size={9} /> {t("dash_copy_csv")}
+                  </button>
+                )}
                 {p.certified ? (
                   <span className="dash-cert" title={t("dash_certified_hint")}>
                     <ShieldCheck size={10} /> {t("dash_certified")}

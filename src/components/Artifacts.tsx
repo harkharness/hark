@@ -1012,7 +1012,7 @@ function Page({
         {node.kind === "sheet" && !source ? (
           <SheetView space={space} id={node.id} onChanged={onSaved} />
         ) : node.kind === "data" && !source ? (
-          <DashView space={space} id={node.id} onChanged={onSaved} />
+          <DashView space={space} id={node.id} onChanged={onSaved} onAsk={(text) => setTakeOpen(true, text)} onDoc={(pid) => { onSaved(); onOpen(pid); }} />
         ) : node.kind === "board" && !source ? (
           <BoardView space={space} id={node.id} onChanged={onSaved} onAsk={(text) => setTakeOpen(true, text)} />
         ) : html && !source && node.kind === "slides" ? (

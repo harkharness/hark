@@ -702,6 +702,8 @@ export const boardView = (space: string, id: string) => invoke<import("../types"
 export const boardEdit = (space: string, id: string, op: import("../types").BoardOp) => invoke("board_edit", { space, id, op });
 /** The selected notes as the text that goes to a chat. */
 export const boardSelection = (space: string, id: string, ids: string[]) => invoke<string>("board_selection", { space, id, ids });
+/** One paragraph over the panels from the light model (a few cents, when asked). */
+export const dashStory = (space: string, id: string) => invoke<string>("dash_story", { space, id });
 /** The person certifies a query, or takes the mark back. */
 export const dashCertify = (space: string, id: string, query: string, on: boolean) =>
   invoke("dash_certify", { space, id, query, on });

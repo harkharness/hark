@@ -7,6 +7,9 @@ const calls = vi.hoisted(() => ({
   view: vi.fn(),
   certify: vi.fn(async () => undefined),
   accept: vi.fn(async () => undefined),
+  story: vi.fn(async () => "A retenção subiu 23 pontos."),
+  create: vi.fn(async () => ({ id: "historia-uso-do-app", title: "x", path: "x.md", kind: "doc", updated_at: "" })),
+  write: vi.fn(async () => undefined),
 }));
 
 const view: View = {
@@ -39,6 +42,9 @@ vi.mock("../lib/ipc", () => ({
   dashView: calls.view,
   dashCertify: calls.certify,
   artifactAccept: calls.accept,
+  dashStory: calls.story,
+  artifactCreate: calls.create,
+  artifactWrite: calls.write,
 }));
 
 import DashView from "./DashView";
@@ -82,6 +88,21 @@ describe("the dashboard viewer", () => {
     expect(getAllByText((1284).toLocaleString()).length).toBeGreaterThan(0);
     fireEvent.click(getByText(t("dash_certify")));
     await waitFor(() => expect(calls.certify).toHaveBeenCalledWith("tulipa", "uso", "ativos", true));
+  });
+
+  it("the data story is written when asked, read, and becomes a child document", async () => {
+    calls.view.mockResolvedValue(view);
+    const onDoc = vi.fn();
+    const { findByText, getByText } = render(<DashView space="tulipa" id="uso" onDoc={onDoc} />);
+    await findByText("usuários ativos");
+    expect(calls.story).not.toHaveBeenCalled();
+    fireEvent.click(getByText(t("dash_story_write")));
+    expect(await findByText("A retenção subiu 23 pontos.")).toBeTruthy();
+    fireEvent.click(getByText(t("dash_story_to_doc")));
+    await waitFor(() => expect(calls.create).toHaveBeenCalledWith("tulipa", "uso", t("dash_story_doc_title", { t: "Uso do app" }), "doc"));
+    await waitFor(() => expect(calls.write).toHaveBeenCalled());
+    expect((calls.write.mock.calls[0] as unknown[])[2]).toContain("A retenção subiu 23 pontos.");
+    await waitFor(() => expect(onDoc).toHaveBeenCalledWith("historia-uso-do-app"));
   });
 
   it("a broken file shows the error and the raw text", async () => {

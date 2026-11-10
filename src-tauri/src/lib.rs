@@ -2666,6 +2666,48 @@ fn dash_view(space: String, id: String, run: bool) -> Result<hark_core::app::art
     .map_err(|e| e.to_string())
 }
 
+/// "História dos dados": one short paragraph over the dashboard's panels
+/// from the light model, when the person asks. The cost lands in the
+/// ledger as a gate; nothing is written on its own.
+#[tauri::command(async)]
+fn dash_story(space: String, id: String) -> Result<String, String> {
+    use hark_core::domain::dash;
+    let config = Config::load();
+    let project = space_project(&config, &space);
+    let view = hark_core::app::artifacts::dash_view(
+        &artifact_store(),
+        &hark_core::adapters::dash_sources::LocalRunner,
+        project.as_deref(),
+        &space,
+        &id,
+        &now_iso(),
+        false,
+    )
+    .map_err(|e| e.to_string())?;
+    if let Some(e) = view.error {
+        return Err(e);
+    }
+    let dash_doc = dash::parse(&view.raw).map_err(|e| e.to_string())?;
+    let prompt = dash::story_prompt(&dash_doc, &view.panels);
+    let runner = ask_runner(&config);
+    let request = hark_core::ports::TurnRequest {
+        prompt: &prompt,
+        images: &[],
+        model: &config.models().light,
+        system_prompt: "Você escreve a história que os números de um painel contam, em um parágrafo. Responda só o JSON pedido.",
+        schema: dash::STORY_SCHEMA,
+        effort: "low",
+    };
+    let turn = runner.ask(&request, &mut |_| {}).map_err(|e| e.to_string())?;
+    record_live_spend(
+        &config,
+        hark_core::domain::spend::SpendKind::Gate,
+        &hark_core::domain::spend::SpendMeta { label: Some("história dos dados"), outcome: Some("story"), ..Default::default() },
+        &turn,
+    );
+    dash::clean_story(&turn.raw).ok_or_else(|| ui("o modelo não escreveu a história", "the model wrote no story"))
+}
+
 /// The person certifies a query of a dashboard, or takes it back.
 #[tauri::command]
 fn dash_certify(space: String, id: String, query: String, on: bool) -> Result<(), String> {
@@ -6613,6 +6655,7 @@ pub fn run() {
             sheet_set_cell,
             dash_view,
             dash_certify,
+            dash_story,
             board_view,
             board_edit,
             board_selection,

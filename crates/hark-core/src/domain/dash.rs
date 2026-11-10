@@ -505,6 +505,48 @@ pub fn summary(dash: &Dash) -> String {
     out.trim_end().to_string()
 }
 
+/// What the light model is asked for a "data story": one short paragraph
+/// over the panels as they are, numbers included, in the page's
+/// language. The person reviews it; nothing is written on its own.
+pub fn story_prompt(dash: &Dash, panels: &[PanelView]) -> String {
+    let mut lines = String::new();
+    for p in panels {
+        let what = match p.chart {
+            Chart::Number => match (p.number, p.delta) {
+                (Some(n), Some(d)) => format!("{n} ({:+.1}% vs anterior)", d * 100.0),
+                (Some(n), None) => format!("{n}"),
+                _ => p.error.clone().unwrap_or_else(|| "sem valor".into()),
+            },
+            Chart::Bar | Chart::Line => {
+                if p.values.is_empty() {
+                    p.error.clone().unwrap_or_else(|| "sem valores".into())
+                } else {
+                    let first = p.values.first().copied().unwrap_or(0.0);
+                    let last = p.values.last().copied().unwrap_or(0.0);
+                    format!("de {first} ({}) a {last} ({}), {} pontos", p.labels.first().cloned().unwrap_or_default(), p.labels.last().cloned().unwrap_or_default(), p.values.len())
+                }
+            }
+            Chart::Table => format!("{} linhas", p.table.as_ref().map(|t| t.rows.len()).unwrap_or(0)),
+        };
+        lines.push_str(&format!("- {}{}: {what}\n", p.title, if p.certified { "" } else { " (rascunho, não certificado)" }));
+    }
+    format!(
+        "Escreva um parágrafo curto (3 a 5 frases) que conte o que estes números dizem, para quem vai ler o painel \"{}\". \
+         Use os números como estão; não invente causas; diga o que ainda não bateu a meta quando houver. Mesma língua dos títulos. \
+         Responda só o JSON pedido.\n\nPainéis:\n{lines}",
+        dash.title.clone().unwrap_or_default()
+    )
+}
+
+pub const STORY_SCHEMA: &str = r#"{"type":"object","properties":{"story":{"type":"string"}},"required":["story"]}"#;
+
+/// The model's answer as the paragraph, or None when it is not one.
+pub fn clean_story(raw: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(raw.trim()).ok()?;
+    let story = value.get("story")?.as_str()?.trim();
+    (!story.is_empty()).then(|| story.to_string())
+}
+
 /// The dashboard back as the file.
 pub fn to_json(dash: &Dash) -> String {
     let mut s = serde_json::to_string_pretty(dash).unwrap_or_else(|_| "{}".into());
@@ -641,6 +683,22 @@ mod tests {
         assert!(s.contains("- por_dia (db) · certificada: SELECT dia, n FROM x"), "{s}");
         assert!(s.contains("- retenção · Line · consulta retencao"), "{s}");
         assert!(!s.contains('{'));
+    }
+
+    #[test]
+    fn the_story_prompt_carries_the_numbers_and_the_answer_is_read_back() {
+        let d = sample();
+        let panels = vec![
+            PanelView { title: "ativos".into(), query: "ativos".into(), chart: Chart::Number, certified: true, error: None, number: Some(1284.0), delta: Some(0.062), labels: vec![], values: vec![], table: None },
+            PanelView { title: "por dia".into(), query: "por_dia".into(), chart: Chart::Bar, certified: false, error: None, number: None, delta: None, labels: vec!["01".into(), "02".into()], values: vec![3.0, 5.0], table: None },
+        ];
+        let p = story_prompt(&d, &panels);
+        assert!(p.contains("- ativos: 1284 (+6.2% vs anterior)"), "{p}");
+        assert!(p.contains("- por dia (rascunho, não certificado): de 3 (01) a 5 (02), 2 pontos"), "{p}");
+        assert!(p.contains("\"Uso\""));
+        assert_eq!(clean_story(r#"{"story": " A retenção subiu. "}"#).as_deref(), Some("A retenção subiu."));
+        assert_eq!(clean_story("nope"), None);
+        assert_eq!(clean_story(r#"{"story": ""}"#), None);
     }
 
     #[test]

@@ -556,6 +556,7 @@ const C: Record<string, (a: Args) => unknown> = {
     raw: "{}",
   }),
   dash_certify: () => undefined,
+  dash_story: () => "Active users grew 6% in a week and deliveries per day are at their highest since the quick-add beta; time to first delivery still misses the 30 s goal.",
   board_view: (): BoardView => ({
     board: {
       title: "Release 0.11 plan",

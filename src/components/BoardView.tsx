@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, History, MessageSquare, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Check, FileText, History, ListChecks, MessageSquare, Plus, Presentation, Sparkles, Trash2 } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
 import type { BoardNote, BoardOp, BoardView as View } from "../types";
@@ -137,6 +137,16 @@ export default function BoardView({ space, id, onChanged, onAsk }: { space: stri
           <Plus size={11} /> {t("board_add_group")}
         </button>
         <span className="dim">{t("board_lasso_hint")}</span>
+        {onAsk && (
+          <>
+            <button className="pill-btn" onClick={() => onAsk(t("board_to_doc_text"))} title={t("board_to_doc_text")}>
+              <FileText size={11} /> {t("board_to_doc")}
+            </button>
+            <button className="pill-btn" onClick={() => onAsk(t("board_to_deck_text"))} title={t("board_to_deck_text")}>
+              <Presentation size={11} /> {t("board_to_deck")}
+            </button>
+          </>
+        )}
         <span className="spacer" />
         {sel.length > 0 && (
           <>
@@ -252,6 +262,13 @@ export default function BoardView({ space, id, onChanged, onAsk }: { space: stri
             <div className="board-floating" style={{ left: floatAt.x, top: floatAt.y }} onMouseDown={(e) => e.stopPropagation()}>
               <button className="pill-btn on" onClick={() => void ask()} title={t("board_ask_hint")}>
                 <MessageSquare size={11} /> {t("board_ask")}
+              </button>
+              <button
+                className="pill-btn"
+                title={t("board_to_tasks_text")}
+                onClick={() => void ipc.boardSelection(space, id, sel).then((text) => onAsk?.(`${t("board_to_tasks_text")}\n${text.trimEnd()}`))}
+              >
+                <ListChecks size={11} /> {t("board_to_tasks")}
               </button>
               <button className="pill-btn" onClick={() => { for (const s of sel) void edit({ op: "remove", id: s }); setSel([]); }}>
                 <Trash2 size={11} /> {t("board_remove")}

@@ -233,6 +233,9 @@ a file dropped there by hand is adopted at the root on the next read.
   runs. A query you **certify** is yours: the agent uses it and never
   rewrites it; a panel on an uncertified query says "agent's draft".
   "Sources and queries" shows each query, its preview and the badge.
+  "Data story" asks the light model for one paragraph over the panels
+  (one call, when you click); it becomes a child document page or goes
+  to a chat, after you read it. Every panel copies its data as csv.
 - **A whiteboard** is notes on a canvas, groups around them and a
   timeline. The agent writes notes without coordinates and Hark lays
   them out; you drag them (into a group joins it), double-click to edit,

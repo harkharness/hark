@@ -75,6 +75,16 @@ describe("the whiteboard viewer", () => {
     await waitFor(() => expect(calls.accept).toHaveBeenCalledWith("tulipa", "plano"));
   });
 
+  it("making a document or a deck goes to a chat with the instruction", async () => {
+    const onAsk = vi.fn();
+    const { findByText, getByText } = render(<BoardView space="tulipa" id="plano" onAsk={onAsk} />);
+    await findByText("Atalho no celular");
+    fireEvent.click(getByText(t("board_to_doc")));
+    expect(onAsk).toHaveBeenCalledWith(t("board_to_doc_text"));
+    fireEvent.click(getByText(t("board_to_deck")));
+    expect(onAsk).toHaveBeenCalledWith(t("board_to_deck_text"));
+  });
+
   it("the lasso catches the notes inside it", () => {
     expect(within(view.board.notes, 0, 0, 400, 250)).toEqual(["n1"]);
     expect(within(view.board.notes, 0, 0, 1000, 1000)).toEqual(["n1", "n2"]);
