@@ -3240,7 +3240,7 @@ html.demo .side-drag::before {
 
 /* ---- sheet editing (fase 14.1): menus on the letters and numbers, the column edge ---- */
 .sheet-grid th.ch, .sheet-grid th.rh { cursor: pointer; position: sticky; }
-.sheet-grid th.ch.on, .sheet-grid th.rh.on { background: color-mix(in srgb, var(--accent) 22%, var(--panel)); color: var(--text-strong); }
+.sheet-grid th.ch.on, .sheet-grid th.rh.on { background: color-mix(in srgb, var(--accent) 22%, var(--panel)); color: var(--text-strong); z-index: 6; }
 .sheet-grid th.ch { overflow: visible; }
 .sheet-grid th.rh { overflow: visible; }
 .sheet-fmt-tag { margin-left: 5px; font-size: 9px; font-weight: 500; color: var(--accent); text-transform: lowercase; }
@@ -3268,7 +3268,7 @@ html.demo .side-drag::before {
 .board-note { z-index: 2; }
 .board-canvas-wrap.linking .board-note { cursor: crosshair; }
 .board-note.linking-from { outline: 2px dashed var(--accent); outline-offset: 2px; }
-.board-linking { color: var(--accent); font-size: 12px; }
+.board-linking { color: var(--accent); font-size: 12px; white-space: nowrap; }
 .board-group-corner { position: absolute; right: -4px; bottom: -4px; width: 12px; height: 12px; border-right: 2px solid var(--border-strong); border-bottom: 2px solid var(--border-strong); cursor: nwse-resize; }
 .board-group:hover .board-group-corner { border-color: var(--accent); }
 .board-group-input { position: absolute; top: -12px; left: 12px; background: var(--panel-2); color: var(--text-strong); border: 1px solid var(--accent); border-radius: 6px; padding: 2px 6px; font-size: 11px; outline: none; z-index: 3; }

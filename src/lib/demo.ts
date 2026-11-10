@@ -583,6 +583,10 @@ const C: Record<string, (a: Args) => unknown> = {
         { date: "2026-11-26", title: "voice STT", owner: "Ana" },
         { date: "2026-12-03", title: "release 0.11", owner: "team" },
       ],
+      links: [
+        { from: "n2", to: "n8", label: "needs" },
+        { from: "n6", to: "n4" },
+      ],
     },
     changed: ["n3", "n6"],
     versions: 2,
