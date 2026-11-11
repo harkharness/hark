@@ -6,7 +6,7 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
-import { Compass, Copy, Download, ExternalLink, FileText, FolderTree, GitCompare, PanelLeft, Share2, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
+import { Compass, Copy, Download, ExternalLink, FileText, FolderTree, PanelLeft, Share2, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import { colourIndex, projColour, scopeOf } from "./lib/scope";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { lang, setLang, setSpeechLang, st, t } from "./lib/i18n";
@@ -16,7 +16,6 @@ import Board, { type CardAsk } from "./components/Board";
 import SharePopover, { type ShareRow } from "./components/SharePopover";
 import VoiceRound from "./components/VoiceRound";
 import { useVoiceRound } from "./hooks/useVoiceRound";
-import DiffPanel from "./components/DiffPanel";
 import BrowserPanel from "./components/BrowserPanel";
 import { transcriptMarkdown } from "./lib/export";
 import Composer from "./components/Composer";
@@ -82,7 +81,7 @@ import type {
   ArtifactTree,
 } from "./types";
 
-type RailItem = "sessao" | "terminal" | "arquivos" | "board" | "artefatos" | "diff" | "browser";
+type RailItem = "sessao" | "terminal" | "arquivos" | "board" | "artefatos" | "browser";
 
 export default function App({
   forcedProject,
@@ -375,7 +374,7 @@ export default function App({
   // ONE panel at a time (phase 10.2): the rail shows the panel named
   // here or nothing at all, and the choice survives a restart.
   const RAIL_KEY = "hark.rail.v2";
-  const RAIL_ITEMS: RailItem[] = ["sessao", "terminal", "arquivos", "board", "artefatos", "diff", "browser"];
+  const RAIL_ITEMS: RailItem[] = ["sessao", "terminal", "arquivos", "board", "artefatos", "browser"];
   // Each chat keeps the panel it had open (phase 10.8), the way Claude
   // Code's app does: come back to a chat and its terminal is there, its
   // file is open. Persisted per thread; a terminal is a process, not a
@@ -3414,6 +3413,8 @@ export default function App({
         costs={costs}
         outputs={threadOutputs}
         onOpenPath={openAbsolutePath}
+        changes={{ workspace: focusedWorkspace || undefined, tick: threadOutputs.reduce((n, o) => n + o.touches, 0) }}
+        onCommit={() => setComposerPrefill({ text: t("sp_commit_text"), nonce: Date.now() })}
         onDetail={() => {
           void ipc
             .usageReport(focusedTask?.sessionId ?? undefined)
@@ -3517,27 +3518,6 @@ export default function App({
       <BrowserPanel key={threadKey} storageKey={threadKey} />
     </PanelFrame>
   );
-  /** The diff of the workspace on screen: changed files, one at a time. */
-  const frameDiff = () => (
-    <PanelFrame
-      title={t("frame_diff")}
-      expanded={expanded === "diff"}
-      onToggleExpand={() => setExpanded((e) => (e === "diff" ? null : "diff"))}
-      {...collapseProps("diff")}
-      onClose={() => removeRail("diff")}
-    >
-      {focusedWorkspace ? (
-        <DiffPanel
-          workspace={focusedWorkspace}
-          repo={focusedRepo}
-          tick={threadOutputs.reduce((n, o) => n + o.touches, 0)}
-          onOpenPath={openAbsolutePath}
-        />
-      ) : (
-        <div className="diff-empty">{t("diff_no_repo")}</div>
-      )}
-    </PanelFrame>
-  );
   /** One frame per rail item. */
   const frameFor = (id: RailItem) =>
     id === "sessao"
@@ -3548,11 +3528,9 @@ export default function App({
           ? frameBoard()
           : id === "artefatos"
             ? frameArtefatos()
-            : id === "diff"
-              ? frameDiff()
-              : id === "browser"
-                ? frameBrowser()
-                : frameArquivos();
+            : id === "browser"
+              ? frameBrowser()
+              : frameArquivos();
   /** The collapse control every stacked frame gets (not while expanded). */
   const collapseProps = (id: RailItem) =>
     expanded ? {} : { collapsed: collapsedItems.includes(id), onToggleCollapse: () => toggleCollapsed(id) };
@@ -4070,15 +4048,6 @@ export default function App({
                   >
                     <Compass size={13} />
                   </button>
-                  {focusedRepo && (
-                    <button
-                      className={`chat-head-btn ${railHas("diff") ? "on" : ""}`}
-                      title={t("frame_diff")}
-                      onClick={() => toggleRail("diff")}
-                    >
-                      <GitCompare size={13} />
-                    </button>
-                  )}
                   {!isMain && (
                     <button
                       className={`chat-head-btn ${railHas("board") ? "on" : ""}`}

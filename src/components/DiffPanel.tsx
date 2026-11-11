@@ -26,6 +26,7 @@ export default function DiffPanel({
   repo,
   tick,
   onOpenPath,
+  onTotals,
 }: {
   /** The task's workspace (git resolves the root). */
   workspace: string;
@@ -34,6 +35,8 @@ export default function DiffPanel({
   tick: number;
   /** Open the file in the files window. */
   onOpenPath: (abs: string) => void;
+  /** The totals, for whoever shows them outside (the session bar's header). */
+  onTotals?: (sum: { added: number; removed: number; files: number }) => void;
 }) {
   const [root, setRoot] = useState("");
   const [changes, setChanges] = useState<FileChange[]>([]);
@@ -76,6 +79,10 @@ export default function DiffPanel({
   }, [workspace, selected, tick]);
 
   const sum = useMemo(() => totals(changes), [changes]);
+  useEffect(() => {
+    onTotals?.(sum);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sum.added, sum.removed, sum.files]);
   const current = changes.find((c) => c.path === selected);
 
   function toggleSeen(c: FileChange) {

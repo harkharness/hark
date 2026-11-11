@@ -3459,3 +3459,16 @@ html.demo .side-drag::before {
 .art-frame-marks { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; pointer-events: none; }
 .art-frame-marks .mark-layer { pointer-events: inherit; }
 .art-frame-marks .mark-layer.drawing { pointer-events: all; }
+
+/* ---- the session bar (round "barra de sessão"): sections that fold, the diff inside ---- */
+.sp-sec-head { width: 100%; background: none; border: 0; padding: 0; font: inherit; color: var(--dim); cursor: pointer; text-align: left; }
+.sp-sec-head:hover .sp-sec-title { color: var(--text-strong); }
+.sp-sec-title { display: inline-flex; align-items: center; gap: 5px; }
+.sp-sec-sum { display: inline-flex; align-items: center; gap: 4px; }
+.sp-sec-body { display: grid; gap: 8px; }
+.sp-sec.closed { gap: 0; }
+.sp-sum-diff .add { color: var(--ok); } .sp-sum-diff .del { color: var(--err); }
+.sp-commit { align-self: flex-start; }
+.sp-changes { display: flex; flex-direction: column; min-height: 0; max-height: 360px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.sp-changes .diff-panel { min-height: 0; }
+.sp-changes .diff-list { max-height: 160px; }

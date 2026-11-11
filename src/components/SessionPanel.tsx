@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { FileText, FolderGit2, Laptop, Package } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { ChevronDown, ChevronRight, FileText, FolderGit2, GitCommitHorizontal, Laptop, Package } from "lucide-react";
+import DiffPanel from "./DiffPanel";
 import { Gauge, Legend, MeterRow, StackedBar, fmtTok, fmtUsd, type Segment } from "./Meter";
 import type { Output } from "../lib/outputs";
 import * as ipc from "../lib/ipc";
@@ -23,6 +24,34 @@ const limitName = (key: string) =>
     : key === "seven_day"
       ? t("lim_week_short")
       : t("lim_week_model", { m: key.replace(/^seven_day_?/, "") });
+
+const SECTIONS_KEY = "hark.session.sections";
+type SectionId = "env" | "ctx" | "outputs" | "changes" | "costs" | "limits";
+const OPEN_BY_DEFAULT: SectionId[] = ["env", "outputs", "changes"];
+
+function readOpen(): Record<string, boolean> {
+  try {
+    const raw = window.localStorage.getItem(SECTIONS_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** One section of the bar: a head that folds it, a summary shown while folded. */
+function Section({ id, title, summary, open, onToggle, children }: { id: SectionId; title: string; summary?: ReactNode; open: boolean; onToggle: () => void; children: ReactNode }) {
+  return (
+    <section className={`scope-block sp-sec ${open ? "open" : "closed"}`} data-section={id}>
+      <button className="scope-block-head sp-sec-head" onClick={onToggle} aria-expanded={open}>
+        <span className="sp-sec-title">
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} {title}
+        </span>
+        {summary != null && <b className="sp-sec-sum">{summary}</b>}
+      </button>
+      {open && <div className="sp-sec-body">{children}</div>}
+    </section>
+  );
+}
 
 const basename = (p: string) => p.split("/").filter(Boolean).at(-1) ?? p;
 const dirname = (p: string) => p.replace(/\/[^/]*$/, "").replace(/^\/Users\/[^/]+/, "~");
@@ -50,6 +79,8 @@ export default function SessionPanel({
   outputs,
   onOpenPath,
   onDetail,
+  changes,
+  onCommit,
 }: {
   scope: Scope;
   projectsCount: number;
@@ -71,7 +102,25 @@ export default function SessionPanel({
   onOpenPath: (path: string) => void;
   /** "Ver detalhamento" → the /usage card lands in the thread. */
   onDetail?: () => void;
+  /** The session's git changes (the Alterações section): the workspace
+   *  git resolves, and a tick that re-reads when a worker wrote a file. */
+  changes?: { workspace?: string; tick: number } | null;
+  /** "Fazer commit das alterações": the ask goes to the chat. */
+  onCommit?: () => void;
 }) {
+  const [open, setOpen] = useState<Record<string, boolean>>(readOpen);
+  const isOpen = (id: SectionId) => open[id] ?? OPEN_BY_DEFAULT.includes(id);
+  const toggle = (id: SectionId) =>
+    setOpen((o) => {
+      const next = { ...o, [id]: !isOpen(id) };
+      try {
+        window.localStorage.setItem(SECTIONS_KEY, JSON.stringify(next));
+      } catch {
+        /* a private window keeps nothing */
+      }
+      return next;
+    });
+  const [sum, setSum] = useState<{ added: number; removed: number; files: number } | null>(null);
   const [weight, setWeight] = useState<ContextWeight | null>(null);
   const [ledger, setLedger] = useState<{ day: number; week: number } | null>(null);
   const [byTask, setByTask] = useState<SpendAgg[]>([]);
@@ -116,12 +165,16 @@ export default function SessionPanel({
   const projectPath = scope.kind === "chat" ? scope.project?.path : scope.kind === "project" ? scope.project.path : undefined;
   const knobs = [mode, model, effort].filter(Boolean).join(" · ");
 
+  const ctxSummary =
+    context?.pct != null
+      ? `${context.tokens ? fmtTok(context.tokens) : ""}${capacity ? ` / ${fmtTok(capacity)}` : ""} (${Math.round(context.pct * 100)}%)`
+      : weight && weight.last_total_tokens > 0
+        ? `${fmtTok(weight.last_total_tokens)}${capacity ? ` / ${fmtTok(capacity)}` : ""}`
+        : null;
+
   return (
     <div className="session-panel">
-      <section className="scope-block">
-        <div className="scope-block-head">
-          <span>{t("sec_env")}</span>
-        </div>
+      <Section id="env" title={t("sec_env")} open={isOpen("env")} onToggle={() => toggle("env")}>
         <div className="sp-row">
           <Laptop size={13} />
           <span>{t("env_machine")}</span>
@@ -158,32 +211,23 @@ export default function SessionPanel({
           </div>
         )}
         {scope.kind === "all" && <p className="hint">{t("env_general")}</p>}
-      </section>
+      </Section>
 
-      <section className="scope-block">
-        <div className="scope-block-head">
-          <span>{t("sec_ctx")}</span>
-          {context?.pct != null ? (
-            <b>
-              {context.tokens ? fmtTok(context.tokens) : ""}
-              {capacity ? ` / ${fmtTok(capacity)}` : ""}
-              {` (${Math.round(context.pct * 100)}%)`}
-            </b>
-          ) : weight && weight.last_total_tokens > 0 ? (
-            <b>
-              {fmtTok(weight.last_total_tokens)}
-              {capacity ? ` / ${fmtTok(capacity)}` : ""}
-            </b>
-          ) : (
-            <b className="dim">{scope.kind === "all" ? t("ctx_local") : t("ctx_none")}</b>
-          )}
-        </div>
-        {weight && weight.last_total_tokens > 0 && (
+      <Section
+        id="ctx"
+        title={t("sec_ctx")}
+        summary={ctxSummary ?? <span className="dim">{scope.kind === "all" ? t("ctx_local") : t("ctx_none")}</span>}
+        open={isOpen("ctx")}
+        onToggle={() => toggle("ctx")}
+      >
+        {weight && weight.last_total_tokens > 0 ? (
           <>
             <StackedBar segments={contextSegments} capacity={capacity} height={7} />
             <Legend segments={contextSegments} capacity={capacity} free={t("si_free")} />
             {weight.pct != null && weight.pct > 0.7 && <p className="hint warn">{t("si_heavy")}</p>}
           </>
+        ) : (
+          <p className="hint">{scope.kind === "all" ? t("ctx_local") : t("ctx_none")}</p>
         )}
         {(turnUsd != null || threadCost > 0) && (
           <div className="scope-pair">
@@ -191,13 +235,9 @@ export default function SessionPanel({
             <b>{fmtUsd(turnUsd ?? threadCost)}</b>
           </div>
         )}
-      </section>
+      </Section>
 
-      <section className="scope-block">
-        <div className="scope-block-head">
-          <span>{t("sec_outputs")}</span>
-          {outputs.length > 0 && <b>{outputs.length}</b>}
-        </div>
+      <Section id="outputs" title={t("sec_outputs")} summary={outputs.length > 0 ? outputs.length : undefined} open={isOpen("outputs")} onToggle={() => toggle("outputs")}>
         {outputs.length === 0 ? (
           <p className="hint">{t("out_none")}</p>
         ) : (
@@ -210,17 +250,39 @@ export default function SessionPanel({
             </button>
           ))
         )}
-      </section>
+      </Section>
+
+      <Section
+        id="changes"
+        title={t("sec_changes")}
+        summary={
+          sum && sum.files > 0 ? (
+            <span className="sp-sum-diff">
+              <span className="add">+{sum.added.toLocaleString()}</span> <span className="del">−{sum.removed.toLocaleString()}</span>
+            </span>
+          ) : undefined
+        }
+        open={isOpen("changes")}
+        onToggle={() => toggle("changes")}
+      >
+        {changes?.workspace ? (
+          <>
+            {onCommit && sum && sum.files > 0 && (
+              <button className="pill-btn on sp-commit" onClick={onCommit} title={t("sp_commit_text")}>
+                <GitCommitHorizontal size={11} /> {t("sp_commit")}
+              </button>
+            )}
+            <div className="sp-changes">
+              <DiffPanel workspace={changes.workspace} repo={repo} tick={changes.tick} onOpenPath={onOpenPath} onTotals={setSum} />
+            </div>
+          </>
+        ) : (
+          <p className="hint">{t("sp_no_repo")}</p>
+        )}
+      </Section>
 
       {ledger && (
-        <section className="scope-block">
-          <div className="scope-block-head">
-            <span>
-              {t("costs_measured")}
-              {projectName ? ` ${t("costs_in_project")}` : ""}
-            </span>
-            <b>{fmtUsd(ledger.day)}</b>
-          </div>
+        <Section id="costs" title={`${t("sec_costs")}${projectName ? ` ${t("costs_in_project")}` : ""}`} summary={fmtUsd(ledger.day)} open={isOpen("costs")} onToggle={() => toggle("costs")}>
           <div className="scope-pair">
             <span>{t("si_24h")}</span>
             <b>{fmtUsd(ledger.day)}</b>
@@ -248,18 +310,15 @@ export default function SessionPanel({
               {t("si_detail")}
             </button>
           )}
-        </section>
+        </Section>
       )}
 
       {limits && limits.limits.length > 0 && (
-        <section className="scope-block">
-          <div className="scope-block-head">
-            <span>{t("c_limits")}</span>
-          </div>
+        <Section id="limits" title={t("sec_limits")} open={isOpen("limits")} onToggle={() => toggle("limits")}>
           {limits.limits.map((l) => (
             <Gauge key={l.key} name={limitName(l.key)} used={l.used} caption={resetIn(l.resets_at)} />
           ))}
-        </section>
+        </Section>
       )}
     </div>
   );
