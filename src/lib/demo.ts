@@ -121,6 +121,10 @@ const TRANSCRIPTS: Record<string, TranscriptEntry[]> = {
     { ts: ago(3), role: "tool_result", text: "The file apps/dashboard/src/api/billing.ts has been updated.", is_error: false },
     { ts: ago(3), role: "tool_use", tool: "Edit", text: JSON.stringify({ file_path: "apps/worker/src/jobs/invoice.ts", old_string: "/billing/v1/charge", new_string: "/billing/v2/charge" }), is_error: false },
     { ts: ago(3), role: "tool_result", text: "The file apps/worker/src/jobs/invoice.ts has been updated.", is_error: false },
+    { ts: ago(3), role: "tool_use", tool: "Write", text: JSON.stringify({ file_path: "/Users/ana/.hark/artifacts/webhook-api/infra-costs.sheet.json", content: "{}" }), is_error: false },
+    { ts: ago(3), role: "tool_result", text: "File written", is_error: false },
+    { ts: ago(2), role: "tool_use", tool: "Write", text: JSON.stringify({ file_path: "/Users/ana/.hark/artifacts/webhook-api/billing-v2-rollout.html", content: "<!doctype html>" }), is_error: false },
+    { ts: ago(2), role: "tool_result", text: "File written", is_error: false },
     { ts: ago(3), role: "assistant", text: "Both callers now use v2; the worker's retry path keeps its idempotency key. Ready to push the branch `billing-v2` so the dashboard team can review.", is_error: false },
   ],
   "s-alerts": [

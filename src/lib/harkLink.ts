@@ -33,3 +33,24 @@ export function harkTarget(href: string): HarkTarget | null {
   }
   return null;
 }
+
+/** A file the agent wrote under `~/.hark/artifacts/<space>/…` is a page
+ *  of that space, not a file for the editor: the session bar's outputs
+ *  open it in the artifacts view. `index.json` is the space's own index. */
+export function artifactFile(path: string): { space: string; file: string } | null {
+  const m = /^(?:~|\/Users\/[^/]+|\/home\/[^/]+)\/\.hark\/artifacts\/([^/]+)\/(.+)$/.exec(path.trim());
+  if (!m) return null;
+  const [, space, file] = m;
+  if (file === "index.json" || file.endsWith("/")) return null;
+  return { space, file };
+}
+
+/** The id of the page stored at `file` (relative to the space root). The
+ *  index is the truth — a page renamed on disk keeps its id — and the
+ *  file's stem is what a page not yet indexed will be called. */
+export function pageId(file: string, nodes: { id: string; path: string }[]): string {
+  const hit = nodes.find((n) => n.path === file);
+  if (hit) return hit.id;
+  const base = file.split("/").pop() ?? file;
+  return base.replace(PAGE_EXT, "");
+}

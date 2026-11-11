@@ -43,7 +43,7 @@ import InicioGlance from "./components/InicioGlance";
 import { Bell } from "lucide-react";
 import { condense } from "./lib/mirror";
 import { recoverSession as replacementFor, sessionVanished } from "./lib/recovery";
-import { harkTarget } from "./lib/harkLink";
+import { artifactFile, harkTarget, pageId } from "./lib/harkLink";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
@@ -1643,6 +1643,19 @@ export default function App({
         return;
       }
       path = `${base}/${path.replace(/^\.\//, "")}`;
+    }
+    // A file under ~/.hark/artifacts is a page: it opens in the artifacts
+    // view, not in the editor nor in the OS browser (an .html page is
+    // still a page). The index is asked for the id, since a page renamed
+    // on disk keeps the id it was born with.
+    const art = artifactFile(path);
+    if (art) {
+      setView("artefatos");
+      void ipc
+        .artifactsTree(art.space)
+        .then((tree) => setArtSel({ space: art.space, id: pageId(art.file, tree.nodes) }))
+        .catch(() => setArtSel({ space: art.space, id: pageId(art.file, []) }));
+      return;
     }
     if (OS_ONLY.test(path)) {
       ipc.openExternal(path).catch(() => {});
