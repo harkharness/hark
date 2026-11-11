@@ -146,6 +146,13 @@ impl RateLimitInfo {
 /// One event from a running agent session, reduced to what Hark reacts to.
 /// This is the heart of the contract: a plugin's only real job is turning
 /// its CLI's output into this stream.
+/// One MCP server of a session, as the backend reports it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct McpServer {
+    pub name: String,
+    pub status: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AgentEvent {
     /// The agent called a tool; narrated in the UI/TTS while waiting.
@@ -168,6 +175,16 @@ pub enum AgentEvent {
     SessionStarted {
         session_id: String,
         slash_commands: Vec<String>,
+        /// The MCP servers the session connected to, with their state
+        /// ("connected", "failed", …): the session bar's connectors.
+        #[serde(default)]
+        mcp_servers: Vec<McpServer>,
+    },
+    /// A command the agent left running in the background finished (or
+    /// failed): the CLI tells the conversation; the session bar tells you.
+    BackgroundDone {
+        status: String,
+        summary: String,
     },
     /// Quota window status, when the backend emits one.
     RateLimit(RateLimitInfo),

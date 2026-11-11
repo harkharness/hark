@@ -158,6 +158,10 @@ export type DashView = {
 export type BoardNote = { id: string; text: string; x?: number | null; y?: number | null; color?: string | null; owner?: string | null; date?: string | null; group?: string | null };
 export type BoardGroup = { id: string; title: string; x?: number | null; y?: number | null; w?: number | null; h?: number | null };
 export type BoardMilestone = { date: string; title: string; owner?: string | null };
+/** One MCP server of a session, as the backend reported it at start. */
+export type McpServer = { name: string; status: string };
+/** A command the agent left running in the background (the session bar lists it). */
+export type BgTask = { id: string; description: string; command: string; startedAt: number; status?: string | null; summary?: string | null; doneAt?: number | null };
 /** A comment on a page and what it points at (domain::comments). */
 export type CommentAnchor =
   | { kind: "page" }
@@ -279,7 +283,7 @@ export type HarkEvent =
    *  own status line and its partial-message deltas. */
   | { kind: "phase"; task_id: string; phase: "requesting" | "thinking" | "writing" }
   | { kind: "worker_exit"; task_id: string; exit_code?: number | null; reason?: string | null }
-  | { kind: "session_started"; task_id: string; session_id: string }
+  | { kind: "session_started"; task_id: string; session_id: string; mcp_servers?: McpServer[] }
   /** A chat got a name — in its own history, so every window re-reads. */
   | { kind: "chat_renamed"; session_id: string; title: string }
   | { kind: "speaking"; on: boolean }
@@ -298,6 +302,8 @@ export type HarkEvent =
   | { kind: "attention"; attention: Attention }
   | { kind: "notifications_changed" }
   /** A `hark://artifacts/…` link: that page, in the artifacts view. */
+  | { kind: "background_started"; task_id: string; description: string; command: string }
+  | { kind: "background_done"; task_id: string; status: string; summary: string }
   | { kind: "open_page"; space: string; id: string }
   /** A `hark://chat/…` link whose session the board does not know. */
   | { kind: "deep_link_unknown"; url: string }

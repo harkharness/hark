@@ -1261,7 +1261,7 @@ fn start_worker_titled(
         let mut pending_pages: Vec<(hark_core::domain::artifact_links::Written, hark_core::domain::artifacts::Origin)> = Vec::new();
         for event in rx.iter() {
             match event {
-                ClaudeEvent::SessionStarted { session_id, slash_commands } => {
+                ClaudeEvent::SessionStarted { session_id, slash_commands, mcp_servers } => {
                     current_session = session_id.clone();
                     if let Some(rec) = &recorder {
                         rec.started(&current_session);
@@ -1291,7 +1291,7 @@ fn start_worker_titled(
                         emit_event(
                             &app2,
                             serde_json::json!({ "kind": "session_started",
-                                "task_id": task2, "session_id": session_id }),
+                                "task_id": task2, "session_id": session_id, "mcp_servers": mcp_servers }),
                         );
                         continue;
                     }
@@ -1326,7 +1326,7 @@ fn start_worker_titled(
                     emit_event(
                         &app2,
                         serde_json::json!({ "kind": "session_started",
-                            "task_id": task2, "session_id": session_id }),
+                            "task_id": task2, "session_id": session_id, "mcp_servers": mcp_servers }),
                     );
                 }
                 ClaudeEvent::AssistantText(text) => {
@@ -1338,9 +1338,23 @@ fn start_worker_titled(
                         serde_json::json!({ "kind": "assistant_text", "task_id": task2, "text": text }),
                     )
                 }
+                ClaudeEvent::BackgroundDone { status, summary } => {
+                    emit_event(&app2, serde_json::json!({ "kind": "background_done", "task_id": task2, "status": status, "summary": summary }));
+                }
                 ClaudeEvent::ToolUse { name, input } => {
                     if let Some(rec) = &recorder {
                         rec.entry(Entry { ts: record_ts(), role: Role::ToolUse, text: input.clone(), tool: Some(name.clone()), is_error: false });
+                    }
+                    // A command left running in the background: the session
+                    // bar lists it until its notification comes back.
+                    if name == "Bash" {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&input) {
+                            if v.get("run_in_background").and_then(|b| b.as_bool()) == Some(true) {
+                                emit_event(&app2, serde_json::json!({ "kind": "background_started", "task_id": task2,
+                                    "description": v.get("description").and_then(|d| d.as_str()).unwrap_or(""),
+                                    "command": v.get("command").and_then(|c| c.as_str()).unwrap_or("") }));
+                            }
+                        }
                     }
                     // A page written inside the artifacts root learns the
                     // chat and task that wrote it once the tool has run.

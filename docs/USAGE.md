@@ -107,12 +107,26 @@ message lands: *all projects* in Início, `project › chat` when a chat is
 open. Each project owns a colour; it runs down the sidebar group, across
 the top of the chat and through the chip.
 
-**Each chat keeps its own side panels, stacked.** The terminal, the files
-window, the diff and the browser open on the rail together, one over the
-other; each folds to its bar, and any one can take the whole rail. They
-belong to the chat they were opened in: come back to a chat and its shell,
-its open file or its page is still there, and another chat has its own. The board and the artifacts are views of their own, with
-no chat panels; the artifacts view has the page's links instead.
+**Each chat keeps its own side panels, stacked.** The session bar, the
+terminal, the files window and the browser open on the rail together,
+one over the other; each folds to its bar, and any one can take the
+whole rail. They belong to the chat they were opened in: come back to a
+chat and its shell, its open file or its page is still there, and
+another chat has its own. The board and the artifacts are views of
+their own, with no chat panels; the artifacts view has the page's links
+instead.
+
+**The session bar** reads like the one in the Claude Code app: sections
+that fold and remember it, each with its summary while folded.
+*Environment* (this machine, the project and its folder, the branch,
+the agent and its knobs); *context* (the window's share, what fills it);
+*connectors* (the MCP servers the session opened, with their state;
+reconnecting is in Settings › plugins); *outputs* (what the session
+wrote: pages first, then files); *changes* (the git of the session: the
+diff, "commit the changes" that hands the ask to the chat, nothing
+committed by Hark itself); *background tasks* (commands the agent left
+running, and how many finished); *costs* and *limits*. The diff lives
+here and nowhere else: it is per session.
 
 **Two keys.** `Cmd+P` opens the files window with its filter ready, the
 way Claude Code's app does; `Cmd+K` (or the magnifier) opens **Procurar**,

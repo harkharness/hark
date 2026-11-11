@@ -15,7 +15,10 @@ type Handlers = {
   setMessages: React.Dispatch<React.SetStateAction<Msg[]>>;
   setLiveWorkers: React.Dispatch<React.SetStateAction<Record<string, LiveWorker>>>;
   onWorkerExit: (taskId: string, reason?: string | null) => void;
-  onSessionStarted: (taskId: string, sessionId: string) => void;
+  onSessionStarted: (taskId: string, sessionId: string, mcpServers?: import("../types").McpServer[]) => void;
+  /** A command left running in the background, and its end. */
+  onBackgroundStarted?: (taskId: string, description: string, command: string) => void;
+  onBackgroundDone?: (taskId: string, status: string, summary: string) => void;
   /** A chat was named (here or in another window): re-read the rows. */
   onChatRenamed?: (sessionId: string, title: string) => void;
   /** Raw per-thread feed (the task's own "terminal"). */
@@ -287,8 +290,12 @@ export function useHarkEvents(h: Handlers) {
         h.onWorkerExit(ev.task_id, ev.reason);
         h.refresh();
       } else if (ev.kind === "session_started") {
-        h.onSessionStarted(ev.task_id, ev.session_id);
+        h.onSessionStarted(ev.task_id, ev.session_id, ev.mcp_servers ?? []);
         h.refresh();
+      } else if (ev.kind === "background_started") {
+        h.onBackgroundStarted?.(ev.task_id, ev.description, ev.command);
+      } else if (ev.kind === "background_done") {
+        h.onBackgroundDone?.(ev.task_id, ev.status, ev.summary);
       } else if (ev.kind === "chat_renamed") {
         h.onChatRenamed?.(ev.session_id, ev.title);
         h.refresh();

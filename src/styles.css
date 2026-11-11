@@ -3472,3 +3472,7 @@ html.demo .side-drag::before {
 .sp-changes { display: flex; flex-direction: column; min-height: 0; max-height: 360px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .sp-changes .diff-panel { min-height: 0; }
 .sp-changes .diff-list { max-height: 160px; }
+.sp-dot { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.sp-dot.ok { background: var(--ok); } .sp-dot.err { background: var(--err); }
+.sp-sec-sum .warn { color: var(--warn); }
+.sp-bg-when { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-caps); white-space: nowrap; }

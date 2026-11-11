@@ -206,7 +206,7 @@ fn handshake(
             .to_string()
     };
     *session.session_id.lock().unwrap_or_else(|e| e.into_inner()) = session_id.clone();
-    let _ = started.send(AgentEvent::SessionStarted { session_id, slash_commands: Vec::new() });
+    let _ = started.send(AgentEvent::SessionStarted { session_id, slash_commands: Vec::new(), mcp_servers: Vec::new() });
 
     // What the agent can be told: its modes and config options. The sheet
     // learns it here — nothing before session/new could know — and the
@@ -634,7 +634,7 @@ impl AcpSession {
                             })
                             .unwrap_or_default();
                         let session_id = self.session_id.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                        let _ = tx.send(AgentEvent::SessionStarted { session_id, slash_commands: names });
+                        let _ = tx.send(AgentEvent::SessionStarted { session_id, slash_commands: names, mcp_servers: Vec::new() });
                     }
                     "usage_update" => {
                         // Agents price the turn on ONE update (the SDK
@@ -1324,7 +1324,7 @@ mod tests {
         assert_eq!(
             events[..3],
             [
-                AgentEvent::SessionStarted { session_id: "s-1".into(), slash_commands: vec![] },
+                AgentEvent::SessionStarted { session_id: "s-1".into(), slash_commands: vec![], mcp_servers: vec![] },
                 AgentEvent::Status(AgentPhase::Writing),
                 // Two chunks, ONE message: the transcript is message-sized.
                 AgentEvent::AssistantText("olá mundo".into()),
@@ -1414,7 +1414,7 @@ mod tests {
         let events = until_result(&c.events);
         assert_eq!(
             events[0],
-            AgentEvent::SessionStarted { session_id: "old-7".into(), slash_commands: vec![] }
+            AgentEvent::SessionStarted { session_id: "old-7".into(), slash_commands: vec![], mcp_servers: vec![] }
         );
         let m = methods(&seen);
         assert!(m.contains(&"session/load".to_string()) && !m.contains(&"session/new".to_string()), "{m:?}");
@@ -1594,6 +1594,7 @@ mod tests {
         assert!(events.contains(&AgentEvent::SessionStarted {
             session_id: "s-1".into(),
             slash_commands: vec!["compact".into(), "help".into()],
+            mcp_servers: vec![],
         }), "{events:?}");
     }
 

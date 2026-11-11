@@ -79,6 +79,8 @@ import type {
   TranscriptEntry,
   ArtifactPage,
   ArtifactTree,
+  McpServer,
+  BgTask,
 } from "./types";
 
 type RailItem = "sessao" | "terminal" | "arquivos" | "board" | "artefatos" | "browser";
@@ -202,6 +204,9 @@ export default function App({
     sessionId: string;
     note?: string;
   } | null>(null);
+  // The session bar's connectors and background tasks, per worker.
+  const [connectors, setConnectors] = useState<Record<string, McpServer[]>>({});
+  const [bgTasks, setBgTasks] = useState<Record<string, BgTask[]>>({});
   /** The thread on screen, as the key of everything a chat keeps for
    *  itself: its rail panel, its shells, its file tabs, its page. The
    *  general chat is the empty key. */
@@ -1199,7 +1204,8 @@ export default function App({
     }, []),
     // The hotkey with this window in front: the composer listens, no HUD.
     onHudListen: useCallback(() => voiceStartRef.current(), []),
-    onSessionStarted: useCallback((taskId: string, sessionId: string) => {
+    onSessionStarted: useCallback((taskId: string, sessionId: string, mcpServers?: McpServer[]) => {
+      if (mcpServers) setConnectors((old) => ({ ...old, [taskId]: mcpServers }));
       // A fresh chat finally has a session: link the focused task to it.
       const label = workersRef.current[taskId]?.label;
       setFocusedTask((old) =>
@@ -1209,6 +1215,22 @@ export default function App({
       setChatsNonce((n) => n + 1);
     }, []),
     onChatRenamed: useCallback(() => setChatsNonce((n) => n + 1), []),
+    onBackgroundStarted: useCallback((taskId: string, description: string, command: string) => {
+      setBgTasks((old) => ({ ...old, [taskId]: [...(old[taskId] ?? []), { id: `${taskId}:${Date.now()}`, description, command, startedAt: Date.now() }] }));
+    }, []),
+    onBackgroundDone: useCallback((taskId: string, status: string, summary: string) => {
+      // The notification names the command in quotes; the oldest running
+      // one with that description is the one that finished.
+      setBgTasks((old) => {
+        const list = old[taskId] ?? [];
+        const quoted = summary.match(/"([^"]+)"/)?.[1];
+        const i = list.findIndex((b) => !b.doneAt && (!quoted || b.description === quoted));
+        if (i < 0) return old;
+        const next = list.slice();
+        next[i] = { ...next[i], status, summary, doneAt: Date.now() };
+        return { ...old, [taskId]: next };
+      });
+    }, []),
   });
 
   // Global shortcuts: Cmd+P quick-open, Cmd+B sidebar collapse,
@@ -3415,6 +3437,9 @@ export default function App({
         onOpenPath={openAbsolutePath}
         changes={{ workspace: focusedWorkspace || undefined, tick: threadOutputs.reduce((n, o) => n + o.touches, 0) }}
         onCommit={() => setComposerPrefill({ text: t("sp_commit_text"), nonce: Date.now() })}
+        connectors={focused ? connectors[focused] : undefined}
+        background={focused ? bgTasks[focused] : undefined}
+        onPlugins={() => openSettings("plugins")}
         onDetail={() => {
           void ipc
             .usageReport(focusedTask?.sessionId ?? undefined)

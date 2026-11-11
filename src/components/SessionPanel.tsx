@@ -1,11 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, FileText, FolderGit2, GitCommitHorizontal, Laptop, Package } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, FileText, FolderGit2, GitCommitHorizontal, Laptop, Package, Plug, SquareTerminal } from "lucide-react";
 import DiffPanel from "./DiffPanel";
 import { Gauge, Legend, MeterRow, StackedBar, fmtTok, fmtUsd, type Segment } from "./Meter";
 import type { Output } from "../lib/outputs";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
-import type { ContextWeight, RepoState, Scope, SpendAgg, StatusLine } from "../types";
+import type { BgTask, ContextWeight, McpServer, RepoState, Scope, SpendAgg, StatusLine } from "../types";
 
 function resetIn(raw?: string | null): string | undefined {
   if (!raw) return undefined;
@@ -26,8 +26,8 @@ const limitName = (key: string) =>
       : t("lim_week_model", { m: key.replace(/^seven_day_?/, "") });
 
 const SECTIONS_KEY = "hark.session.sections";
-type SectionId = "env" | "ctx" | "outputs" | "changes" | "costs" | "limits";
-const OPEN_BY_DEFAULT: SectionId[] = ["env", "outputs", "changes"];
+type SectionId = "env" | "ctx" | "connectors" | "outputs" | "changes" | "bg" | "costs" | "limits";
+const OPEN_BY_DEFAULT: SectionId[] = ["env", "outputs", "changes", "bg"];
 
 function readOpen(): Record<string, boolean> {
   try {
@@ -81,6 +81,9 @@ export default function SessionPanel({
   onDetail,
   changes,
   onCommit,
+  connectors,
+  background,
+  onPlugins,
 }: {
   scope: Scope;
   projectsCount: number;
@@ -107,6 +110,12 @@ export default function SessionPanel({
   changes?: { workspace?: string; tick: number } | null;
   /** "Fazer commit das alterações": the ask goes to the chat. */
   onCommit?: () => void;
+  /** The MCP servers the session opened, with their state. */
+  connectors?: McpServer[];
+  /** Commands the agent left running in the background, and the finished ones. */
+  background?: BgTask[];
+  /** Settings › plugins, where a connector is reconnected. */
+  onPlugins?: () => void;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>(readOpen);
   const isOpen = (id: SectionId) => open[id] ?? OPEN_BY_DEFAULT.includes(id);
@@ -237,6 +246,38 @@ export default function SessionPanel({
         )}
       </Section>
 
+      <Section
+        id="connectors"
+        title={t("sec_connectors")}
+        summary={
+          connectors && connectors.length > 0 ? (
+            <>
+              {connectors.length}
+              {connectors.some((c) => c.status !== "connected") && <span className="warn"> · {t("sp_conn_reconnect_n", { n: connectors.filter((c) => c.status !== "connected").length })}</span>}
+            </>
+          ) : undefined
+        }
+        open={isOpen("connectors")}
+        onToggle={() => toggle("connectors")}
+      >
+        {!connectors || connectors.length === 0 ? (
+          <p className="hint">{t("sp_conn_none")}</p>
+        ) : (
+          connectors.map((c) => (
+            <div key={c.name} className="sp-row" title={c.status}>
+              <Plug size={13} />
+              <span>{c.name}</span>
+              <span className={`sp-dot ${c.status === "connected" ? "ok" : "err"}`} />
+            </div>
+          ))
+        )}
+        {onPlugins && (
+          <button className="sp-link" onClick={onPlugins} title={t("sp_conn_hint")}>
+            {t("sp_conn_plugins")}
+          </button>
+        )}
+      </Section>
+
       <Section id="outputs" title={t("sec_outputs")} summary={outputs.length > 0 ? outputs.length : undefined} open={isOpen("outputs")} onToggle={() => toggle("outputs")}>
         {outputs.length === 0 ? (
           <p className="hint">{t("out_none")}</p>
@@ -278,6 +319,36 @@ export default function SessionPanel({
           </>
         ) : (
           <p className="hint">{t("sp_no_repo")}</p>
+        )}
+      </Section>
+
+      <Section
+        id="bg"
+        title={t("sec_bg")}
+        summary={background && background.some((b) => !b.doneAt) ? background.filter((b) => !b.doneAt).length : undefined}
+        open={isOpen("bg")}
+        onToggle={() => toggle("bg")}
+      >
+        {!background || background.length === 0 ? (
+          <p className="hint">{t("sp_bg_none")}</p>
+        ) : (
+          <>
+            {background
+              .filter((b) => !b.doneAt)
+              .map((b) => (
+                <div key={b.id} className="sp-row" title={b.command}>
+                  <SquareTerminal size={13} />
+                  <span>{b.description || b.command}</span>
+                  <span className="dim sp-bg-when">{Math.max(1, Math.round((Date.now() - b.startedAt) / 1000))} s ●</span>
+                </div>
+              ))}
+            {background.some((b) => b.doneAt) && (
+              <div className="sp-row" title={background.filter((b) => b.doneAt).map((b) => b.summary ?? b.description).join("\n")}>
+                <CheckCircle2 size={13} />
+                <span>{t("sp_bg_done_n", { n: background.filter((b) => b.doneAt).length })}</span>
+              </div>
+            )}
+          </>
         )}
       </Section>
 

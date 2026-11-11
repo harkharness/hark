@@ -53,6 +53,26 @@ describe("the session bar", () => {
     expect(getByText(t("ctx_none"), { selector: "p" })).toBeTruthy();
   });
 
+  it("connectors show their state, and background tasks their count until they finish", () => {
+    const onPlugins = vi.fn();
+    const { getByText, getByTitle, container } = render(
+      <SessionPanel
+        {...base}
+        connectors={[{ name: "github", status: "connected" }, { name: "figma", status: "failed" }]}
+        background={[{ id: "b1", description: "Run the spike", command: "cargo run", startedAt: Date.now() - 16000 }, { id: "b2", description: "List pods", command: "kubectl", startedAt: 0, doneAt: 1, status: "completed", summary: "ok" }]}
+        onPlugins={onPlugins}
+      />,
+    );
+    fireEvent.click(getByText(t("sec_connectors")));
+    expect(getByText("github")).toBeTruthy();
+    expect(container.querySelectorAll(".sp-dot.err").length).toBe(1);
+    expect(getByText(t("sp_conn_reconnect_n", { n: 1 }), { exact: false })).toBeTruthy();
+    fireEvent.click(getByText(t("sp_conn_plugins")));
+    expect(onPlugins).toHaveBeenCalled();
+    expect(getByTitle("cargo run")).toBeTruthy();
+    expect(getByText(t("sp_bg_done_n", { n: 1 }))).toBeTruthy();
+  });
+
   it("without a repository the changes section says so", () => {
     const { getByText } = render(<SessionPanel {...base} changes={{ workspace: undefined, tick: 0 }} />);
     expect(getByText(t("sp_no_repo"))).toBeTruthy();

@@ -25,7 +25,7 @@ pub fn parse_value(v: &Value) -> AgentEvent {
         Some("assistant") => parse_tool_use(v)
             .or_else(|| parse_assistant_text(v))
             .unwrap_or(ClaudeEvent::Ignored),
-        Some("user") => parse_tool_result(v).unwrap_or(ClaudeEvent::Ignored),
+        Some("user") => parse_tool_result(v).or_else(|| parse_task_notification(v)).unwrap_or(ClaudeEvent::Ignored),
         Some("result") => parse_result(v).map(ClaudeEvent::Result).unwrap_or(ClaudeEvent::Ignored),
         Some("control_request") => parse_permission(v).unwrap_or(ClaudeEvent::Ignored),
         Some("system") => match v.get("subtype").and_then(Value::as_str) {
@@ -47,6 +47,51 @@ fn parse_init(v: &Value) -> Option<ClaudeEvent> {
             .and_then(Value::as_array)
             .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
             .unwrap_or_default(),
+        // `mcp_servers: [{name, status}]`: what the session connected to.
+        mcp_servers: v
+            .get("mcp_servers")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|m| {
+                        Some(hark_agent::McpServer {
+                            name: m.get("name")?.as_str()?.to_string(),
+                            status: m.get("status").and_then(Value::as_str).unwrap_or("unknown").to_string(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
+}
+
+/// A background command finished: the CLI tells the conversation in a
+/// user line that carries a `<task-notification>` (its status and a
+/// one-line summary). Not a tool result; the shell shows it as the task.
+fn parse_task_notification(v: &Value) -> Option<ClaudeEvent> {
+    let content = v.get("message")?.get("content")?;
+    let text = match content {
+        Value::String(s) => s.clone(),
+        Value::Array(blocks) => blocks
+            .iter()
+            .filter_map(|b| b.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => return None,
+    };
+    if !text.contains("<task-notification>") {
+        return None;
+    }
+    let tag = |name: &str| -> Option<String> {
+        let open = format!("<{name}>");
+        let close = format!("</{name}>");
+        let start = text.find(&open)? + open.len();
+        let end = text[start..].find(&close)? + start;
+        Some(text[start..end].trim().to_string())
+    };
+    Some(ClaudeEvent::BackgroundDone {
+        status: tag("status").unwrap_or_else(|| "completed".into()),
+        summary: tag("summary").unwrap_or_default(),
     })
 }
 
@@ -550,7 +595,7 @@ mod tests {
     fn init_with_session_id_reports_the_session() {
         assert_eq!(
             parse(r#"{"type":"system","subtype":"init","session_id":"abc-123","cwd":"/p"}"#),
-            ClaudeEvent::SessionStarted { session_id: "abc-123".into(), slash_commands: vec![] }
+            ClaudeEvent::SessionStarted { session_id: "abc-123".into(), slash_commands: vec![], mcp_servers: vec![] }
         );
         // Other system subtypes stay ignored.
         assert_eq!(
@@ -570,6 +615,7 @@ mod tests {
             ClaudeEvent::SessionStarted {
                 session_id: "abc".into(),
                 slash_commands: vec!["compact".into(), "usage".into(), "design".into()],
+                mcp_servers: vec![],
             }
         );
     }
@@ -616,5 +662,28 @@ mod tests {
         let deny = parsed(permission_response("abc-123", PermissionDecision::Deny));
         assert_eq!(deny["response"]["response"]["behavior"], "deny");
         assert!(deny["response"]["response"]["message"].is_string());
+    }
+
+    #[test]
+    fn init_carries_the_sessions_mcp_servers_with_their_state() {
+        let ev = parse(r#"{"type":"system","subtype":"init","session_id":"abc","mcp_servers":[{"name":"github","status":"connected"},{"name":"figma","status":"failed"},{"name":"odd"}]}"#);
+        match ev {
+            ClaudeEvent::SessionStarted { mcp_servers, .. } => {
+                assert_eq!(mcp_servers.len(), 3);
+                assert_eq!((mcp_servers[0].name.as_str(), mcp_servers[0].status.as_str()), ("github", "connected"));
+                assert_eq!(mcp_servers[1].status, "failed");
+                assert_eq!(mcp_servers[2].status, "unknown", "a server without a state is not guessed connected");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_task_notification_in_a_user_line_is_a_background_task_done() {
+        let line = r#"{"type":"user","message":{"role":"user","content":"<task-notification>\n<task-id>blo8mxf6e</task-id>\n<status>failed</status>\n<summary>Background command \"Run the spike\" failed with exit code 144</summary>\n</task-notification>"}}"#;
+        assert_eq!(parse(line), ClaudeEvent::BackgroundDone { status: "failed".into(), summary: "Background command \"Run the spike\" failed with exit code 144".into() });
+        let blocks = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<task-notification><status>completed</status><summary>done</summary></task-notification>"}]}}"#;
+        assert_eq!(parse(blocks), ClaudeEvent::BackgroundDone { status: "completed".into(), summary: "done".into() });
+        assert_eq!(parse(r#"{"type":"user","message":{"role":"user","content":"hello"}}"#), ClaudeEvent::Ignored);
     }
 }
