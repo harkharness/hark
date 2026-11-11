@@ -88,9 +88,12 @@ export default function Artifacts({
   onTakeTo,
   onSendTo,
   recentChats = [],
+  onBack,
 }: {
   sel: ArtSel | null;
   onSel: (sel: ArtSel | null) => void;
+  /** Present when the view was expanded from a chat's pane: a way back. */
+  onBack?: () => void;
   /** The project colour of a space (by its project path). */
   colourOf: (path?: string) => string | undefined;
   /** Bumped when an agent wrote a page: the tree re-reads. */
@@ -251,6 +254,11 @@ export default function Artifacts({
   return (
     <div className="artifacts" onClick={() => menu && setMenu(null)}>
       <aside className="art-tree">
+        {onBack && (
+          <button className="art-back" onClick={onBack} title={t("art_back_chat_hint")}>
+            <ChevronLeft size={12} /> {t("art_back_chat")}
+          </button>
+        )}
         <div className="art-tree-top">
           <label className="art-search">
             <Search size={12} />
@@ -893,10 +901,14 @@ function Page({
   onTakeTo,
   onSendTo,
   recentChats,
+  compact = false,
 }: {
   page: ArtifactPage;
   tree: ArtifactTree;
   space: string;
+  /** In the rail beside a chat: the crumb is the title, no links column,
+   *  no child-making — the full view is one click away. */
+  compact?: boolean;
   colour?: string;
   source: boolean;
   scripts: boolean;
@@ -1100,7 +1112,7 @@ function Page({
         <div className="art-crumb">
           <span className="art-dot" style={colour ? { background: colour } : undefined} />
           <b>{space}</b>
-          {crumbs.map((c, i) => (
+          {!compact && crumbs.map((c, i) => (
             <span key={i} className="art-crumb-seg">
               <ChevronRight size={10} /> {c}
             </span>
@@ -1132,9 +1144,11 @@ function Page({
             </button>
             {takeOpen && <SharePopover title={t("art_take_title")} rows={takeRows} onClose={() => setTakeOpen(false)} soon={false} />}
           </span>
-          <button className={`pill-btn ${linksOn ? "on" : ""}`} onClick={onToggleLinks} title={t("art_links_hint")}>
-            <Link2 size={11} /> {t("art_links")}
-          </button>
+          {!compact && (
+            <button className={`pill-btn ${linksOn ? "on" : ""}`} onClick={onToggleLinks} title={t("art_links_hint")}>
+              <Link2 size={11} /> {t("art_links")}
+            </button>
+          )}
           <span className="share-anchor">
             <button className={`pill-btn ${shareOpen ? "on" : ""}`} onClick={() => setShareOpen((o) => !o)} title={t("share_title")}>
               <Share2 size={11} /> {t("share_btn")}
@@ -1208,6 +1222,7 @@ function Page({
         />
       )}
       </div>
+      {(!compact || kids.length > 0) && (
       <div className="art-children">
         <span className="dim">{t("art_children")}</span>
         {kids.map((k) => {
@@ -1218,10 +1233,110 @@ function Page({
             </button>
           );
         })}
-        <button className="pill-btn" onClick={onNewChild}>
-          <Plus size={11} /> {t("art_new_child")}
-        </button>
+        {!compact && (
+          <button className="pill-btn" onClick={onNewChild}>
+            <Plus size={11} /> {t("art_new_child")}
+          </button>
+        )}
       </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One page in the rail beside a chat (fase 14.4), the way Claude Code's
+ * app shows an artifact next to the terminal and the files: the page
+ * alone, no tree. It reads its space's index and the page itself, and
+ * re-reads when the agent writes (`tick`). Expanding is the frame's job:
+ * it opens the full artifacts view with a way back to this chat.
+ */
+export function ArtifactPane({
+  sel,
+  onSel,
+  tick,
+  colourOf,
+  onOpenTask,
+  onTakeTo,
+  onSendTo,
+  recentChats = [],
+}: {
+  sel: { space: string; id: string };
+  /** A page named inside the page (a child, a linked doc) replaces it. */
+  onSel: (sel: { space: string; id: string }) => void;
+  tick: number;
+  colourOf: (path?: string) => string | undefined;
+  onOpenTask: (title: string, sessionId?: string) => void;
+  onTakeTo: (page: ArtifactPage, space: string, dest: Destination, extra?: string) => void;
+  onSendTo: (dest: Destination, text: string) => Promise<void> | void;
+  recentChats?: RecentChat[];
+}) {
+  const [tree, setTree] = useState<ArtifactTree | null>(null);
+  const [page, setPage] = useState<ArtifactPage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [source, setSource] = useState(false);
+  const [scripts, setScripts] = useState(false);
+  const [spaces, setSpaces] = useState<ArtifactSpace[]>([]);
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    ipc.artifactsSpaces()
+      .then(setSpaces)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let live = true;
+    Promise.all([ipc.artifactsTree(sel.space), ipc.artifactRead(sel.space, sel.id)])
+      .then(([tr, p]) => {
+        if (!live) return;
+        setTree(tr);
+        setPage(p);
+        setError(null);
+      })
+      .catch((err) => {
+        if (!live) return;
+        setError(String(err));
+      });
+    return () => {
+      live = false;
+    };
+  }, [sel.space, sel.id, tick, reload]);
+
+  useEffect(() => {
+    setSource(false);
+    setScripts(page ? page.node.kind !== "doc" && page.node.path.endsWith(".html") : false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel.id, page?.node.id]);
+
+  const colour = colourOf(spaces.find((s) => s.name === sel.space)?.project ?? undefined);
+  return (
+    <div className="art-pane">
+      {error && <div className="art-error">{error}</div>}
+      {page && tree ? (
+        <Page
+          compact
+          page={page}
+          tree={tree}
+          space={sel.space}
+          colour={colour}
+          source={source}
+          scripts={scripts}
+          linksOn={false}
+          onSource={() => setSource((s) => !s)}
+          onScripts={() => setScripts((s) => !s)}
+          onToggleLinks={() => {}}
+          onOpen={(id) => onSel({ space: sel.space, id })}
+          onOpenTask={onOpenTask}
+          onNewChild={() => {}}
+          onSaved={() => setReload((n) => n + 1)}
+          onTakeTo={(dest, extra) => onTakeTo(page, sel.space, dest, extra)}
+          onSendTo={onSendTo}
+          recentChats={recentChats}
+        />
+      ) : (
+        !error && <div className="art-empty dim">…</div>
+      )}
     </div>
   );
 }

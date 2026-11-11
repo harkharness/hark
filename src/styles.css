@@ -3476,3 +3476,10 @@ html.demo .side-drag::before {
 .sp-dot.ok { background: var(--ok); } .sp-dot.err { background: var(--err); }
 .sp-sec-sum .warn { color: var(--warn); }
 .sp-bg-when { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-caps); white-space: nowrap; }
+
+/* The artifact pane in the rail (fase 14.4): one page, tight margins. */
+.art-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.art-pane .art-page { padding: 8px 10px 8px; gap: 6px; }
+.art-pane .art-children:empty { display: none; }
+.art-back { display: inline-flex; align-items: center; gap: 4px; margin: 0 2px 8px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: none; color: var(--text); font: inherit; font-size: var(--fs-meta); cursor: pointer; align-self: flex-start; }
+.art-back:hover { border-color: var(--accent); color: var(--text-strong); }

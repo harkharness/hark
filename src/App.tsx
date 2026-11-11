@@ -11,7 +11,8 @@ import { colourIndex, projColour, scopeOf } from "./lib/scope";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { lang, setLang, setSpeechLang, st, t } from "./lib/i18n";
 import { dayOf, days as journalDays } from "./lib/inicio";
-import Artifacts, { ArtifactLinks, type ArtSel } from "./components/Artifacts";
+import Artifacts, { ArtifactLinks, ArtifactPane, type ArtSel } from "./components/Artifacts";
+import type { Destination } from "./lib/takeTo";
 import Board, { type CardAsk } from "./components/Board";
 import SharePopover, { type ShareRow } from "./components/SharePopover";
 import VoiceRound from "./components/VoiceRound";
@@ -83,7 +84,7 @@ import type {
   BgTask,
 } from "./types";
 
-type RailItem = "sessao" | "terminal" | "arquivos" | "board" | "artefatos" | "browser";
+type RailItem = "sessao" | "terminal" | "arquivos" | "board" | "artefatos" | "browser" | "pagina";
 
 export default function App({
   forcedProject,
@@ -379,7 +380,7 @@ export default function App({
   // ONE panel at a time (phase 10.2): the rail shows the panel named
   // here or nothing at all, and the choice survives a restart.
   const RAIL_KEY = "hark.rail.v2";
-  const RAIL_ITEMS: RailItem[] = ["sessao", "terminal", "arquivos", "board", "artefatos", "browser"];
+  const RAIL_ITEMS: RailItem[] = ["sessao", "terminal", "arquivos", "board", "artefatos", "browser", "pagina"];
   // Each chat keeps the panel it had open (phase 10.8), the way Claude
   // Code's app does: come back to a chat and its terminal is there, its
   // file is open. Persisted per thread; a terminal is a process, not a
@@ -411,6 +412,28 @@ export default function App({
       /* private window */
     }
   }, [railByThread]);
+  // The page each chat shows in its artifact pane (fase 14.4): a click on
+  // an output or a hark:// link lands here, beside the chat, the way
+  // Claude Code's app shows an artifact between the terminal and the
+  // background tasks. Persisted with the rail so the page comes back.
+  const PAGE_KEY = "hark.page.v1";
+  const [pageByThread, setPageByThread] = useState<Record<string, { space: string; id: string }>>(() => {
+    try {
+      const raw = window.localStorage.getItem(PAGE_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, { space: string; id: string }>) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PAGE_KEY, JSON.stringify(pageByThread));
+    } catch {
+      /* private window */
+    }
+  }, [pageByThread]);
+  /** The full view was opened from a chat's pane: it has a way back. */
+  const [artReturn, setArtReturn] = useState(false);
   /** Panels folded to their bar, per chat. */
   const [collapsedByThread, setCollapsedByThread] = useState<Record<string, RailItem[]>>({});
   const collapsedItems = collapsedByThread[threadKey] ?? [];
@@ -1618,8 +1641,7 @@ export default function App({
     // used to fall through to the file panel as "<project>/<link>".
     const target = harkTarget(path);
     if (target?.kind === "page") {
-      setView("artefatos");
-      setArtSel({ space: target.space, id: target.id });
+      openPage(target.space, target.id);
       return;
     }
     if (target?.kind === "chat") {
@@ -1650,11 +1672,10 @@ export default function App({
     // on disk keeps the id it was born with.
     const art = artifactFile(path);
     if (art) {
-      setView("artefatos");
       void ipc
         .artifactsTree(art.space)
-        .then((tree) => setArtSel({ space: art.space, id: pageId(art.file, tree.nodes) }))
-        .catch(() => setArtSel({ space: art.space, id: pageId(art.file, []) }));
+        .then((tree) => openPage(art.space, pageId(art.file, tree.nodes)))
+        .catch(() => openPage(art.space, pageId(art.file, [])));
       return;
     }
     if (OS_ONLY.test(path)) {
@@ -2530,6 +2551,27 @@ export default function App({
   }
 
   ensureRailRef.current = ensureRail;
+
+  /** A page, clicked from a chat, opens beside it; from anywhere else, in
+   *  the full view. The chat is never left for a page (fase 14.4). */
+  function openPage(space: string, id: string) {
+    if (view === "chat") {
+      setPageByThread((m) => ({ ...m, [threadKey]: { space, id } }));
+      ensureRail("pagina");
+      return;
+    }
+    setView("artefatos");
+    setArtSel({ space, id });
+  }
+  /** The pane's expand: the full view, with "voltar ao chat". */
+  function expandPage(sel: { space: string; id: string }) {
+    setArtSel(sel);
+    setArtReturn(true);
+    setView("artefatos");
+  }
+  useEffect(() => {
+    if (view !== "artefatos") setArtReturn(false);
+  }, [view]);
 
   function removeRail(id: RailItem) {
     if (id === "artefatos") setArtLinksOn(false);
@@ -3544,6 +3586,80 @@ export default function App({
       />
     </PanelFrame>
   );
+  /** A @hark comment: the request is sent, not typed. To a chat that
+   *  exists it goes straight; Hark's chat and a new chat get it in the
+   *  field, to send. */
+  async function sendPageTo(dest: Destination, text: string) {
+    if (dest.kind === "origin" || dest.kind === "chat") {
+      const session = dest.sessionId ?? (await ipc.findSession(dest.title).catch(() => null))?.session_id;
+      if (session) {
+        await openTaskByTitle(dest.title, session);
+        await sendToFocusedTaskWith(dest.title, session, text);
+        return;
+      }
+    }
+    if (dest.kind === "hark") {
+      leaveFocus();
+      leaveChat();
+      setDoor("inicio");
+      setView("chat");
+    } else if (dest.kind === "new") {
+      const project = allProjects.find((p) => p.name === dest.project) ?? activeProject ?? allProjects[0];
+      if (project) startDraftChat(project);
+      else setView("chat");
+    }
+    setComposerPrefill({ text, nonce: Date.now() });
+  }
+  /** "Levar para…": the link goes in the chosen chat's field; the message
+   *  carries the page (artifact_cites). Decision 5: the person picks the
+   *  chat, never a silent default. */
+  function takePageTo(page: ArtifactPage, space: string, dest: Destination, extra?: string) {
+    const link = `hark://artifacts/${encodeURIComponent(space)}/${encodeURIComponent(page.node.id)}`;
+    if (dest.kind === "hark") {
+      leaveFocus();
+      leaveChat();
+      setDoor("inicio");
+      setView("chat");
+    } else if (dest.kind === "origin" || dest.kind === "chat") {
+      void openTaskByTitle(dest.title, dest.sessionId);
+    } else {
+      const project = allProjects.find((p) => p.name === dest.project) ?? activeProject ?? allProjects[0];
+      if (project) startDraftChat(project);
+      else setView("chat");
+    }
+    // A board's selection rides as text before the link: only the excerpt
+    // enters the chat, the page stays a reference.
+    setComposerPrefill({ text: extra ? `${extra}\n${link} ` : `${link} `, nonce: Date.now() });
+  }
+  /** One page beside the chat (fase 14.4): the output clicked, the link
+   *  followed. Expanding opens the full view with a way back. */
+  const framePagina = () => {
+    const sel = pageByThread[threadKey];
+    return (
+      <PanelFrame
+        title={t("frame_page")}
+        expanded={false}
+        onToggleExpand={() => sel && expandPage(sel)}
+        {...collapseProps("pagina")}
+        onClose={() => removeRail("pagina")}
+      >
+        {sel ? (
+          <ArtifactPane
+            sel={sel}
+            onSel={(next) => setPageByThread((m) => ({ ...m, [threadKey]: next }))}
+            tick={artTick}
+            colourOf={colourOf}
+            onOpenTask={(title, sessionId) => void openTaskByTitle(title, sessionId)}
+            onTakeTo={takePageTo}
+            onSendTo={sendPageTo}
+            recentChats={recentChats}
+          />
+        ) : (
+          <div className="art-empty dim">{t("art_none_pages")}</div>
+        )}
+      </PanelFrame>
+    );
+  };
   /** A real page beside the chat (a child webview the panel steers). */
   const frameBrowser = () => (
     <PanelFrame
@@ -3568,7 +3684,9 @@ export default function App({
             ? frameArtefatos()
             : id === "browser"
               ? frameBrowser()
-              : frameArquivos();
+              : id === "pagina"
+                ? framePagina()
+                : frameArquivos();
   /** The collapse control every stacked frame gets (not while expanded). */
   const collapseProps = (id: RailItem) =>
     expanded ? {} : { collapsed: collapsedItems.includes(id), onToggleCollapse: () => toggleCollapsed(id) };
@@ -4111,51 +4229,9 @@ export default function App({
                   linksOn={artLinksOn}
                   onToggleLinks={() => setArtLinksOn((v) => !v)}
                   recentChats={recentChats}
-                  onSendTo={async (dest, text) => {
-                    // A @hark comment: the request is sent, not typed. To
-                    // a chat that exists it goes straight; Hark's chat and
-                    // a new chat get it in the field, to send.
-                    if (dest.kind === "origin" || dest.kind === "chat") {
-                      const session = dest.sessionId ?? (await ipc.findSession(dest.title).catch(() => null))?.session_id;
-                      if (session) {
-                        await openTaskByTitle(dest.title, session);
-                        await sendToFocusedTaskWith(dest.title, session, text);
-                        return;
-                      }
-                    }
-                    if (dest.kind === "hark") {
-                      leaveFocus();
-                      leaveChat();
-                      setDoor("inicio");
-                      setView("chat");
-                    } else if (dest.kind === "new") {
-                      const project = allProjects.find((p) => p.name === dest.project) ?? activeProject ?? allProjects[0];
-                      if (project) startDraftChat(project);
-                      else setView("chat");
-                    }
-                    setComposerPrefill({ text, nonce: Date.now() });
-                  }}
-                  onTakeTo={(page, space, dest, extra) => {
-                    // The link goes in the chosen chat's field; the message
-                    // carries the page (artifact_cites). Decision 5: the
-                    // person picks the chat, never a silent default.
-                    const link = `hark://artifacts/${encodeURIComponent(space)}/${encodeURIComponent(page.node.id)}`;
-                    if (dest.kind === "hark") {
-                      leaveFocus();
-                      leaveChat();
-                      setDoor("inicio");
-                      setView("chat");
-                    } else if (dest.kind === "origin" || dest.kind === "chat") {
-                      void openTaskByTitle(dest.title, dest.sessionId);
-                    } else {
-                      const project = allProjects.find((p) => p.name === dest.project) ?? activeProject ?? allProjects[0];
-                      if (project) startDraftChat(project);
-                      else setView("chat");
-                    }
-                    // A board's selection rides as text before the link: only
-                    // the excerpt enters the chat, the page stays a reference.
-                    setComposerPrefill({ text: extra ? `${extra}\n${link} ` : `${link} `, nonce: Date.now() });
-                  }}
+                  onSendTo={sendPageTo}
+                  onTakeTo={takePageTo}
+                  onBack={artReturn ? () => setView("chat") : undefined}
                 />
               ) : reading ? (
                 <Reader

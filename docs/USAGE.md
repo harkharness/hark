@@ -123,8 +123,8 @@ the agent and its knobs); *context* (the window's share, what fills it);
 *connectors* (the MCP servers the session opened, with their state;
 reconnecting is in Settings › plugins); *outputs* (what the session
 wrote: a file under `~/.hark/artifacts` opens as the page it is, in the
-artifacts view, whatever its extension; any other file opens in the
-files window); *changes* (the git of the session: the
+artifact pane beside the chat, whatever its extension; any other file
+opens in the files window); *changes* (the git of the session: the
 diff, "commit the changes" that hands the ask to the chat, nothing
 committed by Hark itself); *background tasks* (commands the agent left
 running, and how many finished); *costs* and *limits*. The diff lives
@@ -229,6 +229,14 @@ a file dropped there by hand is adopted at the root on the next read.
   reaches a chat by being named in a message
   ("…como ficou no ADR 004"), by its `hark://` link, through the session
   panel's outputs, or by opening its file in the files window.
+- **A page opens beside the chat, never instead of it.** A `hark://` link
+  in a reply or an output in the session bar opens the page in an
+  *artifact* pane of the rail, stacked with the terminal and the files,
+  the way Claude Code's app shows an artifact: the page alone, with its
+  own source, comment and "take to" controls. The pane's expand button
+  opens the full artifacts view (tree, gallery, links) with a "back to
+  chat" button at the top of the tree; each chat remembers the page its
+  pane showed.
 - **A new chat gets a name.** The first message of a chat, when it reads
   as a sentence, is handed to the light model for a short title (a few
   cents, once); a short message is its own name.
