@@ -28,8 +28,8 @@ import { useFilesTree } from "./hooks/useFilesTree";
 import Modals, { type Pending } from "./components/Modals";
 import ReportDialog from "./components/ReportDialog";
 import ModeSelect from "./components/ModeSelect";
+import UsagePopover from "./components/UsagePopover";
 import ModelSelect from "./components/ModelSelect";
-import EffortSelect from "./components/EffortSelect";
 import PanelFrame from "./components/PanelFrame";
 import SearchPalette from "./components/SearchPalette";
 import Reader from "./components/Reader";
@@ -436,6 +436,8 @@ export default function App({
   }, [pageByThread]);
   /** The full view was opened from a chat's pane: it has a way back. */
   const [artReturn, setArtReturn] = useState(false);
+  /** The cost pill's popover: the subscription windows, not the session bar. */
+  const [usageOpen, setUsageOpen] = useState(false);
   /** Panels folded to their bar, per chat. */
   const [collapsedByThread, setCollapsedByThread] = useState<Record<string, RailItem[]>>({});
   const collapsedItems = collapsedByThread[threadKey] ?? [];
@@ -2365,8 +2367,13 @@ export default function App({
       : null) ?? ledgerCtx;
 
 
+  /** The task the composer's controls act on: the focused worker, or
+   *  Hark's own chat in Início when it runs (12/11: "Opus" picked in Hoje
+   *  only changed the window default, silently). */
+  const controlTarget = () => focused ?? (!focusedTask && liveWorkers[HARK_CHAT] ? HARK_CHAT : null);
+
   function selectModel(model: string) {
-    const taskId = focused;
+    const taskId = controlTarget();
     if (taskId && liveWorkers[taskId]) {
       ipc
         .workerSetModel(taskId, model)
@@ -2389,7 +2396,7 @@ export default function App({
    *  session, nothing focused sets the window default. "" clears the
    *  directive instead of picking a level. */
   function selectEffort(effort: string) {
-    const taskId = focused;
+    const taskId = controlTarget();
     if (taskId && liveWorkers[taskId]) {
       ipc
         .workerSetEffort(taskId, effort)
@@ -2423,7 +2430,7 @@ export default function App({
    * take the whole turn — seven tool calls — with it.
    */
   function selectMode(flag: string) {
-    const taskId = focused;
+    const taskId = controlTarget();
     if (taskId && liveWorkers[taskId]) {
       const label = labelFor(taskId);
       ipc
@@ -4246,10 +4253,11 @@ export default function App({
                       used to be a pill here AND a wallet button down there —
                       same number, two places. It is one control now: the
                       number opens the breakdown. */}
+                  <span className="usage-anchor">
                   <button
-                    className={`chat-spend ${railHas("sessao") ? "on" : ""}`}
-                    title={t("session_btn")}
-                    onClick={() => toggleRail("sessao")}
+                    className={`chat-spend ${usageOpen ? "on" : ""}`}
+                    title={t("usage_pill_title")}
+                    onClick={() => setUsageOpen((o) => !o)}
                   >
                     ${(costs[focusedTask?.title ?? ""] ?? 0).toFixed(2)}
                     {/* The context rides in the same pill; the click opens
@@ -4267,6 +4275,16 @@ export default function App({
                       />
                     )}
                   </button>
+                  {usageOpen && (
+                    <UsagePopover
+                      onAll={() => {
+                        setUsageOpen(false);
+                        openSettings("custos");
+                      }}
+                      onClose={() => setUsageOpen(false)}
+                    />
+                  )}
+                  </span>
                   {focusedTask?.sessionId && (
                     <span className="share-anchor">
                       <button
@@ -4536,12 +4554,9 @@ export default function App({
                   windowDefault={modelDefault}
                   disabled={modelOff ?? modelPill.disabled}
                   onSelect={selectModel}
-                />
-                <EffortSelect
-                  value={currentEffort ?? ""}
-                  appliesTo={focused ? labelFor(focused) : undefined}
-                  disabled={effortOff}
-                  onSelect={selectEffort}
+                  effort={currentEffort ?? ""}
+                  onSelectEffort={selectEffort}
+                  effortOff={effortOff}
                 />
                 <WorkerChips
                   liveWorkers={liveWorkers}

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronUp } from "lucide-react";
+import { Check, ChevronRight, ChevronUp } from "lucide-react";
 import { t } from "../lib/i18n";
 
 /**
@@ -75,6 +75,11 @@ export type PillItem = {
   /** The row cannot be picked for the agent in this chat; the reason is
    *  its hover. Shown, never hidden — the same rule as the pill itself. */
   disabled?: string;
+  /** The row opens a submenu: its current value shows at the right,
+   *  with a chevron, and picking it never closes the menu. */
+  submenu?: string;
+  /** A small tag beside the name ("Recommended"). */
+  tag?: string;
 };
 
 /**
@@ -88,12 +93,15 @@ export function PillMenuBody({
   value,
   onPick,
   close,
+  note,
 }: {
-  head: string;
+  head?: string;
   items: PillItem[];
   value: string;
   onPick: (value: string) => void;
   close: () => void;
+  /** A paragraph under the head (the effort menu explains itself). */
+  note?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState(() => Math.max(0, items.findIndex((i) => i.value === value)));
@@ -104,8 +112,9 @@ export function PillMenuBody({
   }, []);
 
   const pick = (v: string) => {
-    if (items.find((i) => i.value === v)?.disabled) return;
-    close();
+    const item = items.find((i) => i.value === v);
+    if (item?.disabled) return;
+    if (!item?.submenu) close();
     onPick(v);
   };
 
@@ -138,29 +147,41 @@ export function PillMenuBody({
         }
       }}
     >
-      <div className="mode-menu-head">{head}</div>
+      {head && <div className="mode-menu-head">{head}</div>}
+      {note && <div className="mode-menu-note">{note}</div>}
       {items.map((item, i) => (
         <button
           key={item.value || "-"}
-          className={`mm-row${item.value === value ? " on" : ""}${i === cursor ? " cursor" : ""}${item.disabled ? " off" : ""}`}
+          className={`mm-row${item.value === value ? " on" : ""}${i === cursor ? " cursor" : ""}${item.disabled ? " off" : ""}${item.submenu ? " sub" : ""}`}
           title={item.disabled ?? item.title}
           disabled={!!item.disabled}
           onMouseEnter={() => setCursor(i)}
           onClick={() => pick(item.value)}
         >
           <span className="mm-text">
-            <span className="mm-name">{item.name}</span>
+            <span className="mm-name">
+              {item.name}
+              {item.isDefault && <span className="mm-tag">{t("menu_default")}</span>}
+              {item.tag && <span className="mm-tag">{item.tag}</span>}
+            </span>
             {item.hint && (
               <span className={`mm-hint${item.danger ? " danger" : ""}`}>{item.hint}</span>
             )}
           </span>
-          {item.isDefault && <span className="mm-tag">{t("menu_default")}</span>}
-          {item.value === value && (
-            <span className="mm-check">
-              <Check size={13} strokeWidth={3} />
+          {item.submenu ? (
+            <span className="mm-sub">
+              {item.submenu} <ChevronRight size={13} />
             </span>
+          ) : (
+            <>
+              {item.value === value && (
+                <span className="mm-check">
+                  <Check size={13} strokeWidth={3} />
+                </span>
+              )}
+              <span className="mm-key">{i + 1}</span>
+            </>
           )}
-          <span className="mm-key">{i + 1}</span>
         </button>
       ))}
     </div>
@@ -180,7 +201,7 @@ export default function PillMenu({
 }: {
   label: string;
   title: string;
-  head: string;
+  head?: string;
   items: PillItem[];
   value: string;
   onPick: (value: string) => void;

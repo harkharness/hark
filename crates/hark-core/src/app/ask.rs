@@ -22,6 +22,10 @@ pub struct AskDeps<'a> {
     pub active_project: Option<crate::domain::project::Project>,
     /// Machine-wide dispatched workers (loaded from global state).
     pub workers: Vec<crate::domain::memory::WorkerRecord>,
+    /// Sessions Hark holds itself right now (its workers, its own chat,
+    /// the ones it let go seconds ago): a dispatch onto one of them is
+    /// never "open in a terminal".
+    pub ours: Vec<String>,
     /// The list of the day, gathered by the shell (board, permissions
     /// waiting, pages, requests): "o que eu tenho hoje" answers from it.
     pub demands: Vec<crate::domain::demands::Demand>,

@@ -1209,12 +1209,15 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 
 /* Composer pill popovers — mode, model, effort. One grammar for all three. */
 .mode-anchor { position: relative; display: inline-flex; flex: 0 0 auto; }
+/* The composer's controls are words, not pills (the Claude Code app):
+   the model, the effort, the mode, each a quiet button that opens a list. */
 .mode-pill {
-  display: inline-flex; align-items: center; gap: 5px;
-  background: var(--panel-2); color: var(--text); border: none;
-  border-radius: 999px; padding: 5px 12px; font: inherit; font-size: var(--fs-ui);
+  display: inline-flex; align-items: center; gap: 4px;
+  background: none; color: var(--text); border: none;
+  border-radius: 8px; padding: 4px 8px; font: inherit; font-size: var(--fs-ui);
   cursor: pointer; white-space: nowrap;
 }
+.mode-pill > svg { color: var(--dim); }
 /* Nothing was chosen here: the CLI's own default is what runs. */
 .mode-pill.unset { color: var(--dim); }
 /* A feature the agent's plugin lacks: the pill keeps its place and its
@@ -1222,10 +1225,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    "this plugin cannot". */
 .mode-pill.unsupported,
 .mode-pill.unsupported:hover { opacity: .45; cursor: not-allowed; }
-.mode-pill:hover {
-  color: var(--text-strong);
-  background: color-mix(in srgb, var(--panel-2) 80%, #fff 6%);
-}
+.mode-pill:hover { color: var(--text-strong); background: var(--panel-2); }
 .mode-menu {
   position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 15;
   width: max-content; min-width: 200px; max-width: 320px;
@@ -1234,8 +1234,14 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   outline: none;
 }
 .mode-menu-head {
-  color: var(--dim); font-size: var(--fs-meta); font-weight: 500; padding: 6px 9px 7px;
+  color: var(--dim); font-size: var(--fs-meta); font-weight: 500; padding: 6px 9px 4px;
 }
+.mode-menu-note { color: var(--dim); font-size: var(--fs-meta); line-height: 1.4; padding: 2px 9px 8px; max-width: 280px; white-space: normal; }
+.mode-menu-stack { display: contents; }
+.mm-back { position: absolute; bottom: calc(100% + 6px); left: 0; display: none; }
+.mm-row.sub { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 8px; border-radius: 0 0 8px 8px; }
+.mm-sub { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; color: var(--dim); font-size: var(--fs-ui); }
+.mm-name .mm-tag { margin-left: 6px; }
 /* One line per choice: the name, its one-line legend, and its digit. The
    legend NEVER wraps — a wrapping legend gave every row a different
    height, and that is most of what made this menu hard to read. */
@@ -1263,7 +1269,7 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .mm-hint.danger { color: var(--warn); }
 .mm-tag {
   flex: 0 0 auto; font-size: var(--fs-caps); color: var(--dim); line-height: 15px;
-  background: var(--border-strong); border-radius: 5px; padding: 1px 6px;
+  border: 1px solid var(--border-strong); border-radius: 5px; padding: 0 5px; font-weight: 400; vertical-align: 1px;
 }
 .mm-check { flex: 0 0 auto; display: inline-flex; color: var(--accent); }
 .mm-key {
@@ -3482,3 +3488,19 @@ html.demo .side-drag::before {
 .art-pane .art-children:empty { display: none; }
 .art-back { display: inline-flex; align-items: center; gap: 4px; margin: 0 2px 8px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: none; color: var(--text); font: inherit; font-size: var(--fs-meta); cursor: pointer; align-self: flex-start; }
 .art-back:hover { border-color: var(--accent); color: var(--text-strong); }
+
+/* The cost pill's usage popover (the Claude Code app's "your usage limits"). */
+.usage-anchor { position: relative; display: inline-flex; }
+.usage-pop { position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; width: 340px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: 0 12px 34px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 12px; font-size: var(--fs-ui); }
+.usage-head { display: flex; align-items: center; justify-content: space-between; color: var(--dim); }
+.usage-all { background: none; border: 0; color: var(--text); font: inherit; font-size: var(--fs-ui); cursor: pointer; padding: 0; }
+.usage-all:hover { color: var(--accent); }
+.usage-row { display: flex; flex-direction: column; gap: 5px; }
+.usage-line { display: flex; align-items: baseline; gap: 8px; }
+.usage-name { color: var(--text-strong); flex: 1; min-width: 0; }
+.usage-meta { font-size: var(--fs-meta); white-space: nowrap; }
+.usage-pct { color: var(--accent); font-variant-numeric: tabular-nums; }
+.usage-pct.warn { color: var(--warn); }
+.usage-bar { height: 4px; border-radius: 2px; background: var(--panel-2); overflow: hidden; }
+.usage-bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+.usage-empty { font-size: var(--fs-meta); }

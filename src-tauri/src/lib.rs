@@ -339,11 +339,18 @@ fn build_deps<'a>(
     active_project: Option<hark_core::domain::project::Project>,
 ) -> AskDeps<'a> {
     let state = state_file::load(&config.data_dir());
+    // What Hark holds: its workers' sessions, its own chat's, and what it
+    // let go inside the grace. The planner used to ask with an empty
+    // list, so a chat Hark was driving read as "open in a terminal".
+    let mut ours: Vec<String> = state.workers.iter().map(|w| w.session_id.clone()).filter(|s| !s.is_empty()).collect();
+    ours.extend(state.hark_chat_session.iter().cloned());
+    ours.extend(released().lock().unwrap().still_ours(now_ms(), hark_core::domain::owner::GRACE_MS));
     AskDeps {
         active_context: state.active_context,
         projects: state.projects,
         active_project,
         workers: state.workers,
+        ours,
         demands: Vec::new(),
         journal: &HarkDir,
         store,

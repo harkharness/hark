@@ -73,6 +73,14 @@ pub fn terminal_owners(live: &[LiveSession], ours: &[String]) -> Vec<Owner> {
         .collect()
 }
 
+/// Whether `session_id` is held by someone other than Hark right now: an
+/// interactive listing that is not one of ours. Sessions Hark drives
+/// itself (`ours`: the registry's workers, the chat's own session, the
+/// ones let go inside the grace) never read as held.
+pub fn holds(live: &[LiveSession], ours: &[String], session_id: &str) -> bool {
+    owner_of(&terminal_owners(live, ours), session_id).is_some()
+}
+
 /// The owner of one session, if any.
 pub fn owner_of<'a>(owners: &'a [Owner], session_id: &str) -> Option<&'a Owner> {
     owners.iter().find(|o| o.session_id == session_id)
@@ -90,6 +98,34 @@ pub fn is_machinery_cwd(cwd: Option<&str>, data_dir: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn listed(id: &str, kind: &str) -> LiveSession {
+        LiveSession {
+            name: "x".into(),
+            cwd: "/p".into(),
+            status: None,
+            session_id: Some(id.into()),
+            pid: Some(1),
+            kind: Some(kind.into()),
+            started_at: None,
+        }
+    }
+
+    #[test]
+    fn a_session_hark_itself_holds_is_not_busy_for_a_dispatch() {
+        // The planner used to ask "who holds it?" with an empty list of
+        // ours, so a chat Hark was driving read as "open in a terminal"
+        // and the message was refused (12/11, the model switch).
+        let live = vec![listed("s1", "interactive")];
+        assert!(holds(&live, &[], "s1"));
+        assert!(!holds(&live, &["s1".to_string()], "s1"));
+    }
+
+    #[test]
+    fn a_headless_run_holds_nothing() {
+        let live = vec![listed("s2", "headless")];
+        assert!(!holds(&live, &[], "s2"));
+    }
 
     #[test]
     fn a_session_our_worker_just_let_go_is_still_ours_for_a_grace_period() {

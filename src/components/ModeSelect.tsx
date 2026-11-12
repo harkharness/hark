@@ -1,11 +1,12 @@
 import PillMenu, { type PillItem } from "./PillMenu";
 import { t } from "../lib/i18n";
 
+// The Claude Code app's order: the default first, the strictest second.
 const MODES = [
+  { flag: "auto", name: "mode_auto", hint: "mode_auto_hint" },
   { flag: "manual", name: "mode_manual", hint: "mode_manual_hint" },
   { flag: "acceptEdits", name: "mode_accept", hint: "mode_accept_hint" },
   { flag: "plan", name: "mode_plan", hint: "mode_plan_hint" },
-  { flag: "auto", name: "mode_auto", hint: "mode_auto_hint" },
   { flag: "bypass", name: "mode_bypass", hint: "mode_bypass_hint" },
 ] as const;
 
@@ -44,7 +45,7 @@ export default function ModeSelect({
     // "aceita tudo" is a warning, not a description.
     danger: m.flag === "bypass",
     disabled: m.flag === "bypass" ? bypassOff : undefined,
-    isDefault: !!appliesTo && m.flag === windowDefault,
+    isDefault: m.flag === windowDefault,
   }));
 
   return (
@@ -52,7 +53,7 @@ export default function ModeSelect({
       label={t(current.name)}
       title={appliesTo ? t("mode_pill_task", { name: appliesTo }) : t("mode_pill_window")}
       disabled={disabled}
-      head={appliesTo ? t("mode_menu_task", { name: appliesTo.slice(0, 26) }) : t("mode_menu_new")}
+      head={t("mode_menu_new")}
       items={items}
       value={value}
       onPick={onSelect}

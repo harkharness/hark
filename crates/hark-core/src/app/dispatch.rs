@@ -70,8 +70,7 @@ pub fn plan(
     // ONE rule decides who holds a session (domain::owner) — matching any
     // listed session also caught our own headless runs, which hold nothing.
     let live = deps.live.list().unwrap_or_default();
-    let owners = crate::domain::owner::terminal_owners(&live, &[]);
-    let busy = crate::domain::owner::owner_of(&owners, &session.session_id).is_some();
+    let busy = crate::domain::owner::holds(&live, &deps.ours, &session.session_id);
     let Some(cwd) = session.cwd.clone() else {
         return Ok(Plan::NoMatch);
     };
