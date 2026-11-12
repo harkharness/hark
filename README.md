@@ -15,13 +15,14 @@
 
 </div>
 
-Hark is a desktop for the coding-agent CLIs you already pay for — Claude Code
-natively; Gemini CLI, Codex and any Agent Client Protocol agent through one
-plugin. One window holds every project: chats with a real terminal, the files,
-a browser and a session bar beside them; documents, spreadsheets, whiteboards
-and dashboards the agents write and you edit, comment on and send back; a
-board where every card is a session; a ledger of every dollar. Ask out loud
-and hear the answer when you want to, type when you don't.
+Hark is a desktop app for the coding-agent CLIs you already pay for — Claude
+Code natively; Gemini CLI, Codex and any Agent Client Protocol agent through
+one plugin. One window holds every project. Each chat opens next to a
+terminal, the project's files, a browser and the session panel; the agents
+produce documents, spreadsheets, whiteboards and dashboards you edit, comment
+on and send back; a board tracks every task, each card a session; the cost of
+every chat stays in view. Ask out loud and hear the answer when you want to,
+type when you don't.
 
 Hark never calls a model API behind your back. It drives the agent CLIs you
 already have installed and authenticated — Claude Code natively, and Gemini CLI,

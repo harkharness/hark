@@ -5,10 +5,10 @@ sidebar:
   order: 1
 banner:
   content: "<b>Hark está en desarrollo.</b> La mayor parte de las pruebas hasta ahora se hizo con el CLI de Claude Code en macOS. ¿Usas otro agente u otro sistema? <a href=\"/docs/es/build/testing-other-agents-and-oss/\">Ayúdanos a probarlo.</a>"
-source_hash: 5514496ae2e6
+source_hash: b6ff161edc8c
 ---
 
-Hark es un escritorio para los CLI de agentes de código que ya pagas: Claude Code de forma nativa; Gemini CLI, Codex y cualquier agente [Agent Client Protocol](https://agentclientprotocol.com) a través de un solo plugin. Una ventana reúne todos los proyectos: chats con una terminal real, los archivos, un navegador y una barra de sesión al lado; documentos, hojas de cálculo, pizarras y dashboards que los agentes escriben y tú editas, comentas y devuelves; un tablero donde cada tarjeta es una sesión; un libro de cuentas de cada dólar. Pregunta en voz alta y escucha la respuesta cuando quieras; escribe cuando no.
+Hark es una app de escritorio para los CLI de agentes de código que ya pagas: Claude Code de forma nativa; Gemini CLI, Codex y cualquier agente [Agent Client Protocol](https://agentclientprotocol.com) a través de un solo plugin. Una ventana reúne todos los proyectos. Cada chat se abre junto a una terminal, los archivos del proyecto, un navegador y el panel de la sesión; los agentes producen documentos, hojas de cálculo, pizarras y dashboards que editas, comentas y devuelves; un tablero sigue todas las tareas, cada tarjeta una sesión; el costo de cada chat queda a la vista. Pregunta en voz alta y escucha la respuesta cuando quieras; escribe cuando no.
 
 ## Lo que nunca hace
 
