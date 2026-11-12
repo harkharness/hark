@@ -1052,7 +1052,23 @@ fn worker_start(
         plan(&mut deps, &instruction, session_id.as_deref()).map_err(|e| e.to_string())?
     };
     let planned = match planned {
-        Plan::Ready(p) => p,
+        Plan::Ready(p) => {
+            // Hark's own chat (its session, in the data dir) is reached
+            // from Início, never resumed as a project chat: a second
+            // worker on that session answered into the general thread
+            // while the window showed an empty chat (12/11).
+            let data_dir = config.data_dir().display().to_string();
+            let gstate = state_file::load(&config.data_dir());
+            let own = gstate.hark_chat_session.as_deref() == Some(p.session.session_id.as_str())
+                || hark_core::domain::owner::is_machinery_cwd(p.session.cwd.as_deref(), &data_dir);
+            if own && !fork {
+                return Err(ui(
+                    "esse chat é o do próprio Hark: fale com ele no Início",
+                    "that chat is Hark's own: talk to it in Início",
+                ));
+            }
+            p
+        }
         Plan::NeedsChoice(candidates) => {
             return Ok(DispatchOut::Choice {
                 candidates: candidates
@@ -3409,16 +3425,25 @@ fn hark_chat_send(
     // Claude sessions live in files: resume only one whose log still
     // exists, else a stale id makes the spawn die silently. An ACP agent
     // keeps its own sessions; the id is trusted and session/load decides.
+    // The index must have SEEN the chat's file before this lookup: a
+    // fresh or stale index answered "no path" for a session that was
+    // right there on disk, and every such miss opened a new session —
+    // five files for one chat, its history split across them (12/11).
+    let stored = gstate.hark_chat_session.clone();
     let session = gstate.hark_chat_session.filter(|id| {
         agent_plugin(&config, &owner) != "claude"
             || SqliteStore::open(&config.data_dir().join("index.db"))
                 .ok()
-                .and_then(|store| {
+                .and_then(|mut store| {
                     use hark_core::ports::SessionStore;
+                    refresh_histories(&config, &mut store);
                     store.session_path(id).ok().flatten()
                 })
                 .is_some_and(|path| std::path::Path::new(&path).exists())
     });
+    if stored.is_some() && session.is_none() {
+        diag(&app, "hark chat: stored session has no file on disk, opening a new one");
+    }
 
     ensure_persona(&config);
     let mut directives = hark_core::domain::directives::parse(&text);
@@ -3455,6 +3480,9 @@ fn hark_chat_send(
 struct HarkChatStatus {
     alive: bool,
     session_id: Option<String>,
+    /// Where Hark's own sessions live: a session with this cwd is the
+    /// chat's, never a project chat.
+    data_dir: String,
 }
 
 /// Is the mother's chat worker running, and which session backs it?
@@ -3464,6 +3492,7 @@ fn hark_chat_status(live: State<'_, LiveWorkers>) -> HarkChatStatus {
     HarkChatStatus {
         alive: live.0.lock().unwrap().contains_key(HARK_CHAT_TASK),
         session_id: state_file::load(&config.data_dir()).hark_chat_session,
+        data_dir: config.data_dir().display().to_string(),
     }
 }
 

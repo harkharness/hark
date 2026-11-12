@@ -46,6 +46,7 @@ import { Bell } from "lucide-react";
 import { condense } from "./lib/mirror";
 import { recoverSession as replacementFor, sessionVanished } from "./lib/recovery";
 import { artifactFile, harkTarget, pageId } from "./lib/harkLink";
+import { harkOwnedSession, rekeyMessages, rekeyRecord } from "./lib/threads";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
@@ -484,6 +485,8 @@ export default function App({
 
   const workersRef = useRef(liveWorkers);
   workersRef.current = liveWorkers;
+  const liveSessionsRef = useRef(liveSessions);
+  liveSessionsRef.current = liveSessions;
   const focusedTaskRef = useRef(focusedTask);
   focusedTaskRef.current = focusedTask;
   const overviewRef = useRef(overview);
@@ -1238,7 +1241,14 @@ export default function App({
       setLiveSessions((old) => ({ ...old, [taskId]: sessionId }));
       setChatsNonce((n) => n + 1);
     }, []),
-    onChatRenamed: useCallback(() => setChatsNonce((n) => n + 1), []),
+    onChatRenamed: useCallback((sessionId: string, title: string) => {
+      // The worker of that session keeps streaming under the label it was
+      // spawned with: move its thread to the name every row now shows.
+      const taskId = Object.entries(liveSessionsRef.current).find(([, s]) => s === sessionId)?.[0];
+      const label = taskId ? workersRef.current[taskId]?.label : undefined;
+      if (label && label !== title) rekeyThreadRef.current(label, title);
+      setChatsNonce((n) => n + 1);
+    }, []),
     onBackgroundStarted: useCallback((taskId: string, description: string, command: string) => {
       setBgTasks((old) => ({ ...old, [taskId]: [...(old[taskId] ?? []), { id: `${taskId}:${Date.now()}`, description, command, startedAt: Date.now() }] }));
     }, []),
@@ -2614,6 +2624,45 @@ export default function App({
 
   /** Same turn, new thread: a dispatch from the general chat creates the
    *  task it runs in, so the clock moves over keeping its start time. */
+  /**
+   * One key per chat. A chat's label changes under it: the light model
+   * names it after the first reply, the index shows that name, and the
+   * person reopens it by it, while the worker's events still carry the
+   * label it was spawned with. Everything keyed by the old label moves to
+   * the new one, so what was typed and what the agent answers meet on
+   * the same screen (12/11: the second message "vanished").
+   */
+  function rekeyThread(from: string, to: string) {
+    if (!from || from === to) return;
+    setMessages((old) => rekeyMessages(old, from, to));
+    rekeyTurn(from, to);
+    setLiveWorkers((old) => {
+      const hit = Object.entries(old).find(([, w]) => w.label === from);
+      return hit ? { ...old, [hit[0]]: { ...hit[1], label: to } } : old;
+    });
+    if (loadedTasks.current.has(from)) {
+      loadedTasks.current.delete(from);
+      loadedTasks.current.add(to);
+    }
+    const at = mirror.current.get(from);
+    if (at != null && !mirror.current.has(to)) mirror.current.set(to, at);
+    mirror.current.delete(from);
+    const h = history.current.get(from);
+    if (h && !history.current.has(to)) history.current.set(to, h);
+    history.current.delete(from);
+    if (compacting.current.has(from)) {
+      compacting.current.delete(from);
+      compacting.current.add(to);
+    }
+    setHistoryDone((old) => rekeyRecord(old, from, to));
+    setPageByThread((old) => rekeyRecord(old, from, to));
+    setRailByThread((old) => rekeyRecord(old, from, to));
+    setCollapsedByThread((old) => rekeyRecord(old, from, to));
+    setFocusedTask((old) => (old && old.title === from ? { ...old, title: to } : old));
+  }
+  const rekeyThreadRef = useRef(rekeyThread);
+  rekeyThreadRef.current = rekeyThread;
+
   function rekeyTurn(from: string, to: string) {
     if (from === to) return;
     setTurns((old) => {
@@ -3052,6 +3101,11 @@ export default function App({
     // view a sidebar click used to only move the scope pill (30/10).
     setView("chat");
     setDraftChat(null);
+    // A worker already running this session under another name (the one
+    // it was spawned with, before the index renamed the chat): its
+    // thread becomes this one, so its replies land here.
+    const running = Object.entries(liveWorkers).find(([id, w]) => liveSessions[id] === sessionId && w.label !== title);
+    if (running) rekeyThread(running[1].label, title);
     setFocusedTask({ title, sessionId, note });
     if (loadedTasks.current.has(title)) {
       // Built once already — but the session may have moved on since, in a
@@ -3322,6 +3376,12 @@ export default function App({
       push({ who: "sys", text: t("sys_no_session_for", { t: title }) });
       return;
     }
+    // A card born in Hark's own chat points at Hark's session.
+    const status = await ipc.harkChatStatus().catch(() => null);
+    if (status?.session_id && session === status.session_id) {
+      await openHarkSession(null);
+      return;
+    }
     await focusTask(title, session, note);
   }
 
@@ -3363,12 +3423,34 @@ export default function App({
     }
   }
 
+  /** A session of Hark's own chat opens where it lives: Início. Today's
+   *  is Hoje; an earlier one is its day in the journal. Never a project
+   *  chat, never a second worker on it. */
+  async function openHarkSession(lastTs?: string | null) {
+    leaveFocus();
+    leaveChat();
+    setDoor("inicio");
+    setView("chat");
+    const day = lastTs ? dayOf(lastTs) : null;
+    setDayShown(day && day !== dayOf(new Date().toISOString()) ? day : null);
+    push({ who: "sys", text: t("sys_hark_session_home") });
+  }
+
   async function recoverSession(hit: SessionHit) {
+    const status = await ipc.harkChatStatus().catch(() => null);
+    if (harkOwnedSession(hit, status?.data_dir, status?.session_id)) {
+      await openHarkSession(hit.last_ts);
+      return;
+    }
     let task: { title: string; workspace?: string | null };
     try {
       task = await ipc.chatFromSession(hit.session_id);
     } catch (err) {
       push({ who: "sys", text: t("sys_session_register_err", { e: String(err) }) });
+      return;
+    }
+    if (harkOwnedSession({ session_id: hit.session_id, cwd: task.workspace }, status?.data_dir, status?.session_id)) {
+      await openHarkSession(hit.last_ts);
       return;
     }
     const ws = task.workspace;

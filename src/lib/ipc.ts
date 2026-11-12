@@ -209,7 +209,7 @@ export const harkChatSend = (
   });
 
 export const harkChatStatus = () =>
-  invoke<{ alive: boolean; session_id: string | null }>("hark_chat_status");
+  invoke<{ alive: boolean; session_id: string | null; data_dir: string }>("hark_chat_status");
 
 /** Brand-new Claude Code session inside a project directory. */
 export const chatStart = (

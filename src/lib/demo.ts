@@ -443,7 +443,7 @@ const C: Record<string, (a: Args) => unknown> = {
   config_read: () => CONFIG,
   config_raw_read: () => ({ text: `# Hark\nlanguage = "en"\nui_language = "en"\nassistant_name = "Hark"\nhotkey = "cmd+shift+space"\nworker_budget_usd = 5\n`, path: CONFIG.path }),
   setup_status: () => SETUP,
-  hark_chat_status: () => ({ alive: true, session_id: "s-hark" }),
+  hark_chat_status: () => ({ alive: true, session_id: "s-hark", data_dir: "/Users/ana/.hark" }),
   // `?demo=inicio`: a day with no chat yet, so Hoje opens with the brief.
   journal_recent: () => (scene() === "inicio" ? JOURNAL.filter((t) => new Date(t.ts).toDateString() !== new Date().toDateString()) : JOURNAL),
   demands: () => DEMANDS,
