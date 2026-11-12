@@ -6,7 +6,7 @@ import {
   PanelResizeHandle,
   type ImperativePanelHandle,
 } from "react-resizable-panels";
-import { Compass, Copy, Download, ExternalLink, FileText, FolderTree, PanelLeft, Share2, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
+import { Compass, Copy, Download, ExternalLink, FileText, FolderTree, PanelLeft, PanelRight, Share2, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import { colourIndex, projColour, scopeOf } from "./lib/scope";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { lang, setLang, setSpeechLang, st, t } from "./lib/i18n";
@@ -4312,7 +4312,17 @@ export default function App({
                     </button>
                   )}
                   {/* The rail's doors, one icon each: one panel shows at a
-                      time, the lit icon says which. */}
+                      time, the lit icon says which. The session panel's
+                      door used to be the cost pill; that pill now opens
+                      the usage popover, so the panel gets a door of its
+                      own, like Claude Code's right sidebar. */}
+                  <button
+                    className={`chat-head-btn ${railHas("sessao") ? "on" : ""}`}
+                    title={t("session_btn")}
+                    onClick={() => toggleRail("sessao")}
+                  >
+                    <PanelRight size={13} />
+                  </button>
                   <button
                     className={`chat-head-btn ${railHas("terminal") ? "on" : ""}`}
                     title={t("terminal_btn")}
