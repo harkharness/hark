@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectOutputs, type Output } from "./outputs";
+import { collectOutputs, withPages, type Output } from "./outputs";
 import type { Msg } from "../types";
 
 const tool = (name: string, input: Record<string, unknown>, task?: string): Msg =>
@@ -37,5 +37,25 @@ describe("collectOutputs: the files a thread produced, newest touch first", () =
   it("a delivery of several files lists each one", () => {
     const out = collectOutputs([tool("SendUserFile", { files: ["/p/a.png", "/p/b.png"] })], null);
     expect(out.map((o) => [o.path, o.kind])).toEqual([["/p/a.png", "delivered"], ["/p/b.png", "delivered"]]);
+  });
+});
+
+describe("withPages: an output under the artifacts folder carries its page", () => {
+  const trees = {
+    tulipa: { nodes: [{ id: "test-documento", title: "Workspace (Home)", path: "home.html", kind: "slides" as const, parent: null, origin: null, links: [], updated_at: "" }], order: {} },
+  };
+  it("takes the title and the kind from the space's index", () => {
+    const [o] = withPages([{ path: "/Users/ana/.hark/artifacts/tulipa/home.html", kind: "written", touches: 1 }], trees);
+    expect(o.page).toEqual({ space: "tulipa", id: "test-documento", title: "Workspace (Home)", kind: "slides" });
+  });
+  it("a page not yet indexed is named by its file and typed by its extension", () => {
+    const [o] = withPages([{ path: "~/.hark/artifacts/tulipa/custos.sheet.json", kind: "written", touches: 1 }], trees);
+    expect(o.page).toEqual({ space: "tulipa", id: "custos", title: "custos", kind: "sheet" });
+    expect(withPages([{ path: "~/.hark/artifacts/tulipa/q.board.json", kind: "written", touches: 1 }], {})[0].page?.kind).toBe("board");
+    expect(withPages([{ path: "~/.hark/artifacts/tulipa/q.dash.json", kind: "written", touches: 1 }], {})[0].page?.kind).toBe("data");
+    expect(withPages([{ path: "~/.hark/artifacts/tulipa/q.md", kind: "written", touches: 1 }], {})[0].page?.kind).toBe("doc");
+  });
+  it("a file of the workspace carries none", () => {
+    expect(withPages([{ path: "/p/README.md", kind: "edited", touches: 1 }], trees)[0].page).toBeUndefined();
   });
 });

@@ -1,10 +1,35 @@
 // What a thread produced: the files its tool calls wrote, edited or
 // delivered. Pure: reads the messages already on screen, no ipc. The
 // "Saídas" section of the session panel is this list.
-import type { Msg } from "../types";
+import type { ArtifactKind, ArtifactTree, Msg } from "../types";
+import { artifactFile, pageId } from "./harkLink";
 
 export type OutputKind = "written" | "edited" | "delivered";
-export type Output = { path: string; kind: OutputKind; touches: number };
+/** The page an output is, when it lives under the artifacts folder. */
+export type OutputPage = { space: string; id: string; title: string; kind: ArtifactKind };
+export type Output = { path: string; kind: OutputKind; touches: number; page?: OutputPage };
+
+/** The kind a page file's extension says, for a page the index has not
+ *  seen yet (the agent just wrote it). */
+export function kindOfFile(file: string): ArtifactKind {
+  if (/\.sheet\.json$/i.test(file)) return "sheet";
+  if (/\.board\.json$/i.test(file)) return "board";
+  if (/\.dash\.json$/i.test(file)) return "data";
+  return "doc";
+}
+
+/** The outputs with their page attached, from the spaces' indexes: the
+ *  title and the kind the bar shows instead of a file name. Pure. */
+export function withPages(outputs: Output[], trees: Record<string, ArtifactTree | undefined>): Output[] {
+  return outputs.map((o) => {
+    const art = artifactFile(o.path);
+    if (!art) return o;
+    const nodes = trees[art.space]?.nodes ?? [];
+    const id = pageId(art.file, nodes);
+    const node = nodes.find((n) => n.id === id);
+    return { ...o, page: { space: art.space, id, title: node?.title ?? id, kind: node?.kind ?? kindOfFile(art.file) } };
+  });
+}
 
 const RANK: Record<OutputKind, number> = { edited: 0, written: 1, delivered: 2 };
 

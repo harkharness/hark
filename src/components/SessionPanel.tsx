@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CheckCircle2, ChevronDown, ChevronRight, FileText, FolderGit2, GitCommitHorizontal, Laptop, Package, Plug, SquareTerminal } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, File, FileText, FolderGit2, GitCommitHorizontal, Laptop, Package, Plug, SquareTerminal } from "lucide-react";
+import { KIND_ICON } from "./kindIcon";
 import DiffPanel from "./DiffPanel";
 import { Gauge, Legend, MeterRow, StackedBar, fmtTok, fmtUsd, type Segment } from "./Meter";
 import type { Output } from "../lib/outputs";
@@ -282,14 +283,27 @@ export default function SessionPanel({
         {outputs.length === 0 ? (
           <p className="hint">{t("out_none")}</p>
         ) : (
-          outputs.map((o) => (
-            <button key={o.path} className="sp-out" onClick={() => onOpenPath(o.path)} title={o.path}>
-              {o.kind === "delivered" ? <Package size={13} /> : <FileText size={13} />}
-              <span className="sp-out-name">{basename(o.path)}</span>
-              <span className="dim sp-out-dir">{dirname(o.path)}</span>
-              <span className={`pill-kind ${o.kind}`}>{t(`out_${o.kind}`)}</span>
-            </button>
-          ))
+          outputs.map((o) => {
+            // A page is named by its title with the icon of its kind; a
+            // markdown of the workspace is a doc; anything else, a file.
+            const PageIcon = o.page ? KIND_ICON[o.page.kind] : null;
+            return (
+              <button key={o.path} className="sp-out" onClick={() => onOpenPath(o.path)} title={o.path}>
+                {PageIcon && o.page ? (
+                  <PageIcon size={13} className={`art-kind ${o.page.kind}`} />
+                ) : o.kind === "delivered" ? (
+                  <Package size={13} />
+                ) : /\.(md|markdown)$/i.test(o.path) ? (
+                  <FileText size={13} className="sp-out-doc" />
+                ) : (
+                  <File size={13} />
+                )}
+                <span className="sp-out-name">{o.page ? o.page.title : basename(o.path)}</span>
+                <span className="dim sp-out-dir">{o.page ? t("out_page_in", { space: o.page.space }) : dirname(o.path)}</span>
+                <span className={`pill-kind ${o.kind}`}>{t(`out_${o.kind}`)}</span>
+              </button>
+            );
+          })
         )}
       </Section>
 

@@ -13,6 +13,7 @@ import { lang, setLang, setSpeechLang, st, t } from "./lib/i18n";
 import { dayOf, days as journalDays } from "./lib/inicio";
 import Artifacts, { ArtifactLinks, ArtifactPane, type ArtSel } from "./components/Artifacts";
 import type { Destination } from "./lib/takeTo";
+import { KIND_ICON } from "./components/kindIcon";
 import Board, { type CardAsk } from "./components/Board";
 import SharePopover, { type ShareRow } from "./components/SharePopover";
 import VoiceRound from "./components/VoiceRound";
@@ -33,7 +34,7 @@ import PanelFrame from "./components/PanelFrame";
 import SearchPalette from "./components/SearchPalette";
 import Reader from "./components/Reader";
 import SessionPanel from "./components/SessionPanel";
-import { collectOutputs } from "./lib/outputs";
+import { collectOutputs, withPages } from "./lib/outputs";
 import Sidebar, { type Door } from "./components/Sidebar";
 import CreateChat from "./components/CreateChat";
 import Demands from "./components/Demands";
@@ -3394,7 +3395,41 @@ export default function App({
   // the transcript a new array, re-running its scroll effect each time.
   const focusedTitle = focusedTask?.title ?? null;
   /** What this thread produced: the session panel's "Saídas". */
-  const threadOutputs = useMemo(() => collectOutputs(messages, focusedTitle), [messages, focusedTitle]);
+  const rawOutputs = useMemo(() => collectOutputs(messages, focusedTitle), [messages, focusedTitle]);
+  // The indexes of the spaces the outputs and the pane name: the bar shows
+  // a page by its title and kind, the pane's head too. Re-read when an
+  // agent writes a page (artTick). Zero tokens.
+  const [artTrees, setArtTrees] = useState<Record<string, ArtifactTree>>({});
+  const pane = pageByThread[threadKey];
+  const wantedSpaces = useMemo(() => {
+    const set = new Set<string>();
+    for (const o of rawOutputs) {
+      const art = artifactFile(o.path);
+      if (art) set.add(art.space);
+    }
+    if (pane) set.add(pane.space);
+    return [...set].sort();
+  }, [rawOutputs, pane]);
+  const wantedKey = wantedSpaces.join("\n");
+  useEffect(() => {
+    if (!wantedSpaces.length) return;
+    let live = true;
+    void Promise.all(wantedSpaces.map((sp) => ipc.artifactsTree(sp).then((tr) => [sp, tr] as const).catch(() => null))).then((pairs) => {
+      if (!live) return;
+      setArtTrees((m) => {
+        const next = { ...m };
+        for (const p of pairs) if (p) next[p[0]] = p[1];
+        return next;
+      });
+    });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantedKey, artTick]);
+  const threadOutputs = useMemo(() => withPages(rawOutputs, artTrees), [rawOutputs, artTrees]);
+  /** The pane's page as the index knows it: its title and kind for the head. */
+  const paneNode = pane ? artTrees[pane.space]?.nodes.find((n) => n.id === pane.id) : undefined;
   const visibleMessages = useMemo(
     () => {
       // A past day of Hark's chat, read back from the journal: the thread
@@ -3635,9 +3670,11 @@ export default function App({
    *  followed. Expanding opens the full view with a way back. */
   const framePagina = () => {
     const sel = pageByThread[threadKey];
+    const PaneIcon = paneNode ? KIND_ICON[paneNode.kind] : null;
     return (
       <PanelFrame
-        title={t("frame_page")}
+        title={paneNode?.title ?? t("frame_page")}
+        lead={PaneIcon && paneNode ? <PaneIcon size={13} className={`art-kind ${paneNode.kind}`} /> : undefined}
         expanded={false}
         onToggleExpand={() => sel && expandPage(sel)}
         {...collapseProps("pagina")}

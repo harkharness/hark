@@ -122,9 +122,10 @@ that fold and remember it, each with its summary while folded.
 the agent and its knobs); *context* (the window's share, what fills it);
 *connectors* (the MCP servers the session opened, with their state;
 reconnecting is in Settings › plugins); *outputs* (what the session
-wrote: a file under `~/.hark/artifacts` opens as the page it is, in the
-artifact pane beside the chat, whatever its extension; any other file
-opens in the files window); *changes* (the git of the session: the
+wrote: a file under `~/.hark/artifacts` is listed as the page it is, by
+its title with the icon of its kind, and opens in the artifact pane
+beside the chat, whatever its extension; a markdown of the workspace is
+a doc and any other file a file, both opening in the files window); *changes* (the git of the session: the
 diff, "commit the changes" that hands the ask to the chat, nothing
 committed by Hark itself); *background tasks* (commands the agent left
 running, and how many finished); *costs* and *limits*. The diff lives

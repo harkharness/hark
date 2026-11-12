@@ -77,4 +77,20 @@ describe("the session bar", () => {
     const { getByText } = render(<SessionPanel {...base} changes={{ workspace: undefined, tick: 0 }} />);
     expect(getByText(t("sp_no_repo"))).toBeTruthy();
   });
+
+  it("an output that is a page shows its title and its kind; a markdown of the workspace is a doc", () => {
+    const { getByText, container } = render(
+      <SessionPanel
+        {...base}
+        outputs={[
+          { path: "/Users/ana/.hark/artifacts/tulipa/custos.sheet.json", kind: "written", touches: 1, page: { space: "tulipa", id: "custos", title: "Custos por mês", kind: "sheet" } },
+          { path: "/p/tulipafin/README.md", kind: "edited", touches: 1 },
+        ]}
+      />,
+    );
+    expect(getByText("Custos por mês")).toBeTruthy();
+    expect(container.querySelector(".sp-out .art-kind.sheet")).toBeTruthy();
+    expect(getByText("README.md")).toBeTruthy();
+    expect(container.querySelectorAll(".sp-out .sp-out-doc").length).toBe(1);
+  });
 });

@@ -19,6 +19,7 @@ import Comments from "./Comments";
 import { ThumbBoard, ThumbDash, ThumbDoc, ThumbSheet } from "./Thumbs";
 import MarkLayer, { MarkBar, type Mark, type MarkTool, type RegionAnchor } from "./MarkLayer";
 import { sameAnchor } from "../lib/comments";
+import { KIND_ICON } from "./kindIcon";
 
 /** An html page that brought no style of its own gets the reading base:
  *  system font, a column, dark and light. A page with its own `<style>`
@@ -41,7 +42,6 @@ function withBaseStyle(html: string): string {
 export type ArtSel = { space: string; id: string | null };
 
 const OPEN_KEY = "hark.artifacts.open";
-const KIND_ICON: Record<ArtifactKind, typeof FileText> = { doc: FileText, slides: Presentation, design: Palette, sheet: Table2, board: StickyNote, data: BarChart3 };
 const KIND_LABEL = { doc: "art_kind_doc", slides: "art_kind_slides", design: "art_kind_design", sheet: "art_kind_sheet", board: "art_kind_board", data: "art_kind_data" } as const;
 const kindLabel = (k: ArtifactKind) => t(KIND_LABEL[k]);
 /** The html kinds a person may re-label by hand; a json kind is its file's. */
