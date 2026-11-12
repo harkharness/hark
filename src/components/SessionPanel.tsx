@@ -288,7 +288,7 @@ export default function SessionPanel({
             // markdown of the workspace is a doc; anything else, a file.
             const PageIcon = o.page ? KIND_ICON[o.page.kind] : null;
             return (
-              <button key={o.path} className="sp-out" onClick={() => onOpenPath(o.path)} title={o.path}>
+              <button key={o.path} className="sp-out" onClick={() => onOpenPath(o.path)} title={`${o.path} · ${t(`out_${o.kind}`)}`}>
                 {PageIcon && o.page ? (
                   <PageIcon size={13} className={`art-kind ${o.page.kind}`} />
                 ) : o.kind === "delivered" ? (
@@ -300,7 +300,6 @@ export default function SessionPanel({
                 )}
                 <span className="sp-out-name">{o.page ? o.page.title : basename(o.path)}</span>
                 <span className="dim sp-out-dir">{o.page ? t("out_page_in", { space: o.page.space }) : dirname(o.path)}</span>
-                <span className={`pill-kind ${o.kind}`}>{t(`out_${o.kind}`)}</span>
               </button>
             );
           })

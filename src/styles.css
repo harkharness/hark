@@ -1380,7 +1380,6 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .event { border-left: 2px solid var(--border); padding: 4px 8px; margin-bottom: 6px; color: var(--dim); }
 .event .name { color: var(--accent); }
 .event pre { white-space: pre-wrap; word-break: break-all; color: var(--text); margin-top: 2px; max-height: 120px; overflow-y: auto; }
-.board { margin-bottom: 14px; }
 .task { border-left: 2px solid var(--border); padding: 4px 8px; margin-bottom: 6px; }
 .task.doing { border-color: var(--warn); }
 .task.waiting { border-color: var(--accent); }
