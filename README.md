@@ -4,7 +4,7 @@
 
 # Hark
 
-**One voice for every coding agent.**
+**The open-source cockpit for your coding agents.**
 
 [Install](#install) · [Usage](docs/USAGE.md) · [Configuration](docs/CONFIG.md) · [Plugins](docs/PLUGINS.md) · [Contributing](CONTRIBUTING.md) · [harkharness.web.app](https://harkharness.web.app)
 
@@ -15,11 +15,13 @@
 
 </div>
 
-Hark is a voice-first cockpit that sits on top of the agent CLIs you already pay
-for. Ask what you were working on and hear the answer out loud. Dispatch real
-work into your existing agent sessions — by voice or by text, across every
-project on your disk — and watch it run in a window that reads like the terminal
-you already know.
+Hark is a desktop for the coding-agent CLIs you already pay for — Claude Code
+natively; Gemini CLI, Codex and any Agent Client Protocol agent through one
+plugin. One window holds every project: chats with a real terminal, the files,
+a browser and a session bar beside them; documents, spreadsheets, whiteboards
+and dashboards the agents write and you edit, comment on and send back; a
+board where every card is a session; a ledger of every dollar. Ask out loud
+and hear the answer when you want to, type when you don't.
 
 Hark never calls a model API behind your back. It drives the agent CLIs you
 already have installed and authenticated — Claude Code natively, and Gemini CLI,
