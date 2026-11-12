@@ -14,6 +14,12 @@ app only reads them back, and nothing costs tokens to browse.
     decisoes/
       adr-004.md           a page under "Decisões"
     pranchas.html          a page (html: slides, designs — one file)
+    custos.sheet.json      a spreadsheet the agent writes and Hark computes
+    frentes.board.json     a whiteboard: notes, groups, links, a timeline
+    entregas.dash.json     a dashboard over data on this machine
+    entregas.dash.cache.json   its numbers, cached beside it (Hark's file)
+    custos.comments.json   the comments of a page, beside it
+    .versions/             the versions a page keeps (Hark's folder)
   .claude/skills/hark-artifact/SKILL.md   the skill Hark installs (see below)
 ```
 
@@ -21,18 +27,20 @@ A **space** is a folder. The app lists the folders on disk plus one per
 registered project plus `pessoal`, so a project has a space before its
 first page. Hidden folders and symlinks are never spaces.
 
-A **page** is a `.md` or `.html` file inside a space, at any depth. Its
-`id` is the slug of its path; its title is the first `# heading` of a
-markdown page, or the file name. Its **kind** (`doc`, `slides`, `design`)
-decides the icon and how it opens: markdown is a document; an html page
-says what it is with `<meta name="hark-kind" content="slides">`, and
-without the tag a run of `class="slide"` sections reads as a deck,
-anything else as a document. The `⋯` on a row changes it by hand. Folders are not nodes: a page's parent is
+A **page** is a `.md`, `.html`, `.sheet.json`, `.board.json` or
+`.dash.json` file inside a space, at any depth. Its `id` is the slug of its
+path; its title is the first `# heading` of a markdown page, the `title`
+of a json page, or the file name. Its **kind** (`doc`, `slides`, `design`,
+`sheet`, `board`, `data`) decides the icon and how it opens: markdown is a
+document; an html page says what it is with
+`<meta name="hark-kind" content="slides">`, and without the tag a run of
+`class="slide"` sections reads as a deck, anything else as a document; a
+json page is what its extension says. The `⋯` on a row changes it by hand. Folders are not nodes: a page's parent is
 the page whose slug names the folder it sits in, and a folder with no such
 page hangs its children at the root.
 
 `index.json` is Hark's. It keeps, per node: `id`, `title`, `path`,
-`parent`, `kind` (`doc`, `slides`, `design`), `origin` (the session and
+`parent`, `kind`, `origin` (the session and
 task that wrote it), `links`, `updated_at`, and the children `order`. On
 every read the tree **reconciles** with the disk: a file nobody indexed is
 adopted at the root, a node whose file is gone leaves the tree (its
@@ -51,7 +59,10 @@ under it, `+` on a row makes a child, `⋯` renames or removes. Removing
 deletes the file and its children: it is your file, so it asks nothing
 twice.
 
-The home of a space shows what moved last. A page opens with its
+The home of a space is a gallery: a tab per kind, tiles to create a page
+of each, and a card per page with a thumbnail drawn from the file itself
+(a document's first lines, a sheet's first cells, a board at scale, a
+dashboard's panels, a deck's first slide). A page opens with its
 breadcrumb, kind, last touch and the chat it was born in (the chip opens
 that chat). Markdown renders and edits in place; HTML renders in an
 `<iframe sandbox>`: a document opens with scripts off, a deck or a design
@@ -65,6 +76,50 @@ the file; a design is a canvas at its own
 size (`<meta name="hark-canvas" content="WxH">`) on a board Hark zooms and
 pans; a document is a reading column. "Fonte" edits the source. **Ligações**, the rail panel beside a page, lists
 the origin chat, child pages and citations.
+
+**Beside a chat.** A page the agent wrote, clicked in the session bar's
+outputs or through its `hark://` link in a reply, opens in an *artifact*
+panel of the chat's rail, stacked with the terminal and the files: the
+page alone, with its source, comment and "take to…" controls. The panel's
+expand button opens the full view above with "back to chat" at the top of
+the tree. The chat is never left for a page.
+
+## The json kinds
+
+Three kinds are data the agent writes as JSON and Hark computes and draws,
+so the agent never spends tokens laying anything out:
+
+- **Sheet** (`.sheet.json`): tabs of cells with values and formulas (`SUM`,
+  `AVERAGE`, `MIN`, `MAX`, `COUNTIF`, `SUMIF`, `IF`, `ROUND`, `TODAY`,
+  references and ranges), formats and widths per column. Hark computes the
+  formulas; `#REF!` and `#NOME?` are shown, never hidden.
+- **Board** (`.board.json`): notes with colour and text, groups, links
+  (arrows) between notes, and a timeline of milestones. The agent writes
+  no coordinates: Hark lays the board out.
+- **Data** (`.dash.json`): panels over sources that live on this machine
+  (a csv, a sqlite file, a command), with queries, a cadence and the
+  numbers cached beside the page.
+
+The skill tells the agent the exact shape of each. `docs/USAGE.md`
+(*Artifacts*) says how each kind is edited by hand.
+
+## Editing and comments
+
+Every page is the person's to edit, and every edit is a version the page
+keeps (the `.versions/` folder; "n versions" on the page lists them). What
+the agent changed since the last version the person accepted is marked,
+with "undo all" and "accept". A sheet is edited cell by cell, with rows and
+columns moved, inserted and removed (formulas follow); a board's notes,
+links, groups and milestones by hand; a dashboard's panels, queries and
+sources in forms; the words of an html page in place, by double-click in
+the frame; markdown with its source beside the preview.
+
+Comments live beside the page, in `<page>.comments.json`, each anchored to
+the whole page, a cell, a note, a panel, a slide, a quoted run of words or
+a region drawn over an html page with the markup bar (pen, rectangle,
+text). A comment that says `@hark` becomes a request: "send to hark" takes
+it to the chat the page was born in (or the chat the person picks), and
+the comment reads "answered by hark" when that chat writes the page again.
 
 ## How the agents use pages
 
