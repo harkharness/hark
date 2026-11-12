@@ -1,0 +1,33 @@
+---
+title: Documentação do Hark
+description: Tudo o que você precisa para rodar o Hark na sua máquina, e tudo o que você precisa para mudá-lo.
+template: splash
+hero:
+  tagline: Duas portas, um projeto. Tudo o que você precisa para rodar o Hark na sua máquina, e tudo o que você precisa para mudá-lo. Escrito para pessoas; o repositório guarda as notas escritas para agentes.
+  actions:
+    - text: Usar o Hark
+      link: /docs/pt-br/use/start/what-hark-is/
+      icon: right-arrow
+    - text: Construir o Hark
+      link: /docs/pt-br/build/contributing/
+      variant: minimal
+      icon: right-arrow
+source_hash: 84a7ae2de863
+---
+
+import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="O Hark está em desenvolvimento">
+A maior parte dos testes até agora foi feita com o CLI do Claude Code no macOS. Outros agentes (Gemini CLI, Codex, qualquer agente Agent Client Protocol) e outros sistemas estão sendo testados agora; se você roda um deles, [a documentação de contribuidor](/docs/pt-br/build/testing-other-agents-and-oss/) diz como ajudar e onde reportar.
+</Aside>
+
+<CardGrid>
+  <Card title="Usar o Hark" icon="laptop">
+    Instale, rode com os agentes que você já paga e conheça a janela: chats e seus painéis, artefatos, o quadro, custos, voz.
+    [Comece pelo guia de instalação](/docs/pt-br/use/start/install/)
+  </Card>
+  <Card title="Construir o Hark" icon="setting">
+    Como o código está organizado, como uma mudança é feita e testada, como um backend se encaixa, como uma release é cortada e como testar o Hark em um agente ou sistema que ainda não temos.
+    [Leia o guia de contribuição](/docs/pt-br/build/contributing/)
+  </Card>
+</CardGrid>
