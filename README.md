@@ -6,7 +6,7 @@
 
 **The open-source cockpit for your coding agents.**
 
-[Install](#install) · [Usage](docs/USAGE.md) · [Configuration](docs/CONFIG.md) · [Plugins](docs/PLUGINS.md) · [Contributing](CONTRIBUTING.md) · [harkharness.web.app](https://harkharness.web.app)
+[Install](#install) · [Docs](https://harkharness.web.app/docs/en/) · [Contributing](CONTRIBUTING.md) · [harkharness.web.app](https://harkharness.web.app)
 
 [![latest release](https://img.shields.io/github/v/release/harkharness/hark?label=release&color=7aa2f7)](https://github.com/harkharness/hark/releases/latest)
 [![test](https://github.com/harkharness/hark/actions/workflows/test.yml/badge.svg)](https://github.com/harkharness/hark/actions/workflows/test.yml)
@@ -216,15 +216,20 @@ the system `say` voice for text to speech.
 
 ## Documentation
 
+The documentation for people lives on the site, in English, Portuguese
+and Spanish, behind two doors:
+
 | | |
 |---|---|
-| [Usage](docs/USAGE.md) | First run, the voice loop, the main window, artifacts, sharing, dispatch, permissions, the board, the CLI |
-| [Artifacts](docs/ARTIFACTS.md) | The documentation tree: where pages live, how agents write them, `hark://` links |
-| [Configuration](docs/CONFIG.md) | Every key in `config.toml`, with defaults |
-| [Plugins](docs/PLUGINS.md) | How agent backends plug in, what ships today, what comes next |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | Gatekeeper, microphone, missing CLI, uninstall |
-| [Plugin contract](docs/PLUGIN-CONTRACT.md) | For backend authors: events, capabilities, the registry, handoff |
-| [Frontend](docs/FRONTEND.md) · [Chrome](docs/CHROME.md) | For contributors: how the React side is built and its visual grammar |
+| [Use Hark](https://harkharness.web.app/docs/en/) | install, first run, the agents, the window panel by panel, artifacts, the board, costs, voice, configuration, the CLI, troubleshooting, FAQ |
+| [Build Hark](https://harkharness.web.app/docs/en/build/contributing/) | contributing, the project layout, the plugin contract, the frontend, testing other agents and OSs, translations, releases |
+
+Those pages are the files under [`docs/site/`](docs/site) in this
+repository, one tree per language, and a check on every push keeps the
+three in step. The rest of `docs/` is written for agents and
+maintainers: [the plugin contract in depth](docs/PLUGIN-CONTRACT.md),
+[the visual grammar](docs/CHROME.md), and the measured
+[findings](docs/FINDINGS.md) behind the architecture.
 
 ## Plugins, and where this is going
 

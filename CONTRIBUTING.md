@@ -15,7 +15,10 @@ best contributions keep that shape.
 - **A backend for a CLI that does not speak ACP.** Start at
   [docs/PLUGIN-CONTRACT.md](docs/PLUGIN-CONTRACT.md).
 - **Translations.** The interface speaks Portuguese and English
-  (`src/lib/i18n.ts`); a new language is a new table.
+  (`src/lib/i18n.ts`); a new language is a new table. The documentation
+  site speaks three (`docs/site/en`, `pt-br`, `es`, one tree each); a
+  page changes in all three or the check fails, see
+  [Translations](https://harkharness.web.app/docs/en/build/translations/).
 - **Voice phrasings.** `crates/hark-core/tests/corpus/voice_corpus.jsonl` keeps
   the voice classifier honest: a phrase, the catalog it was said against, and
   where it should land.
@@ -55,6 +58,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 npx tsc --noEmit
 npm test
 npm run build
+npm run docs:check     # the three languages of docs/site, in step
 ```
 
 ## How code is written here
