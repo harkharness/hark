@@ -100,6 +100,8 @@ export default function Settings({ initialSection = "geral" }: { initialSection?
     switch (upState.kind) {
       case "dev":
         return t("up_dev");
+      case "unmanaged":
+        return t("up_unmanaged");
       case "checking":
         return t("up_checking");
       case "ready":

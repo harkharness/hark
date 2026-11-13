@@ -561,6 +561,8 @@ export type SetupStatus = {
   hotkey: string;
 };
 export const setupStatus = () => invoke<SetupStatus>("setup_status");
+/** False when the OS's package manager owns this install (a Linux .deb). */
+export const updatesInApp = () => invoke<boolean>("updates_in_app");
 /** Background download; progress arrives as `hark-setup` events. */
 export const setupDownloadModel = (key: string) =>
   invoke("setup_download_model", { key });

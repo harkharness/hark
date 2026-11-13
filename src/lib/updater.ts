@@ -10,6 +10,7 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { getVersion } from "@tauri-apps/api/app";
+import * as ipc from "./ipc";
 
 export type UpdateStatus =
   /** Never looked yet. */
@@ -22,7 +23,10 @@ export type UpdateStatus =
   /** Offline, rate-limited, or a manifest mid-publish. */
   | { kind: "error"; message: string; at: number }
   /** Dev build: replacing target/debug is never the right move. */
-  | { kind: "dev" };
+  | { kind: "dev" }
+  /** The package manager owns this install (a Linux .deb): the same
+   *  install command updates it, the app never replaces itself. */
+  | { kind: "unmanaged" };
 
 let status: UpdateStatus = import.meta.env.DEV ? { kind: "dev" } : { kind: "idle" };
 let prepared: Update | null = null;
@@ -34,10 +38,14 @@ export const currentVersion = (): Promise<string> => getVersion().catch(() => "?
 
 /** Poll the releases repo and download anything newer. Never throws. */
 export async function checkForUpdate(): Promise<UpdateStatus> {
-  if (status.kind === "dev") return status;
+  if (status.kind === "dev" || status.kind === "unmanaged") return status;
   if (prepared) return status;
   status = { kind: "checking" };
   try {
+    if (!(await ipc.updatesInApp())) {
+      status = { kind: "unmanaged" };
+      return status;
+    }
     const update = await check();
     if (!update) {
       status = { kind: "current", at: Date.now() };

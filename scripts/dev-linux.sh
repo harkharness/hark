@@ -69,11 +69,16 @@ EOF
   rustup toolchain install "$RUST_VERSION" --profile minimal -c clippy >/dev/null
   rustup default "$RUST_VERSION" >/dev/null
 
-  if ! command -v claude >/dev/null; then
-    say "the Claude Code CLI (log in once with: claude)"
-    # -E: npm must keep NODE_EXTRA_CA_CERTS behind an inspecting proxy.
-    sudo -E npm install -g @anthropic-ai/claude-code
+  if ! command -v claude >/dev/null && [ ! -x "$HOME/.local/bin/claude" ]; then
+    say "the Claude Code CLI into ~/.local/bin (log in once with: claude)"
+    # No sudo: a root-owned ~/.npm breaks every npm run after it, and the
+    # proxy certificate env would not survive sudo anyway.
+    npm install -g --prefix "$HOME/.local" @anthropic-ai/claude-code
   fi
+  case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="$HOME/.local/bin:$PATH"; say 'note: ~/.local/bin joins PATH at your next login' ;;
+  esac
 
   # A tree on a virtiofs share mounts again at boot.
   local dev fstype

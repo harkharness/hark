@@ -3128,6 +3128,18 @@ fn agent_for_session(session_id: String) -> String {
 /// Everything the first-run wizard needs to decide what to show: which
 /// pieces exist (config, whisper model, claude binary, history) and the
 /// current values to pre-fill.
+/// Whether this build can replace itself. On Linux only an AppImage can:
+/// a .deb belongs to the package manager, and the updater would download
+/// a build it cannot install.
+#[tauri::command]
+fn updates_in_app() -> bool {
+    if cfg!(target_os = "linux") {
+        std::env::var_os("APPIMAGE").is_some()
+    } else {
+        true
+    }
+}
+
 #[tauri::command]
 fn setup_status() -> Result<serde_json::Value, String> {
     let config = Config::load();
@@ -6616,6 +6628,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            updates_in_app,
             overview,
             use_context,
             journal_recent,
