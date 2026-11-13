@@ -4512,52 +4512,71 @@ fn repo_diff(workspace: String, path: String) -> Result<String, String> {
 
 const BROWSER_LABEL: &str = "browser";
 
-/// Where the panel's body is, in the main window's logical coordinates,
-/// kept so the page can follow the window (Linux, see `browser_open`).
-/// x, y, width, height, logical.
+/// On Linux Tauri packs a child webview into the window's vertical GTK
+/// box, where it stacks under the app at full width and no bounds can
+/// move it; and under Wayland no window can be placed by its client, so
+/// a window of its own is no answer either. So the GTK tree is rearranged
+/// once: the app's own webview and the page go into a `gtk::Overlay`,
+/// the page on top, and from then on its margins are its position and
+/// its size request its size, all in logical pixels like the DOM's.
 #[cfg(target_os = "linux")]
-type BrowserRect = Option<(f64, f64, f64, f64)>;
-#[cfg(target_os = "linux")]
-static BROWSER_RECT: std::sync::OnceLock<std::sync::Mutex<BrowserRect>> = std::sync::OnceLock::new();
-
-#[cfg(target_os = "linux")]
-fn browser_rect_cell() -> &'static std::sync::Mutex<BrowserRect> {
-    BROWSER_RECT.get_or_init(|| std::sync::Mutex::new(None))
+fn gtk_place(wv: &tauri::Webview, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    wv.with_webview(move |pw| {
+        use gtk::prelude::*;
+        let page = pw.inner();
+        let Some(parent) = page.parent() else { return };
+        // Fresh from Tauri the page sits in the window's box, under the
+        // overlay `gtk_overlay_setup` built at boot; it moves on top.
+        if let Ok(vbox) = parent.downcast::<gtk::Box>() {
+            let page_widget: gtk::Widget = page.clone().upcast();
+            let Some(overlay) = vbox.children().into_iter().find_map(|c| c.downcast::<gtk::Overlay>().ok()) else {
+                return;
+            };
+            vbox.remove(&page_widget);
+            overlay.add_overlay(&page_widget);
+            overlay.show_all();
+        }
+        page.set_halign(gtk::Align::Start);
+        page.set_valign(gtk::Align::Start);
+        page.set_margin_start(x.round().max(0.0) as i32);
+        page.set_margin_top(y.round().max(0.0) as i32);
+        page.set_size_request(w.max(1.0).round() as i32, h.max(1.0).round() as i32);
+        page.show();
+    })
+    .map_err(|e| e.to_string())
 }
 
-/// A rectangle inside the main window, as a spot on the screen: the
-/// window's content origin plus the rectangle, both in physical pixels.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn screen_rect(origin: (i32, i32), scale: f64, x: f64, y: f64, w: f64, h: f64) -> (tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>) {
-    (
-        tauri::PhysicalPosition::new(origin.0 + (x * scale).round() as i32, origin.1 + (y * scale).round() as i32),
-        tauri::PhysicalSize::new((w.max(1.0) * scale).round() as u32, (h.max(1.0) * scale).round() as u32),
-    )
+/// At boot, before the app has painted a frame: its webview moves from
+/// the window's vertical box into a `gtk::Overlay`, so a page can later
+/// sit on top of it. Done now because moving a webview that has already
+/// painted left the window on its last frame until the next input
+/// event; a webview that has not painted yet has nothing to lose.
+#[cfg(target_os = "linux")]
+fn gtk_overlay_setup(main: &tauri::WebviewWindow) {
+    let wv: &tauri::Webview = main.as_ref();
+    let _ = wv.with_webview(|pw| {
+        use gtk::prelude::*;
+        let app_view = pw.inner();
+        let Some(parent) = app_view.parent() else { return };
+        let Ok(vbox) = parent.downcast::<gtk::Box>() else { return };
+        let app_widget: gtk::Widget = app_view.clone().upcast();
+        vbox.remove(&app_widget);
+        let overlay = gtk::Overlay::new();
+        overlay.add(&app_widget);
+        vbox.pack_start(&overlay, true, true, 0);
+        vbox.show_all();
+    });
 }
 
-/// On Linux the page is a window of its own: Tauri packs a child webview
-/// into the window's vertical GTK box, where it stacks under the app at
-/// full width and no bounds can move it. A transient, undecorated window
-/// over the panel's body behaves like the child does elsewhere; it is
-/// re-placed on every move or resize of the main window.
-#[cfg(target_os = "linux")]
-fn browser_window_place(app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-    *browser_rect_cell().lock().unwrap_or_else(|e| e.into_inner()) = Some((x, y, w, h));
-    let main = app.get_webview_window("main").ok_or("no main window")?;
-    let Some(win) = app.get_webview_window(BROWSER_LABEL) else { return Ok(()) };
-    let scale = main.scale_factor().unwrap_or(1.0);
-    let origin = main.inner_position().map_err(|e| e.to_string())?;
-    let (pos, size) = screen_rect((origin.x, origin.y), scale, x, y, w, h);
-    win.set_position(pos).map_err(|e| e.to_string())?;
-    win.set_size(size).map_err(|e| e.to_string())
-}
-
-#[cfg(target_os = "linux")]
-fn browser_follow(app: &AppHandle) {
-    let rect = *browser_rect_cell().lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((x, y, w, h)) = rect {
-        let _ = browser_window_place(app, x, y, w, h);
+/// Put the page where the panel's body is, however this desktop does it.
+fn browser_put(app: &AppHandle, wv: &tauri::Webview, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = app;
+        gtk_place(wv, x, y, w, h)
     }
+    #[cfg(not(target_os = "linux"))]
+    browser_place(app, wv, x, y, w, h)
 }
 
 fn browser_url(raw: &str) -> Result<tauri::Url, String> {
@@ -4620,64 +4639,32 @@ fn browser_place(app: &AppHandle, wv: &tauri::Webview, x: f64, y: f64, w: f64, h
 #[tauri::command]
 fn browser_open(app: AppHandle, url: String, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let url = browser_url(&url)?;
-    #[cfg(target_os = "linux")]
-    {
-        if let Some(win) = app.get_webview_window(BROWSER_LABEL) {
-            browser_window_place(&app, x, y, w, h)?;
-            win.navigate(url).map_err(|e| e.to_string())?;
-            return win.show().map_err(|e| e.to_string());
-        }
-        let main = app.get_webview_window("main").ok_or("no main window")?;
-        let win = tauri::WebviewWindowBuilder::new(&app, BROWSER_LABEL, tauri::WebviewUrl::External(url))
-            .title("Hark")
-            .decorations(false)
-            .skip_taskbar(true)
-            .resizable(false)
-            .inner_size(w.max(1.0), h.max(1.0))
-            .zoom_hotkeys_enabled(true)
-            .parent(&main)
-            .map_err(|e| e.to_string())?
-            .build()
-            .map_err(|e| e.to_string())?;
-        drop(win);
-        browser_window_place(&app, x, y, w, h)
-    }
-    #[cfg(not(target_os = "linux"))]
     if let Some(existing) = app.get_webview(BROWSER_LABEL) {
-        browser_place(&app, &existing, x, y, w, h)?;
+        browser_put(&app, &existing, x, y, w, h)?;
         existing.navigate(url).map_err(|e| e.to_string())?;
         return existing.show().map_err(|e| e.to_string());
     }
-    #[cfg(not(target_os = "linux"))]
     let main = app.get_webview_window("main").ok_or("no main window")?;
-    #[cfg(not(target_os = "linux"))]
+    let window: tauri::Window = main.as_ref().window();
+    let builder = tauri::webview::WebviewBuilder::new(BROWSER_LABEL, tauri::WebviewUrl::External(url)).zoom_hotkeys_enabled(true);
+    let wv = window
+        .add_child(builder, tauri::LogicalPosition { x, y }, tauri::LogicalSize { width: w.max(1.0), height: h.max(1.0) })
+        .map_err(|e| e.to_string())?;
     {
-        let window: tauri::Window = main.as_ref().window();
-        let builder = tauri::webview::WebviewBuilder::new(BROWSER_LABEL, tauri::WebviewUrl::External(url)).zoom_hotkeys_enabled(true);
-        let wv = window
-            .add_child(builder, tauri::LogicalPosition { x, y }, tauri::LogicalSize { width: w.max(1.0), height: h.max(1.0) })
-            .map_err(|e| e.to_string())?;
-        {
-            let window = wv.window();
-            let sizes = match (window.outer_size(), window.inner_size()) {
-                (Ok(o), Ok(i)) => format!("outer {}x{} inner {}x{}", o.width, o.height, i.width, i.height),
-                _ => "sizes unknown".into(),
-            };
-            diag(&app, &format!("browser open: asked ({x:.0},{y:.0} {w:.0}x{h:.0}) window {sizes}"));
-        }
-        browser_place(&app, &wv, x, y, w, h)
+        let window = wv.window();
+        let sizes = match (window.outer_size(), window.inner_size()) {
+            (Ok(o), Ok(i)) => format!("outer {}x{} inner {}x{}", o.width, o.height, i.width, i.height),
+            _ => "sizes unknown".into(),
+        };
+        diag(&app, &format!("browser open: asked ({x:.0},{y:.0} {w:.0}x{h:.0}) window {sizes}"));
     }
+    browser_put(&app, &wv, x, y, w, h)
 }
 
 #[tauri::command]
 fn browser_bounds(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-    #[cfg(target_os = "linux")]
-    return browser_window_place(&app, x, y, w, h);
-    #[cfg(not(target_os = "linux"))]
-    {
-        let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
-        browser_place(&app, &wv, x, y, w, h)
-    }
+    let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
+    browser_put(&app, &wv, x, y, w, h)
 }
 
 #[tauri::command]
@@ -4707,31 +4694,14 @@ fn browser_url_now(app: AppHandle) -> Result<Option<String>, String> {
 
 #[tauri::command]
 fn browser_hide(app: AppHandle) -> Result<(), String> {
-    #[cfg(target_os = "linux")]
-    {
-        let Some(win) = app.get_webview_window(BROWSER_LABEL) else { return Ok(()) };
-        win.hide().map_err(|e| e.to_string())
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
-        wv.hide().map_err(|e| e.to_string())
-    }
+    let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
+    wv.hide().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn browser_close(app: AppHandle) -> Result<(), String> {
-    #[cfg(target_os = "linux")]
-    {
-        *browser_rect_cell().lock().unwrap_or_else(|e| e.into_inner()) = None;
-        let Some(win) = app.get_webview_window(BROWSER_LABEL) else { return Ok(()) };
-        win.close().map_err(|e| e.to_string())
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
-        wv.close().map_err(|e| e.to_string())
-    }
+    let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
+    wv.close().map_err(|e| e.to_string())
 }
 
 /// Git state for a set of task workspaces, in one call.
@@ -6700,6 +6670,10 @@ pub fn run() {
             // Move data written under the old product name (vox) into the
             // hark dirs BEFORE anything reads config or touches the data dir.
             hark_core::config::migrate_legacy();
+            #[cfg(target_os = "linux")]
+            if let Some(main) = app.get_webview_window("main") {
+                gtk_overlay_setup(&main);
+            }
             // The log opens before anything can fail: the first line of a
             // bug report is which build booted.
             app.manage(Diag(hark_core::adapters::diag_log::DiagLog::open(&Config::load().data_dir())));
@@ -6918,13 +6892,6 @@ pub fn run() {
                 && matches!(event, tauri::WindowEvent::CloseRequested { .. })
             {
                 window.app_handle().exit(0);
-            }
-            // The browser window rides on the main one (Linux).
-            #[cfg(target_os = "linux")]
-            if window.label() == "main"
-                && matches!(event, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_))
-            {
-                browser_follow(&window.app_handle().clone());
             }
             // Focus ledger: the OS tells us which PROJECT window the user
             // is working in; the spoken word follows it. Mother/HUD focus

@@ -28,3 +28,10 @@ portable-pty = "0.9"
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
 tauri-plugin-deep-link = "2"
+
+# The browser panel's page is a child webview; on Linux its place in the
+# window is a GTK overlay Hark builds itself (lib.rs, gtk_place). Same
+# versions as tauri's, so the widgets are the same types.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+webkit2gtk = "2.0"

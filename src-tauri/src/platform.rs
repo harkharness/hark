@@ -128,18 +128,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_panel_rectangle_lands_on_screen_at_the_window_origin_scaled() {
-        // The panel sits at (400, 60) 500x700 logical in a window whose
-        // content starts at (100, 50) on a 2x screen.
-        let (pos, size) = crate::screen_rect((100, 50), 2.0, 400.0, 60.0, 500.0, 700.0);
-        assert_eq!((pos.x, pos.y), (900, 170));
-        assert_eq!((size.width, size.height), (1000, 1400));
-        // Never a zero-sized window.
-        let (_, size) = crate::screen_rect((0, 0), 1.0, 0.0, 0.0, 0.0, 0.0);
-        assert_eq!((size.width, size.height), (1, 1));
-    }
-
-    #[test]
     fn a_file_uri_encodes_each_segment_and_keeps_the_separators() {
         assert_eq!(file_uri(Path::new("/home/u/my file#1.html")), "file:///home/u/my%20file%231.html");
     }

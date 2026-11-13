@@ -1478,6 +1478,7 @@ version = "0.10.0"
 dependencies = [
  "anyhow",
  "dirs",
+ "gtk",
  "hark-agent",
  "hark-core",
  "hark-plugin-acp",
@@ -1492,6 +1493,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-updater",
  "urlencoding",
+ "webkit2gtk",
 ]
 
 [[package]]
