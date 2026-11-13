@@ -10,7 +10,7 @@
 
 [![latest release](https://img.shields.io/github/v/release/harkharness/hark?label=release&color=7aa2f7)](https://github.com/harkharness/hark/releases/latest)
 [![test](https://github.com/harkharness/hark/actions/workflows/test.yml/badge.svg)](https://github.com/harkharness/hark/actions/workflows/test.yml)
-![platform](https://img.shields.io/badge/macOS-Apple_Silicon_·_Intel-8b96a8)
+![platform](https://img.shields.io/badge/macOS_·_Linux-Apple_Silicon_·_Intel_·_arm64-8b96a8)
 [![license](https://img.shields.io/badge/license-MIT_or_Apache--2.0-3dd68c)](#license)
 
 </div>
@@ -40,32 +40,39 @@ the documentation and every release.
 curl -fsSL https://harkharness.web.app/install.sh | bash
 ```
 
-That picks the right build for your architecture, installs the `hark` CLI into
-`~/.local/bin`, drops `hark.app` into `/Applications` and clears the quarantine
-bit — the app is not code-signed yet, so macOS would otherwise refuse to open
-it.
+That picks the right build for your machine and installs the `hark` CLI into
+`~/.local/bin`. On macOS it drops `hark.app` into `/Applications` and clears
+the quarantine bit — the app is not code-signed yet, so macOS would otherwise
+refuse to open it. On Ubuntu, Debian and their relatives it installs the
+`.deb` through `apt`, so the WebKit, GTK and Speech Dispatcher packages come
+with it; on any other Linux it puts the AppImage in `~/.local/opt/hark` with a
+launcher entry.
 
-Prefer to click? Grab a `.dmg` from
+Prefer to click? Grab a package from
 [the latest release](https://github.com/harkharness/hark/releases/latest):
 
 | File | For |
 |---|---|
 | `hark-app-aarch64-apple-darwin.dmg` | macOS, Apple Silicon (M1 and newer) |
 | `hark-app-x86_64-apple-darwin.dmg` | macOS, Intel |
+| `hark-app-x86_64-unknown-linux-gnu.deb` | Ubuntu 22.04+, Debian 12+ and relatives, x86_64 |
+| `hark-app-aarch64-unknown-linux-gnu.deb` | the same, on arm64 |
+| `hark-app-<target>.AppImage` | any other Linux (needs FUSE 2: `libfuse2`) |
 | `hark-cli-<target>.tar.gz` | the headless `hark` CLI on its own |
 
 If you download the `.dmg` by hand, run `xattr -cr /Applications/hark.app` once
-before opening it.
+before opening it. A `.deb` installs with `sudo apt install ./hark-app-<target>.deb`.
 
-**You need:** macOS 12+, at least one supported agent CLI installed and logged
-in — the [Claude Code CLI](https://code.claude.com) gets the richest experience;
+**You need:** macOS 12+ or a Linux desktop (Ubuntu 22.04+ or equivalent, with
+PipeWire or PulseAudio for the microphone), at least one supported agent CLI
+installed and logged in — the [Claude Code CLI](https://code.claude.com) gets the richest experience;
 [Gemini CLI](https://github.com/google-gemini/gemini-cli), Codex
 (`@agentclientprotocol/codex-acp`) or any other ACP agent works through the ACP
 plugin — and ~500MB of disk for the speech model. The first-run wizard checks
 all of it, downloads the model and asks for the microphone once.
 
-Linux and Windows are next: the voice layer leans on macOS-native pieces
-today (`say`, Metal), and the ports are the work of the coming releases.
+Windows is next. On Linux the voice speaks through Speech Dispatcher and the
+speech model runs on the CPU; on Apple Silicon it runs on Metal.
 
 ### Build from source
 
@@ -305,7 +312,8 @@ as described in [SECURITY.md](SECURITY.md). Everyone taking part follows the
 
 ## Releases
 
-Every tag builds both macOS architectures and publishes to
+Every tag builds macOS (Apple Silicon and Intel) and Linux (x86_64 and arm64)
+and publishes to
 [Releases](https://github.com/harkharness/hark/releases). Asset names carry no
 version, so `releases/latest/download/<name>` links keep working forever.
 Report a problem or ask for something in

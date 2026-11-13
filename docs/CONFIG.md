@@ -58,9 +58,11 @@ enabled = false                  # ships off: same subscription as `claude`
 language      = "pt"             # what the MICROPHONE expects to hear;
                                  #   "auto" detects it per utterance
 ui_language   = "pt"             # what the SCREEN shows: "pt" | "en"
-voice         = "Luciana"        # a macOS `say` voice
+voice         = "Luciana"        # a voice of the OS speech engine: a macOS `say`
+                                 #   voice; on Linux a Speech Dispatcher voice
+                                 #   (`spd-say -L`), empty = the language's default
 whisper_model = ""               # empty = <data dir>/models/ggml-small.bin
-hotkey        = "cmd+shift+space"  # global push-to-talk
+hotkey        = "cmd+shift+space"  # global push-to-talk (ctrl+shift+space off the Mac)
 vocab         = ["webhook", "pull request", "deploy", "branch", "commit"]
                                  # terms biased into the transcription
 

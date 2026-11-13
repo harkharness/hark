@@ -5,7 +5,7 @@ sidebar:
   order: 3
 banner:
   content: "<b>Hark está en desarrollo.</b> La mayor parte de las pruebas hasta ahora se hizo con el CLI de Claude Code en macOS. ¿Usas otro agente u otro sistema? <a href=\"/docs/es/build/testing-other-agents-and-oss/\">Ayúdanos a probarlo.</a>"
-source_hash: cbce9216732b
+source_hash: ef126386ccad
 ---
 
 ## "hark.app está dañado y no se puede abrir"
@@ -79,6 +79,17 @@ rm -rf ~/.hark
 ```
 
 El último borra tu configuración, el índice, el libro de cuentas, el tablero, el archivo de memoria del asistente y los registros de sesión propios de Hark. Si instalaste el puente de la línea de estado, desinstálalo primero desde Ajustes para que los ajustes de tu CLI de agente queden restaurados.
+
+## En Linux
+
+El `.deb` pertenece a `apt`: ejecuta el comando de instalación otra vez para actualizar, y `sudo apt remove hark` para desinstalar. El AppImage se actualiza solo como la app del Mac; necesita FUSE 2 para abrir en la mayoría de las distros (`libfuse2` en Ubuntu y Debian, `fuse2` en las demás), o ejecútalo con `--appimage-extract-and-run`. La voz habla a través de Speech Dispatcher: si Hark se queda mudo, comprueba que el servicio responde por sí solo, y elige una voz de su lista en Configuración:
+
+```bash
+spd-say -l es-ES "hola"
+spd-say -L
+```
+
+El micrófono llega por PipeWire o PulseAudio; una sesión de escritorio tiene uno de los dos. En una máquina virtual, una ventana en blanco suele ser el compositor de WebKitGTK peleando con la GPU virtual: abre Hark con `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
 ## Algo más
 

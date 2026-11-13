@@ -5,7 +5,7 @@ sidebar:
   order: 1
 banner:
   content: "<b>O Hark está em desenvolvimento.</b> A maior parte dos testes até agora foi feita com o CLI do Claude Code no macOS. Usa outro agente ou sistema? <a href=\"/docs/pt-br/build/testing-other-agents-and-oss/\">Ajude a testar.</a>"
-source_hash: c172e07d0050
+source_hash: b768a9f52f9b
 ---
 
 Tudo vive em `~/.hark/config.toml`. Toda chave é opcional; o arquivo abaixo é o conjunto completo com seus padrões. Edições feitas pelas Configurações preservam seus comentários e formatação.
@@ -52,9 +52,9 @@ enabled = false                  # vem desligado: mesma assinatura do claude
 # --- voz ----------------------------------------------------------------
 language      = "pt"             # o que o MICROFONE espera; "auto" detecta a cada fala
 ui_language   = "pt"             # o que a TELA mostra: "pt" | "en"
-voice         = "Luciana"        # uma voz do say do macOS
+voice         = "Luciana"        # uma voz do say do macOS; no Linux uma voz do Speech Dispatcher (spd-say -L), vazio = a padrão do idioma
 whisper_model = ""               # vazio = <data dir>/models/ggml-small.bin
-hotkey        = "cmd+shift+space"
+hotkey        = "cmd+shift+space"  # ctrl+shift+space fora do Mac
 vocab         = ["webhook", "pull request", "deploy", "branch", "commit"]
 
 # --- o que uma pergunta pode ver ----------------------------------------------

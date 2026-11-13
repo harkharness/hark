@@ -79,6 +79,17 @@ rm -rf ~/.hark
 
 The last one deletes your configuration, index, ledger, board, the assistant's memory file and Hark's own session records. If you installed the status-line bridge, uninstall it from Settings first so your agent CLI settings are restored.
 
+## On Linux
+
+The `.deb` belongs to `apt`: run the install command again to update, and `sudo apt remove hark` to uninstall. The AppImage updates itself like the Mac app does; it needs FUSE 2 to start on most distros (`libfuse2` on Ubuntu and Debian, `fuse2` elsewhere), or run it with `--appimage-extract-and-run`. The voice speaks through Speech Dispatcher: if Hark is silent, check that the service answers on its own, and pick a voice from its list in Settings:
+
+```bash
+spd-say -l pt-BR "olá"
+spd-say -L
+```
+
+The microphone comes through PipeWire or PulseAudio; a desktop session has one of them. Under a virtual machine, a blank window usually means the WebKitGTK compositor and the virtual GPU disagree: start Hark with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
+
 ## Something else
 
 [Open an issue](https://github.com/harkharness/hark/issues) with your macOS version, your architecture and the release you installed. The app's "Report a problem" (sidebar, Settings or the menu) fills it in for you, with scrubbed diagnostics if you tick the box: the issue is public, read the preview.
