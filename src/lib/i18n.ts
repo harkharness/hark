@@ -1,3 +1,4 @@
+import { shortcutLabels } from "./platform";
 // Tiny UI dictionary — no library, two languages, flat keys. The SCREEN
 // language (config `ui_language`) is deliberately separate from the SPOKEN
 // one (`language`, what whisper expects). Spoken replies (TTS) and system
@@ -2449,7 +2450,8 @@ export function t(key: keyof typeof pt, vars?: Record<string, string | number>):
   for (const [k, v] of Object.entries(vars ?? {})) {
     out = out.replaceAll(`{${k}}`, String(v));
   }
-  return out;
+  // The dictionaries say Cmd; off the Mac the same key is Ctrl.
+  return shortcutLabels(out);
 }
 
 // ---- SPEECH dictionary (TTS) — follows `language` (what the mic hears

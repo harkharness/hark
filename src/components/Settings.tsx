@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { defaultHotkey } from "../lib/platform";
 import { Bot, Check, FileCode2, Mic2, Plug, Settings2, Wallet, Wrench } from "lucide-react";
 import CostsPanel from "./CostsPanel";
 import * as ipc from "../lib/ipc";
@@ -375,7 +376,7 @@ export default function Settings({ initialSection = "geral" }: { initialSection?
                 hint={t("set_hotkey_hint")}
                 keyName="hotkey"
                 value={v.hotkey}
-                placeholder="cmd+shift+space"
+                placeholder={defaultHotkey()}
               />
           </div>
         )}

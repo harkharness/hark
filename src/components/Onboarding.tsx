@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { defaultHotkey } from "../lib/platform";
 import { listen } from "../lib/events";
 import { Check, ChevronLeft, Download, Mic } from "lucide-react";
 import * as ipc from "../lib/ipc";
@@ -26,7 +27,7 @@ export default function Onboarding({
   const [step, setStep] = useState(0);
   const [lang, setLangState] = useState(status.language || "pt");
   const [name, setName] = useState(status.assistant_name || "Hark");
-  const [hotkey, setHotkey] = useState(status.hotkey || "cmd+shift+space");
+  const [hotkey, setHotkey] = useState(status.hotkey || defaultHotkey());
   const [whisperOk, setWhisperOk] = useState(status.whisper_ok);
   const [dl, setDl] = useState<DlState>({ kind: "idle" });
   const [mic, setMic] = useState<{ kind: "idle" | "listening" | "heard" | "fail"; text?: string }>(
@@ -57,7 +58,7 @@ export default function Onboarding({
       language: lang,
       ui_language: lang,
       assistant_name: name.trim() || "Hark",
-      hotkey: hotkey.trim() || "cmd+shift+space",
+      hotkey: hotkey.trim() || defaultHotkey(),
     });
     setLang(lang);
     setSpeechLang(lang);

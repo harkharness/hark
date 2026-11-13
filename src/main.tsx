@@ -4,6 +4,7 @@ import App from "./App";
 import Hud from "./Hud";
 import "./styles.css";
 import { seedDemo, startDemo } from "./lib/demo";
+import { OS } from "./lib/platform";
 
 // One bundle, two window kinds: the main window is the cabin (every
 // project, the general chat, board, costs and settings as views); project
@@ -19,6 +20,8 @@ const taskSession = params.get("session");
 
 // The frameless voice HUD paints on a transparent window.
 if (params.get("hud")) document.documentElement.classList.add("hud-window");
+// The stylesheet lays the title bar out per desktop (data-os).
+document.documentElement.dataset.os = OS;
 // `?demo=<scene>`: the real window over invented data, for screenshots.
 seedDemo();
 

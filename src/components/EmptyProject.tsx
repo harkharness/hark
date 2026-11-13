@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { defaultHotkey } from "../lib/platform";
 import { LayoutGrid, Mic, Play, Search } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
@@ -34,7 +35,7 @@ export default function EmptyProject({
   onBoard: () => void;
 }) {
   const [chats, setChats] = useState<number | null>(null);
-  const [hotkey, setHotkey] = useState("cmd+shift+space");
+  const [hotkey, setHotkey] = useState(defaultHotkey());
   useEffect(() => {
     if (project) {
       ipc
@@ -44,7 +45,7 @@ export default function EmptyProject({
     }
     ipc
       .configRead()
-      .then((snap) => setHotkey(snap.values.hotkey || "cmd+shift+space"))
+      .then((snap) => setHotkey(snap.values.hotkey || defaultHotkey()))
       .catch(() => {});
   }, [project?.path]);
 

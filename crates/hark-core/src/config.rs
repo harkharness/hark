@@ -182,7 +182,7 @@ impl Default for Config {
             models: ModelsTable::default(),
             theme: "hark".into(),
             prompt_budget_chars: 12_000,
-            hotkey: "cmd+shift+space".into(),
+            hotkey: if cfg!(target_os = "macos") { "cmd+shift+space" } else { "ctrl+shift+space" }.into(),
             worker_budget_usd: 5.0,
             worker_max_turns: 0,
             project_budgets: BTreeMap::new(),
@@ -634,7 +634,8 @@ name = "Codex"
         assert_eq!(at("~/Projects/caro/sub"), None, "0 = uncapped, longest prefix wins");
         assert_eq!(at("~/Projects/outro"), Some(5.0), "global default elsewhere");
         assert_eq!(config.assistant_name, "Hark");
-        assert_eq!(config.hotkey, "cmd+shift+space");
+        // The voice hotkey sits on the key the desktop has.
+        assert_eq!(config.hotkey, if cfg!(target_os = "macos") { "cmd+shift+space" } else { "ctrl+shift+space" });
         // What the file DID say still wins.
         assert_eq!(config.model, "sonnet");
     }

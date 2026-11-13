@@ -2218,6 +2218,12 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    headers, so the terminal's × lost its hover and a click on it dragged
    the window instead (docs/CHROME.md). */
 .side-drag { height: 28px; flex: 0 0 auto; }
+/* Off the Mac the desktop draws its own title bar above the page: no
+   traffic lights to sit under, no strip to leave empty. The toggle moves
+   to the corner and the collapsed chat title keeps a plain margin. */
+:root:not([data-os="mac"]) .side-drag { height: 8px; }
+:root:not([data-os="mac"]) .side-toggle-float { left: 8px; }
+:root:not([data-os="mac"]) .app.side-closed .chat-title-head { padding-left: 40px; }
 /* Only the project window renders .app, and that window is built with an
    Overlay title bar: the strip is OURS to use, not to leave empty. The
    layout starts at the very top and the chat's own title bar occupies it
