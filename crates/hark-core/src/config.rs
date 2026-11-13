@@ -299,17 +299,8 @@ pub fn rewrite_legacy_paths(file: &Path, old_data: &Path, new_data: &Path) {
 pub fn migrate_legacy() {
     migrate_dir(&home().join(".config").join("vox"), &home().join(".config").join("hark"));
 
-    let (old_data, new_data) = if cfg!(target_os = "macos") {
-        (
-            home().join("Library").join("Application Support").join("vox"),
-            home().join("Library").join("Application Support").join("hark"),
-        )
-    } else {
-        (
-            home().join(".local").join("share").join("vox"),
-            home().join(".local").join("share").join("hark"),
-        )
-    };
+    let new_data = legacy_data_dir(&home());
+    let old_data = new_data.with_file_name("vox");
     migrate_dir(&old_data, &new_data);
 
     let old_backup = new_data.join("settings.json.before-vox");
@@ -324,6 +315,16 @@ pub fn migrate_legacy() {
     consolidate_under_dot_hark(&home());
 }
 
+/// Where the data lived before everything moved under `~/.hark` (26/08):
+/// the OS's own application-data dir. Only the migration reads it.
+pub fn legacy_data_dir(home: &Path) -> PathBuf {
+    if cfg!(target_os = "macos") {
+        home.join("Library").join("Application Support").join("hark")
+    } else {
+        home.join(".local").join("share").join("hark")
+    }
+}
+
 /// Gather every machine-global artifact under `~/.hark`, mirroring the
 /// `~/.claude` convention: the sqlite index, state.json, the persona, the
 /// whisper models AND config.toml live in one discoverable root instead of
@@ -331,11 +332,7 @@ pub fn migrate_legacy() {
 /// no-op on every later boot; paths inside user files follow the move.
 pub fn consolidate_under_dot_hark(home: &Path) {
     let hark = home.join(".hark");
-    let old_data = if cfg!(target_os = "macos") {
-        home.join("Library").join("Application Support").join("hark")
-    } else {
-        home.join(".local").join("share").join("hark")
-    };
+    let old_data = legacy_data_dir(home);
     migrate_dir(&old_data, &hark);
 
     // The config FILE joins the same root (dir-migration cannot help: the
@@ -758,6 +755,19 @@ match_cwd = ["/abs/beta"]
         assert!(!migrate_dir(&root.path().join("ghost"), &new));
     }
 
+    /// The pre-consolidation data dir is the OS's own: the test above ran
+    /// green on macOS and red on Linux while it spelled the macOS path.
+    #[test]
+    fn the_legacy_data_dir_is_the_os_convention() {
+        let home = Path::new("/h");
+        let dir = legacy_data_dir(home);
+        if cfg!(target_os = "macos") {
+            assert_eq!(dir, Path::new("/h/Library/Application Support/hark"));
+        } else {
+            assert_eq!(dir, Path::new("/h/.local/share/hark"));
+        }
+    }
+
     /// Stage 2 (26/08): everything global consolidates under ~/.hark,
     /// mirroring ~/.claude — the user looked for the sqlite and the state
     /// where every other CLI keeps theirs and found an OS-specific dir.
@@ -765,8 +775,8 @@ match_cwd = ["/abs/beta"]
     fn consolidation_gathers_data_and_config_under_dot_hark() {
         let root = tempfile::tempdir().unwrap();
         let home = root.path();
-        // Old macOS data dir with the real artifacts…
-        let old_data = home.join("Library").join("Application Support").join("hark");
+        // The old per-OS data dir with the real artifacts…
+        let old_data = legacy_data_dir(home);
         std::fs::create_dir_all(old_data.join("models")).unwrap();
         std::fs::write(old_data.join("index.db"), "sqlite").unwrap();
         std::fs::write(old_data.join("state.json"), "{}").unwrap();
