@@ -4512,6 +4512,54 @@ fn repo_diff(workspace: String, path: String) -> Result<String, String> {
 
 const BROWSER_LABEL: &str = "browser";
 
+/// Where the panel's body is, in the main window's logical coordinates,
+/// kept so the page can follow the window (Linux, see `browser_open`).
+/// x, y, width, height, logical.
+#[cfg(target_os = "linux")]
+type BrowserRect = Option<(f64, f64, f64, f64)>;
+#[cfg(target_os = "linux")]
+static BROWSER_RECT: std::sync::OnceLock<std::sync::Mutex<BrowserRect>> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "linux")]
+fn browser_rect_cell() -> &'static std::sync::Mutex<BrowserRect> {
+    BROWSER_RECT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// A rectangle inside the main window, as a spot on the screen: the
+/// window's content origin plus the rectangle, both in physical pixels.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn screen_rect(origin: (i32, i32), scale: f64, x: f64, y: f64, w: f64, h: f64) -> (tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>) {
+    (
+        tauri::PhysicalPosition::new(origin.0 + (x * scale).round() as i32, origin.1 + (y * scale).round() as i32),
+        tauri::PhysicalSize::new((w.max(1.0) * scale).round() as u32, (h.max(1.0) * scale).round() as u32),
+    )
+}
+
+/// On Linux the page is a window of its own: Tauri packs a child webview
+/// into the window's vertical GTK box, where it stacks under the app at
+/// full width and no bounds can move it. A transient, undecorated window
+/// over the panel's body behaves like the child does elsewhere; it is
+/// re-placed on every move or resize of the main window.
+#[cfg(target_os = "linux")]
+fn browser_window_place(app: &AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    *browser_rect_cell().lock().unwrap_or_else(|e| e.into_inner()) = Some((x, y, w, h));
+    let main = app.get_webview_window("main").ok_or("no main window")?;
+    let Some(win) = app.get_webview_window(BROWSER_LABEL) else { return Ok(()) };
+    let scale = main.scale_factor().unwrap_or(1.0);
+    let origin = main.inner_position().map_err(|e| e.to_string())?;
+    let (pos, size) = screen_rect((origin.x, origin.y), scale, x, y, w, h);
+    win.set_position(pos).map_err(|e| e.to_string())?;
+    win.set_size(size).map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn browser_follow(app: &AppHandle) {
+    let rect = *browser_rect_cell().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((x, y, w, h)) = rect {
+        let _ = browser_window_place(app, x, y, w, h);
+    }
+}
+
 fn browser_url(raw: &str) -> Result<tauri::Url, String> {
     let text = raw.trim();
     if text.is_empty() {
@@ -4525,6 +4573,7 @@ fn browser_url(raw: &str) -> Result<tauri::Url, String> {
     Ok(url)
 }
 
+#[cfg(not(target_os = "linux"))]
 fn browser_rect(x: f64, y: f64, w: f64, h: f64) -> tauri::Rect {
     tauri::Rect {
         position: tauri::Position::Logical(tauri::LogicalPosition { x, y }),
@@ -4537,6 +4586,7 @@ fn browser_rect(x: f64, y: f64, w: f64, h: f64) -> tauri::Rect {
 /// macOS, and the exact cause (title-bar overlay, flipped frames) is not
 /// visible from here. A small, consistent delta is compensated on the
 /// spot; anything larger is only logged, so the diag tells the story.
+#[cfg(not(target_os = "linux"))]
 fn browser_place(app: &AppHandle, wv: &tauri::Webview, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let window = wv.window();
     let scale = window.scale_factor().unwrap_or(1.0);
@@ -4570,32 +4620,64 @@ fn browser_place(app: &AppHandle, wv: &tauri::Webview, x: f64, y: f64, w: f64, h
 #[tauri::command]
 fn browser_open(app: AppHandle, url: String, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
     let url = browser_url(&url)?;
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(win) = app.get_webview_window(BROWSER_LABEL) {
+            browser_window_place(&app, x, y, w, h)?;
+            win.navigate(url).map_err(|e| e.to_string())?;
+            return win.show().map_err(|e| e.to_string());
+        }
+        let main = app.get_webview_window("main").ok_or("no main window")?;
+        let win = tauri::WebviewWindowBuilder::new(&app, BROWSER_LABEL, tauri::WebviewUrl::External(url))
+            .title("Hark")
+            .decorations(false)
+            .skip_taskbar(true)
+            .resizable(false)
+            .inner_size(w.max(1.0), h.max(1.0))
+            .zoom_hotkeys_enabled(true)
+            .parent(&main)
+            .map_err(|e| e.to_string())?
+            .build()
+            .map_err(|e| e.to_string())?;
+        drop(win);
+        browser_window_place(&app, x, y, w, h)
+    }
+    #[cfg(not(target_os = "linux"))]
     if let Some(existing) = app.get_webview(BROWSER_LABEL) {
         browser_place(&app, &existing, x, y, w, h)?;
         existing.navigate(url).map_err(|e| e.to_string())?;
         return existing.show().map_err(|e| e.to_string());
     }
+    #[cfg(not(target_os = "linux"))]
     let main = app.get_webview_window("main").ok_or("no main window")?;
-    let window: tauri::Window = main.as_ref().window();
-    let builder = tauri::webview::WebviewBuilder::new(BROWSER_LABEL, tauri::WebviewUrl::External(url)).zoom_hotkeys_enabled(true);
-    let wv = window
-        .add_child(builder, tauri::LogicalPosition { x, y }, tauri::LogicalSize { width: w.max(1.0), height: h.max(1.0) })
-        .map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "linux"))]
     {
-        let window = wv.window();
-        let sizes = match (window.outer_size(), window.inner_size()) {
-            (Ok(o), Ok(i)) => format!("outer {}x{} inner {}x{}", o.width, o.height, i.width, i.height),
-            _ => "sizes unknown".into(),
-        };
-        diag(&app, &format!("browser open: asked ({x:.0},{y:.0} {w:.0}x{h:.0}) window {sizes}"));
+        let window: tauri::Window = main.as_ref().window();
+        let builder = tauri::webview::WebviewBuilder::new(BROWSER_LABEL, tauri::WebviewUrl::External(url)).zoom_hotkeys_enabled(true);
+        let wv = window
+            .add_child(builder, tauri::LogicalPosition { x, y }, tauri::LogicalSize { width: w.max(1.0), height: h.max(1.0) })
+            .map_err(|e| e.to_string())?;
+        {
+            let window = wv.window();
+            let sizes = match (window.outer_size(), window.inner_size()) {
+                (Ok(o), Ok(i)) => format!("outer {}x{} inner {}x{}", o.width, o.height, i.width, i.height),
+                _ => "sizes unknown".into(),
+            };
+            diag(&app, &format!("browser open: asked ({x:.0},{y:.0} {w:.0}x{h:.0}) window {sizes}"));
+        }
+        browser_place(&app, &wv, x, y, w, h)
     }
-    browser_place(&app, &wv, x, y, w, h)
 }
 
 #[tauri::command]
 fn browser_bounds(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-    let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
-    browser_place(&app, &wv, x, y, w, h)
+    #[cfg(target_os = "linux")]
+    return browser_window_place(&app, x, y, w, h);
+    #[cfg(not(target_os = "linux"))]
+    {
+        let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
+        browser_place(&app, &wv, x, y, w, h)
+    }
 }
 
 #[tauri::command]
@@ -4625,14 +4707,31 @@ fn browser_url_now(app: AppHandle) -> Result<Option<String>, String> {
 
 #[tauri::command]
 fn browser_hide(app: AppHandle) -> Result<(), String> {
-    let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
-    wv.hide().map_err(|e| e.to_string())
+    #[cfg(target_os = "linux")]
+    {
+        let Some(win) = app.get_webview_window(BROWSER_LABEL) else { return Ok(()) };
+        win.hide().map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
+        wv.hide().map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]
 fn browser_close(app: AppHandle) -> Result<(), String> {
-    let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
-    wv.close().map_err(|e| e.to_string())
+    #[cfg(target_os = "linux")]
+    {
+        *browser_rect_cell().lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let Some(win) = app.get_webview_window(BROWSER_LABEL) else { return Ok(()) };
+        win.close().map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let Some(wv) = app.get_webview(BROWSER_LABEL) else { return Ok(()) };
+        wv.close().map_err(|e| e.to_string())
+    }
 }
 
 /// Git state for a set of task workspaces, in one call.
@@ -5247,6 +5346,7 @@ fn config_write(app: AppHandle, patch: serde_json::Value) -> Result<(), String> 
 
     // Menu label follows the UI language without a restart.
     if patch.get("ui_language").is_some() {
+        #[cfg(target_os = "macos")]
         if let Ok(menu) = build_native_menu(&app) {
             let _ = app.set_menu(menu);
         }
@@ -5289,6 +5389,7 @@ fn config_raw_write(app: AppHandle, text: String) -> Result<(), String> {
     std::fs::write(&path, &text).map_err(|e| e.to_string())?;
     let after = Config::load();
     if before.ui_language != after.ui_language {
+        #[cfg(target_os = "macos")]
         if let Ok(menu) = build_native_menu(&app) {
             let _ = app.set_menu(menu);
         }
@@ -6229,6 +6330,10 @@ fn open_project_window(
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
+    // Off the Mac the window draws its own title strip (the front's
+    // win-bar), as the main window does: no desktop decorations.
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.decorations(false);
     builder
         // wry's native drop target swallows DOM dragover/drop; without this
         // the board's HTML5 card drag never lands (we take no file drops).
@@ -6470,6 +6575,7 @@ fn approve(
 /// Native macOS menu: the standard set plus "Settings…" (Cmd+,) under the
 /// app's own submenu. Rebuilt on ui_language change (config_write) so the
 /// label follows the UI language without a restart.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn build_native_menu(
     handle: &tauri::AppHandle,
 ) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::Error> {
@@ -6553,11 +6659,14 @@ fn ensure_agent_path() {
 
 pub fn run() {
     ensure_agent_path();
-    tauri::Builder::default()
-        // Native macOS menu: the standard set plus "Settings…" (Cmd+,)
-        // under the app's own submenu — it fronts the MOTHER window with
-        // the settings modal open (machine config lives there).
-        .menu(build_native_menu)
+    let builder = tauri::Builder::default();
+    // Native macOS menu: the standard set plus "Settings…" (Cmd+,)
+    // under the app's own submenu — it fronts the MOTHER window with
+    // the settings modal open (machine config lives there). Elsewhere a
+    // menu is a GTK bar painted inside the window: none.
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(build_native_menu);
+    builder
         .on_menu_event(|app, event| {
             if event.id() == "settings" {
                 let _ = focus_main(app.clone(), Some("settings".into()));
@@ -6809,6 +6918,13 @@ pub fn run() {
                 && matches!(event, tauri::WindowEvent::CloseRequested { .. })
             {
                 window.app_handle().exit(0);
+            }
+            // The browser window rides on the main one (Linux).
+            #[cfg(target_os = "linux")]
+            if window.label() == "main"
+                && matches!(event, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_))
+            {
+                browser_follow(&window.app_handle().clone());
             }
             // Focus ledger: the OS tells us which PROJECT window the user
             // is working in; the spoken word follows it. Mother/HUD focus

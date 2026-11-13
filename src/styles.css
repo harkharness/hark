@@ -2218,12 +2218,26 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
    headers, so the terminal's × lost its hover and a click on it dragged
    the window instead (docs/CHROME.md). */
 .side-drag { height: 28px; flex: 0 0 auto; }
-/* Off the Mac the desktop draws its own title bar above the page: no
-   traffic lights to sit under, no strip to leave empty. The toggle moves
-   to the corner and the collapsed chat title keeps a plain margin. */
-:root:not([data-os="mac"]) .side-drag { height: 8px; }
-:root:not([data-os="mac"]) .side-toggle-float { left: 8px; }
-:root:not([data-os="mac"]) .app.side-closed .chat-title-head { padding-left: 40px; }
+/* Off the Mac the window is undecorated and draws its own title strip
+   (WindowControls): a 28px drag region across the top with the three
+   window buttons at the right. Everything below starts under it, so no
+   panel header ever sits under a drag region; the sidebar toggle moves
+   into the strip and the collapsed chat title keeps a plain margin. */
+.win-bar { display: none; }
+:root:not([data-os="mac"]) .win-bar {
+  display: flex; position: fixed; top: 0; left: 0; right: 0; height: 28px;
+  align-items: center; justify-content: flex-end; z-index: 9; background: var(--bg);
+}
+.win-btn {
+  width: 38px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; color: var(--dim); cursor: pointer;
+}
+.win-btn:hover { color: var(--text); background: rgba(255,255,255,.08); }
+.win-btn.close:hover { color: #fff; background: #c42b1c; }
+:root:not([data-os="mac"]) .app { padding-top: 28px; }
+:root:not([data-os="mac"]) .side-drag { height: 0; }
+:root:not([data-os="mac"]) .side-toggle-float { left: 8px; top: 3px; z-index: 10; }
+:root:not([data-os="mac"]) .app.side-closed .chat-title-head { padding-left: 12px; }
 /* Only the project window renders .app, and that window is built with an
    Overlay title bar: the strip is OURS to use, not to leave empty. The
    layout starts at the very top and the chat's own title bar occupies it
@@ -2398,7 +2412,11 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   border-radius: 14px; width: min(560px, 92vw); padding: 22px 24px;
   display: flex; flex-direction: column; gap: 16px;
   box-shadow: 0 18px 60px rgba(0,0,0,.45);
+  /* The plugin step lists seven agents: on a small window the card
+     scrolls inside itself, the footer stays reachable. */
+  max-height: calc(100vh - 40px); box-sizing: border-box;
 }
+.ob-card .ob-body { overflow: auto; min-height: 0; }
 .ob-title { font-size: 20px; font-weight: 600; }
 .ob-sub { color: var(--dim); font-size: var(--fs-body); margin-top: 2px; }
 .ob-dots { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
@@ -2411,9 +2429,17 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .ob-body { display: flex; flex-direction: column; gap: 12px; min-height: 150px; }
 .ob-field { display: flex; flex-direction: column; gap: 5px; font-size: var(--fs-ui); color: var(--dim); }
 .ob-field input, .ob-field select {
-  background: var(--panel-2); border: 1px solid transparent; color: var(--text);
+  background: var(--panel-2); border: 1px solid transparent; color: var(--text-strong, var(--text));
   border-radius: 8px; padding: 8px 11px; font: inherit; font-size: var(--fs-body);
 }
+/* The desktop's own select (GTK) painted a grey box with faint text:
+   drawn by us instead, same on every desktop, a chevron at the right. */
+.ob-field select, .set-row select {
+  appearance: none; -webkit-appearance: none; padding-right: 32px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b96a8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 11px center;
+}
+.ob-field select option, .set-row select option { background: var(--panel-2); color: var(--text-strong, var(--text)); }
 .ob-field input:focus, .ob-field select:focus { outline: none; border-color: var(--accent); }
 .ob-ok { color: var(--ok); font-size: var(--fs-body); display: flex; gap: 6px; align-items: center; }
 .ob-warn { color: var(--warn); font-size: var(--fs-body); display: flex; gap: 6px; align-items: center; }

@@ -1,18 +1,37 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
-    "targets": ["deb", "appimage"],
+    "targets": [
+      "deb",
+      "appimage"
+    ],
     "category": "DeveloperTool",
     "shortDescription": "The open-source cockpit for your coding agents",
     "longDescription": "A desktop for Claude Code, Gemini CLI, Codex and any Agent Client Protocol agent, running on the subscriptions you already pay for: chats beside a terminal, the files and the session panel; documents, spreadsheets, whiteboards and dashboards the agents produce and you edit; a board of every task; the cost of every chat; and a voice.",
     "linux": {
       "deb": {
-        "depends": ["speech-dispatcher", "libasound2t64 | libasound2"],
+        "depends": [
+          "speech-dispatcher",
+          "libasound2t64 | libasound2"
+        ],
         "desktopTemplate": "./hark.desktop"
       },
       "appimage": {
         "bundleMediaFramework": false
       }
     }
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "hark",
+        "width": 1080,
+        "height": 720,
+        "minWidth": 720,
+        "minHeight": 480,
+        "dragDropEnabled": false,
+        "decorations": false
+      }
+    ]
   }
 }

@@ -65,6 +65,9 @@ import { agentError, askReplyMsg, firstSentence, isAuthError } from "./lib/forma
 import Settings, { type Section as SettingsSection } from "./components/Settings";
 import Onboarding from "./components/Onboarding";
 import { checkForUpdate, restartIntoUpdate } from "./lib/updater";
+import { OS } from "./lib/platform";
+import WindowControls from "./components/WindowControls";
+import { isDemo } from "./lib/demo";
 import * as ipc from "./lib/ipc";
 import { alreadyShown } from "./lib/transcript";
 import { staleTurns } from "./lib/turns";
@@ -3918,6 +3921,7 @@ export default function App({
 
   return (
     <div className={`app ${sidebarOpen ? "" : "side-closed"}`}>
+      {OS !== "mac" && !isDemo() && <WindowControls />}
       {/* The title bar is an Overlay: the chat header and the sidebar's top
           slot drag the window (docs/CHROME.md — a full-width strip here
           covered the rail's headers and killed their ×); the toggle sits
