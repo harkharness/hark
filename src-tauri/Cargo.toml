@@ -21,6 +21,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 urlencoding = "2"
+dirs = "7"
 tauri-plugin-global-shortcut = "2.3.2"
 # Real PTY for the in-app terminal (the user's own shell, interactive).
 portable-pty = "0.9"

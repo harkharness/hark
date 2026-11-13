@@ -1,5 +1,6 @@
 //! Tauri driver: the desktop window over the same hark-core used by the CLI.
 
+mod platform;
 mod terminal;
 mod voice;
 
@@ -2550,7 +2551,7 @@ fn export_file(name: String, content: String) -> Result<String, String> {
     Ok(file.to_string_lossy().to_string())
 }
 
-/// `open -R`: the Finder with the file selected. Only inside ~/.hark —
+/// The file manager with the file selected. Only inside ~/.hark —
 /// the artifacts and the exports — never an arbitrary path.
 #[tauri::command]
 fn reveal_path(path: String) -> Result<(), String> {
@@ -2559,8 +2560,7 @@ fn reveal_path(path: String) -> Result<(), String> {
     if !real.starts_with(&root) {
         return Err(format!("refused: {} is outside ~/.hark", real.display()));
     }
-    std::process::Command::new("open").arg("-R").arg(&real).spawn().map_err(|e| e.to_string())?;
-    Ok(())
+    platform::reveal(&real)
 }
 
 /// A `hark://` link opened from anywhere: the chat of a session where it
@@ -5469,8 +5469,8 @@ fn report_save(app: AppHandle, title: String, what: String, steps: String) -> Re
         render(&bundle)
     );
     std::fs::write(&path, text).map_err(|e| e.to_string())?;
-    // Finder, with the file selected: the next step is to drag it.
-    let _ = std::process::Command::new("open").arg("-R").arg(&path).spawn();
+    // The file manager, with the file selected: the next step is to drag it.
+    let _ = platform::reveal(&path);
     Ok(path.display().to_string())
 }
 
@@ -5574,11 +5574,7 @@ fn open_external(target: String) -> Result<(), String> {
             real.to_string_lossy().into_owned()
         }
     };
-    std::process::Command::new("open")
-        .arg(&arg)
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    platform::open(&arg)
 }
 
 /// What this machine knows about a session before dispatching to it.
@@ -5798,7 +5794,7 @@ fn disk_project_matches(config: &Config, text: &str) -> Vec<String> {
 }
 
 fn dirs_home() -> Option<std::path::PathBuf> {
-    std::env::var_os("HOME").map(std::path::PathBuf::from)
+    dirs::home_dir()
 }
 
 #[tauri::command]

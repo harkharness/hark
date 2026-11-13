@@ -16,6 +16,8 @@ toml = "0.8"
 cpal = "0.15"
 toml_edit = "0.22"
 sha2 = "0.10"
+# The home dir by the OS's own rule: HOME on unix, USERPROFILE on Windows.
+dirs = "7"
 
 # Metal only where it is a win: Apple Silicon. On Intel Macs whisper.cpp's
 # Metal path runs on an iGPU/AMD card, where it is slower and less stable

@@ -1477,6 +1477,7 @@ name = "hark-app"
 version = "0.10.0"
 dependencies = [
  "anyhow",
+ "dirs",
  "hark-agent",
  "hark-core",
  "hark-plugin-acp",
@@ -1512,6 +1513,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "cpal",
+ "dirs",
  "hark-agent",
  "rusqlite",
  "serde",

@@ -51,7 +51,7 @@ pub fn term_open(
             pixel_height: 0,
         })
         .map_err(|e| e.to_string())?;
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let shell = crate::platform::default_shell();
     let mut cmd = CommandBuilder::new(&shell);
     // Login shell: the user's real prompt, PATH and aliases, like iTerm.
     cmd.arg("-l");

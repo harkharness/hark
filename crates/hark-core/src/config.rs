@@ -448,7 +448,9 @@ impl Config {
 }
 
 fn home() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default()
+    dirs::home_dir()
+        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+        .unwrap_or_default()
 }
 
 /// Expand a leading `~` to the user's home directory.
