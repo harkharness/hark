@@ -303,6 +303,8 @@ pub trait Stt {
 /// Text to speech plus short cue sounds.
 pub trait Tts {
     fn speak(&self, text: &str) -> anyhow::Result<()>;
+    /// Cut whatever is being spoken right now (Esc in the window).
+    fn stop(&self);
     fn beep(&self, kind: Cue);
 }
 

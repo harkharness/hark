@@ -167,7 +167,9 @@ impl Default for Config {
             agents: BTreeMap::new(),
             language: "pt".into(),
             ui_language: "pt".into(),
-            voice: "Luciana".into(),
+            // macOS ships Luciana (pt-BR); elsewhere the speech service
+            // picks its own default for the language.
+            voice: if cfg!(target_os = "macos") { "Luciana" } else { "" }.into(),
             whisper_model: String::new(),
             stt: default_stt(),
             vocab: [

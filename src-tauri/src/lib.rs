@@ -15,7 +15,7 @@ use hark_core::adapters::sqlite_store::SqliteStore;
 use hark_core::adapters::artifacts_fs::FsArtifacts;
 use hark_core::ports::ArtifactStore as _;
 use hark_core::adapters::state_file;
-use hark_core::adapters::{cpal_audio::CpalMic, say_tts::SayTts, whisper_stt::WhisperStt};
+use hark_core::adapters::{cpal_audio::CpalMic, os_tts, whisper_stt::WhisperStt};
 use hark_core::app::ask::{ask_with_image, AskDeps};
 use hark_core::app::dispatch::{plan, Plan};
 use hark_core::chrono::{SecondsFormat, Utc};
@@ -724,10 +724,7 @@ fn speak(app: AppHandle, text: String) {
         }
         // The voice orb follows these events (no audio analysis needed).
         emit_event(&app, serde_json::json!({ "kind": "speaking", "on": true }));
-        let _ = SayTts {
-            voice: config.voice,
-        }
-        .speak(&text);
+        let _ = os_tts(&config).speak(&text);
         emit_event(&app, serde_json::json!({ "kind": "speaking", "on": false }));
     });
 }
@@ -737,7 +734,7 @@ fn speak(app: AppHandle, text: String) {
 #[tauri::command]
 fn speak_stop(app: AppHandle) {
     tts_generation().fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let _ = std::process::Command::new("killall").arg("say").status();
+    os_tts(&Config::load()).stop();
     emit_event(&app, serde_json::json!({ "kind": "speaking", "on": false }));
 }
 
@@ -858,9 +855,7 @@ fn hear_once(
     // can't: on CPU the transcription runs tens of seconds after the
     // capture ended, and "listening" the whole way read as frozen.
     let phase = MicPhase { app, owner };
-    let tts = SayTts {
-        voice: config.voice.clone(),
-    };
+    let tts = os_tts(&config);
     tts.beep(hark_core::ports::Cue::Listening);
     phase.say("capturing");
     let audio = CpalMic {
@@ -5298,26 +5293,10 @@ fn config_raw_write(app: AppHandle, text: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Voices the OS `say` engine offers, pt-* first (the answer voice).
+/// Voices the desktop's speech engine offers, pt-* first (the answer voice).
 #[tauri::command(async)]
 fn tts_voices() -> Result<Vec<(String, String)>, String> {
-    let out = std::process::Command::new("/usr/bin/say")
-        .args(["-v", "?"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let mut voices: Vec<(String, String)> = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter_map(|line| {
-            // "Luciana             pt_BR    # Olá! ..."
-            let lang_at = line.find('_').map(|i| i.saturating_sub(2))?;
-            let name = line[..lang_at].trim();
-            let lang = line[lang_at..].split_whitespace().next()?;
-            (!name.is_empty()).then(|| (name.to_string(), lang.to_string()))
-        })
-        .collect();
-    voices.sort_by_key(|(name, lang)| (!lang.starts_with("pt"), name.clone()));
-    voices.dedup();
-    Ok(voices)
+    hark_core::adapters::os_tts_voices().map_err(|e| e.to_string())
 }
 
 /// Open a URL or local file with the OS (default browser/app) — NEVER

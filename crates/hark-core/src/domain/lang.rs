@@ -45,9 +45,40 @@ pub fn stt_code(configured: &str) -> String {
     }
 }
 
+/// The language code handed to the voice. Speech services want a
+/// regional code (`pt-BR`, `en-US`); the mic's `"auto"` has no voice
+/// behind it, so the voice follows the interface then. A language Hark
+/// does not write in passes through as configured.
+pub fn tts_code(configured: &str, ui_language: &str) -> String {
+    let code = configured.trim();
+    let code = if code.is_empty() || code.eq_ignore_ascii_case("auto") {
+        ui_language.trim()
+    } else {
+        code
+    };
+    match code.to_lowercase().split(['-', '_']).next() {
+        Some("pt") => "pt-BR".to_string(),
+        Some("en") => "en-US".to_string(),
+        _ => code.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_voice_speaks_the_configured_language_as_a_regional_code() {
+        // Speech Dispatcher wants `pt-BR`, not `pt`; the mic's "auto"
+        // means the voice follows the interface instead.
+        assert_eq!(tts_code("pt", "en"), "pt-BR");
+        assert_eq!(tts_code("en", "pt"), "en-US");
+        assert_eq!(tts_code("pt_BR", "en"), "pt-BR");
+        assert_eq!(tts_code("auto", "pt"), "pt-BR");
+        assert_eq!(tts_code("", "en"), "en-US");
+        // A language Hark does not speak passes through as given.
+        assert_eq!(tts_code("es-MX", "pt"), "es-MX");
+    }
 
     #[test]
     fn stt_codes_drop_regions_and_pass_auto_through() {

@@ -1,4 +1,5 @@
-//! Text-to-speech via macOS `say` and cue sounds via `afplay`.
+//! Text-to-speech via macOS `say` and cue sounds via `afplay`. The Linux
+//! twin is `spd_tts`; `adapters::os_tts` picks one.
 
 use crate::ports::{Cue, Tts};
 
@@ -22,6 +23,27 @@ fn plan(voice: &str, text: &str) -> SpeakPlan {
     }
 }
 
+/// `say -v ?`: one voice per line, `Name   locale   # sample`. The name
+/// may hold spaces and parentheses; the locale is the first token with an
+/// underscore.
+pub fn voices_from(listing: &str) -> Vec<(String, String)> {
+    listing
+        .lines()
+        .filter_map(|line| {
+            let lang_at = line.find('_').map(|i| i.saturating_sub(2))?;
+            let name = line[..lang_at].trim();
+            let lang = line[lang_at..].split_whitespace().next()?;
+            (!name.is_empty()).then(|| (name.to_string(), lang.to_string()))
+        })
+        .collect()
+}
+
+/// The voices the OS engine offers right now.
+pub fn voices() -> anyhow::Result<Vec<(String, String)>> {
+    let out = std::process::Command::new("/usr/bin/say").args(["-v", "?"]).output()?;
+    Ok(voices_from(&String::from_utf8_lossy(&out.stdout)))
+}
+
 impl Tts for SayTts {
     fn speak(&self, text: &str) -> anyhow::Result<()> {
         let plan = plan(&self.voice, text);
@@ -36,6 +58,10 @@ impl Tts for SayTts {
         let status = child.wait()?;
         anyhow::ensure!(status.success(), "say exited with {status}");
         Ok(())
+    }
+
+    fn stop(&self) {
+        let _ = std::process::Command::new("killall").arg("say").status();
     }
 
     fn beep(&self, kind: Cue) {
@@ -56,6 +82,23 @@ impl Tts for SayTts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_voice_listing_yields_name_and_locale_per_line() {
+        let listing = "\
+Luciana             pt_BR    # Olá! Meu nome é Luciana.
+Samantha            en_US    # Hello! My name is Samantha.
+Eddy (Português (Brasil)) pt_BR    # Olá! Meu nome é Eddy.
+";
+        assert_eq!(
+            voices_from(listing),
+            vec![
+                ("Luciana".to_string(), "pt_BR".to_string()),
+                ("Samantha".to_string(), "en_US".to_string()),
+                ("Eddy (Português (Brasil))".to_string(), "pt_BR".to_string()),
+            ]
+        );
+    }
 
     #[test]
     fn the_spoken_text_is_never_an_argument() {

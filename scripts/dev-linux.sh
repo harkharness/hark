@@ -51,7 +51,7 @@ EOF
   sudo apt-get install -y -q \
     build-essential curl file git rsync pkg-config cmake clang patchelf \
     libssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-    libasound2-dev speech-dispatcher espeak-ng
+    libasound2-dev speech-dispatcher espeak-ng pulseaudio-utils sound-theme-freedesktop
 
   if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" != "$NODE_MAJOR" ]; then
     say "Node $NODE_MAJOR"
