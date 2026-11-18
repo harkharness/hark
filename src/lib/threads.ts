@@ -6,6 +6,14 @@
 // from a project chat. Pure.
 import type { Msg } from "../types";
 
+/** A "+" draft is a page of its own until its first message opens the
+ *  session: keyed by the project, with a prefix no chat title can carry
+ *  (a control character), so it never collides with a chat or with the
+ *  general thread (the empty label). */
+const DRAFT_PREFIX = "\u0001draft:";
+export const draftThread = (projectPath: string): string => `${DRAFT_PREFIX}${projectPath}`;
+export const isDraftThread = (thread: string): boolean => thread.startsWith(DRAFT_PREFIX);
+
 /** Every message of thread `from` now belongs to thread `to`. */
 export function rekeyMessages(messages: Msg[], from: string, to: string): Msg[] {
   if (from === to) return messages;

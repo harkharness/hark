@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { breadcrumb, colourIndex, projColour, scopeOf } from "./scope";
+import { breadcrumb, colourIndex, projColour, scopeChoices, scopeOf } from "./scope";
 import type { Project } from "../types";
 
 const hark: Project = { name: "hark", path: "/Users/x/Projects/hark" };
@@ -60,5 +60,23 @@ describe("scopeOf: an open artifact page", () => {
     const page = { title: "ADR 004", path: "decisoes/adr-004.md", space: "hark" };
     expect(scopeOf({ focusedTask: { title: "Billing", sessionId: "s1" }, page })).toEqual({ kind: "page", ...page });
     expect(breadcrumb(scopeOf({ page }))).toEqual(["hark", "ADR 004"]);
+  });
+});
+
+describe("scopeChoices: what the chip offers when it is a picker", () => {
+  it("offers every project after 'all', and marks the one in force", () => {
+    const rows = scopeChoices([hark, landing], { kind: "project", project: landing });
+    expect(rows).toEqual([
+      { project: null, current: false },
+      { project: hark, current: false },
+      { project: landing, current: true },
+    ]);
+  });
+  it("marks 'all' when nobody is in command", () => {
+    expect(scopeChoices([hark], { kind: "all" })?.[0]).toEqual({ project: null, current: true });
+  });
+  it("offers nothing inside a chat or a page: the target was chosen by opening it", () => {
+    expect(scopeChoices([hark], { kind: "chat", title: "t", project: hark })).toBeNull();
+    expect(scopeChoices([hark], { kind: "page", title: "t", path: "p", space: "s" })).toBeNull();
   });
 });

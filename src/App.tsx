@@ -46,7 +46,7 @@ import { Bell } from "lucide-react";
 import { condense } from "./lib/mirror";
 import { recoverSession as replacementFor, sessionVanished } from "./lib/recovery";
 import { artifactFile, harkTarget, pageId } from "./lib/harkLink";
-import { harkOwnedSession, rekeyMessages, rekeyRecord } from "./lib/threads";
+import { draftThread, harkOwnedSession, rekeyMessages, rekeyRecord } from "./lib/threads";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
@@ -216,9 +216,14 @@ export default function App({
   /** The thread on screen, as the key of everything a chat keeps for
    *  itself: its rail panel, its shells, its file tabs, its page. The
    *  general chat is the empty key. */
-  const threadKey = focusedTask?.title ?? GENERAL;
   // A "+" click on a project: the NEXT message opens a fresh session there.
+  // Until then the draft is a page of its own (lib/threads.ts): it used
+  // to borrow the general thread, and showed Hark's conversation with a
+  // "novo chat em…" line stacked under it for every click.
   const [draftChat, setDraftChat] = useState<Project | null>(null);
+  const draftChatRef = useRef(draftChat);
+  draftChatRef.current = draftChat;
+  const threadKey = focusedTask?.title ?? (draftChat ? draftThread(draftChat.path) : GENERAL);
   // Hark's own chat, across restarts: the journal (local, zero tokens). Today
   // is the thread; the days before are rows in the Início sidebar, and one
   // of them can be on screen instead of today.
@@ -519,7 +524,8 @@ export default function App({
   const currentThread = useCallback((): string | null => {
     const live = focusedRef.current;
     if (live) return workersRef.current[live]?.label ?? live;
-    return focusedTaskRef.current?.title ?? null;
+    if (focusedTaskRef.current) return focusedTaskRef.current.title;
+    return draftChatRef.current ? draftThread(draftChatRef.current.path) : null;
   }, []);
   /** Threads whose next agent turn IS a compaction (we sent "/compact").
    *  The summary is pages long and the CLI writes it as ordinary prose. */
@@ -1534,8 +1540,10 @@ export default function App({
   /** First message of a "+" draft: opens a brand-new session in the project. */
   async function runNewChat(project: Project, instruction: string, agent?: string) {
     setBusy(t("busy_new_session"));
-    const from = currentThread() ?? GENERAL;
-    push({ who: "sys", text: t("sys_new_chat_in", { name: project.name }) });
+    const from = draftThread(project.path);
+    // On screen at once, in the draft's page: the spawn takes seconds
+    // and the message used to appear only after it.
+    push({ who: "user", text: instruction, task: from });
     beginTurn(from);
     let live = false;
     try {
@@ -1549,18 +1557,22 @@ export default function App({
       );
       if (out.status === "started") {
         const label = instruction.split(/\s+/).slice(0, 5).join(" ");
-        push({ who: "user", text: instruction, task: label });
+        // The draft's page becomes the chat's: its message goes along.
+        setMessages((old) => rekeyMessages(old, from, label));
         adoptWorker(out.task_id, label, out.directives, "");
+        draftChatRef.current = null;
+        setDraftChat(null);
         live = true;
       } else {
-        push({ who: "sys", text: t("sys_not_opened", { e: JSON.stringify(out) }) });
+        push({ who: "sys", text: t("sys_not_opened", { e: JSON.stringify(out) }), task: from });
       }
     } catch (err) {
       nudgeRef.current(err);
-      push({ who: "sys", text: t("sys_error", { e: agentError(err) }) });
+      push({ who: "sys", text: t("sys_error", { e: agentError(err) }), task: from });
     } finally {
+      // A failed start keeps the draft: the error is on its page, and
+      // the next message tries again in the same project.
       if (!live) endTurn(from);
-      setDraftChat(null);
       setBusy(null);
       refresh();
     }
@@ -3280,12 +3292,30 @@ export default function App({
 
   function startDraftChat(project: Project) {
     setView("chat");
-    setDraftChat(project);
     leaveChat();
-    push({
-      who: "sys",
-      text: t("sys_draft_chat", { name: project.name, path: project.path }),
-    });
+    draftChatRef.current = project;
+    setDraftChat(project);
+  }
+
+  /** Back to Hark's own chat, scope "all projects": whatever was being
+   *  drafted is dropped. Leaving used to keep the draft, so the chip
+   *  stayed on the project of the last "+" and the next message typed
+   *  in Início opened a session there instead of reaching Hark. */
+  function goInicio() {
+    if (inicioFocusRef.current) leaveFocus();
+    draftChatRef.current = null;
+    setDraftChat(null);
+    leaveChat();
+    setDayShown(null);
+    setView("chat");
+    setDoor("inicio");
+  }
+
+  /** The chip's picker: all projects is Início; a project is a new chat
+   *  there, drafted until its first message. */
+  function pickScope(project: Project | null) {
+    if (project) startDraftChat(project);
+    else goInicio();
   }
 
   /**
@@ -3538,7 +3568,7 @@ export default function App({
       }
       // In focus the screen is still Início: the chat's own messages go
       // to the mirror, the general thread stays here.
-      const shown = inicioFocus ? null : focusedTitle;
+      const shown = inicioFocus ? null : (focusedTitle ?? (draftChat ? draftThread(draftChat.path) : null));
       return messages.filter((m) => {
         // The general thread is the empty label: the persistent general
         // chat's events arrive tagged with it, typed asks with none.
@@ -3546,7 +3576,7 @@ export default function App({
         return thread === shown;
       });
     },
-    [messages, focusedTitle, dayShown, journal, inicioFocus],
+    [messages, focusedTitle, dayShown, journal, inicioFocus, draftChat],
   );
   const mirrorLines = useMemo(
     () => (inicioFocus ? condense(messages.filter((m) => "task" in m && m.task === inicioFocus.title)) : []),
@@ -3990,11 +4020,12 @@ export default function App({
               onSearchChats={() => setChatPalette(true)}
               door={isMain ? door : "code"}
               onDoor={isMain ? (d) => {
-                setDoor(d);
                 if (d === "inicio") {
-                  leaveChat();
-                  setView("chat");
-                } else if (inicioFocusRef.current) {
+                  goInicio();
+                  return;
+                }
+                setDoor(d);
+                if (inicioFocusRef.current) {
                   // Code shows the focused chat whole; the focus is Início's.
                   inicioFocusRef.current = null;
                   setInicioFocus(null);
@@ -4002,14 +4033,11 @@ export default function App({
               } : undefined}
               onCreate={isMain ? () => {
                 leaveChat();
+                draftChatRef.current = null;
+                setDraftChat(null);
                 setView("criar");
               } : () => projects[0] && startDraftChat(projects[0])}
-              onOpenGeneral={() => {
-                if (inicioFocusRef.current) leaveFocus();
-                leaveChat();
-                setDayShown(null);
-                setView("chat");
-              }}
+              onOpenGeneral={goInicio}
               generalActive={!focusedTask && !draftChat && !dayShown && view === "chat"}
               onMoreChats={(p) => {
                 setPaletteQuery(p.name);
@@ -4525,6 +4553,8 @@ export default function App({
                 activeProject={activeProject}
                 scope={scope}
                 scopeColour={scopeColour}
+                onPickScope={isMain ? pickScope : undefined}
+                colourOf={colourOf}
                 pendingPermissionId={
                   pendingPermission?.who === "permission" ? pendingPermission.requestId : undefined
                 }

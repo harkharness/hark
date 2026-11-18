@@ -1515,6 +1515,13 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 }
 .scope-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--proj); flex: 0 0 auto; }
 .scope-chip .sep { color: var(--dim); }
+/* The chip as a picker (nothing open yet): a button with the pill's own
+   look, and a menu of the registry, each project with its colour. */
+button.scope-chip.pick { font: inherit; font-size: inherit; cursor: pointer; }
+button.scope-chip.pick:hover { border-color: var(--border-strong, var(--border)); color: var(--text); }
+.scope-menu { min-width: 250px; }
+.scope-menu .mm-name { display: inline-flex; align-items: center; gap: 6px; }
+.scope-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; display: inline-block; }
 .scope-chip svg { color: var(--accent); flex: 0 0 auto; }
 .chat-title-head .proj-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--proj); flex: 0 0 auto; }
 .chat-title-head .crumb { color: var(--dim); font-size: var(--fs-body); flex: 0 0 auto; }

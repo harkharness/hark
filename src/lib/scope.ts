@@ -34,6 +34,19 @@ export function scopeOf({
   return project ? { kind: "project", project } : { kind: "all" };
 }
 
+/** The rows of the chip's picker: "all" first (project null), then the
+ *  registry in its order, the one in force marked. Null when the chip
+ *  is not a picker: inside a chat or on a page the target was chosen by
+ *  opening it, and a chip that moved it would send a message elsewhere. */
+export function scopeChoices(projects: Project[], scope: Scope): { project: Project | null; current: boolean }[] | null {
+  if (scope.kind === "chat" || scope.kind === "page") return null;
+  const here = scope.kind === "project" ? scope.project.path : null;
+  return [
+    { project: null, current: here === null },
+    ...projects.map((project) => ({ project, current: project.path === here })),
+  ];
+}
+
 /** Outermost first; empty for "all": nobody is in command. */
 export function breadcrumb(scope: Scope): string[] {
   switch (scope.kind) {

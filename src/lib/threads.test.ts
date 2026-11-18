@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { harkOwnedSession, rekeyMessages, rekeyRecord } from "./threads";
+import { draftThread, harkOwnedSession, isDraftThread, rekeyMessages, rekeyRecord } from "./threads";
 import type { Msg } from "../types";
 
 const msgs: Msg[] = [
@@ -36,5 +36,21 @@ describe("a session that is Hark's own", () => {
     expect(harkOwnedSession({ session_id: "s4", cwd: "/Users/ana/Projects/x" }, "/Users/ana/.hark", "s1")).toBe(false);
     expect(harkOwnedSession({ session_id: "s5", cwd: "/Users/ana/.harkness" }, "/Users/ana/.hark", null)).toBe(false);
     expect(harkOwnedSession({ session_id: "s6" }, null, null)).toBe(false);
+  });
+});
+
+describe("a new chat's draft has a thread of its own", () => {
+  it("is keyed by the project, so two drafts never share a page and neither is the general thread", () => {
+    const a = draftThread("/Users/x/Projects/hark");
+    const b = draftThread("/Users/x/Projects/landing");
+    expect(a).not.toBe("");
+    expect(a).not.toBe(b);
+    expect(draftThread("/Users/x/Projects/hark")).toBe(a);
+  });
+
+  it("is told from a chat's title, whatever the title says", () => {
+    expect(isDraftThread(draftThread("/p"))).toBe(true);
+    expect(isDraftThread("novo chat em hark")).toBe(false);
+    expect(isDraftThread("")).toBe(false);
   });
 });

@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Globe, Mic, SendHorizontal, Square, X } from "lucide-react";
+import { Mic, SendHorizontal, Square, X } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
-import { breadcrumb } from "../lib/scope";
+import ScopeChip from "./ScopeChip";
 import type { Scope } from "../types";
 import type { Project } from "../types";
 import {
@@ -81,6 +81,8 @@ export default function Composer({
   activeProject,
   scope,
   scopeColour,
+  onPickScope,
+  colourOf,
   pendingPermissionId,
   onSubmit,
   onMic,
@@ -105,6 +107,10 @@ export default function Composer({
   /** The scope's project colour (a css token), from the registry order:
    *  the window's own project list may be filtered, the registry is not. */
   scopeColour?: string;
+  /** Makes the chip a picker: null = all projects (Hark answers), a
+   *  project = the next message opens a chat there. */
+  onPickScope?: (project: Project | null) => void;
+  colourOf?: (path?: string) => string | undefined;
   pendingPermissionId?: string;
   onSubmit: (text: string, images: Attachment[]) => void;
   onMic: () => void;
@@ -673,7 +679,7 @@ export default function Composer({
             surface holds the text and its row of pills and circles. */}
         <div className="inputbar-row">
         <div className="inputbar-chips">
-          {scope && <ScopeChip scope={scope} colour={scopeColour} />}
+          {scope && <ScopeChip scope={scope} colour={scopeColour} projects={projects} onPick={onPickScope} colourOf={colourOf} />}
           {children}
         </div>
         {trailing}
@@ -700,27 +706,3 @@ export default function Composer({
   );
 }
 
-/** The scope chip: a globe for "all projects", else the project's dot and
- *  the breadcrumb (project › chat). Read-only for now: it says where the
- *  message lands; choosing is still the sidebar's job. */
-function ScopeChip({ scope, colour }: { scope: Scope; colour?: string }) {
-  const crumbs = breadcrumb(scope);
-  if (crumbs.length === 0) {
-    return (
-      <span className="scope-chip" title={t("scope_all")}>
-        <Globe size={12} /> {t("scope_all")}
-      </span>
-    );
-  }
-  return (
-    <span className="scope-chip" style={colour ? ({ "--proj": colour } as React.CSSProperties) : undefined} title={crumbs.join(" › ")}>
-      {colour && <span className="dot" />}
-      {crumbs.map((c, i) => (
-        <span key={i}>
-          {i > 0 && <span className="sep"> › </span>}
-          {c}
-        </span>
-      ))}
-    </span>
-  );
-}
