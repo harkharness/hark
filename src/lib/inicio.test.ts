@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { days } from "./inicio";
+import { conversationsOfToday, days } from "./inicio";
 
 const turn = (ts: string, question: string) => ({ ts, question, fala: "ok", body: "" });
 
@@ -41,5 +41,32 @@ describe("the greeting that opens the day", () => {
     expect(greeting(new Date("2026-11-04T15:00:00"), "Ana", "pt")).toBe("Boa tarde, Ana");
     expect(greeting(new Date("2026-11-04T21:00:00"), "Ana", "en")).toBe("Good evening, Ana");
     expect(greeting(new Date("2026-11-04T08:00:00"), "", "en")).toBe("Good morning");
+  });
+});
+
+describe("the conversations of today in the Início sidebar", () => {
+  const now = new Date("2026-11-18T15:00:00-03:00");
+  const t2 = (ts: string, question: string, conv?: string) => ({ ts, question, fala: "ok", body: "", conv });
+
+  it("lists each one once, by its first question, the one talked to last on top", () => {
+    const out = conversationsOfToday(
+      [
+        t2("2026-11-18T09:00:00-03:00", "o que ficou pendente?"),
+        t2("2026-11-18T10:00:00-03:00", "como está o billing?", "c-a"),
+        t2("2026-11-18T10:30:00-03:00", "e o deploy?", "c-b"),
+        t2("2026-11-18T11:00:00-03:00", "quem revisa?", "c-a"),
+      ],
+      now,
+    );
+    expect(out.map((c) => c.id)).toEqual(["c-a", "c-b"]);
+    expect(out[0]).toMatchObject({ title: "como está o billing?", count: 2 });
+  });
+
+  it("leaves out the day's own thread (it is Hoje) and the days before", () => {
+    const out = conversationsOfToday(
+      [t2("2026-11-17T10:00:00-03:00", "ontem", "c-old"), t2("2026-11-18T09:00:00-03:00", "sem conversa")],
+      now,
+    );
+    expect(out).toEqual([]);
   });
 });

@@ -76,10 +76,13 @@ export const askText = (
   question: string,
   images: [string, string][] = [],
   project?: Project,
+  /** Which of Início's conversations asks: its turns are its memory. */
+  conversation?: string | null,
 ) =>
   invoke<Reply>("ask_text", {
     question,
     images: images.length > 0 ? images : null,
+    conversation: conversation ?? null,
     projectName: project?.name ?? null,
     projectPath: project?.path ?? null,
   });

@@ -353,6 +353,7 @@ fn build_deps<'a>(
         workers: state.workers,
         ours,
         demands: Vec::new(),
+        conversation: None,
         journal: &HarkDir,
         store,
         live,
@@ -944,6 +945,7 @@ fn ask_text(
     images: Option<Vec<(String, String)>>,
     project_name: Option<String>,
     project_path: Option<String>,
+    conversation: Option<String>,
 ) -> Result<ReplyOut, String> {
     let config = Config::load();
     let mut store =
@@ -960,6 +962,8 @@ fn ask_text(
     let demands = gather_demands(&app, &config, &store);
     let mut deps = build_deps(&config, &mut store, &live, runner.as_ref(), active_project);
     deps.demands = demands;
+    // Which of Início's conversations asks: its own turns are its memory.
+    deps.conversation = conversation.filter(|c| !c.trim().is_empty());
     let images = images.unwrap_or_default();
     let result = ask_with_image(&question, &images, &mut deps, &mut |event| {
         if let ClaudeEvent::ToolUse { name, input } = event {

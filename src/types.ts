@@ -450,6 +450,8 @@ export type JournalTurn = {
   question: string;
   fala: string;
   body: string;
+  /** Which of Início's conversations; absent = the day's own thread. */
+  conv?: string | null;
 };
 
 export type TranscriptEntry = {

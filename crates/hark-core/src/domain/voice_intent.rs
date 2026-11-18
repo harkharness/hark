@@ -109,6 +109,11 @@ artefato\"). Never expand it, never add steps.\n\
 cockpit answers those from its local registry.\n\
 - kind=\"question\" is for everything else read-only: history, spend, \
 \"what was I doing\".\n\
+- A sentence that only TELLS something (a correction, an update on what \
+happened, a comment on the previous answer, thanks) asks for no action: \
+kind=\"question\", the conversation answers it. open_session, dispatch \
+and clarify need an explicit request to do, send or open something; \
+naming a session or a project while telling is not a request.\n\
 - The sentence may refer to what was just said; the recent exchange is \
 there for exactly that.\n\
 Examples (catalog: 1 Pin Vigia chart, 2 Gladius Hydrator):\n\
@@ -116,7 +121,8 @@ Examples (catalog: 1 Pin Vigia chart, 2 Gladius Hydrator):\n\
 - \"no pin, atualiza o artefato pro time\" -> {\"kind\":\"open_session\",\"session\":1,\"instruction\":\"atualiza o artefato pro time\"}\n\
 - \"como está o gladius?\" -> {\"kind\":\"status\",\"session\":2}\n\
 - \"aplica a proposta que a gente discutiu\" (a session is in focus) -> {\"kind\":\"dispatch\",\"instruction\":\"aplica a proposta que a gente discutiu\"}\n\
-- \"quanto gastei hoje?\" -> {\"kind\":\"question\"}";
+- \"quanto gastei hoje?\" -> {\"kind\":\"question\"}\n\
+- \"na verdade isso já foi resolvido, agora estou migrando o logstash\" -> {\"kind\":\"question\"}";
 
 /// Structured output contract. Names are English like the rest of the
 /// plugin contract; the spoken language is irrelevant to the shape.
@@ -327,6 +333,15 @@ fn clarify(decision: &IntentDecision, options: Vec<CatalogSession>) -> SpokenPla
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 17/11: "na verdade os dois casos já foram resolvidos, agora estou
+    /// migrando o LogStash" came back as "em qual sessão devo registrar?".
+    /// Telling is not asking: the router is told so, with the case itself.
+    #[test]
+    fn the_router_is_told_that_telling_is_not_asking() {
+        assert!(INTENT_SYSTEM_PROMPT.contains("only TELLS"));
+        assert!(INTENT_SYSTEM_PROMPT.contains("na verdade isso já foi resolvido"));
+    }
 
     fn session(id: &str, title: &str) -> CatalogSession {
         CatalogSession {

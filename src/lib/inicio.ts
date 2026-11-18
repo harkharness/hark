@@ -70,3 +70,41 @@ export function greeting(now: Date, name: string, lang = "pt"): string {
   const word = h < 12 ? words[0] : h < 18 ? words[1] : words[2];
   return name ? `${word}, ${name}` : word;
 }
+
+/** One of today's conversations with Hark, as the Início sidebar lists it. */
+export type Conversation = {
+  id: string;
+  /** Its first question: what it is about. */
+  title: string;
+  count: number;
+  /** When it was last talked to (ms): the list is newest first. */
+  at: number;
+};
+
+/**
+ * Today's conversations out of the journal, the one talked to last on
+ * top. Turns with no conversation are the day's own thread (Hoje), and
+ * the days before are `days`: neither is listed here. Pure.
+ */
+export function conversationsOfToday(turns: JournalTurn[], now: Date): Conversation[] {
+  const today = key(now);
+  const by = new Map<string, Conversation & { first: number }>();
+  for (const turn of turns) {
+    if (!turn.conv) continue;
+    const at = new Date(turn.ts);
+    if (Number.isNaN(at.getTime()) || key(at) !== today) continue;
+    const ms = at.getTime();
+    const cur = by.get(turn.conv);
+    if (!cur) {
+      by.set(turn.conv, { id: turn.conv, title: turn.question, count: 1, at: ms, first: ms });
+      continue;
+    }
+    cur.count += 1;
+    if (ms > cur.at) cur.at = ms;
+    if (ms < cur.first) {
+      cur.first = ms;
+      cur.title = turn.question;
+    }
+  }
+  return [...by.values()].sort((a, b) => b.at - a.at).map(({ first: _first, ...c }) => c);
+}

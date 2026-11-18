@@ -10,6 +10,8 @@ use chrono::{Duration, SecondsFormat, Utc};
 
 /// How many journal entries feed back into the snapshot.
 const JOURNAL_TAIL: usize = 8;
+/// How far back the journal is read to find one conversation's turns.
+const JOURNAL_SCAN: usize = 400;
 
 pub struct AskDeps<'a> {
     pub config: &'a Config,
@@ -29,6 +31,10 @@ pub struct AskDeps<'a> {
     /// The list of the day, gathered by the shell (board, permissions
     /// waiting, pages, requests): "o que eu tenho hoje" answers from it.
     pub demands: Vec<crate::domain::demands::Demand>,
+    /// Which of Início's conversations is asking: its turns are the
+    /// memory the prompt carries, and the answer is journaled under it.
+    /// None is the day's own thread.
+    pub conversation: Option<String>,
     pub store: &'a mut dyn SessionStore,
     pub live: &'a dyn LiveSessions,
     pub repos: &'a dyn RepoCollector,
@@ -147,8 +153,13 @@ pub fn ask_with_image(
 
     if let Some(reply) = crate::domain::reply::VoiceReply::from_turn(&result) {
         let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
-        let entry =
-            crate::domain::memory::journal_entry(&now, question, &reply.fala, &reply.body());
+        let entry = crate::domain::memory::journal_entry_in(
+            &now,
+            deps.conversation.as_deref(),
+            question,
+            &reply.fala,
+            &reply.body(),
+        );
         // Journaling and board updates must never break the answer flow.
         let _ = deps.journal.append(&journal_root(deps, context.as_ref()), &entry);
         if !reply.board.is_empty() {
@@ -182,7 +193,13 @@ fn finish_local(
     context: &Option<ContextDef>,
 ) -> TurnResult {
     let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
-    let entry = crate::domain::memory::journal_entry(&now, question, &reply.fala, &reply.body());
+    let entry = crate::domain::memory::journal_entry_in(
+        &now,
+        deps.conversation.as_deref(),
+        question,
+        &reply.fala,
+        &reply.body(),
+    );
     let _ = deps.journal.append(&journal_root(deps, context.as_ref()), &entry);
     let turn = TurnResult {
         is_error: false,
@@ -361,7 +378,11 @@ fn build_snapshot_with(
         sessions,
         live: deps.live.list().unwrap_or_default(),
         repos: deps.repos.collect(&repo_paths),
-        journal: deps.journal.tail(&journal_root(deps, context), JOURNAL_TAIL),
+        journal: crate::domain::memory::conversation_tail(
+            &deps.journal.tail(&journal_root(deps, context), JOURNAL_SCAN),
+            deps.conversation.as_deref(),
+            JOURNAL_TAIL,
+        ),
         workers: deps.workers.clone(),
         board: crate::domain::board::render(&deps.store.board().unwrap_or_default()),
     })

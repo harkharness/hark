@@ -10,7 +10,7 @@ import { Compass, Copy, Download, ExternalLink, FileText, FolderTree, PanelLeft,
 import { colourIndex, projColour, scopeOf } from "./lib/scope";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { lang, setLang, setSpeechLang, st, t } from "./lib/i18n";
-import { dayOf, days as journalDays } from "./lib/inicio";
+import { conversationsOfToday, dayOf, days as journalDays } from "./lib/inicio";
 import Artifacts, { ArtifactLinks, ArtifactPane, type ArtSel } from "./components/Artifacts";
 import type { Destination } from "./lib/takeTo";
 import { KIND_ICON } from "./components/kindIcon";
@@ -46,7 +46,7 @@ import { Bell } from "lucide-react";
 import { condense } from "./lib/mirror";
 import { recoverSession as replacementFor, sessionVanished } from "./lib/recovery";
 import { artifactFile, harkTarget, pageId } from "./lib/harkLink";
-import { draftThread, harkOwnedSession, rekeyMessages, rekeyRecord } from "./lib/threads";
+import { draftThread, harkOwnedSession, inicioThread, newConversationId, rekeyMessages, rekeyRecord } from "./lib/threads";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
@@ -223,7 +223,14 @@ export default function App({
   const [draftChat, setDraftChat] = useState<Project | null>(null);
   const draftChatRef = useRef(draftChat);
   draftChatRef.current = draftChat;
-  const threadKey = focusedTask?.title ?? (draftChat ? draftThread(draftChat.path) : GENERAL);
+  // Which of Início's conversations is on screen: null is the day's own
+  // thread (Hoje). Each has its page and its memory (fase 16): Início
+  // used to be one thread a day, with no way to start over.
+  const [inicioConv, setInicioConv] = useState<string | null>(null);
+  const inicioConvRef = useRef(inicioConv);
+  inicioConvRef.current = inicioConv;
+  const threadKey =
+    focusedTask?.title ?? (draftChat ? draftThread(draftChat.path) : inicioConv ? inicioThread(inicioConv) : GENERAL);
   // Hark's own chat, across restarts: the journal (local, zero tokens). Today
   // is the thread; the days before are rows in the Início sidebar, and one
   // of them can be on screen instead of today.
@@ -525,7 +532,8 @@ export default function App({
     const live = focusedRef.current;
     if (live) return workersRef.current[live]?.label ?? live;
     if (focusedTaskRef.current) return focusedTaskRef.current.title;
-    return draftChatRef.current ? draftThread(draftChatRef.current.path) : null;
+    if (draftChatRef.current) return draftThread(draftChatRef.current.path);
+    return inicioConvRef.current ? inicioThread(inicioConvRef.current) : null;
   }, []);
   /** Threads whose next agent turn IS a compaction (we sent "/compact").
    *  The summary is pages long and the CLI writes it as ordinary prose. */
@@ -781,8 +789,10 @@ export default function App({
         const at = new Date(turn.ts);
         if (Number.isNaN(at.getTime()) || at.toDateString() !== today) continue;
         const ts = at.getTime();
-        hist.push({ who: "user", text: turn.question, ts });
-        hist.push({ who: "hark", text: turn.fala, detalhes: turn.body || undefined, ts });
+        // A turn of one of today's conversations goes back to its page.
+        const task = turn.conv ? inicioThread(turn.conv) : undefined;
+        hist.push({ who: "user", text: turn.question, ts, task });
+        hist.push({ who: "hark", text: turn.fala, detalhes: turn.body || undefined, ts, task });
       }
       if (hist.length) setMessages((old) => [...hist.slice(-80), ...old]);
     })();
@@ -1445,7 +1455,13 @@ export default function App({
       // The focused project scopes the snapshot: clicking a chat or
       // starting one IS the context selection (no manual picker). The
       // general chat of the main window asks with no project at all.
-      const reply = await ipc.askText(question, images.map(toImagePair), noProject ? undefined : activeProject);
+      const reply = await ipc.askText(
+        question,
+        images.map(toImagePair),
+        noProject ? undefined : activeProject,
+        // Início's conversation: its own turns are what the answer remembers.
+        noProject ? inicioConvRef.current : null,
+      );
       push({ who: "hark", ...askReplyMsg(reply) });
       if (reply.cost_usd) addCost("hark (perguntas)", reply.cost_usd);
       say(reply.fala);
@@ -2234,8 +2250,11 @@ export default function App({
    * projects and sessions, then the window acts. Returns true when it did.
    */
   async function tryIntent(text: string): Promise<boolean> {
+    // The exchange the router reads is the one on screen: this
+    // conversation's, or the day's own thread.
+    const here = inicioConvRef.current ? inicioThread(inicioConvRef.current) : null;
     const recent = messages
-      .filter((m) => !("task" in m && m.task))
+      .filter((m) => (("task" in m && m.task) || null) === here)
       .slice(-6)
       .map((m) => `${m.who}: ${("text" in m ? m.text : "").slice(0, 200)}`);
     const intent = await ipc.classifyUtterance(text, recent).catch(() => null);
@@ -3301,12 +3320,18 @@ export default function App({
    *  drafted is dropped. Leaving used to keep the draft, so the chip
    *  stayed on the project of the last "+" and the next message typed
    *  in Início opened a session there instead of reaching Hark. */
-  function goInicio() {
+  function goInicio(conversation?: string | null) {
     if (inicioFocusRef.current) leaveFocus();
     draftChatRef.current = null;
     setDraftChat(null);
     leaveChat();
     setDayShown(null);
+    // The door keeps whichever conversation was on; Hoje and the rows of
+    // the sidebar say which one they want.
+    if (conversation !== undefined) {
+      inicioConvRef.current = conversation;
+      setInicioConv(conversation);
+    }
     setView("chat");
     setDoor("inicio");
   }
@@ -3568,7 +3593,9 @@ export default function App({
       }
       // In focus the screen is still Início: the chat's own messages go
       // to the mirror, the general thread stays here.
-      const shown = inicioFocus ? null : (focusedTitle ?? (draftChat ? draftThread(draftChat.path) : null));
+      const shown = inicioFocus
+        ? null
+        : (focusedTitle ?? (draftChat ? draftThread(draftChat.path) : inicioConv ? inicioThread(inicioConv) : null));
       return messages.filter((m) => {
         // The general thread is the empty label: the persistent general
         // chat's events arrive tagged with it, typed asks with none.
@@ -3576,13 +3603,25 @@ export default function App({
         return thread === shown;
       });
     },
-    [messages, focusedTitle, dayShown, journal, inicioFocus, draftChat],
+    [messages, focusedTitle, dayShown, journal, inicioFocus, draftChat, inicioConv],
   );
   const mirrorLines = useMemo(
     () => (inicioFocus ? condense(messages.filter((m) => "task" in m && m.task === inicioFocus.title)) : []),
     [messages, inicioFocus],
   );
   const pastDays = useMemo(() => journalDays(journal, new Date(), lang()), [journal]);
+  /** Today's conversations with Hark. One just begun has no turn in the
+   *  journal yet: it is listed by its opening line until the answer lands. */
+  const todayConvs = useMemo(() => {
+    const listed = conversationsOfToday(journal, new Date());
+    if (!inicioConv || listed.some((c) => c.id === inicioConv)) return listed;
+    const key = inicioThread(inicioConv);
+    const first = messages.find((m) => m.who === "user" && "task" in m && m.task === key);
+    return [
+      { id: inicioConv, title: first && "text" in first ? first.text : t("side_new_conv"), count: 0, at: Date.now() },
+      ...listed,
+    ];
+  }, [journal, inicioConv, messages]);
   /** The chats "levar para…" offers: the board, newest first, done ones out. */
   const recentChats = useMemo(
     () =>
@@ -4037,8 +4076,12 @@ export default function App({
                 setDraftChat(null);
                 setView("criar");
               } : () => projects[0] && startDraftChat(projects[0])}
-              onOpenGeneral={goInicio}
-              generalActive={!focusedTask && !draftChat && !dayShown && view === "chat"}
+              onOpenGeneral={() => goInicio(null)}
+              conversations={isMain ? todayConvs : []}
+              conversationShown={!focusedTask && !draftChat && !dayShown && view === "chat" ? inicioConv : null}
+              onOpenConversation={(id) => goInicio(id)}
+              onNewConversation={isMain ? () => goInicio(newConversationId()) : undefined}
+              generalActive={!focusedTask && !draftChat && !dayShown && !inicioConv && view === "chat"}
               onMoreChats={(p) => {
                 setPaletteQuery(p.name);
                 setChatPalette(true);

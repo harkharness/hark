@@ -14,6 +14,15 @@ const DRAFT_PREFIX = "\u0001draft:";
 export const draftThread = (projectPath: string): string => `${DRAFT_PREFIX}${projectPath}`;
 export const isDraftThread = (thread: string): boolean => thread.startsWith(DRAFT_PREFIX);
 
+/** Início holds several conversations a day; each is a thread of its
+ *  own, keyed by its id the same way a draft is by its project. The
+ *  day's own thread (no id) stays the general one, the empty label. */
+const INICIO_PREFIX = "\u0001inicio:";
+export const inicioThread = (conversation: string): string => `${INICIO_PREFIX}${conversation}`;
+/** A fresh id: unique on this machine, sortable by when it began. */
+export const newConversationId = (now = Date.now()): string =>
+  `c-${now.toString(36)}${Math.floor(Math.random() * 1296).toString(36).padStart(2, "0")}`;
+
 /** Every message of thread `from` now belongs to thread `to`. */
 export function rekeyMessages(messages: Msg[], from: string, to: string): Msg[] {
   if (from === to) return messages;

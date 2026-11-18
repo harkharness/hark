@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { draftThread, harkOwnedSession, isDraftThread, rekeyMessages, rekeyRecord } from "./threads";
+import { draftThread, harkOwnedSession, inicioThread, isDraftThread, rekeyMessages, rekeyRecord } from "./threads";
 import type { Msg } from "../types";
 
 const msgs: Msg[] = [
@@ -52,5 +52,13 @@ describe("a new chat's draft has a thread of its own", () => {
     expect(isDraftThread(draftThread("/p"))).toBe(true);
     expect(isDraftThread("novo chat em hark")).toBe(false);
     expect(isDraftThread("")).toBe(false);
+  });
+});
+
+describe("a conversation of Início has a thread of its own", () => {
+  it("is keyed by its id, and is neither the general thread nor a draft", () => {
+    expect(inicioThread("c-a")).not.toBe("");
+    expect(inicioThread("c-a")).not.toBe(inicioThread("c-b"));
+    expect(isDraftThread(inicioThread("c-a"))).toBe(false);
   });
 });

@@ -66,13 +66,24 @@ const BODY_MAX_CHARS: usize = 700;
 /// Render one journal entry block (append-only markdown). `body` is the
 /// on-screen content (detalhes + itens); empty keeps the classic Q/A shape.
 pub fn journal_entry(ts: &str, question: &str, fala: &str, body: &str) -> String {
+    journal_entry_in(ts, None, question, fala, body)
+}
+
+/// `journal_entry` for one of Início's conversations: a `C:` line names
+/// it, between the timestamp and the question. No id is the day's own
+/// thread, which is also what every entry from before conversations is.
+pub fn journal_entry_in(ts: &str, conv: Option<&str>, question: &str, fala: &str, body: &str) -> String {
     let question = flatten(question);
     let fala = flatten(fala);
     let body = clip(&sanitize_body(body), BODY_MAX_CHARS);
+    let conv = match conv.map(flatten).filter(|c| !c.is_empty()) {
+        Some(id) => format!("C: {id}\n"),
+        None => String::new(),
+    };
     if body.is_empty() {
-        format!("## {ts}\nQ: {question}\nA: {fala}\n\n")
+        format!("## {ts}\n{conv}Q: {question}\nA: {fala}\n\n")
     } else {
-        format!("## {ts}\nQ: {question}\nA: {fala}\n{body}\n\n")
+        format!("## {ts}\n{conv}Q: {question}\nA: {fala}\n{body}\n\n")
     }
 }
 
@@ -110,6 +121,10 @@ pub struct JournalTurn {
     pub question: String,
     pub fala: String,
     pub body: String,
+    /// Which of Início's conversations this turn belongs to; none is the
+    /// day's own thread.
+    #[serde(default)]
+    pub conv: Option<String>,
 }
 
 /// Newest `n` journal entries as structured turns, oldest first.
@@ -126,12 +141,37 @@ pub fn parse_journal(content: &str, n: usize) -> Vec<JournalTurn> {
 }
 
 fn parse_block(block: &str) -> Option<JournalTurn> {
-    let mut lines = block.lines();
+    let mut lines = block.lines().peekable();
     let ts = lines.next()?.trim().to_string();
+    let conv = lines
+        .next_if(|line| line.starts_with("C: "))
+        .and_then(|line| line.strip_prefix("C: "))
+        .map(|id| id.trim().to_string());
     let question = lines.next()?.strip_prefix("Q: ")?.trim().to_string();
     let fala = lines.next()?.strip_prefix("A: ")?.trim().to_string();
     let body = lines.collect::<Vec<_>>().join("\n").trim().to_string();
-    Some(JournalTurn { ts, question, fala, body })
+    Some(JournalTurn { ts, question, fala, body, conv })
+}
+
+/// The newest `n` entries of ONE conversation, oldest first, out of raw
+/// journal blocks: what that conversation remembers. The `C:` line is
+/// dropped on the way, it is bookkeeping and not something to show a model.
+pub fn conversation_tail(entries: &[String], conv: Option<&str>, n: usize) -> Vec<String> {
+    let of_it: Vec<String> = entries
+        .iter()
+        .filter_map(|block| {
+            let mut lines = block.lines();
+            let ts = lines.next()?;
+            let rest: Vec<&str> = lines.collect();
+            let (id, body) = match rest.first().and_then(|l| l.strip_prefix("C: ")) {
+                Some(id) => (Some(id.trim()), &rest[1..]),
+                None => (None, &rest[..]),
+            };
+            (id == conv).then(|| std::iter::once(ts).chain(body.iter().copied()).collect::<Vec<_>>().join("\n"))
+        })
+        .collect();
+    let skip = of_it.len().saturating_sub(n);
+    of_it.into_iter().skip(skip).collect()
 }
 
 /// Last `n` entries of a journal, oldest first.
@@ -152,6 +192,53 @@ mod tests {
     /// Every worker on disk today was recorded before backends were a
     /// thing. Reading one must not fail, and must not leave the agent
     /// blank — the whole registry keys on that id.
+    /// Início holds several conversations a day (fase 16): an entry says
+    /// which one it belongs to, and reads back with it.
+    #[test]
+    fn an_entry_of_a_conversation_carries_its_id_and_parses_back() {
+        let entry = journal_entry_in("2026-11-18T10:00:00Z", Some("c-abc"), "e o deploy?", "Saiu ontem.", "detalhe");
+        let turns = parse_journal(&entry, 5);
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].conv.as_deref(), Some("c-abc"));
+        assert_eq!(turns[0].ts, "2026-11-18T10:00:00Z");
+        assert_eq!(turns[0].question, "e o deploy?");
+        assert_eq!(turns[0].fala, "Saiu ontem.");
+        assert_eq!(turns[0].body, "detalhe");
+    }
+
+    /// Every journal on disk today was written before conversations: its
+    /// entries belong to the day's own thread, the one with no id.
+    #[test]
+    fn an_entry_written_before_conversations_has_none() {
+        let entry = journal_entry("2026-11-10T10:00:00Z", "q", "a", "");
+        assert_eq!(parse_journal(&entry, 5)[0].conv, None);
+    }
+
+    /// What a conversation remembers is what was said IN it: the turns of
+    /// another one, or of the day's own thread, stay out of its prompt.
+    #[test]
+    fn the_memory_of_a_conversation_is_its_own_turns() {
+        let content = [
+            journal_entry("2026-11-18T09:00:00Z", "geral 1", "ok", ""),
+            journal_entry_in("2026-11-18T09:10:00Z", Some("c-a"), "a 1", "ok", ""),
+            journal_entry_in("2026-11-18T09:20:00Z", Some("c-b"), "b 1", "ok", ""),
+            journal_entry_in("2026-11-18T09:30:00Z", Some("c-a"), "a 2", "ok", ""),
+            journal_entry("2026-11-18T09:40:00Z", "geral 2", "ok", ""),
+        ]
+        .concat();
+        let entries = journal_tail(&content, 50);
+        let of_a = conversation_tail(&entries, Some("c-a"), 8);
+        assert_eq!(of_a.len(), 2);
+        assert!(of_a[0].contains("Q: a 1") && of_a[1].contains("Q: a 2"));
+        // The id is bookkeeping, not something to show the model.
+        assert!(!of_a[0].contains("C: "));
+        let general = conversation_tail(&entries, None, 8);
+        assert_eq!(general.len(), 2);
+        assert!(general[1].contains("Q: geral 2"));
+        // And the newest n of them, oldest first.
+        assert!(conversation_tail(&entries, Some("c-a"), 1)[0].contains("Q: a 2"));
+    }
+
     #[test]
     fn a_worker_recorded_before_agents_existed_reads_as_claude() {
         let old = r#"{

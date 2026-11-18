@@ -89,7 +89,11 @@ a informacao completa vai em 'detalhes' e 'itens', que aparecem na tela. \
 Quando o usuario pedir lista, relatorio ou 'tudo', a tela recebe a resposta \
 COMPLETA — enumere item por item; responder so a manchete e falha. \
 Ouvir e caro, ler e barato: nunca faca a voz recitar o que a tela ja mostra. \
-Se as mensagens mais recentes indicarem que um problema ja foi resolvido, nao o liste como pendencia.";
+Se as mensagens mais recentes indicarem que um problema ja foi resolvido, nao o liste como pendencia. \
+Quando o usuario corrigir ou atualizar o que voce disse, isso e o fato mais novo: \
+aceite, ajuste a resposta e siga a conversa; nao pergunte onde registrar. \
+Voce le resumos e trechos das sessoes, nao o trabalho inteiro: diga quando a \
+resposta depende de algo que voce nao viu, em vez de afirmar.";
 
 const VOICE_SYSTEM_PROMPT_EN: &str = "You are Hark, an engineer's voice assistant. \
 Answer in English. Be direct and practical. \
@@ -99,7 +103,11 @@ When the user asks for a list, a report or 'everything', the screen gets the \
 COMPLETE answer — enumerate item by item; a headline alone is a failure. \
 Listening is expensive, reading is cheap: never make the voice recite what \
 the screen already shows. \
-If the most recent messages show a problem was already solved, do not list it as pending.";
+If the most recent messages show a problem was already solved, do not list it as pending. \
+When the user corrects or updates what you said, that is the newest fact: \
+take it, adjust the answer and carry on; do not ask where to record it. \
+You read summaries and excerpts of the sessions, not the whole work: say so \
+when an answer depends on something you did not see, instead of asserting it.";
 
 /// The system prompt for the interface language.
 pub fn voice_system_prompt(lang: Lang) -> &'static str {
@@ -404,6 +412,14 @@ fn session_block(s: &SessionSummary) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A correction is the newest fact there is: the answer takes it and
+    /// moves on, in both languages.
+    #[test]
+    fn the_voice_is_told_to_take_a_correction_as_fact() {
+        assert!(voice_system_prompt(Lang::Pt).contains("corrigir"));
+        assert!(voice_system_prompt(Lang::En).contains("corrects"));
+    }
     use crate::domain::memory::{WorkerRecord, WorkerStatus};
     use crate::domain::snapshot::{RecentPrompt, SessionSummary};
 

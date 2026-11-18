@@ -156,6 +156,10 @@ const JOURNAL: JournalTurn[] = [
   { ts: ago(120), question: "how much did I spend today?", fala: "$0.42 today, across two chats. Nothing failed.", body: "" },
   { ts: ago(118), question: "what's running?", fala: "Two workers: Billing endpoint v2 in webhook-api, Alerts cleanup in infra. Both on their last steps.", body: "" },
   { ts: ago(45), question: "read the alerts thread and draft the incident summary", fala: "Draft ready. Three alerts correlate with the deploy at 14:02; the summary is on the board as a page.", body: "" },
+  // Two of today's conversations, each with a page of its own.
+  { ts: ago(30), question: "what did we decide about the retry queue?", fala: "Keep the idempotency key in the worker; the review is the only thing left.", body: "", conv: "c-retry" },
+  { ts: ago(28), question: "who reviews it?", fala: "Nobody is assigned yet; the last two reviews of that path were Bea's.", body: "", conv: "c-retry" },
+  { ts: ago(12), question: "plan the offline mode for the app", fala: "Three steps: a local queue, a sync on reconnect, and a banner while offline.", body: "", conv: "c-offline" },
 ];
 
 const SPACES: ArtifactSpace[] = [

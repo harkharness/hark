@@ -33,6 +33,27 @@ const base = {
 };
 
 describe("the two doors of the sidebar", () => {
+  it("Início starts a new conversation and lists the ones of today", () => {
+    const onNewConversation = vi.fn();
+    const onOpenConversation = vi.fn();
+    const { getByText } = render(
+      <Sidebar
+        {...base}
+        door="inicio"
+        conversations={[{ id: "c-a", title: "como está o billing?", count: 2, at: 1 }]}
+        conversationShown="c-a"
+        onNewConversation={onNewConversation}
+        onOpenConversation={onOpenConversation}
+      />,
+    );
+    fireEvent.click(getByText("Nova conversa"));
+    expect(onNewConversation).toHaveBeenCalled();
+    const row = getByText("como está o billing?").closest("button")!;
+    expect(row.className).toContain("on");
+    fireEvent.click(row);
+    expect(onOpenConversation).toHaveBeenCalledWith("c-a");
+  });
+
   it("Início lists Hoje, the board and artifacts, and no project", () => {
     // The board is planning, not code: it moved to Início (05/11). The
     // Code door keeps its shortcut, which opens the board as a panel.

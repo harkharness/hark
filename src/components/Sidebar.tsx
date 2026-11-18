@@ -27,6 +27,10 @@ export default function Sidebar({
   onCreate,
   days = [],
   dayShown,
+  conversations = [],
+  conversationShown,
+  onOpenConversation,
+  onNewConversation,
   onOpenDay,
   demandsCount = 0,
   demandsOpen,
@@ -78,6 +82,12 @@ export default function Sidebar({
   /** The days before today of Hark's chat (Início door), newest first. */
   days?: Day[];
   dayShown?: string | null;
+  /** Today's conversations with Hark (Início), newest first. */
+  conversations?: import("../lib/inicio").Conversation[];
+  /** The one on screen; null/absent = the day's own thread (Hoje). */
+  conversationShown?: string | null;
+  onOpenConversation?: (id: string) => void;
+  onNewConversation?: () => void;
   onOpenDay?: (day: Day) => void;
   /** The list of the day (Início door): how many, and the view's toggle. */
   demandsCount?: number;
@@ -403,6 +413,11 @@ export default function Sidebar({
         </div>
       )}
       <div className="side-nav">
+      {inicio && onNewConversation && (
+        <button className="side-board side-create" onClick={onNewConversation} title={t("side_new_conv_hint")}>
+          <Plus size={13} /> {t("side_new_conv")}
+        </button>
+      )}
       {inicio && onOpenGeneral && (
         <button
           className={`side-board ${generalActive ? "on" : ""}`}
@@ -467,6 +482,24 @@ export default function Sidebar({
         </button>
       )}
       </div>
+      {inicio && conversations.length > 0 && (
+        <section className="side-group">
+          <div className="side-group-head">
+            <span className="side-group-name">{t("side_convs")}</span>
+          </div>
+          {conversations.map((c) => (
+            <button
+              key={c.id}
+              className={`side-chat ${conversationShown === c.id ? "on" : ""}`}
+              title={c.title}
+              onClick={() => onOpenConversation?.(c.id)}
+            >
+              <span className="side-title">{c.title}</span>
+              <span className="side-chat-ts">{c.count}</span>
+            </button>
+          ))}
+        </section>
+      )}
       {inicio && days.length > 0 && (
         <section className="side-group">
           <div className="side-group-head">
