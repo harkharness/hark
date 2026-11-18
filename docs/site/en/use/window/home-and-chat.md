@@ -15,6 +15,8 @@ Início › Hoje is not an agent session: one chat over every project, kept in a
 
 With no chat yet, Início greets you with one line of counts, four ways in (resume the latest, speak some work, find a chat, open the board) and the composer. Once the day has a chat, Hoje is that chat.
 
+**Nova conversa**, at the top of Início, starts a conversation of its own: a clean page, and a memory of its own, since what an answer remembers is what was said in that conversation. Today's conversations are listed under Hoje by their first question. The chip on the composer says where a message lands and, where nothing is open, chooses it: every project (Hark answers) or one of them (the message opens a chat there). A question carries excerpts of what was actually said about it in your sessions, the newest first, so "what is pending" is read from what was concluded and not from what was asked.
+
 ## Demandas: the list of the day
 
 What asks for you, from five sources: the chats of the last 24 hours, a board card stopped at a permission or waiting for you, one stalled for days, a page an agent wrote in the last day, and your own requests ("remind me to call the bank at 2pm", typed or spoken). The list is grouped by what it asks (need you, to review, reminders, scheduled, in progress, stalled); *go* opens the chat or the page, *later* sinks a row for the day, *done* closes a request. "What do I have today?" in Hoje answers from this list, zero tokens. `hark demands` prints the same list in the terminal.
@@ -29,7 +31,7 @@ Hark never interrupts a turn you are in. What finishes, asks or gets ready while
 
 ## Two keys
 
-`Cmd+P` opens the files window with its filter ready. `Cmd+K` opens **Procurar**, one palette over everything the window knows (chats, pages, projects, the Claude Code history, a few actions) with a tab per kind. Local index, zero tokens.
+`Cmd+P` opens the files window with its filter ready. `Cmd+K` opens **Procurar**, one palette over everything the window knows (chats, pages, projects, the Claude Code history, a few actions) with a tab per kind. It finds a chat by what was said in it, not only by its title. Local index, zero tokens.
 
 ## A new chat gets a name
 

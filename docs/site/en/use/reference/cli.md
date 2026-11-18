@@ -19,6 +19,8 @@ hark ps [--clear]                             # running workers
 hark spend [--day|--week|--project] [--rebuild] [--export csv|json]
 hark index                                    # (re)index session history
 hark sessions                                 # what is on disk
+hark search [--any] [--project <name>] <words…>  # where the words were said, in any session
+hark show <session-id> [--tail <n>]           # a session read back as a conversation
 hark rename <session-id> <name>               # name a chat, in its own history
 hark use <context> | hark contexts            # kubectl-style focus areas
 hark board                                    # the board, as text

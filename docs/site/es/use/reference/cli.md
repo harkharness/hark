@@ -5,7 +5,7 @@ sidebar:
   order: 2
 banner:
   content: "<b>Hark está en desarrollo.</b> La mayor parte de las pruebas hasta ahora se hizo con el CLI de Claude Code en macOS. ¿Usas otro agente u otro sistema? <a href=\"/docs/es/build/testing-other-agents-and-oss/\">Ayúdanos a probarlo.</a>"
-source_hash: c0463c9679c8
+source_hash: 19eaad56b464
 ---
 
 El mismo núcleo, sin interfaz; útil para scripts, CI, o simplemente por costumbre de terminal:
@@ -20,6 +20,8 @@ hark ps [--clear]                             # workers en ejecución
 hark spend [--day|--week|--project] [--rebuild] [--export csv|json]
 hark index                                    # (re)indexar el historial de sesiones
 hark sessions                                 # lo que hay en disco
+hark search [--any] [--project <name>] <words…>  # dónde se dijeron las palabras, en cualquier sesión
+hark show <session-id> [--tail <n>]           # una sesión leída de vuelta como conversación
 hark rename <session-id> <name>               # nombrar un chat, en su propio historial
 hark use <context> | hark contexts            # áreas de foco, al estilo kubectl
 hark board                                    # el tablero, como texto
@@ -27,3 +29,5 @@ hark demands                                  # la lista del día
 ```
 
 El CLI lo instala el mismo script que la app, en `~/.local/bin`.
+
+`hark search` busca en lo que se dijo de verdad, por ti y por el agente, no solo en los títulos: todas las palabras en el mismo mensaje por defecto, `--any` para cualquiera de ellas, una "frase entre comillas" se mantiene entera. La primera ejecución lee todas las sesiones una vez; después responde al instante. `hark show` acepta los primeros caracteres del id que imprime `search`. Los dos son locales y no gastan tokens.

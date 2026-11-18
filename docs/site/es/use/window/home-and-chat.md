@@ -5,7 +5,7 @@ sidebar:
   order: 1
 banner:
   content: "<b>Hark está en desarrollo.</b> La mayor parte de las pruebas hasta ahora se hizo con el CLI de Claude Code en macOS. ¿Usas otro agente u otro sistema? <a href=\"/docs/es/build/testing-other-agents-and-oss/\">Ayúdanos a probarlo.</a>"
-source_hash: 7eb1c02ebb6f
+source_hash: 6e3eabfa2eb4
 ---
 
 Una ventana reúne todos los proyectos, detrás de dos puertas en la parte superior de la barra lateral, como en la app de Claude Code. **Início** es el chat propio de Hark, una sola conversación sobre todos los proyectos (*Hoje*), con la lista del día al lado. **Code** es donde vive el trabajo: **Criar** abre un chat nuevo (primero el proyecto; una carpeta aún no registrada se convierte en proyecto), luego **Procurar**, los artefactos, el acceso directo al tablero y los proyectos con sus chats, los más recientes primero, desde el índice local. Cada proyecto tiene un color; recorre su grupo en la barra lateral, la parte superior del chat y el chip de alcance del compositor, que dice dónde cae el próximo mensaje.
@@ -15,6 +15,8 @@ Una ventana reúne todos los proyectos, detrás de dos puertas en la parte super
 Início › Hoje no es una sesión de agente: un solo chat sobre todos los proyectos, guardado en un diario local, con los días anteriores listados en la barra lateral. Las preguntas que puede responder desde el índice local (qué hay en el tablero, qué workers corren, cuánto gastaste hoy) nunca llegan a un modelo. Las que solo necesitan reformular van a un modelo ligero con un contexto pequeño. Solo el razonamiento real paga precio completo. Una frase que es trabajo ("continúa la migración del webhook") se resuelve contra todos los proyectos y se confirma antes de correr; un trabajo sin chat donde caer recibe una pista, no una sesión.
 
 Sin ningún chat todavía, Início te recibe con una línea de conteos, cuatro entradas (retomar el último, dictar un trabajo, buscar un chat, abrir el tablero) y el compositor. Cuando el día ya tiene un chat, Hoje es ese chat.
+
+**Nova conversa**, en la parte superior de Início, empieza una conversación propia: una página limpia y una memoria solo suya, porque lo que una respuesta recuerda es lo que se dijo en esa conversación. Las conversaciones de hoy se listan debajo de Hoje por su primera pregunta. El chip del composer dice dónde cae el mensaje y, donde no hay nada abierto, lo elige: todos los proyectos (Hark responde) o uno de ellos (el mensaje abre un chat allí). Una pregunta lleva fragmentos de lo que se dijo de verdad sobre ella en tus sesiones, lo más nuevo primero, así que "qué está pendiente" se lee de lo que se concluyó, no de lo que se pidió.
 
 ## Demandas: la lista del día
 
@@ -30,7 +32,7 @@ Hark nunca interrumpe un turno en el que estás. Lo que termina, pregunta o qued
 
 ## Dos teclas
 
-`Cmd+P` abre la ventana de archivos con el filtro listo. `Cmd+K` abre **Procurar**, una paleta sobre todo lo que la ventana conoce (chats, páginas, proyectos, el historial de Claude Code, algunas acciones) con una pestaña por tipo. Índice local, cero tokens.
+`Cmd+P` abre la ventana de archivos con el filtro listo. `Cmd+K` abre **Procurar**, una paleta sobre todo lo que la ventana conoce (chats, páginas, proyectos, el historial de Claude Code, algunas acciones) con una pestaña por tipo. Encuentra un chat por lo que se dijo en él, no solo por su título. Índice local, cero tokens.
 
 ## Un chat nuevo recibe un nombre
 

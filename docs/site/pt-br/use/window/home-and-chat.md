@@ -5,7 +5,7 @@ sidebar:
   order: 1
 banner:
   content: "<b>O Hark está em desenvolvimento.</b> A maior parte dos testes até agora foi feita com o CLI do Claude Code no macOS. Usa outro agente ou sistema? <a href=\"/docs/pt-br/build/testing-other-agents-and-oss/\">Ajude a testar.</a>"
-source_hash: 7eb1c02ebb6f
+source_hash: 6e3eabfa2eb4
 ---
 
 Uma janela reúne todos os projetos, atrás de duas portas no topo da barra lateral, como no app do Claude Code. **Início** é o chat do próprio Hark, uma conversa sobre todos os projetos (*Hoje*), com a lista do dia ao lado. **Code** é onde o trabalho vive: **Criar** abre um chat novo (o projeto vem primeiro; uma pasta ainda não registrada vira um projeto), depois **Procurar**, os artefatos, o atalho do quadro e os projetos com seus chats, do mais novo para o mais antigo, a partir do índice local. Cada projeto tem uma cor; ela desce pelo grupo da barra lateral, atravessa o topo do chat e chega ao chip de escopo do compositor, que diz onde a próxima mensagem vai cair.
@@ -15,6 +15,8 @@ Uma janela reúne todos os projetos, atrás de duas portas no topo da barra late
 Início › Hoje não é uma sessão de agente: um chat sobre todos os projetos, guardado em um diário local, com os dias anteriores listados na barra lateral. Perguntas que ele consegue responder pelo índice local (o que está no quadro, quais workers estão rodando, o que você gastou hoje) nunca chegam a um modelo. Perguntas que só precisam de reformulação vão para um modelo leve com contexto pequeno. Só raciocínio de verdade paga o preço cheio. Uma frase que é trabalho ("continua a migração do webhook") é resolvida contra todos os projetos e confirmada antes de rodar; trabalho sem um chat para cair recebe uma dica, não uma sessão.
 
 Sem nenhum chat ainda, o Início recebe você com uma linha de contagens, quatro entradas (retomar o mais recente, falar um trabalho, achar um chat, abrir o quadro) e o compositor. Quando o dia já tem um chat, Hoje é esse chat.
+
+**Nova conversa**, no topo do Início, começa uma conversa própria: uma página limpa e uma memória só dela, porque o que uma resposta lembra é o que foi dito naquela conversa. As conversas de hoje ficam listadas abaixo de Hoje pela primeira pergunta. O chip do composer diz onde a mensagem cai e, onde nada está aberto, escolhe: todos os projetos (o Hark responde) ou um deles (a mensagem abre um chat ali). Uma pergunta leva trechos do que foi dito de fato sobre ela nas suas sessões, o mais novo primeiro, então "o que está pendente" é lido do que foi concluído, não do que foi pedido.
 
 ## Demandas: a lista do dia
 
@@ -30,7 +32,7 @@ O Hark nunca interrompe um turno em que você está. O que termina, pergunta ou 
 
 ## Duas teclas
 
-`Cmd+P` abre a janela de arquivos com o filtro pronto. `Cmd+K` abre **Procurar**, uma paleta sobre tudo o que a janela conhece (chats, páginas, projetos, o histórico do Claude Code, algumas ações) com uma aba por tipo. Índice local, zero tokens.
+`Cmd+P` abre a janela de arquivos com o filtro pronto. `Cmd+K` abre **Procurar**, uma paleta sobre tudo o que a janela conhece (chats, páginas, projetos, o histórico do Claude Code, algumas ações) com uma aba por tipo. Ela acha um chat pelo que foi dito nele, não só pelo título. Índice local, zero tokens.
 
 ## Um chat novo ganha nome
 
