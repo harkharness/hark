@@ -91,7 +91,29 @@ impl SqliteStore {
         conn.execute_batch(SCHEMA)?;
         Self::migrate_reply_column(&conn)?;
         Self::migrate_titled_by_user(&conn)?;
+        Self::migrate_message_index(&conn)?;
         Ok(Self { conn })
+    }
+
+    /// The full-text index of what was said (fase 16): an FTS5 table of
+    /// prose, and a cursor per file. An index from before it gets the
+    /// column at zero, so every session is read once from its first byte
+    /// (`adapters::message_index::catch_up`), newest first.
+    fn migrate_message_index(conn: &Connection) -> anyhow::Result<()> {
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS msg_fts USING fts5(
+                 text, path UNINDEXED, ts UNINDEXED, role UNINDEXED,
+                 tokenize = 'unicode61 remove_diacritics 2');",
+        )?;
+        let has_cursor = conn
+            .prepare("PRAGMA table_info(files)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(Result::ok)
+            .any(|name| name == "msg_offset");
+        if !has_cursor {
+            conn.execute_batch("ALTER TABLE files ADD COLUMN msg_offset INTEGER NOT NULL DEFAULT 0;")?;
+        }
+        Ok(())
     }
 
     /// Indexes from before the agent's reply was kept: add the columns and
@@ -650,6 +672,83 @@ impl SessionStore for SqliteStore {
             .collect()
     }
 
+    fn message_backlog(&self) -> anyhow::Result<Vec<(String, u64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT path, msg_offset FROM files WHERE msg_offset < byte_offset ORDER BY last_ts DESC",
+        )?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    fn add_messages(
+        &mut self,
+        path: &str,
+        messages: &[crate::domain::history_search::IndexedMessage],
+        offset: u64,
+    ) -> anyhow::Result<()> {
+        let tx = self.conn.transaction()?;
+        for m in messages {
+            tx.execute(
+                "INSERT INTO msg_fts (text, path, ts, role) VALUES (?1, ?2, ?3, ?4)",
+                params![m.text, path, m.ts, m.role],
+            )?;
+        }
+        // SQLite integers are signed: a cursor past any file ("never
+        // again") is the largest one that fits.
+        tx.execute(
+            "UPDATE files SET msg_offset = ?2 WHERE path = ?1",
+            params![path, offset.min(i64::MAX as u64) as i64],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn clear_messages(&mut self, path: &str) -> anyhow::Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM msg_fts WHERE path = ?1", params![path])?;
+        tx.execute("UPDATE files SET msg_offset = 0 WHERE path = ?1", params![path])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn search_messages(
+        &self,
+        query: &str,
+        limit: usize,
+        not_in: Option<&str>,
+    ) -> anyhow::Result<Vec<crate::domain::history_search::MessageHit>> {
+        if query.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        // The folder as written and with a trailing slash: both are how
+        // a cwd gets recorded.
+        let own = not_in.map(|dir| dir.trim_end_matches('/').to_string()).unwrap_or_default();
+        let mut stmt = self.conn.prepare(
+            "SELECT f.session_id, f.title, f.cwd, msg_fts.ts, msg_fts.role,
+                    snippet(msg_fts, 0, '', '', '…', 28)
+             FROM msg_fts JOIN files f ON f.path = msg_fts.path
+             WHERE msg_fts MATCH ?1
+               AND (?3 = '' OR f.cwd IS NULL OR rtrim(f.cwd, '/') <> ?3)
+             ORDER BY bm25(msg_fts), msg_fts.ts DESC
+             LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![query, limit as i64, own], |r| {
+                Ok(crate::domain::history_search::MessageHit {
+                    session_id: r.get(0)?,
+                    title: r.get(1)?,
+                    cwd: r.get(2)?,
+                    ts: r.get(3)?,
+                    role: r.get(4)?,
+                    snippet: r.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     fn sessions_since(&self, iso_ts: &str) -> anyhow::Result<Vec<SessionSummary>> {
         let mut stmt = self.conn.prepare(
             "SELECT path, session_id, cwd, git_branch, title, last_prompt, last_ts,
@@ -790,6 +889,91 @@ mod tests {
         assert_eq!(loaded, s);
         assert_eq!(offset, 4096);
         assert_eq!(mtime, 1755);
+    }
+
+    fn said(ts: &str, role: &'static str, text: &str) -> crate::domain::history_search::IndexedMessage {
+        crate::domain::history_search::IndexedMessage { ts: ts.into(), role, text: text.into() }
+    }
+
+    /// Fase 16: what was SAID is searchable, not only what was asked.
+    #[test]
+    fn a_word_from_the_agents_answer_finds_the_session_it_was_said_in() {
+        let mut store = SqliteStore::in_memory().unwrap();
+        let mut logs = summary("logstash", "2026-11-17T10:00:00.000Z");
+        logs.title = Some("Migração LogStash".into());
+        store.save_file_state("/logs/a.jsonl", &logs, 100, 1).unwrap();
+        store.save_file_state("/logs/b.jsonl", &summary("other", "2026-11-17T11:00:00.000Z"), 50, 1).unwrap();
+        store
+            .add_messages(
+                "/logs/a.jsonl",
+                &[
+                    said("2026-11-17T10:00:00Z", "user", "migra o logstash pro cluster novo"),
+                    said("2026-11-17T10:05:00Z", "assistant", "Migração concluída: desligar a fila antiga ficou pendente."),
+                ],
+                100,
+            )
+            .unwrap();
+        store.add_messages("/logs/b.jsonl", &[said("2026-11-17T11:00:00Z", "user", "revisa o PR")], 50).unwrap();
+
+        let hits = store.search_messages("\"desligar\"", 5, None).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].session_id, "logstash");
+        assert_eq!(hits[0].title.as_deref(), Some("Migração LogStash"));
+        assert_eq!(hits[0].role, "assistant");
+        assert!(hits[0].snippet.contains("desligar"));
+        // Accents are how people write, not how they search.
+        assert_eq!(store.search_messages("\"migracao\"", 5, None).unwrap().len(), 1);
+        assert!(store.search_messages("\"kafka\"", 5, None).unwrap().is_empty());
+        assert!(store.search_messages("", 5, None).unwrap().is_empty());
+    }
+
+    /// Hark's own sessions (the router's prompts, its asks) live in its
+    /// data dir: they are machinery, and a search for what was said in
+    /// the work must not answer with them.
+    #[test]
+    fn a_search_can_leave_out_the_sessions_of_one_folder() {
+        let mut store = SqliteStore::in_memory().unwrap();
+        let mut own = summary("own", "2026-11-17T10:00:00.000Z");
+        own.cwd = Some("/home/dev/.hark".into());
+        store.save_file_state("/logs/own.jsonl", &own, 10, 1).unwrap();
+        store.save_file_state("/logs/work.jsonl", &summary("work", "2026-11-17T10:00:00.000Z"), 10, 1).unwrap();
+        store.add_messages("/logs/own.jsonl", &[said("t", "user", "roteia: logstash")], 10).unwrap();
+        store.add_messages("/logs/work.jsonl", &[said("t", "assistant", "logstash migrado")], 10).unwrap();
+        assert_eq!(store.search_messages("\"logstash\"", 5, None).unwrap().len(), 2);
+        let hits = store.search_messages("\"logstash\"", 5, Some("/home/dev/.hark")).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].session_id, "work");
+    }
+
+    /// The message index reads each file with a cursor of its own, so an
+    /// index from before it existed catches up from byte zero.
+    #[test]
+    fn the_message_cursor_trails_the_file_until_it_is_caught_up() {
+        let mut store = SqliteStore::in_memory().unwrap();
+        store.save_file_state("/logs/old.jsonl", &summary("old", "2026-11-10T10:00:00.000Z"), 300, 1).unwrap();
+        store.save_file_state("/logs/new.jsonl", &summary("new", "2026-11-17T10:00:00.000Z"), 200, 1).unwrap();
+        // Newest first: what was said today is searchable first.
+        assert_eq!(
+            store.message_backlog().unwrap(),
+            vec![("/logs/new.jsonl".to_string(), 0), ("/logs/old.jsonl".to_string(), 0)]
+        );
+        store.add_messages("/logs/new.jsonl", &[said("t", "user", "oi")], 200).unwrap();
+        assert_eq!(store.message_backlog().unwrap(), vec![("/logs/old.jsonl".to_string(), 0)]);
+        // A file that grew is behind again, from where it stopped.
+        store.save_file_state("/logs/new.jsonl", &summary("new", "2026-11-17T12:00:00.000Z"), 260, 2).unwrap();
+        assert_eq!(store.message_backlog().unwrap()[0], ("/logs/new.jsonl".to_string(), 200));
+    }
+
+    /// A rotated file is read again from the start, and says each thing once.
+    #[test]
+    fn clearing_a_files_messages_lets_it_be_read_again_without_doubles() {
+        let mut store = SqliteStore::in_memory().unwrap();
+        store.save_file_state("/logs/a.jsonl", &summary("a", "2026-11-17T10:00:00.000Z"), 100, 1).unwrap();
+        store.add_messages("/logs/a.jsonl", &[said("t", "user", "palavra unica")], 100).unwrap();
+        store.clear_messages("/logs/a.jsonl").unwrap();
+        assert_eq!(store.message_backlog().unwrap(), vec![("/logs/a.jsonl".to_string(), 0)]);
+        store.add_messages("/logs/a.jsonl", &[said("t", "user", "palavra unica")], 100).unwrap();
+        assert_eq!(store.search_messages("\"unica\"", 5, None).unwrap().len(), 1);
     }
 
     #[test]

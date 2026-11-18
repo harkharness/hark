@@ -40,3 +40,13 @@ describe("sections: what the palette shows before you type", () => {
     expect(s.map((x) => x.id)).toEqual(["page"]);
   });
 });
+
+describe("a hit the full-text index already matched", () => {
+  it("stays whatever its title says: the words were in the conversation, not in the row", () => {
+    const said: SearchItem = { kind: "session", id: "said:1", title: "Migração da fila", sub: "…o logstash v1 foi desligado…", matched: true };
+    const other: SearchItem = { kind: "session", id: "session:2", title: "OnCall SRE" };
+    expect(searchItems([said, other], "logstash desligado uat", "all")).toEqual([said]);
+    // The kind still narrows.
+    expect(searchItems([said], "logstash", "page")).toEqual([]);
+  });
+});

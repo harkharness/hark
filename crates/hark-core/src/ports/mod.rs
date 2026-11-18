@@ -248,6 +248,37 @@ pub trait SessionStore: SpendLedger {
     fn search_sessions(&self, terms: &[String], limit: usize) -> anyhow::Result<Vec<SessionSummary>>;
     /// Log file backing a session, for the read-only viewer.
     fn session_path(&self, session_id: &str) -> anyhow::Result<Option<String>>;
+    /// The full-text index of what was SAID (fase 16). Session files the
+    /// message index has not read to the end, newest session first, each
+    /// with the byte it stopped at. A store without the index has no
+    /// backlog and finds nothing.
+    fn message_backlog(&self) -> anyhow::Result<Vec<(String, u64)>> {
+        Ok(Vec::new())
+    }
+    /// Index a file's new prose and move its cursor to `offset`.
+    fn add_messages(
+        &mut self,
+        _path: &str,
+        _messages: &[crate::domain::history_search::IndexedMessage],
+        _offset: u64,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    /// Forget what a file said and rewind its cursor (a rotated file).
+    fn clear_messages(&mut self, _path: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    /// Messages matching an FTS query (`domain::history_search::fts_query`),
+    /// best match first. `not_in` leaves out the sessions of one folder:
+    /// Hark's own data dir, whose sessions are its machinery.
+    fn search_messages(
+        &self,
+        _query: &str,
+        _limit: usize,
+        _not_in: Option<&str>,
+    ) -> anyhow::Result<Vec<crate::domain::history_search::MessageHit>> {
+        Ok(Vec::new())
+    }
     /// The invisible kanban.
     fn board(&self) -> anyhow::Result<Vec<crate::domain::board::Task>>;
     fn save_board(&mut self, tasks: &[crate::domain::board::Task]) -> anyhow::Result<()>;

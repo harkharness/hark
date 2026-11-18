@@ -28,6 +28,8 @@ fn main() {
             cmd_index(rest.first().is_some_and(|f| f == "--full"))
         }
         Some((cmd, _)) if cmd == "sessions" => cmd_sessions(),
+        Some((cmd, rest)) if cmd == "search" && !rest.is_empty() => cmd_search(rest),
+        Some((cmd, rest)) if cmd == "show" && !rest.is_empty() => cmd_show(rest),
         Some((cmd, rest)) if cmd == "use" && rest.len() == 1 => cmd_use(&rest[0]),
         Some((cmd, _)) if cmd == "contexts" => cmd_contexts(),
         Some((cmd, rest)) if cmd == "dispatch" && !rest.is_empty() => {
@@ -50,7 +52,7 @@ fn main() {
         Some((cmd, _)) if cmd == "listen" => cmd_listen(),
         _ => {
             eprintln!(
-                "usage: hark listen | hark hear | hark setup [--model small|large-v3-turbo] | hark update | hark ask \"<q>\" | hark dispatch [--session <id>] \"<instruction>\" | hark ps | hark spend [--day|--week|--project] [--rebuild] [--export csv|json] | hark index | hark sessions | hark rename <session-id> <name> | hark use <context> | hark contexts"
+                "usage: hark listen | hark hear | hark setup [--model small|large-v3-turbo] | hark update | hark ask \"<q>\" | hark dispatch [--session <id>] \"<instruction>\" | hark ps | hark spend [--day|--week|--project] [--rebuild] [--export csv|json] | hark index | hark sessions | hark search [--any] [--project <name>] [--limit <n>] <words…> | hark show <session-id> [--tail <n>] | hark rename <session-id> <name> | hark use <context> | hark contexts"
             );
             2
         }
@@ -509,6 +511,142 @@ fn cmd_index(full: bool) -> i32 {
         Ok(n) => {
             println!("indexed {n} changed file(s)");
             0
+        }
+        Err(err) => {
+            eprintln!("hark: {err:#}");
+            1
+        }
+    }
+}
+
+/// A flag's value out of the arguments, and the arguments without it.
+fn take_flag(rest: &[String], flag: &str) -> (Option<String>, Vec<String>) {
+    let mut value = None;
+    let mut others = Vec::new();
+    let mut iter = rest.iter();
+    while let Some(arg) = iter.next() {
+        if arg == flag {
+            value = iter.next().cloned();
+        } else {
+            others.push(arg.clone());
+        }
+    }
+    (value, others)
+}
+
+/// The index, fresh: new session files folded, and what was said in
+/// them read into the full-text index. The first run after an upgrade
+/// reads every session once; it says so, because that takes a while.
+fn fresh_history(config: &Config, store: &mut SqliteStore) -> anyhow::Result<()> {
+    use hark_core::ports::SessionStore;
+    refresh_index(&config.projects_dir, store)?;
+    hark_core::adapters::recorder::refresh(&config.data_dir(), store)?;
+    let behind = store.message_backlog()?.len();
+    if behind > 20 {
+        eprintln!("hark: lendo o que foi dito em {behind} sessões (só na primeira vez)…");
+    }
+    hark_core::adapters::message_index::catch_up(store, None)?;
+    Ok(())
+}
+
+/// `hark search <words…>`: every place the words were said, in any
+/// session of any project, by you or by the agent. Local, zero tokens.
+/// All the words by default; `--any` for any of them; a "quoted phrase"
+/// stays whole.
+fn cmd_search(rest: &[String]) -> i32 {
+    use hark_core::domain::history_search as hs;
+    use hark_core::ports::SessionStore;
+    let any = rest.iter().any(|a| a == "--any");
+    let rest: Vec<String> = rest.iter().filter(|a| *a != "--any").cloned().collect();
+    let (project, rest) = take_flag(&rest, "--project");
+    let (limit, rest) = take_flag(&rest, "--limit");
+    let limit: usize = limit.and_then(|n| n.parse().ok()).unwrap_or(20);
+    let terms = hs::terms_of(&rest.join(" "));
+    if terms.is_empty() {
+        eprintln!("usage: hark search [--any] [--project <name>] [--limit <n>] <words…>");
+        return 2;
+    }
+    let config = Config::load();
+    let result = (|| -> anyhow::Result<Vec<hs::MessageHit>> {
+        let mut store = open_store(&config)?;
+        fresh_history(&config, &mut store)?;
+        // A project filter is applied after the search: ask for more.
+        let own = config.data_dir();
+        let own = own.to_string_lossy();
+        let hits = store.search_messages(
+            &hs::fts_query(&terms, !any),
+            if project.is_some() { limit * 10 } else { limit },
+            Some(own.as_ref()),
+        )?;
+        Ok(hits
+            .into_iter()
+            .filter(|h| {
+                project.as_deref().is_none_or(|p| {
+                    h.cwd.as_deref().is_some_and(|c| c.to_lowercase().contains(&p.to_lowercase()))
+                })
+            })
+            .take(limit)
+            .collect())
+    })();
+    match result {
+        Ok(hits) if hits.is_empty() => {
+            eprintln!("nada encontrado para: {}", terms.join(" "));
+            1
+        }
+        Ok(hits) => {
+            print!("{}", hs::render_hits(&hits));
+            eprintln!("hark show <id> lê a conversa inteira");
+            0
+        }
+        Err(err) => {
+            eprintln!("hark: {err:#}");
+            1
+        }
+    }
+}
+
+/// `hark show <session-id>`: a session read back as a conversation. The
+/// id may be the first characters `hark search` prints.
+fn cmd_show(rest: &[String]) -> i32 {
+    use hark_core::ports::SessionStore;
+    let (tail, rest) = take_flag(rest, "--tail");
+    let tail: usize = tail.and_then(|n| n.parse().ok()).unwrap_or(40);
+    let Some(id) = rest.first() else {
+        eprintln!("usage: hark show <session-id> [--tail <n>]");
+        return 2;
+    };
+    let config = Config::load();
+    let result = (|| -> anyhow::Result<Option<String>> {
+        let mut store = open_store(&config)?;
+        refresh_index(&config.projects_dir, &mut store)?;
+        hark_core::adapters::recorder::refresh(&config.data_dir(), &mut store)?;
+        let full = match store.session_path(id)? {
+            Some(path) => Some(path),
+            None => {
+                let matches: Vec<_> = store
+                    .sessions_since("")?
+                    .into_iter()
+                    .filter(|s| s.session_id.starts_with(id.as_str()))
+                    .collect();
+                match matches.as_slice() {
+                    [one] => store.session_path(&one.session_id)?,
+                    [] => None,
+                    many => anyhow::bail!("{} sessões começam com {id}: use mais caracteres", many.len()),
+                }
+            }
+        };
+        let Some(path) = full else { return Ok(None) };
+        let content = std::fs::read_to_string(&path)?;
+        Ok(Some(hark_core::domain::history_search::render_transcript(content.lines(), tail)))
+    })();
+    match result {
+        Ok(Some(text)) => {
+            print!("{text}");
+            0
+        }
+        Ok(None) => {
+            eprintln!("nenhuma sessão com esse id: {id} (veja hark search, hark sessions)");
+            1
         }
         Err(err) => {
             eprintln!("hark: {err:#}");

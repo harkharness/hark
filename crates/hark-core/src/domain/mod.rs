@@ -16,6 +16,7 @@ pub mod directives;
 pub mod file_search;
 pub mod focus;
 pub mod funnel;
+pub mod history_search;
 pub mod followup;
 pub mod gate;
 pub mod demands;

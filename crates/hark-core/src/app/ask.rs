@@ -259,6 +259,29 @@ fn journal_root(deps: &AskDeps, context: Option<&ContextDef>) -> std::path::Path
 
 /// Topic-matched sessions merged into the snapshot regardless of age.
 const TOPIC_HITS: usize = 5;
+/// Excerpts of what was said that ride in the prompt.
+const EXCERPT_HITS: usize = 8;
+/// How long an ask waits for the message index to read what changed.
+const INDEX_BUDGET: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// What was SAID about a question: its significant words looked up in
+/// the full-text index (any of them, the longer ones by their root),
+/// the best matches kept and shown newest first, because the last word
+/// on a subject is the one that counts. Hark's own sessions are left
+/// out. Never an error: a search that fails is an answer without it.
+pub fn excerpts_for(
+    store: &dyn SessionStore,
+    question: &str,
+    own_dir: &std::path::Path,
+) -> Vec<crate::domain::history_search::MessageHit> {
+    let terms = crate::domain::dispatch::significant_terms(question);
+    let query = crate::domain::history_search::fts_query_loose(&terms);
+    let own = own_dir.to_string_lossy();
+    let mut hits = store.search_messages(&query, EXCERPT_HITS * 3, Some(own.as_ref())).unwrap_or_default();
+    hits.sort_by(|a, b| b.ts.cmp(&a.ts));
+    hits.truncate(EXCERPT_HITS);
+    hits
+}
 
 /// Snapshot exactly as `ask` would assemble it: recent window + context
 /// filter + topic search over the FULL index (a question about "webhook"
@@ -273,6 +296,11 @@ pub fn snapshot_for_question(
     let hours = crate::domain::intent::window_hours(question, deps.config.hours_back);
     let context = resolve_context(deps, Some(question));
     let mut snapshot = build_snapshot_with(deps, hours, context.as_ref())?;
+
+    // What changed in the last minutes is read into the full-text index
+    // first (bounded: an ask does not wait for a backlog), then searched.
+    let _ = crate::adapters::message_index::catch_up(deps.store, Some(INDEX_BUDGET));
+    snapshot.excerpts = excerpts_for(deps.store, question, &deps.config.data_dir());
 
     let terms = crate::domain::dispatch::significant_terms(question);
     let topical = deps.store.search_sessions(&terms, TOPIC_HITS)?;
@@ -385,6 +413,7 @@ fn build_snapshot_with(
         ),
         workers: deps.workers.clone(),
         board: crate::domain::board::render(&deps.store.board().unwrap_or_default()),
+        excerpts: Vec::new(),
     })
 }
 
@@ -406,6 +435,36 @@ mod tests {
             recent_prompts: vec![RecentPrompt { ts: ts.into(), text: "…".into() }],
             last_reply: None,
         }
+    }
+
+    /// The question's words are looked up in what was said: the newest
+    /// statements first, Hark's own machinery left out.
+    #[test]
+    fn a_question_brings_what_was_said_about_it_newest_first() {
+        use crate::domain::history_search::IndexedMessage;
+        let mut store = SqliteStore::in_memory().unwrap();
+        let ts = "2026-11-17T10:00:00.000Z";
+        store.save_file_state("a.jsonl", &summary("infra", "/home/dev/infra", ts), 10, 0).unwrap();
+        store.save_file_state("b.jsonl", &summary("own", "/home/dev/.hark", ts), 10, 0).unwrap();
+        let said = |ts: &str, text: &str| IndexedMessage { ts: ts.into(), role: "assistant", text: text.into() };
+        store
+            .add_messages(
+                "a.jsonl",
+                &[
+                    said("2026-11-10T10:00:00Z", "pendência: migrar o logstash"),
+                    said("2026-11-17T10:00:00Z", "logstash migrado, nada pendente"),
+                ],
+                10,
+            )
+            .unwrap();
+        store.add_messages("b.jsonl", &[said("2026-11-17T11:00:00Z", "roteador: pendências do logstash")], 10).unwrap();
+
+        let hits = excerpts_for(&store, "o que ficou pendente do logstash?", std::path::Path::new("/home/dev/.hark"));
+        assert_eq!(hits.len(), 2);
+        assert!(hits[0].snippet.contains("nada pendente"), "newest first: {hits:?}");
+        assert!(hits.iter().all(|h| h.session_id == "infra"));
+        // A question with no word worth searching finds nothing, quietly.
+        assert!(excerpts_for(&store, "e aí?", std::path::Path::new("/home/dev/.hark")).is_empty());
     }
 
     #[test]

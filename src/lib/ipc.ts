@@ -291,6 +291,11 @@ export const boardCreate = (title: string, sessionId?: string | null, workspace?
 /** Archive every doing card forgotten for weeks; answers how many went. */
 export const boardArchiveStale = () => invoke<number>("board_archive_stale");
 
+/** Sessions where the words were SAID, by the person or the agent: the
+ *  full-text index of the transcripts, one row per session, the sentence
+ *  as `last_prompt`. Local, zero tokens. */
+export const searchSaid = (query: string, limit = 8) =>
+  invoke<import("../types").SessionHit[]>("search_said", { query, limit });
 export const findSession = (query: string) =>
   invoke<{ session_id: string; title?: string; cwd?: string | null } | null>("find_session", {
     query,

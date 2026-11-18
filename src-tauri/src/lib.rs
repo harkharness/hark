@@ -4999,6 +4999,47 @@ fn session_hits(query: &str, limit: usize) -> Result<Vec<SessionHit>, String> {
         .collect())
 }
 
+/// Sessions where the words were SAID (fase 16): the full-text index of
+/// the transcripts, every word in one message, one row per session with
+/// the sentence that matched. What changed in the last minutes is read
+/// first, inside a small budget. Zero tokens.
+#[tauri::command(async)]
+fn search_said(query: String, limit: Option<usize>) -> Result<Vec<SessionHit>, String> {
+    use hark_core::domain::history_search as hs;
+    use hark_core::ports::SessionStore;
+    let limit = limit.unwrap_or(8);
+    let terms = hs::terms_of(&query);
+    if terms.is_empty() {
+        return Ok(Vec::new());
+    }
+    let config = Config::load();
+    let mut store = SqliteStore::open(&config.data_dir().join("index.db")).map_err(|e| e.to_string())?;
+    refresh_histories(&config, &mut store);
+    let _ = hark_core::adapters::message_index::catch_up(&mut store, Some(std::time::Duration::from_millis(250)));
+    let own = config.data_dir().display().to_string();
+    let hits = store
+        .search_messages(&hs::fts_query(&terms, true), limit * 6, Some(&own))
+        .map_err(|e| e.to_string())?;
+    let mut seen = std::collections::HashSet::new();
+    Ok(hits
+        .into_iter()
+        .filter(|h| seen.insert(h.session_id.clone()))
+        .take(limit)
+        .map(|h| SessionHit {
+            title: h
+                .title
+                .as_deref()
+                .map(friendly_session_name)
+                .filter(|t| !t.trim().is_empty())
+                .unwrap_or_else(|| h.session_id.chars().take(8).collect()),
+            session_id: h.session_id,
+            cwd: h.cwd,
+            last_ts: Some(h.ts),
+            last_prompt: Some(h.snippet.split_whitespace().collect::<Vec<_>>().join(" ")),
+        })
+        .collect())
+}
+
 /// Search sessions by topic on demand (the "recuperar sessão" picker).
 #[tauri::command(async)]
 fn session_candidates(query: String, limit: Option<usize>) -> Result<Vec<SessionHit>, String> {
@@ -6678,6 +6719,24 @@ pub fn run() {
             if let Some(main) = app.get_webview_window("main") {
                 gtk_overlay_setup(&main);
             }
+            // The full-text index of what was said catches up in the
+            // background: the first boot after an upgrade reads every
+            // session once (seconds), and no question should wait for it.
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(4));
+                    let config = Config::load();
+                    let Ok(mut store) = SqliteStore::open(&config.data_dir().join("index.db")) else { return };
+                    refresh_histories(&config, &mut store);
+                    let started = std::time::Instant::now();
+                    match hark_core::adapters::message_index::catch_up(&mut store, None) {
+                        Ok(n) if n > 0 => diag(&handle, &format!("message index: {n} messages read in {:?}", started.elapsed())),
+                        Ok(_) => {}
+                        Err(e) => diag(&handle, &format!("message index: {e:#}")),
+                    }
+                });
+            }
             // The log opens before anything can fail: the first line of a
             // bug report is which build booted.
             app.manage(Diag(hark_core::adapters::diag_log::DiagLog::open(&Config::load().data_dir())));
@@ -6716,6 +6775,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             updates_in_app,
+            search_said,
             overview,
             use_context,
             journal_recent,

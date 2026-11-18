@@ -8,6 +8,7 @@ pub mod fs_files;
 pub mod git_collect;
 pub mod log_read;
 pub mod memory_files;
+pub mod message_index;
 pub mod model_fetch;
 pub mod diag_log;
 pub mod recorder;

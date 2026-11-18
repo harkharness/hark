@@ -12,6 +12,9 @@ export type SearchItem = {
   when?: string;
   /** Waiting on the person (a permission, a question). */
   attention?: boolean;
+  /** Already matched elsewhere (the full-text index of what was said):
+   *  the words are in the conversation, not in this row's text. */
+  matched?: boolean;
 };
 export type Section = { id: string; items: SearchItem[] };
 
@@ -25,6 +28,7 @@ export function searchItems(items: SearchItem[], query: string, kind: SearchKind
   const words = fold(query).split(/\s+/).filter(Boolean);
   return items.filter((it) => {
     if (kind !== "all" && it.kind !== kind) return false;
+    if (it.matched) return true;
     const hay = fold(`${it.title} ${it.sub ?? ""}`);
     return words.every((w) => hay.includes(w));
   });

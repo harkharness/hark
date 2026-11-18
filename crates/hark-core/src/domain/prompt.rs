@@ -42,6 +42,9 @@ pub struct Snapshot {
     pub workers: Vec<WorkerRecord>,
     /// The invisible kanban, rendered by `board::render` (empty = no section).
     pub board: String,
+    /// What was actually SAID about the question, found by full-text
+    /// search over the sessions, newest first (empty = nothing found).
+    pub excerpts: Vec<crate::domain::history_search::MessageHit>,
 }
 
 /// JSON schema enforced on Claude's answer (`--json-schema`).
@@ -122,6 +125,8 @@ const MAX_PROMPT_CHARS: usize = 220;
 /// The agent's last reply in a session block: a closing summary fits,
 /// a wall of prose does not.
 const MAX_REPLY_CHARS: usize = 600;
+/// What the full-text search adds to the prompt, at most.
+const EXCERPTS_MAX_CHARS: usize = 2400;
 
 /// Collapse whitespace and clamp to `max` chars (ellipsis when truncated).
 /// Keeps giant pasted logs in the history from exploding the context.
@@ -193,7 +198,17 @@ pub fn build_budgeted(
     let journal_cap = JOURNAL_SECTION_MAX
         .min(budget.max_chars.saturating_sub(fixed_len + reserve))
         .max(JOURNAL_MIN_CHARS);
+    let excerpts = crate::domain::history_search::excerpts_section(&snapshot.excerpts, EXCERPTS_MAX_CHARS);
+    let excerpts_section = if excerpts.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Trechos do que foi dito nas sessoes sobre a pergunta (busca no historico, mais novo primeiro; \
+             o mais novo vale sobre o mais antigo):\n{excerpts}"
+        )
+    };
     let tail_sections = [
+        excerpts_section,
         journal_section(&clip_journal(&snapshot.journal, journal_cap)),
         question_section,
     ];
@@ -413,6 +428,27 @@ fn session_block(s: &SessionSummary) -> String {
 mod tests {
     use super::*;
 
+    /// What was actually said in the sessions rides in the prompt, between
+    /// the session blocks and the conversation: the answer can quote the
+    /// agent's own conclusion instead of guessing it from a prompt.
+    #[test]
+    fn what_was_said_rides_in_the_prompt_as_excerpts() {
+        let mut snap = snapshot();
+        snap.excerpts = vec![crate::domain::history_search::MessageHit {
+            session_id: "old1".into(),
+            title: Some("Alpha refactor".into()),
+            cwd: Some("/home/dev/alpha".into()),
+            ts: "2026-08-13T09:30:00.000Z".into(),
+            role: "assistant".into(),
+            snippet: "testes verdes, falta só o deploy".into(),
+        }];
+        let prompt = build("o que falta no alpha?", &snap);
+        assert!(prompt.contains("Trechos do que foi dito"));
+        assert!(prompt.contains("[Alpha refactor · alpha · 2026-08-13] agente: testes verdes, falta só o deploy"));
+        // And nothing at all when the search found nothing.
+        assert!(!build("o que falta?", &snapshot()).contains("Trechos do que foi dito"));
+    }
+
     /// A correction is the newest fact there is: the answer takes it and
     /// moves on, in both languages.
     #[test]
@@ -487,6 +523,7 @@ mod tests {
                 lineage: Vec::new(),
             }],
             board: "[doing]\n- Migração do DNS antigo (atualizado 2026-08-14)".into(),
+            excerpts: Vec::new(),
         }
     }
 

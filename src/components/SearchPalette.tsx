@@ -97,6 +97,29 @@ export default function SearchPalette({
     };
   }, []);
 
+  // What was SAID in the sessions (fase 16): the titles only find a chat
+  // by its name; the full-text index finds it by what was concluded in
+  // it. Asked after a pause in the typing, one row per session.
+  const [said, setSaid] = useState<SessionHit[]>([]);
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 3) {
+      setSaid([]);
+      return;
+    }
+    let live = true;
+    const id = window.setTimeout(() => {
+      ipc
+        .searchSaid(q)
+        .then((hits) => live && setSaid(hits))
+        .catch(() => live && setSaid([]));
+    }, 220);
+    return () => {
+      live = false;
+      window.clearTimeout(id);
+    };
+  }, [query]);
+
   const items = useMemo<SearchItem[]>(() => {
     const taskItems: SearchItem[] = tasks.map((task) => ({
       kind: "task",
@@ -107,13 +130,31 @@ export default function SearchPalette({
       attention: attention.has(task.title),
     }));
     const projectItems: SearchItem[] = projects.map((p) => ({ kind: "project", id: `project:${p.path}`, title: p.name, sub: p.path }));
-    const sessionItems: SearchItem[] = chats.map((c) => ({
-      kind: "session",
-      id: `session:${c.session_id}`,
-      title: c.title,
-      sub: c.last_prompt ?? undefined,
-      when: c.last_ts ?? undefined,
-    }));
+    const saidBy = new Map(said.map((h) => [h.session_id, h]));
+    const sessionItems: SearchItem[] = chats.map((c) => {
+      const hit = saidBy.get(c.session_id);
+      return {
+        kind: "session",
+        id: `session:${c.session_id}`,
+        title: c.title,
+        // The sentence that matched says more than the chat's last prompt.
+        sub: hit?.last_prompt ?? c.last_prompt ?? undefined,
+        when: c.last_ts ?? undefined,
+        matched: !!hit,
+      };
+    });
+    // A session the window does not list (older than its recents).
+    for (const h of said) {
+      if (chats.some((c) => c.session_id === h.session_id)) continue;
+      sessionItems.push({
+        kind: "session",
+        id: `session:${h.session_id}`,
+        title: h.title,
+        sub: h.last_prompt ?? undefined,
+        when: h.last_ts ?? undefined,
+        matched: true,
+      });
+    }
     const actions: SearchItem[] = [
       { kind: "action", id: "action:new-chat", title: t("search_act_new_chat") },
       { kind: "action", id: "action:board", title: t("search_act_board") },
@@ -121,7 +162,7 @@ export default function SearchPalette({
       { kind: "action", id: "action:settings", title: t("search_act_settings") },
     ];
     return [...taskItems, ...pages, ...projectItems, ...sessionItems, ...actions];
-  }, [tasks, pages, projects, chats, attention]);
+  }, [tasks, pages, projects, chats, attention, said]);
 
   const groups = useMemo(() => sections(items, query, tab), [items, query, tab]);
   const flat = groups.flatMap((g) => g.items);
@@ -131,7 +172,9 @@ export default function SearchPalette({
       const task = tasks.find((x) => x.title === item.title);
       if (task) onOpenTask(task);
     } else if (item.kind === "session") {
-      const chat = chats.find((c) => `session:${c.session_id}` === item.id);
+      const chat =
+        chats.find((c) => `session:${c.session_id}` === item.id) ??
+        said.find((h) => `session:${h.session_id}` === item.id);
       if (chat) onOpenChat(chat);
     } else if (item.kind === "project") {
       const p = projects.find((x) => `project:${x.path}` === item.id);
