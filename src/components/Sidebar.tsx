@@ -495,7 +495,8 @@ export default function Sidebar({
               onClick={() => onOpenConversation?.(c.id)}
             >
               <span className="side-title">{c.title}</span>
-              <span className="side-chat-ts">{c.count}</span>
+              {/* One just begun has no turn yet: no "0" beside it. */}
+              {c.count > 0 && <span className="side-chat-ts">{c.count}</span>}
             </button>
           ))}
         </section>
