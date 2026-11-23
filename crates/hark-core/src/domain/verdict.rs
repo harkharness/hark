@@ -35,7 +35,8 @@ const ALLOW: &[&str] = &[
     "sim", "pode", "bora", "vai", "manda", "confirma", "confirmo", "confirmado",
     "permite", "permito", "permitir", "autoriza", "autorizar", "autorizado",
     "aprova", "aprovo", "aprovar", "aprovado", "libera", "liberar", "liberado",
-    "segue", "seguir", "isso", "exato", "positivo", "beleza", "fechado", "fechou",
+    "segue", "seguir", "siga", "sigo", "prossiga", "prossegue", "prosseguir",
+    "isso", "exato", "positivo", "beleza", "fechado", "fechou",
     // English. "ok" stays out in both languages: STT hears it in noise.
     "yes", "yeah", "yep", "yup", "sure", "confirm", "confirmed", "approve",
     "approved", "allow", "allowed", "permit", "proceed", "correct", "exactly",
@@ -94,6 +95,52 @@ fn spoken_index(words: &[&str]) -> Option<usize> {
     None
 }
 
+/// Words that turn down whatever follows them.
+const WITHOUT: &[&str] = &["sem", "without"];
+/// Words that negate what follows: a refusal of it, unless the sentence
+/// also asks for it in so many words.
+const NOT: &[&str] = &["nao", "not", "dont", "don", "never", "nunca", "nem"];
+/// Words that may sit between a "no" and what it turns down ("não
+/// precisa compactar", "don't need to compact").
+const NOT_FILLERS: &[&str] = &[
+    "precisa", "precisar", "quero", "queremos", "e", "pra", "para", "vai", "vamos",
+    "t", "need", "to", "want", "have",
+];
+
+/// The surface offered an action ("compacta antes") and the person
+/// turned it DOWN ("siga sem compactar", "não precisa compactar"): that
+/// is the answer "go on as it is", a confirm. It used to match neither
+/// yes nor the action, read as a new instruction and replace the very
+/// message it was about. A sentence that both negates the action and
+/// asks for it in so many words ("não, compacta antes" and "não compacta
+/// antes" are the same tokens) is not guessed.
+fn declined_action(words: &[&str], folded: &str, actions: &[ActionPhrases]) -> Option<Verdict> {
+    for (_, phrases) in actions {
+        // The action by the root of its own verb ("compac" of "compacta").
+        let roots: Vec<String> = phrases
+            .iter()
+            .filter_map(|p| matching::tokens(p).into_iter().next())
+            .map(|w| w.chars().take(6).collect())
+            .collect();
+        let Some(at) = words.iter().position(|w| roots.iter().any(|r| w.starts_with(r.as_str()))) else {
+            continue;
+        };
+        let mut i = at;
+        while i > 0 && NOT_FILLERS.contains(&words[i - 1]) {
+            i -= 1;
+        }
+        let Some(before) = i.checked_sub(1).map(|k| words[k]) else { continue };
+        if WITHOUT.contains(&before) {
+            return Some(Verdict::Confirm { always: false });
+        }
+        if NOT.contains(&before) {
+            let asked = phrases.iter().any(|p| folded.contains(&matching::fold(p)));
+            return Some(if asked { Verdict::Unknown } else { Verdict::Confirm { always: false } });
+        }
+    }
+    None
+}
+
 pub fn interpret(
     utterance: &str,
     option_labels: &[&str],
@@ -105,6 +152,11 @@ pub fn interpret(
     let words: Vec<&str> = tokens.iter().map(String::as_str).collect();
     if words.is_empty() {
         return Verdict::Unknown;
+    }
+
+    // 0. Turning an offered action down is an answer too: go on as it is.
+    if let Some(verdict) = declined_action(&words, &folded, actions) {
+        return verdict;
     }
 
     // 1. Action phrases the surface itself offered win outright.
@@ -187,6 +239,49 @@ pub fn interpret_permission(utterance: &str) -> Option<(bool, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const COMPACT: &[ActionPhrases] = &[("compact_first", &["compacta antes", "compactar antes", "compacta primeiro"])];
+
+    /// 23/11, by voice: "sigo, ou compacto antes?" — "siga sem compactar".
+    /// It matched neither yes nor the action, read as a NEW instruction
+    /// and replaced what had been dictated: the words were lost and the
+    /// same question came back. Turning the offered action down is the
+    /// answer "go on as it is".
+    #[test]
+    fn turning_the_offered_action_down_is_going_on_as_it_is() {
+        for said in [
+            "siga sem compactar",
+            "sem compactar",
+            "não compacta",
+            "não precisa compactar",
+            "pode seguir sem compactar",
+            "manda sem compactar mesmo",
+            "segue, não quero compactar agora",
+            "without compacting",
+            "don't compact",
+        ] {
+            assert_eq!(interpret(said, &[], COMPACT), Verdict::Confirm { always: false }, "{said}");
+        }
+    }
+
+    /// Asking for the action is still asking for it, and a sentence that
+    /// could be read both ways is never guessed.
+    #[test]
+    fn asking_for_the_action_still_asks_for_it_and_a_double_reading_is_not_guessed() {
+        assert_eq!(interpret("compacta antes", &[], COMPACT), Verdict::Action("compact_first".into()));
+        assert_eq!(interpret("pode compactar antes de mandar", &[], COMPACT), Verdict::Action("compact_first".into()));
+        // "não, compacta antes" and "não compacta antes" are the same
+        // words to a speech model.
+        assert_eq!(interpret("não compacta antes", &[], COMPACT), Verdict::Unknown);
+        // With "sem" there is one reading.
+        assert_eq!(interpret("sem compactar antes", &[], COMPACT), Verdict::Confirm { always: false });
+    }
+
+    #[test]
+    fn siga_is_a_yes() {
+        assert_eq!(interpret("siga", &[], &[]), Verdict::Confirm { always: false });
+        assert_eq!(interpret("pode prosseguir", &[], &[]), Verdict::Confirm { always: false });
+    }
 
     fn v(utterance: &str) -> Verdict {
         interpret(utterance, &[], &[])
