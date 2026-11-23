@@ -1,4 +1,4 @@
-import { CircleQuestionMark, FolderPlus, Mic, ShieldCheck, Target } from "lucide-react";
+import { CircleQuestionMark, FolderPlus, Mic, Repeat, ShieldCheck, Target } from "lucide-react";
 import { t } from "../lib/i18n";
 import { confirmSpeed } from "../lib/voice";
 import { CONFIRM_MS, type Stage } from "../hooks/useVoiceRound";
@@ -26,7 +26,12 @@ export default function VoiceRound({
   onPick,
   onTyped,
   onEscape,
+  loop,
+  onToggleLoop,
 }: {
+  /** Conversation mode, and its switch (the main window's strip). */
+  loop?: boolean;
+  onToggleLoop?: () => void;
   stage: Stage;
   onPick: (instruction: string, cand: import("../types").VoiceCandidate) => void;
   onTyped: (text: string) => void;
@@ -37,7 +42,26 @@ export default function VoiceRound({
       {stage.s === "listening" && (
         <div className="hud-row">
           <Waveform />
-          <span className="hud-live">{t("hud_listening")}</span>
+          {/* The words as they are said: nobody should have to trust a
+              waveform to know they are being heard. */}
+          {stage.text ? (
+            <>
+              <span className="hud-text said">{stage.text}</span>
+              <span className="hud-sub">{t("hud_listening_keys")}</span>
+            </>
+          ) : (
+            <span className="hud-live">{t("hud_listening")}</span>
+          )}
+          {onToggleLoop && (
+            <button
+              className={`hud-loop${loop ? " on" : ""}`}
+              title={t(loop ? "hud_loop_on_hint" : "hud_loop_off_hint")}
+              aria-pressed={!!loop}
+              onClick={onToggleLoop}
+            >
+              <Repeat size={12} /> {t("hud_loop")}
+            </button>
+          )}
         </div>
       )}
       {stage.s === "loading" && (
@@ -51,6 +75,7 @@ export default function VoiceRound({
       {stage.s === "transcribing" && (
         <div className="hud-row">
           <Waveform />
+          {stage.text && !stage.warn && <span className="hud-text said">{stage.text}</span>}
           <span className={`hud-live${stage.warn ? " warn" : ""}`}>
             {stage.warn ? t("hud_transcribing_warn") : t("hud_transcribing", { secs: stage.secs })}
           </span>

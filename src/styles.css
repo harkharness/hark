@@ -2122,6 +2122,16 @@ button.scope-chip.pick > svg:last-child { color: var(--dim); }
 .hud-answer { white-space: normal; line-height: 1.5; }
 .hud-live { color: var(--dim); font-size: var(--fs-ui); }
 .hud-live.warn { color: var(--warn); }
+/* The words as they are said: the text of the message, not a status. */
+.hud-text.said { color: var(--text-strong, var(--text)); white-space: normal; flex: 1 1 auto; min-width: 0; }
+/* Conversation mode: a quiet word at the end of the row, lit when on. */
+.hud-loop {
+  margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+  appearance: none; -webkit-appearance: none; border: none; outline: none; background: none;
+  color: var(--dim); font: inherit; font-size: var(--fs-meta); padding: 3px 7px; border-radius: 7px; cursor: pointer;
+}
+.hud-loop:hover { background: var(--panel-2); color: var(--text); }
+.hud-loop.on { color: var(--accent); }
 .hud-sub { color: var(--dim); font-size: var(--fs-meta); flex: 0 0 auto; }
 .hud-keys { margin-left: auto; color: var(--dim); font-size: var(--fs-caps); flex: 0 0 auto; }
 .hud-chip {

@@ -1,16 +1,21 @@
 //! Microphone capture via cpal: resampled to 16kHz mono f32, cut by the
 //! pure VAD when the utterance ends.
 
-use crate::domain::vad::{end_of_speech, VadConfig};
+use crate::domain::vad::{end_of_speech, heard_voice, VadConfig};
 use crate::ports::AudioIn;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 
 pub struct CpalMic {
     pub vad: VadConfig,
-    /// Hard cap so a noisy room can't record forever.
+    /// Hard cap so a noisy room can't record forever. Long enough for a
+    /// long dictation: 30s cut people off mid-thought (23/11).
     pub max_seconds: usize,
+    /// How long to wait for a voice before giving up. None waits for the
+    /// cap; a conversation that re-arms the microphone by itself sets it,
+    /// so a room nobody is talking in ends the conversation.
+    pub patience_secs: Option<usize>,
     /// Manual cut (Esc in the window): set true and the capture returns
     /// whatever was said so far, without waiting for the VAD.
     pub stop: Arc<AtomicBool>,
@@ -20,7 +25,8 @@ impl Default for CpalMic {
     fn default() -> Self {
         Self {
             vad: VadConfig::default(),
-            max_seconds: 30,
+            max_seconds: 300,
+            patience_secs: None,
             stop: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -36,6 +42,8 @@ pub enum CaptureEnd {
     Stopped,
     /// The hard cap: nothing ever read as the end of the utterance.
     Cap,
+    /// Nobody spoke within the patience given.
+    NoVoice,
 }
 
 impl CaptureEnd {
@@ -44,6 +52,7 @@ impl CaptureEnd {
             CaptureEnd::Silence => "silence",
             CaptureEnd::Stopped => "the person",
             CaptureEnd::Cap => "the cap",
+            CaptureEnd::NoVoice => "nobody speaking",
         }
     }
 }
@@ -65,10 +74,18 @@ impl AudioIn for CpalMic {
 impl CpalMic {
     /// Record one utterance and say how it ended.
     pub fn record(&self) -> anyhow::Result<Capture> {
-        let done = |samples: Vec<f32>, end: CaptureEnd| {
-            let cut = crate::domain::vad::threshold_for(&samples, &self.vad);
-            Ok(Capture { samples, end, cut })
-        };
+        let shared = Mutex::new(Vec::new());
+        let end = self.record_into(&shared)?;
+        let samples = shared.into_inner().unwrap_or_else(|e| e.into_inner());
+        let cut = crate::domain::vad::threshold_for(&samples, &self.vad);
+        Ok(Capture { samples, end, cut })
+    }
+
+    /// Record one utterance INTO a buffer someone else is reading: the
+    /// audio lands there as it arrives (16kHz mono), so the words can be
+    /// read while they are being said (`app::live_text`). Returns how the
+    /// capture ended; the buffer holds the utterance.
+    pub fn record_into(&self, shared: &Mutex<Vec<f32>>) -> anyhow::Result<CaptureEnd> {
         let host = cpal::default_host();
         let device = host
             .default_input_device()
@@ -93,12 +110,11 @@ impl CpalMic {
         )?;
         stream.play()?;
 
-        let mut raw: Vec<f32> = Vec::new();
-        let max_raw = src_rate * self.max_seconds;
+        let cap = 16_000 * self.max_seconds;
         // Loudest sample seen. A denied microphone does NOT stop the
         // callbacks — CoreAudio keeps delivering buffers of zeros, so the
         // 2s timeout never fires and the VAD never sees speech to end.
-        // Without this the capture just ran the full 30s on nothing.
+        // Without this the capture just ran to the cap on nothing.
         let mut peak = 0.0f32;
         let mut last_check = std::time::Instant::now();
         loop {
@@ -106,39 +122,50 @@ impl CpalMic {
                 anyhow::bail!("microphone produced no audio (permission denied?)");
             };
             peak = chunk.iter().fold(peak, |m, s| m.max(s.abs()));
-            raw.extend(chunk);
+            // Each chunk is resampled on its own and appended: resampling
+            // the whole buffer on every callback was O(n²), which a
+            // five-minute dictation would have felt.
+            let len = {
+                let mut all = shared.lock().unwrap_or_else(|e| e.into_inner());
+                all.extend(resample_to_16k(&chunk, src_rate));
+                all.len()
+            };
 
             // The manual cut is checked on EVERY chunk: Esc has to land
             // within a chunk, not within a VAD window.
             if self.stop.swap(false, Ordering::SeqCst) {
                 drop(stream);
-                return done(resample_to_16k(&raw, src_rate), CaptureEnd::Stopped);
+                return Ok(CaptureEnd::Stopped);
             }
 
-            let full = raw.len() >= max_raw;
-            // Resampling the whole buffer on every callback was O(n²) over
-            // a 30s capture — costly exactly on the slow machines. A VAD
-            // decision every 250ms is as good and ~40x cheaper.
+            let full = len >= cap;
+            // A VAD decision every 250ms is as good as one per chunk and
+            // far cheaper.
             if !full && last_check.elapsed() < std::time::Duration::from_millis(250) {
                 continue;
             }
             last_check = std::time::Instant::now();
 
-            if peak < 1e-4 && raw.len() >= src_rate * 3 {
+            if peak < 1e-4 && len >= 16_000 * 3 {
                 drop(stream);
                 anyhow::bail!(
                     "microphone is delivering silence — check System Settings › Privacy & Security › Microphone"
                 );
             }
 
-            let resampled = resample_to_16k(&raw, src_rate);
-            if let Some(end) = end_of_speech(&resampled, &self.vad) {
+            let mut all = shared.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(end) = end_of_speech(&all, &self.vad) {
                 drop(stream);
-                return done(resampled[..end].to_vec(), CaptureEnd::Silence);
+                all.truncate(end);
+                return Ok(CaptureEnd::Silence);
+            }
+            if self.patience_secs.is_some_and(|secs| len >= 16_000 * secs) && !heard_voice(&all, &self.vad) {
+                drop(stream);
+                return Ok(CaptureEnd::NoVoice);
             }
             if full {
                 drop(stream);
-                return done(resampled, CaptureEnd::Cap);
+                return Ok(CaptureEnd::Cap);
             }
         }
     }

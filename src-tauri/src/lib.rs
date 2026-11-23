@@ -792,6 +792,14 @@ impl MicPhase {
             serde_json::json!({ "kind": "mic", "phase": phase, "owner": self.owner }),
         );
     }
+
+    /// The words so far, while they are still being said.
+    fn partial(&self, text: &str) {
+        emit_event(
+            &self.app,
+            serde_json::json!({ "kind": "mic", "phase": "partial", "owner": self.owner, "text": text }),
+        );
+    }
 }
 
 impl Drop for MicPhase {
@@ -805,6 +813,9 @@ fn hear_once(
     app: AppHandle,
     lease: State<'_, MicLease>,
     owner: Option<String>,
+    // Seconds to wait for a voice before giving up (`mic_no_voice`): a
+    // conversation re-arming the microphone by itself sets it.
+    patience: Option<u32>,
 ) -> Result<String, String> {
     let owner = owner.unwrap_or_else(|| "janela".into());
     {
@@ -860,30 +871,73 @@ fn hear_once(
     let tts = os_tts(&config);
     tts.beep(hark_core::ports::Cue::Listening);
     phase.say("capturing");
-    let capture = CpalMic {
+    let mic = CpalMic {
         stop,
+        patience_secs: patience.map(|s| s as usize),
         ..CpalMic::default()
-    }
-    .record()
-    .map_err(|e| e.to_string())?;
+    };
+    // The words are read WHILE they are said (app::live_text): a second
+    // thread passes over the buffer the capture is filling, settles each
+    // phrase a pause closes and shows the open one. When the capture
+    // ends only the last phrase is left to read, so the wait after the
+    // last word is one phrase long, not one recording long.
+    use hark_core::app::live_text::LiveText;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let shared = std::sync::Mutex::new(Vec::<f32>::new());
+    let capturing = AtomicBool::new(true);
+    let pass_cut = std::sync::Arc::new(AtomicBool::new(false));
+    let (ended, live) = std::thread::scope(|scope| {
+        let worker = scope.spawn(|| {
+            let mut live = LiveText::default();
+            let mut seen = 0usize;
+            while capturing.load(Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_millis(350));
+                let snapshot = {
+                    let all = shared.lock().unwrap_or_else(|e| e.into_inner());
+                    if all.len() == seen {
+                        continue;
+                    }
+                    all.clone()
+                };
+                seen = snapshot.len();
+                let mut read = |audio: &[f32]| stt.transcribe_with_abort(audio, pass_cut.clone());
+                if let Ok(Some(text)) = live.pass(&snapshot, &mic.vad, &mut read) {
+                    phase.partial(&text);
+                }
+            }
+            live
+        });
+        let ended = mic.record_into(&shared);
+        // The capture is over: whatever pass is in flight is cut short,
+        // and the last phrase is read once, below.
+        capturing.store(false, Ordering::SeqCst);
+        pass_cut.store(true, Ordering::SeqCst);
+        (ended, worker.join())
+    });
+    let ended = ended.map_err(|e| e.to_string())?;
+    let live = live.map_err(|_| "the live text reader stopped".to_string())?;
+    let audio = shared.into_inner().unwrap_or_else(|e| e.into_inner());
     // One line per capture: "it kept listening" is the cap, "it cut me
     // off" is silence too soon, and the cut says how loud the room was.
     diag(
         &log,
         &format!(
             "mic: {:.1}s captured, ended by {}, voice over {:.3}",
-            capture.samples.len() as f64 / 16_000.0,
-            capture.end.as_str(),
-            capture.cut,
+            audio.len() as f64 / 16_000.0,
+            ended.as_str(),
+            hark_core::domain::vad::threshold_for(&audio, &mic.vad),
         ),
     );
-    let audio = capture.samples;
-    if abort.load(std::sync::atomic::Ordering::SeqCst) {
+    if abort.load(Ordering::SeqCst) {
         return Err("mic_aborted".into());
+    }
+    if ended == hark_core::adapters::cpal_audio::CaptureEnd::NoVoice {
+        return Err("mic_no_voice".into());
     }
     tts.beep(hark_core::ports::Cue::Captured);
     phase.say("transcribing");
-    match stt.transcribe_with_abort(&audio, abort) {
+    let mut read = |stretch: &[f32]| stt.transcribe_with_abort(stretch, abort.clone());
+    match live.finish(&audio, &mic.vad, &mut read) {
         Ok(Some(text)) => Ok(text),
         Ok(None) => Err("mic_aborted".into()),
         Err(e) => Err(e.to_string()),

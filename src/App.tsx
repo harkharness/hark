@@ -2803,7 +2803,31 @@ export default function App({
   // has, drawn over the text while the main window is in front. A
   // detached project window still floats the HUD — it has no general
   // chat to narrate into.
-  const voice = useVoiceRound({ owner: "main", onHide: () => {}, keys: true });
+  // Conversation mode (23/11): once Hark has answered, the microphone
+  // opens again by itself. The switch is on the voice strip.
+  const [voiceLoop, setVoiceLoop] = useState(() => {
+    try {
+      return localStorage.getItem("hark.voice.loop") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const toggleVoiceLoop = () =>
+    setVoiceLoop((on) => {
+      try {
+        localStorage.setItem("hark.voice.loop", on ? "0" : "1");
+      } catch {
+        /* private window: not remembered */
+      }
+      return !on;
+    });
+  const voice = useVoiceRound({
+    owner: "main",
+    onHide: () => {},
+    keys: true,
+    loop: voiceLoop,
+    conversation: () => inicioConvRef.current,
+  });
   const voiceStartRef = useRef(voice.start);
   voiceStartRef.current = voice.start;
 
@@ -4625,7 +4649,14 @@ export default function App({
                 prefill={composerPrefill}
                 voice={
                   isMain && voice.active ? (
-                    <VoiceRound stage={voice.stage} onPick={voice.pick} onTyped={voice.typed} onEscape={voice.escape} />
+                    <VoiceRound
+                      stage={voice.stage}
+                      onPick={voice.pick}
+                      onTyped={voice.typed}
+                      onEscape={voice.escape}
+                      loop={voiceLoop}
+                      onToggleLoop={toggleVoiceLoop}
+                    />
                   ) : undefined
                 }
               >

@@ -74,6 +74,51 @@ pub fn threshold_for(samples: &[f32], cfg: &VadConfig) -> f32 {
     cut_over(&window_levels(samples, window), cfg).unwrap_or(cfg.threshold)
 }
 
+/// Where the phrases of a recording end (live text): the middle of every
+/// pause of at least `gap_ms` after someone spoke, as a sample index. A
+/// pause still going on counts as soon as it is long enough: the phrase
+/// before it is over whether or not the voice comes back.
+pub fn phrase_breaks(samples: &[f32], cfg: &VadConfig, gap_ms: usize) -> Vec<usize> {
+    let window = cfg.sample_rate * cfg.window_ms / 1000;
+    if window == 0 {
+        return Vec::new();
+    }
+    let levels = window_levels(samples, window);
+    let Some(cut) = cut_over(&levels, cfg) else { return Vec::new() };
+    let gap = gap_ms.div_ceil(cfg.window_ms).max(1);
+    let mut breaks = Vec::new();
+    let mut spoke = false;
+    let mut run = 0usize;
+    for (i, level) in levels.iter().enumerate() {
+        if *level >= cut {
+            spoke = true;
+            run = 0;
+        } else if spoke {
+            run += 1;
+            // Marked once, the moment the pause becomes long enough.
+            if run == gap {
+                breaks.push((i + 1 - gap / 2) * window);
+            }
+        }
+    }
+    breaks
+}
+
+/// Does this stretch hold a voice, by the cut of the whole recording? A
+/// stretch of room alone is never handed to the speech model: it answers
+/// silence with words of its own.
+pub fn has_voice(samples: &[f32], cfg: &VadConfig, cut: f32) -> bool {
+    let window = cfg.sample_rate * cfg.window_ms / 1000;
+    window > 0 && window_levels(samples, window).iter().any(|level| *level >= cut)
+}
+
+/// Has anyone spoken yet in this recording? A conversation that re-arms
+/// the microphone by itself gives up when nobody does.
+pub fn heard_voice(samples: &[f32], cfg: &VadConfig) -> bool {
+    let window = cfg.sample_rate * cfg.window_ms / 1000;
+    window > 0 && cut_over(&window_levels(samples, window), cfg).is_some()
+}
+
 /// RMS of every COMPLETE window (the tail waits for more audio).
 fn window_levels(samples: &[f32], window: usize) -> Vec<f32> {
     samples.chunks(window).filter(|c| c.len() == window).map(rms).collect()
@@ -180,6 +225,46 @@ mod tests {
         audio.extend(speech(1000));
         audio.extend(silence(1200));
         assert_eq!(threshold_for(&audio, &cfg()), cfg().threshold);
+    }
+
+    /// Live text (23/11): what was said before a pause is settled, and
+    /// is read once; a break is the middle of a pause long enough to be
+    /// one, whether or not the voice has come back yet.
+    #[test]
+    fn a_pause_between_phrases_is_a_break_and_a_breath_is_not() {
+        let mut audio = speech(1000);
+        audio.extend(silence(200)); // a breath
+        audio.extend(speech(1000));
+        audio.extend(silence(800)); // a pause
+        audio.extend(speech(500));
+        let breaks = phrase_breaks(&audio, &cfg(), 600);
+        assert_eq!(breaks.len(), 1, "{breaks:?}");
+        // Inside the pause, after the second phrase and before the third.
+        assert!(breaks[0] > 16 * 2200 && breaks[0] < 16 * 3000, "{breaks:?}");
+        // A pause still going on is already a break: the phrase is over.
+        let mut open = speech(1000);
+        open.extend(silence(700));
+        assert_eq!(phrase_breaks(&open, &cfg(), 600).len(), 1);
+        // Silence before anyone spoke closes nothing.
+        assert!(phrase_breaks(&silence(3000), &cfg(), 600).is_empty());
+    }
+
+    #[test]
+    fn nobody_has_spoken_in_a_room_that_is_only_a_room() {
+        assert!(!heard_voice(&silence(3000), &cfg()));
+        assert!(!heard_voice(&noise(3000, 0.03), &cfg()));
+        let mut audio = noise(1000, 0.03);
+        audio.extend(speech(400));
+        assert!(heard_voice(&audio, &cfg()));
+    }
+
+    #[test]
+    fn a_stretch_with_only_the_room_in_it_has_no_voice() {
+        let mut audio = speech(500);
+        audio.extend(silence(1000));
+        let cut = threshold_for(&audio, &cfg());
+        assert!(has_voice(&audio[..16 * 500], &cfg(), cut));
+        assert!(!has_voice(&audio[16 * 500..], &cfg(), cut));
     }
 
     #[test]

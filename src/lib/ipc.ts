@@ -44,8 +44,8 @@ export const routeText = (text: string) => invoke<string>("route_text", { text }
 export const speak = (text: string) => invoke("speak", { text });
 export const speakStop = () => invoke("speak_stop");
 /** One mic, one owner: a busy mic rejects with "mic_busy:<owner>". */
-export const hearOnce = (owner?: string) =>
-  invoke<string>("hear_once", { owner: owner ?? null });
+export const hearOnce = (owner?: string, patience?: number) =>
+  invoke<string>("hear_once", { owner: owner ?? null, patience: patience ?? null });
 /** Esc while recording: cut the capture and transcribe what was said. */
 export const hearStop = () => invoke("hear_stop");
 /** Esc once the words no longer matter: kill the in-flight hear_once —

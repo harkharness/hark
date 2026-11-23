@@ -13,13 +13,14 @@ import type { HarkEvent, TaskCommandResult, VoiceCandidate, VoicePlan } from "..
 export type Stage =
   /** Nothing running: the HUD is hidden, the composer is a composer. */
   | { s: "idle" }
-  | { s: "listening" }
+  /** `text`: the words so far, read while they are being said. */
+  | { s: "listening"; text?: string }
   /** The model file is still being read — say so, with the clock running:
    *  on a cold Intel Mac this lasts long enough to read as broken. */
   | { s: "loading"; size: string | null; secs: number }
   /** Capture ended, whisper is grinding. On CPU this takes ~3x the length
    *  of the utterance, so it needs its own face and its own Esc. */
-  | { s: "transcribing"; secs: number; warn?: boolean }
+  | { s: "transcribing"; secs: number; warn?: boolean; text?: string }
   | { s: "thinking"; text: string }
   | { s: "confirm"; text: string; plan: WorkPlan }
   /** Target too close to call: numbered options, never a silent guess.
@@ -33,6 +34,8 @@ export type Stage =
   | { s: "answer"; text: string };
 
 export const CONFIRM_MS = 1600;
+/** How long a conversation waits for the next sentence before it ends. */
+const REOPEN_PATIENCE_S = 8;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export type VoiceRound = {
@@ -56,6 +59,8 @@ export function useVoiceRound({
   onHide,
   autoStart = false,
   keys = true,
+  loop = false,
+  conversation,
 }: {
   /** Which surface holds the mic: the backend's phase events name it. */
   owner: "hud" | "main";
@@ -65,6 +70,11 @@ export function useVoiceRound({
   autoStart?: boolean;
   /** Install the Esc/Enter/digit keys while a stage is on screen. */
   keys?: boolean;
+  /** Conversation: once an answer has been spoken the microphone opens
+   *  again by itself, and closes if nobody speaks. */
+  loop?: boolean;
+  /** Which of Início's conversations a spoken question belongs to. */
+  conversation?: () => string | null;
 }): VoiceRound {
   const [stage, setStage] = useState<Stage>(autoStart ? { s: "listening" } : { s: "idle" });
   const stageRef = useRef(stage);
@@ -85,9 +95,16 @@ export function useVoiceRound({
   const escWarnedAt = useRef(0);
   const onHideRef = useRef(onHide);
   onHideRef.current = onHide;
+  const loopRef = useRef(loop);
+  loopRef.current = loop;
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
+  // An answer is being spoken and the microphone opens when it ends.
+  const reopenAfterSpeech = useRef(false);
 
   const hide = useCallback(() => {
     window.clearTimeout(timer.current);
+    reopenAfterSpeech.current = false;
     busyRef.current = false;
     setStage({ s: "idle" });
     onHideRef.current();
@@ -345,14 +362,22 @@ export function useVoiceRound({
       // own any more.
       setStage({ s: "asking", text });
       try {
-        const reply = await ipc.askText(plan.question);
+        const reply = await ipc.askText(plan.question, [], undefined, conversationRef.current?.() ?? null);
         setStage({ s: "answer", text: reply.fala });
         // No feed row: the thread IS the record for conversation turns —
         // the feed only narrates what happens OUTSIDE the chat.
         emit("hark", { kind: "chat_echo", question: text, reply: echoReply(reply), work: false }).catch(() => {});
         ipc.speak(reply.fala).catch(() => {});
         window.clearTimeout(timer.current);
-        timer.current = window.setTimeout(hide, 6000);
+        if (loopRef.current) {
+          // Conversation: the microphone opens again when the voice is
+          // done (the "speaking" event below), or after a while if no
+          // voice ever spoke (muted, or the engine failed).
+          reopenAfterSpeech.current = true;
+          timer.current = window.setTimeout(() => reopenRef.current(), 20000);
+        } else {
+          timer.current = window.setTimeout(hide, 6000);
+        }
       } catch (err) {
         // The spoken question is a conversation turn even when it fails:
         // it lands in the thread with the coded error, instead of
@@ -435,18 +460,35 @@ export function useVoiceRound({
     }
   }
 
-  async function start() {
+  /** The conversation's own re-arm: the answer was heard, the microphone
+   *  opens again and waits a few seconds for a voice. Nobody speaking
+   *  ends the conversation quietly. */
+  function reopen() {
+    if (!reopenAfterSpeech.current) return;
+    reopenAfterSpeech.current = false;
+    window.clearTimeout(timer.current);
+    busyRef.current = false;
+    void start(REOPEN_PATIENCE_S);
+  }
+  const reopenRef = useRef(reopen);
+  reopenRef.current = reopen;
+
+  async function start(patience?: number) {
     if (busyRef.current) return;
     busyRef.current = true;
     cancelRef.current = false;
+    reopenAfterSpeech.current = false;
     const mine = ++runSeq.current;
+    // The microphone never opens over Hark's own voice: whatever it was
+    // saying stops, which is also how a press interrupts an answer.
+    ipc.speakStop().catch(() => {});
     setStage({ s: "listening" });
     let text = "";
     const opened = Date.now();
     let busyRetries = 0;
     for (;;) {
       try {
-        text = (await ipc.hearOnce(owner)).trim();
+        text = (await ipc.hearOnce(owner, patience)).trim();
         break;
       } catch (err) {
         const raw = String(err);
@@ -526,7 +568,7 @@ export function useVoiceRound({
       if (verdictListening.current) ipc.hearAbort().catch(() => {});
       busyRef.current = false;
     }
-    startRef.current();
+    void startRef.current();
   }, []);
 
   // The backend's mic phases drive the listening face — but only while
@@ -535,22 +577,35 @@ export function useVoiceRound({
     if (autoStart) startRef.current();
     const un = listen<HarkEvent>("hark", (e) => {
       const p = e.payload;
+      // The voice finished the answer: in a conversation, listen again.
+      if (p.kind === "speaking" && !p.on && reopenAfterSpeech.current && stageRef.current.s === "answer") {
+        reopenRef.current();
+        return;
+      }
       if (p.kind !== "mic" || p.owner !== owner) return;
       const s = stageRef.current.s;
-      if (p.phase === "capturing" && (s === "listening" || s === "loading")) {
+      if (p.phase === "partial") {
+        // The words as they are said: on screen while it listens, and
+        // kept there while the last phrase is being read.
+        const cur = stageRef.current;
+        if (cur.s === "listening" || cur.s === "transcribing") setStage({ ...cur, text: p.text });
+      } else if (p.phase === "capturing" && (s === "listening" || s === "loading")) {
         setStage({ s: "listening" });
       } else if (p.phase === "transcribing" && s === "listening") {
         const started = Date.now();
+        const heard = stageRef.current.s === "listening" ? stageRef.current.text : undefined;
         window.clearInterval(phaseTimer.current);
         escWarnedAt.current = 0;
-        setStage({ s: "transcribing", secs: 0 });
+        setStage({ s: "transcribing", secs: 0, text: heard });
         phaseTimer.current = window.setInterval(() => {
           if (stageRef.current.s !== "transcribing") {
             window.clearInterval(phaseTimer.current);
             return;
           }
+          const now = stageRef.current;
           setStage({
             s: "transcribing",
+            text: now.s === "transcribing" ? now.text : undefined,
             secs: Math.floor((Date.now() - started) / 1000),
             // The warning stays up for as long as a second Esc would cancel.
             warn: escWarnedAt.current > 0 && Date.now() - escWarnedAt.current <= ESC_CONFIRM_MS,

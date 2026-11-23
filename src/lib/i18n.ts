@@ -438,6 +438,10 @@ const pt = {
 
   // HUD
   hud_listening: "ouvindo… fale (Enter, Esc ou o microfone enviam)",
+  hud_listening_keys: "Enter envia",
+  hud_loop: "Conversa",
+  hud_loop_on_hint: "Conversa contínua ligada: depois da resposta o microfone abre de novo sozinho, e fecha se ninguém falar",
+  hud_loop_off_hint: "Conversa contínua desligada: uma fala por clique",
   hud_routing: "roteando…",
   hud_goes_to: "vai para",
   hud_which: "qual delas? fale ou tecle o número",
@@ -1664,6 +1668,10 @@ const en: Record<keyof typeof pt, string> = {
   m_no_events: "(no events yet)",
 
   hud_listening: "listening… speak (Enter, Esc or the microphone send)",
+  hud_listening_keys: "Enter sends",
+  hud_loop: "Conversation",
+  hud_loop_on_hint: "Conversation mode on: after the answer the microphone opens again by itself, and closes if nobody speaks",
+  hud_loop_off_hint: "Conversation mode off: one utterance per press",
   hud_routing: "routing…",
   hud_goes_to: "goes to",
   hud_which: "which one? speak or press the number",

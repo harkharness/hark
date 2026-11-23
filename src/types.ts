@@ -291,6 +291,8 @@ export type HarkEvent =
    *  CPU the transcription grinds long after the capture ended, and a UI
    *  stuck on "listening" the whole way read as frozen. */
   | { kind: "mic"; phase: "capturing" | "transcribing" | "idle"; owner: string }
+  /** The words so far, while they are still being said. */
+  | { kind: "mic"; phase: "partial"; owner: string; text: string }
   | { kind: "hotkey_mic" }
   | { kind: "main_tab"; tab: string }
   | { kind: "focus_task"; title: string; session_id?: string | null; project?: Project }

@@ -302,7 +302,8 @@ export function useHarkEvents(h: Handlers) {
       } else if (ev.kind === "speaking") {
         h.onSpeaking(ev.on);
       } else if (ev.kind === "mic") {
-        h.onMicPhase?.(ev.phase);
+        // The words-so-far ride the same event; the phase did not change.
+        if (ev.phase !== "partial") h.onMicPhase?.(ev.phase);
       } else if (ev.kind === "hotkey_mic") {
         h.onHotkeyMic?.();
       } else if (ev.kind === "open_report") {
