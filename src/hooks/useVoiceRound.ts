@@ -7,7 +7,7 @@ import { emit, listen } from "../lib/events";
 import * as ipc from "../lib/ipc";
 import { st, t } from "../lib/i18n";
 import { agentError, echoReply, isAuthError } from "../lib/format";
-import { confirmSpeed, targetLabel, type WorkPlan } from "../lib/voice";
+import { confirmSpeed, ESC_CONFIRM_MS, escapePress, micPress, targetLabel, type WorkPlan } from "../lib/voice";
 import type { HarkEvent, TaskCommandResult, VoiceCandidate, VoicePlan } from "../types";
 
 export type Stage =
@@ -19,7 +19,7 @@ export type Stage =
   | { s: "loading"; size: string | null; secs: number }
   /** Capture ended, whisper is grinding. On CPU this takes ~3x the length
    *  of the utterance, so it needs its own face and its own Esc. */
-  | { s: "transcribing"; secs: number }
+  | { s: "transcribing"; secs: number; warn?: boolean }
   | { s: "thinking"; text: string }
   | { s: "confirm"; text: string; plan: WorkPlan }
   /** Target too close to call: numbered options, never a silent guess.
@@ -81,6 +81,8 @@ export function useVoiceRound({
   const runSeq = useRef(0);
   // The 1s clock behind the transcribing stage; self-clears on stage change.
   const phaseTimer = useRef<number>(0);
+  // When the first Esc of a transcription warned (0 = it did not).
+  const escWarnedAt = useRef(0);
   const onHideRef = useRef(onHide);
   onHideRef.current = onHide;
 
@@ -484,8 +486,15 @@ export function useVoiceRound({
         }
       }
     }
-    if (cancelRef.current || runSeq.current !== mine || !text) {
+    if (cancelRef.current || runSeq.current !== mine) {
       if (runSeq.current === mine) hide();
+      return;
+    }
+    if (!text) {
+      // Nothing was understood. Closing without a word read as "it threw
+      // away what I said": say so, and the next press starts over.
+      busyRef.current = false;
+      finish(t("vr_heard_nothing"), "warn", 3200);
       return;
     }
     await handle(text);
@@ -502,10 +511,19 @@ export function useVoiceRound({
    *  — drop the leftover whole and start over. */
   const rearm = useCallback(() => {
     const s = stageRef.current.s;
-    if (s === "note" || s === "answer" || s === "candidates" || s === "confirm" || s === "transcribing") {
+    // The microphone button says "I am done" while it listens, and waits
+    // while the words are being read (lib/voice.ts): pressing it used to
+    // do nothing in the first case and abort the turn in the second.
+    const press = micPress(s);
+    if (press === "send") {
+      ipc.hearStop().catch(() => {});
+      return;
+    }
+    if (press === "wait") return;
+    if (s === "note" || s === "answer" || s === "candidates" || s === "confirm") {
       window.clearTimeout(timer.current);
       cancelRef.current = true;
-      if (verdictListening.current || s === "transcribing") ipc.hearAbort().catch(() => {});
+      if (verdictListening.current) ipc.hearAbort().catch(() => {});
       busyRef.current = false;
     }
     startRef.current();
@@ -524,13 +542,19 @@ export function useVoiceRound({
       } else if (p.phase === "transcribing" && s === "listening") {
         const started = Date.now();
         window.clearInterval(phaseTimer.current);
+        escWarnedAt.current = 0;
         setStage({ s: "transcribing", secs: 0 });
         phaseTimer.current = window.setInterval(() => {
           if (stageRef.current.s !== "transcribing") {
             window.clearInterval(phaseTimer.current);
             return;
           }
-          setStage({ s: "transcribing", secs: Math.floor((Date.now() - started) / 1000) });
+          setStage({
+            s: "transcribing",
+            secs: Math.floor((Date.now() - started) / 1000),
+            // The warning stays up for as long as a second Esc would cancel.
+            warn: escWarnedAt.current > 0 && Date.now() - escWarnedAt.current <= ESC_CONFIRM_MS,
+          });
         }, 1000);
       }
     });
@@ -547,13 +571,23 @@ export function useVoiceRound({
       cancelRef.current = true;
       ipc.hearAbort().catch(() => {});
       hide();
-    } else if (s.s === "listening") {
+      return;
+    }
+    const press = escapePress(s.s, escWarnedAt.current, Date.now());
+    if (press === "send") {
       // Still capturing: Esc ends the capture and KEEPS the words —
       // that is the promise printed next to the waveform.
       ipc.hearStop().catch(() => {});
-    } else if (s.s === "transcribing" || s.s === "loading") {
-      // The words no longer matter (or never existed): kill the turn
-      // wherever it is and free the CPU.
+    } else if (press === "warn") {
+      // The capture may have ended by itself a moment before this key
+      // was pressed to end it: the same Esc must not throw the words
+      // away. It warns; a second one, while the warning is up, cancels.
+      escWarnedAt.current = Date.now();
+      if (s.s === "transcribing") setStage({ ...s, warn: true });
+    } else if (press === "abort") {
+      // Asked twice (or nothing was said yet): kill the turn wherever
+      // it is and free the CPU.
+      escWarnedAt.current = 0;
       cancelRef.current = true;
       ipc.hearAbort().catch(() => {});
       hide();
@@ -587,6 +621,11 @@ export function useVoiceRound({
       if (e.key === "Escape") {
         e.stopPropagation();
         escape();
+      } else if (e.key === "Enter" && s.s === "listening" && !verdictListening.current) {
+        // Enter sends, as it does everywhere else in the window.
+        e.preventDefault();
+        e.stopPropagation();
+        ipc.hearStop().catch(() => {});
       } else if (e.key === "Enter" && s.s === "confirm") {
         e.preventDefault();
         e.stopPropagation();

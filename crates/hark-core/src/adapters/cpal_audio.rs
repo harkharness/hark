@@ -26,8 +26,49 @@ impl Default for CpalMic {
     }
 }
 
+/// Why a capture stopped: the log says it, so "it kept listening" and
+/// "it cut me off" can be told apart from a line of text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureEnd {
+    /// The voice stopped and the room stayed quiet for the hangover.
+    Silence,
+    /// The person ended it (the microphone button, Enter, Esc).
+    Stopped,
+    /// The hard cap: nothing ever read as the end of the utterance.
+    Cap,
+}
+
+impl CaptureEnd {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CaptureEnd::Silence => "silence",
+            CaptureEnd::Stopped => "the person",
+            CaptureEnd::Cap => "the cap",
+        }
+    }
+}
+
+/// One utterance: 16kHz mono, why it ended, and the level that told
+/// voice from room in it.
+pub struct Capture {
+    pub samples: Vec<f32>,
+    pub end: CaptureEnd,
+    pub cut: f32,
+}
+
 impl AudioIn for CpalMic {
     fn record_utterance(&self) -> anyhow::Result<Vec<f32>> {
+        Ok(self.record()?.samples)
+    }
+}
+
+impl CpalMic {
+    /// Record one utterance and say how it ended.
+    pub fn record(&self) -> anyhow::Result<Capture> {
+        let done = |samples: Vec<f32>, end: CaptureEnd| {
+            let cut = crate::domain::vad::threshold_for(&samples, &self.vad);
+            Ok(Capture { samples, end, cut })
+        };
         let host = cpal::default_host();
         let device = host
             .default_input_device()
@@ -71,7 +112,7 @@ impl AudioIn for CpalMic {
             // within a chunk, not within a VAD window.
             if self.stop.swap(false, Ordering::SeqCst) {
                 drop(stream);
-                return Ok(resample_to_16k(&raw, src_rate));
+                return done(resample_to_16k(&raw, src_rate), CaptureEnd::Stopped);
             }
 
             let full = raw.len() >= max_raw;
@@ -93,11 +134,11 @@ impl AudioIn for CpalMic {
             let resampled = resample_to_16k(&raw, src_rate);
             if let Some(end) = end_of_speech(&resampled, &self.vad) {
                 drop(stream);
-                return Ok(resampled[..end].to_vec());
+                return done(resampled[..end].to_vec(), CaptureEnd::Silence);
             }
             if full {
                 drop(stream);
-                return Ok(resampled);
+                return done(resampled, CaptureEnd::Cap);
             }
         }
     }

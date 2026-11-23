@@ -23,7 +23,7 @@ use hark_core::config::Config;
 use hark_core::domain::reply::VoiceReply;
 use hark_agent::{AgentEvent as ClaudeEvent, PermissionDecision};
 use hark_core::domain::memory::{WorkerRecord, WorkerStatus};
-use hark_core::ports::{AgentBackend, AgentRunner, AgentSession, AudioIn, SessionSpec, Tts};
+use hark_core::ports::{AgentBackend, AgentRunner, AgentSession, SessionSpec, Tts};
 use hark_plugin_claude::backend::ClaudeBackend;
 
 /// Permission requests waiting for a click, keyed by request_id.
@@ -855,16 +855,29 @@ fn hear_once(
     // Phase events let the UI say what the mic is DOING. The promise alone
     // can't: on CPU the transcription runs tens of seconds after the
     // capture ended, and "listening" the whole way read as frozen.
+    let log = app.clone();
     let phase = MicPhase { app, owner };
     let tts = os_tts(&config);
     tts.beep(hark_core::ports::Cue::Listening);
     phase.say("capturing");
-    let audio = CpalMic {
+    let capture = CpalMic {
         stop,
         ..CpalMic::default()
     }
-    .record_utterance()
+    .record()
     .map_err(|e| e.to_string())?;
+    // One line per capture: "it kept listening" is the cap, "it cut me
+    // off" is silence too soon, and the cut says how loud the room was.
+    diag(
+        &log,
+        &format!(
+            "mic: {:.1}s captured, ended by {}, voice over {:.3}",
+            capture.samples.len() as f64 / 16_000.0,
+            capture.end.as_str(),
+            capture.cut,
+        ),
+    );
+    let audio = capture.samples;
     if abort.load(std::sync::atomic::Ordering::SeqCst) {
         return Err("mic_aborted".into());
     }

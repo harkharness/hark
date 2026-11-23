@@ -176,6 +176,7 @@ export default function App({
   const [transcribing, setTranscribing] = useState(false);
   // The global Esc handler must see the live value (no stale closure).
   const recordingRef = useRef(false);
+  const escOnTranscribe = useRef(0);
   const transcribingRef = useRef(false);
   const [pending, setPending] = useState<Pending>(null);
   // Read-only thread being viewed (board tab), never executes anything.
@@ -1353,10 +1354,14 @@ export default function App({
           ipc.hearStop().catch(() => {});
           return;
         }
-        // Already transcribing? The words are not coming — kill the turn
-        // rather than make the user wait out a whisper pass on the CPU.
+        // Already transcribing? One Esc must not throw the words away:
+        // it is the key that SENDS a moment earlier, and the capture may
+        // have ended by itself in between (23/11). A second one, soon
+        // after, kills the turn.
         if (transcribingRef.current) {
-          ipc.hearAbort().catch(() => {});
+          const now = Date.now();
+          if (now - escOnTranscribe.current <= 4000) ipc.hearAbort().catch(() => {});
+          escOnTranscribe.current = now;
           return;
         }
         ipc.speakStop().catch(() => {});
@@ -3970,7 +3975,7 @@ export default function App({
         className="composer-orb"
         title={
           busy ??
-          (recording ? "ouvindo…" : transcribing ? "transcrevendo… (Esc cancela)" : "pronto")
+          (recording ? "ouvindo…" : transcribing ? "transcrevendo…" : "pronto")
         }
       >
         <VoiceOrb

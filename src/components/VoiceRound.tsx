@@ -51,7 +51,9 @@ export default function VoiceRound({
       {stage.s === "transcribing" && (
         <div className="hud-row">
           <Waveform />
-          <span className="hud-live">{t("hud_transcribing", { secs: stage.secs })}</span>
+          <span className={`hud-live${stage.warn ? " warn" : ""}`}>
+            {stage.warn ? t("hud_transcribing_warn") : t("hud_transcribing", { secs: stage.secs })}
+          </span>
         </div>
       )}
       {stage.s === "thinking" && (

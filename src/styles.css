@@ -2121,6 +2121,7 @@ button.scope-chip.pick > svg:last-child { color: var(--dim); }
 .hud-text.warn { color: var(--warn); }
 .hud-answer { white-space: normal; line-height: 1.5; }
 .hud-live { color: var(--dim); font-size: var(--fs-ui); }
+.hud-live.warn { color: var(--warn); }
 .hud-sub { color: var(--dim); font-size: var(--fs-meta); flex: 0 0 auto; }
 .hud-keys { margin-left: auto; color: var(--dim); font-size: var(--fs-caps); flex: 0 0 auto; }
 .hud-chip {
