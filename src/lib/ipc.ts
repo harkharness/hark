@@ -387,6 +387,9 @@ export const approve = (requestId: string, allow: boolean) =>
   invoke("approve", { requestId, allow });
 
 export const projectAdd = (path: string) => invoke<Project>("project_add", { path });
+/** The folders the "add a project" field offers for what was typed so far. */
+export const folderComplete = (typed: string) =>
+  invoke<import("./folderPick").Completion>("folder_complete", { typed });
 export const projectRemove = (key: string) => invoke("project_remove", { key });
 
 /** Open (or focus) a project's own window — the VSCode model. */

@@ -15,6 +15,7 @@ pub mod deep_link;
 pub mod directives;
 pub mod file_search;
 pub mod focus;
+pub mod folder_complete;
 pub mod funnel;
 pub mod history_search;
 pub mod followup;

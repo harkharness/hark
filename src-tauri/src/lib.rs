@@ -601,6 +601,39 @@ fn project_add(path: String) -> Result<hark_core::domain::project::Project, Stri
     Ok(entry)
 }
 
+/// Rows the "add a project" field shows at once.
+const FOLDER_HITS: usize = 8;
+
+/// The folders the "add a project" field offers for what was typed so
+/// far: the ones under a path, or the ones a bare name matches near the
+/// projects already registered.
+#[tauri::command(async)]
+fn folder_complete(typed: String) -> hark_core::adapters::folder_scan::Completion {
+    let projects = load_projects(&Config::load());
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    for project in &projects {
+        if let Some(parent) = std::path::Path::new(&project.path).parent() {
+            if !roots.iter().any(|r| r == parent) {
+                roots.push(parent.to_path_buf());
+            }
+        }
+    }
+    let home = dirs::home_dir().unwrap_or_default();
+    // An empty field is a shortlist of what could be added: asked for
+    // with room to spare, so dropping the projects still leaves a list.
+    let blank = typed.trim().is_empty();
+    let limit = if blank { FOLDER_HITS + projects.len() } else { FOLDER_HITS };
+    let mut done = hark_core::adapters::folder_scan::complete(&typed, &home, &roots, limit);
+    for hit in &mut done.hits {
+        hit.known = projects.iter().any(|p| p.path == hit.path);
+    }
+    if blank {
+        done.hits.retain(|hit| !hit.known);
+        done.hits.truncate(FOLDER_HITS);
+    }
+    done
+}
+
 #[tauri::command]
 fn project_remove(key: String) -> Result<(), String> {
     let config = Config::load();
@@ -6887,6 +6920,7 @@ pub fn run() {
             worker_stop,
             chat_start,
             project_add,
+            folder_complete,
             project_remove,
             project_files,
             file_read,

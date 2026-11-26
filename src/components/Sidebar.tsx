@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Bell, BookOpen, Bug, ChevronDown, ChevronRight, ClipboardList, Code2, Home, Inbox, MoreVertical, Pin, Plus, Search, Settings as SettingsIcon, Sparkles, SquareKanban } from "lucide-react";
+import FolderInput from "./FolderInput";
 import { t } from "../lib/i18n";
 import type { BoardTask, Project, SessionHit } from "../types";
 import type { Day } from "../lib/inicio";
@@ -619,20 +620,7 @@ export default function Sidebar({
       )}
 
       {inicio ? null : adding ? (
-        <input
-          className="side-rename"
-          autoFocus
-          placeholder="~/Projects/…"
-          onBlur={() => setAdding(false)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setAdding(false);
-            if (e.key === "Enter") {
-              const value = (e.target as HTMLInputElement).value.trim();
-              if (value) onAddProject(value);
-              setAdding(false);
-            }
-          }}
-        />
+        <FolderInput onPick={onAddProject} onClose={() => setAdding(false)} />
       ) : (
         <button className="side-add-project" onClick={() => setAdding(true)}>
           {t("side_add_project")}

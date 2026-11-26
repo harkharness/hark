@@ -23,7 +23,7 @@ describe("Criar: the project comes first", () => {
     const onAddProject = vi.fn();
     const { getByText, getByPlaceholderText } = render(<CreateChat {...base} onAddProject={onAddProject} />);
     fireEvent.click(getByText(t("create_pick_folder")));
-    const input = getByPlaceholderText("~/Projects/…");
+    const input = getByPlaceholderText(t("folder_placeholder"));
     fireEvent.change(input, { target: { value: "/p/new" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onAddProject).toHaveBeenCalledWith("/p/new");

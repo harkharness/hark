@@ -91,7 +91,8 @@ One window holds every project, behind two doors at the top of the
 sidebar, as in the Claude Code app. **Início** is Hark's own chat, one
 conversation over every project (*Hoje*), with the artifacts beside it.
 **Code** is where the work lives: **Criar** starts a new chat (the project
-comes first; a folder not yet registered becomes a project; folders the
+comes first; a folder not yet registered becomes a project, and its field
+lists the folders matching the name or path being typed; folders the
 CLI worked in that are no project yet are listed there, one click each),
 then **Procurar**, **artifacts**, the **board** shortcut and the projects
 with their chats. The rows of a project are its recent chats, from the

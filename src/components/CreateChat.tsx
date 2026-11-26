@@ -2,6 +2,7 @@ import { useState } from "react";
 import { FolderOpen, Terminal } from "lucide-react";
 import type { CliFolder } from "../types";
 import { t } from "../lib/i18n";
+import FolderInput from "./FolderInput";
 import type { Project } from "../types";
 
 /**
@@ -44,20 +45,7 @@ export default function CreateChat({
           );
         })}
         {adding ? (
-          <input
-            className="side-rename create-input"
-            autoFocus
-            placeholder="~/Projects/…"
-            onBlur={() => setAdding(false)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setAdding(false);
-              if (e.key === "Enter") {
-                const value = (e.target as HTMLInputElement).value.trim();
-                if (value) onAddProject(value);
-                setAdding(false);
-              }
-            }}
-          />
+          <FolderInput className="create-input" onPick={onAddProject} onClose={() => setAdding(false)} />
         ) : (
           <button className="create-row" onClick={() => setAdding(true)}>
             <FolderOpen size={13} />

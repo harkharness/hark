@@ -697,6 +697,19 @@ const C: Record<string, (a: Args) => unknown> = {
   board_archive_stale: () => 0,
   board_create: (a) => ({ title: String(a?.title ?? "task"), status: "doing", workspace: a?.workspace ?? null, session_ids: a?.sessionId ? [String(a.sessionId)] : [], updated_at: new Date().toISOString(), pinned: false, subtasks: [] }),
   approve: () => undefined,
+  // The demo's disk: a few folders that answer whatever is typed.
+  folder_complete: (a) => {
+    const typed = String(a?.typed ?? "").trim().toLowerCase();
+    const word = typed.split("/").pop() ?? "";
+    const all = [
+      { name: "tulipafin", path: "/Users/ana/code/tulipafin", shown: "~/code/tulipafin", git: true, known: false },
+      { name: "tulipafin-site", path: "/Users/ana/code/tulipafin-site", shown: "~/code/tulipafin-site", git: true, known: false },
+      { name: "horta", path: "/Users/ana/code/horta", shown: "~/code/horta", git: true, known: true },
+      { name: "scratch", path: "/Users/ana/code/scratch", shown: "~/code/scratch", git: false, known: false },
+      { name: "notas", path: "/Users/ana/notas", shown: "~/notas", git: false, known: false },
+    ];
+    return { hits: all.filter((h) => h.name.includes(word)), exact: false };
+  },
   project_add: (a) => ({ name: String(a?.path).split("/").pop() ?? "project", path: String(a?.path) }),
   project_remove: () => undefined,
   open_task: () => undefined,

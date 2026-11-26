@@ -4,6 +4,7 @@ pub mod agent_detect;
 pub mod artifacts_fs;
 pub mod cpal_audio;
 pub mod dash_sources;
+pub mod folder_scan;
 pub mod fs_files;
 pub mod git_collect;
 pub mod log_read;

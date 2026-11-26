@@ -2431,6 +2431,28 @@ button.scope-chip.pick > svg:last-child { color: var(--dim); }
 .create-path { color: var(--dim); font-family: var(--font-mono); font-size: var(--fs-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: auto; max-width: 55%; }
 .create-input { margin: 4px 6px 6px; width: calc(100% - 12px); }
 
+/* ============ the add-a-project field (FolderInput.tsx) ============ */
+/* The list sits in the flow under the field, not over the page: in the
+   rail it is at the bottom of a scroller, where a popover would be cut. */
+.folder-pick { display: flex; flex-direction: column; min-width: 0; }
+.folder-pick .folder-field { flex: 0 0 auto; width: 100%; box-sizing: border-box; margin: 1px 0; }
+.folder-list { display: flex; flex-direction: column; gap: 1px; margin-top: 4px; }
+.folder-list:empty { display: none; }
+.folder-row { padding: 5px 6px 5px 8px; gap: 8px; }
+.folder-row .mm-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.folder-row .mm-hint { font-family: var(--font-mono); }
+.folder-icon { flex: 0 0 auto; display: inline-flex; color: var(--dim); }
+.folder-icon.git { color: var(--accent); }
+.folder-into {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border: none; border-radius: 6px; background: none;
+  color: var(--dim); cursor: pointer; opacity: 0;
+}
+.folder-row.cursor .folder-into, .folder-into:focus-visible { opacity: 1; }
+.folder-into:hover { color: var(--text-strong); background: rgba(255,255,255,.08); }
+.folder-note { color: var(--dim); font-size: var(--fs-meta); line-height: 1.4; padding: 4px 8px 2px; }
+.folder-note.keys { color: color-mix(in srgb, var(--dim) 75%, transparent); }
+
 /* ============ first-run wizard (Onboarding.tsx) ============ */
 .ob-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.66);
