@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import CreateChat from "./CreateChat";
 import { t } from "../lib/i18n";
 import type { Project } from "../types";
@@ -19,14 +19,16 @@ describe("Criar: the project comes first", () => {
     expect(onPick).toHaveBeenCalledWith(lab);
   });
 
-  it("'Escolher pasta…' asks for a path and registers it on Enter", () => {
+  it("'Escolher pasta…' asks for a path and registers it on Enter", async () => {
     const onAddProject = vi.fn();
     const { getByText, getByPlaceholderText } = render(<CreateChat {...base} onAddProject={onAddProject} />);
     fireEvent.click(getByText(t("create_pick_folder")));
     const input = getByPlaceholderText(t("folder_placeholder"));
     fireEvent.change(input, { target: { value: "/p/new" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(onAddProject).toHaveBeenCalledWith("/p/new");
+    // Enter waits for the folders the text matches; with none, the path
+    // goes as typed.
+    await waitFor(() => expect(onAddProject).toHaveBeenCalledWith("/p/new"));
   });
 
   it("a folder the CLI worked in becomes a project with one click; the palette stays a door", () => {

@@ -46,7 +46,7 @@ describe("the add-a-project field offers folders while a path is typed", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("shows each folder's path under its name", async () => {
+  it("shows each folder's path beside its name", async () => {
     const { type, findByText } = mount();
     type("al");
     expect(await findByText("~/work/alpha-old")).toBeTruthy();
@@ -140,6 +140,50 @@ describe("the add-a-project field offers folders while a path is typed", () => {
     expect(queryByText("alpha-old")).toBeNull();
   });
 
+  it("the list floats over the page: nothing is added under the field, so it never moves", async () => {
+    const { type, findByText, container } = mount();
+    const before = container.innerHTML.length;
+    type("al");
+    const row = await findByText("alpha-old");
+    expect(container.contains(row)).toBe(false);
+    expect(document.body.querySelector(".folder-pop")?.contains(row)).toBe(true);
+    // Only the field's own value changed inside the component's box.
+    expect(container.querySelectorAll("*").length).toBe(2);
+    expect(before).toBeGreaterThan(0);
+  });
+
+  it("the folders of the text before stay up while the next ones load: no blink per key", async () => {
+    let release: (c: Completion) => void = () => {};
+    const slow = vi.fn((typed: string) =>
+      typed === "alp" ? new Promise<Completion>((r) => (release = r)) : Promise.resolve(DISK[typed] ?? { hits: [], exact: false }),
+    );
+    const { type, findByText, queryByText } = mount({ complete: slow });
+    type("al");
+    await findByText("alpha-old");
+    type("alp");
+    await waitFor(() => expect(slow).toHaveBeenCalledWith("alp"));
+    expect(queryByText("alpha-old")).not.toBeNull();
+    release({ hits: [hit("~/work/alpha")], exact: false });
+    await waitFor(() => expect(queryByText("alpha-old")).toBeNull());
+  });
+
+  it("Enter before the folders arrive waits for them instead of taking the list before", async () => {
+    let release: (c: Completion) => void = () => {};
+    const slow = vi.fn((typed: string) =>
+      typed === "lab" ? new Promise<Completion>((r) => (release = r)) : Promise.resolve(DISK[typed] ?? { hits: [], exact: false }),
+    );
+    const { type, input, findByText, onPick, onClose } = mount({ complete: slow });
+    type("al");
+    await findByText("alpha-old");
+    type("lab");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onPick).not.toHaveBeenCalled();
+    await waitFor(() => expect(slow).toHaveBeenCalledWith("lab"));
+    release(DISK.lab);
+    await waitFor(() => expect(onPick).toHaveBeenCalledWith("/home/u/work/lab"));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it("a backend that fails leaves a plain field that still takes a path", async () => {
     const broken = vi.fn(async () => {
       throw new Error("no shell");
@@ -148,6 +192,6 @@ describe("the add-a-project field offers folders while a path is typed", () => {
     type("/p/new");
     await waitFor(() => expect(broken).toHaveBeenCalled());
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(onPick).toHaveBeenCalledWith("/p/new");
+    await waitFor(() => expect(onPick).toHaveBeenCalledWith("/p/new"));
   });
 });
