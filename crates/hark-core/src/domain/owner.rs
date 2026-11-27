@@ -86,6 +86,25 @@ pub fn owner_of<'a>(owners: &'a [Owner], session_id: &str) -> Option<&'a Owner> 
     owners.iter().find(|o| o.session_id == session_id)
 }
 
+/// The processes a previous run of Hark left behind. When Hark dies (a
+/// crash, a forced restart) the agents it spawned live on: nobody reads
+/// them, nobody can answer their permissions, and the listing shows their
+/// sessions as held, which locks the very chats they belonged to.
+///
+/// A stray is a listed process whose session Hark drove (`driven`: the
+/// registry) and that `abandoned` says is one of Hark's workers with no
+/// Hark above it any more. Called at boot, before this run has spawned
+/// anything, so none can be a worker of this run. A session the person
+/// resumed at a terminal is not a worker and is never touched; neither is
+/// a process nothing is known about (`None`).
+pub fn strays(live: &[LiveSession], driven: &[String], abandoned: impl Fn(i32) -> Option<bool>) -> Vec<i32> {
+    live.iter()
+        .filter(|s| s.session_id.as_ref().is_some_and(|id| driven.contains(id)))
+        .filter_map(|s| s.pid)
+        .filter(|pid| abandoned(*pid) == Some(true))
+        .collect()
+}
+
 /// Hark's own machinery sessions (ask one-shots, the hark-chat worker) run
 /// with cwd inside the data dir. They are real transcripts, but never
 /// catalog material: offering them as targets self-references — the user
@@ -212,5 +231,46 @@ mod tests {
         let owners = terminal_owners(&listing, &[]);
         assert_eq!(owner_of(&owners, "s-2").map(|o| o.name.as_str()), Some("b"));
         assert!(owner_of(&owners, "s-9").is_none());
+    }
+
+    fn running(id: &str, pid: i32) -> LiveSession {
+        LiveSession { pid: Some(pid), ..listed(id, "interactive") }
+    }
+
+    #[test]
+    fn a_worker_left_by_a_run_of_hark_that_died_is_a_stray() {
+        // Hark restarted; the agent it had spawned is still alive with
+        // nobody reading it. It reads as "held at a terminal" and locks
+        // the chat it belongs to.
+        let live = [running("s-ours", 2154)];
+        let got = strays(&live, &["s-ours".to_string()], |_| Some(true));
+        assert_eq!(got, vec![2154]);
+    }
+
+    #[test]
+    fn a_session_the_person_resumed_at_a_terminal_is_never_a_stray() {
+        let live = [running("s-ours", 2154)];
+        assert!(strays(&live, &["s-ours".to_string()], |_| Some(false)).is_empty());
+    }
+
+    #[test]
+    fn a_session_hark_never_drove_is_left_alone_abandoned_or_not() {
+        let live = [running("s-other", 77)];
+        assert!(strays(&live, &["s-ours".to_string()], |_| Some(true)).is_empty());
+    }
+
+    #[test]
+    fn a_process_nothing_is_known_about_is_left_alone() {
+        let live = [running("s-ours", 2154), LiveSession { pid: None, ..listed("s-ours", "interactive") }];
+        assert!(strays(&live, &["s-ours".to_string()], |_| None).is_empty());
+    }
+
+    #[test]
+    fn only_the_stray_among_several_is_named() {
+        let live = [running("s-a", 10), running("s-b", 11), running("s-c", 12)];
+        let driven = ["s-a".to_string(), "s-b".to_string()];
+        // s-b is the person's own, at a terminal; s-c was never ours.
+        let got = strays(&live, &driven, |pid| Some(pid != 11));
+        assert_eq!(got, vec![10]);
     }
 }

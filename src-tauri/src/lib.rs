@@ -4560,6 +4560,28 @@ fn release_session(from_spec: Option<&str>, task_id: &str) {
     }
 }
 
+/// End the agent processes a previous run of Hark left behind. Runs once
+/// at boot, when this run has spawned nothing yet.
+fn reap_strays() {
+    use hark_core::ports::LiveSessions;
+    let config = Config::load();
+    let gstate = state_file::load(&config.data_dir());
+    let mut driven: Vec<String> =
+        gstate.workers.iter().map(|w| w.session_id.clone()).filter(|s| !s.is_empty()).collect();
+    driven.extend(gstate.hark_chat_session.iter().cloned());
+    if driven.is_empty() {
+        return;
+    }
+    let listing = hark_plugin_claude::live::ClaudeAgentsCli { claude_bin: config.claude_bin_resolved() }
+        .list()
+        .unwrap_or_default();
+    for pid in hark_core::domain::owner::strays(&listing, &driven, platform::abandoned) {
+        let outcome = platform::terminate(pid);
+        hark_core::adapters::diag_log::DiagLog::open(&config.data_dir())
+            .append(&format!("boot: stray agent pid {pid} from a previous run ended ({outcome:?})"));
+    }
+}
+
 #[tauri::command(async)]
 fn session_owners(
     live: State<'_, LiveWorkers>,
@@ -6864,6 +6886,10 @@ pub fn run() {
             // The full-text index of what was said catches up in the
             // background: the first boot after an upgrade reads every
             // session once (seconds), and no question should wait for it.
+            // Agents a previous run left alive (Hark was killed under
+            // them): ended now, before any chat is opened, or their
+            // sessions read as held at a terminal and lock those chats.
+            std::thread::spawn(reap_strays);
             {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
