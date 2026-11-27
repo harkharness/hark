@@ -2462,8 +2462,8 @@ export default function App({
 
   /**
    * Selector change: a focused live worker switches mode (process restart
-   * on the same session — flags are per-process, no text is sent); with
-   * nothing focused it becomes this window's default.
+   * on the same session — flags are per-process, no text is sent). Either
+   * way the pick becomes the default for the chats opened next.
    *
    * A turn in flight is never interrupted for it. Switching to "auto"
    * mid-turn used to shut the process down under a running tool call and
@@ -2473,6 +2473,9 @@ export default function App({
     const taskId = controlTarget();
     if (taskId && liveWorkers[taskId]) {
       const label = labelFor(taskId);
+      // The pick is also what the next chats are born with: a mode chosen
+      // in a chat and forgotten by the next one read as the pill lying.
+      defaults.setModeDefault(flag);
       ipc
         .workerSetMode(taskId, flag)
         .then((out) => {

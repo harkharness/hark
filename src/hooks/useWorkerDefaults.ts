@@ -56,13 +56,15 @@ export function useWorkerDefaults(overview: Overview | null) {
     ipc.configWrite({ [key]: value }).catch(() => {});
   };
 
+  // One value for both sides. The pick and what was sent used to be two:
+  // the pill showed a resolved mode while a dispatch passed the raw pick,
+  // and a chat could be born in a mode the pill was not showing.
+  const inForce = windowMode(mode, overview?.default_mode);
   return {
-    /** The raw pick, or null when nobody touched the pill. Dispatches pass
-     *  this: an empty config mode means "the CLI's own default", and
-     *  sending a resolved "manual" instead would quietly override it. */
-    mode,
+    /** What a dispatch sends: exactly what the pill shows. */
+    mode: inForce,
     /** What the pill DISPLAYS: the pick, else config, else manual. */
-    modeInForce: windowMode(mode, overview?.default_mode),
+    modeInForce: inForce,
     model,
     effort,
     tiers,
