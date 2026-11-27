@@ -8,7 +8,7 @@ import {
 } from "react-resizable-panels";
 import { Compass, Copy, Download, ExternalLink, FileText, FolderTree, PanelLeft, PanelRight, Share2, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import { colourIndex, projColour, projectsInView, scopeOf } from "./lib/scope";
-import { chatMode } from "./lib/mode";
+import { ANY_TOOL, chatMode, windowAllows } from "./lib/mode";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { lang, setLang, setSpeechLang, st, t } from "./lib/i18n";
 import { conversationsOfToday, dayOf, days as journalDays, notificationLine } from "./lib/inicio";
@@ -368,8 +368,6 @@ export default function App({
   // Standing "sempre permitir" rules: task label → tools auto-approved.
   // Window-scoped by design: closing the window forgets every rule.
   const allowAlways = useRef<Map<string, Set<string>>>(new Map());
-  /** Stand-in for "every tool" in a task's standing allow rules. */
-  const ANY_TOOL = "*";
   /** How much of a chat comes back when you open it. Twelve entries — and
    *  a tool call plus its result are two — meant four real messages: a
    *  reopened chat showed almost nothing of the work it contained. Reading
@@ -1147,12 +1145,10 @@ export default function App({
     autoAllow: useCallback(
       (ask: import("./types").PermissionAsk) => {
         const label = workersRef.current[ask.task_id]?.label ?? ask.label ?? ask.task_id;
-        const rules = allowAlways.current.get(label);
-        // ANY_TOOL is what relaxing the mode mid-turn installs: the CLI
-        // keeps its old flags until the process reopens, so the window
-        // answers in its place. The production gate still overrides it —
-        // that check lives before autoAllow is ever consulted.
-        return !!rules && (rules.has(ask.tool_name) || rules.has(ANY_TOOL));
+        // A standing rule of this chat, or a relaxed mode picked over a
+        // running turn (flagged by the backend on the ask). The production
+        // gate overrides both.
+        return windowAllows(ask, allowAlways.current.get(label));
       },
       [],
     ),
@@ -2708,6 +2704,12 @@ export default function App({
     if (compacting.current.has(from)) {
       compacting.current.delete(from);
       compacting.current.add(to);
+    }
+    // "Always allow" was said to the chat, not to the name it had then.
+    const rules = allowAlways.current.get(from);
+    if (rules) {
+      allowAlways.current.set(to, new Set([...(allowAlways.current.get(to) ?? []), ...rules]));
+      allowAlways.current.delete(from);
     }
     setHistoryDone((old) => rekeyRecord(old, from, to));
     setPageByThread((old) => rekeyRecord(old, from, to));

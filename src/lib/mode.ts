@@ -20,3 +20,21 @@ export function windowMode(picked: string | null, configured?: string | null): s
 export function chatMode(live: { mode?: string | null } | undefined, window: string): string {
   return live ? live.mode || NO_MODE : window;
 }
+
+/** The standing rule that answers every tool of a chat. */
+export const ANY_TOOL = "*";
+
+/**
+ * Whether the window answers a permission itself, the card showing up
+ * already decided. Two reasons: a standing "always allow this tool" rule
+ * of the chat, or a relaxed mode picked over a running turn, which the
+ * backend flags on the ask because the process still has its old flags.
+ * An ask that touches production always reaches the person.
+ */
+export function windowAllows(
+  ask: { tool_name: string; mode_relaxed?: boolean; prod_risk?: string | null },
+  rules: Set<string> | undefined,
+): boolean {
+  if (ask.prod_risk) return false;
+  return !!ask.mode_relaxed || !!rules?.has(ask.tool_name) || !!rules?.has(ANY_TOOL);
+}

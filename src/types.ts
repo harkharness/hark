@@ -342,6 +342,9 @@ export type PermissionAsk = {
   /** Set when the command touches production (domain::prodgate): the ask
    *  must reach a human — no standing rule may answer it. */
   prod_risk?: string | null;
+  /** A relaxed mode was picked over a running turn: the process still
+   *  asks with its old flags, and the window answers in its place. */
+  mode_relaxed?: boolean;
 };
 
 export type Msg =

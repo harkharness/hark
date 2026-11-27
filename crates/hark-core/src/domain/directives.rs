@@ -86,6 +86,16 @@ impl Effort {
     }
 }
 
+/// Whether the window answers a permission in the agent's place. A mode
+/// picked while a turn is running cannot reach the process, which keeps
+/// the flags it was started with until it reopens.
+pub fn window_answers(intent: Option<Mode>, started: Option<Mode>) -> bool {
+    // Only for a mode that means "stop asking me", and only while the
+    // process runs with other flags: an agent started in auto that still
+    // asks is escalating on purpose, and that reaches the person.
+    matches!(intent, Some(Mode::Auto | Mode::Bypass)) && intent != started
+}
+
 /// What the user asked for, beyond the task itself.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Directives {
@@ -288,5 +298,31 @@ mod bilingual {
     #[test]
     fn plain_english_work_carries_no_directive() {
         assert!(!parse("update the readme").any());
+    }
+
+    #[test]
+    fn the_window_answers_for_a_relaxed_mode_the_process_never_got() {
+        // Picked "auto" over a turn already running in manual.
+        assert!(window_answers(Some(Mode::Auto), Some(Mode::Manual)));
+        assert!(window_answers(Some(Mode::Auto), None));
+        assert!(window_answers(Some(Mode::Bypass), Some(Mode::AcceptEdits)));
+        assert!(window_answers(Some(Mode::Bypass), Some(Mode::Auto)));
+    }
+
+    #[test]
+    fn an_agent_started_in_the_mode_asked_for_is_left_to_ask() {
+        // Started in auto and still asking: it means it. The ask reaches
+        // the person, the window does not wave it through.
+        assert!(!window_answers(Some(Mode::Auto), Some(Mode::Auto)));
+        assert!(!window_answers(Some(Mode::Bypass), Some(Mode::Bypass)));
+    }
+
+    #[test]
+    fn the_window_never_answers_for_a_mode_that_asks() {
+        for intent in [None, Some(Mode::Manual), Some(Mode::Plan), Some(Mode::AcceptEdits)] {
+            for started in [None, Some(Mode::Manual), Some(Mode::Auto), Some(Mode::Bypass)] {
+                assert!(!window_answers(intent, started), "{intent:?} over {started:?}");
+            }
+        }
     }
 }

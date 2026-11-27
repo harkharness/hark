@@ -162,7 +162,13 @@ static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::
 /// A live session plus everything needed to restart it on the same task.
 struct WorkerHandle {
     session: std::sync::Arc<dyn AgentSession>,
+    /// What the chat is meant to run with. `spec.directives` is the
+    /// intent: it survives a turn in flight, a reopen and a restart.
     spec: SessionSpec,
+    /// The directives the running process actually has. They differ from
+    /// the intent after a mode is picked over a running turn, until the
+    /// process reopens.
+    flags: hark_core::domain::directives::Directives,
     generation: u64,
     /// Hark's own record of the session, for an agent that keeps none on
     /// disk (`caps.history == false`): the user's words go in here at
@@ -1322,7 +1328,13 @@ fn start_worker_titled(
     let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     live.0.lock().unwrap().insert(
         task_id.to_string(),
-        std::sync::Arc::new(WorkerHandle { session, spec: spec.clone(), generation, recorder: recorder.clone() }),
+        std::sync::Arc::new(WorkerHandle {
+            session,
+            spec: spec.clone(),
+            flags: spec.directives.clone(),
+            generation,
+            recorder: recorder.clone(),
+        }),
     );
 
     // Reader loop: consume the backend's event stream, forward rich events
@@ -1550,6 +1562,19 @@ fn start_worker_titled(
                     // The production gate: a flagged ask NEVER auto-resolves
                     // (standing rules, permissive windows) — a human answers.
                     let prod_risk = hark_core::domain::prodgate::check(&tool_name, &input, &shell_tools);
+                    // A relaxed mode picked over a running turn: the process
+                    // still asks, the window answers for it. Decided here,
+                    // from what the process was started with, so it does not
+                    // hang on window state that a rename or a reload loses.
+                    let mode_relaxed = app2
+                        .state::<LiveWorkers>()
+                        .0
+                        .lock()
+                        .unwrap()
+                        .get(&task2)
+                        .is_some_and(|h| {
+                            hark_core::domain::directives::window_answers(h.spec.directives.mode, h.flags.mode)
+                        });
                     let _ = app2.emit(
                         "hark-permission",
                         serde_json::json!({
@@ -1559,6 +1584,7 @@ fn start_worker_titled(
                             "tool_name": tool_name,
                             "input": input,
                             "prod_risk": prod_risk,
+                            "mode_relaxed": mode_relaxed,
                         }),
                     );
                     notify(&app2, hark_core::domain::notifications::Event::PermissionAsked {
@@ -3853,6 +3879,8 @@ fn switch_directives(
                 std::sync::Arc::new(WorkerHandle {
                     session: handle.session.clone(),
                     spec: SessionSpec { directives: next.clone(), ..handle.spec.clone() },
+                    // Applied on the running session: the process has them.
+                    flags: next.clone(),
                     generation: handle.generation,
                     recorder: handle.recorder.clone(),
                 }),
@@ -3874,6 +3902,20 @@ fn switch_directives(
         .get(task_id)
         .is_some_and(|o| o.in_flight());
     if in_flight {
+        // The pick is kept as the chat's intent even though the process
+        // cannot take it now. Dropped, the next message answered with the
+        // old directives and the pill fell back to them on its own; and a
+        // reopen for any other reason would have lost the pick too.
+        live.0.lock().unwrap().insert(
+            task_id.to_string(),
+            std::sync::Arc::new(WorkerHandle {
+                session: handle.session.clone(),
+                spec: SessionSpec { directives: next.clone(), ..handle.spec.clone() },
+                flags: handle.flags.clone(),
+                generation: handle.generation,
+                recorder: handle.recorder.clone(),
+            }),
+        );
         emit_event(
             &app.clone(),
             serde_json::json!({ "kind": "status", "text": stalled(&next) }),
@@ -3913,9 +3955,9 @@ fn worker_set_mode(
             d.mode = Some(mode);
             moved
         },
-        // Nothing is stored on purpose: the window owns the intent and
-        // re-applies it the moment the turn lands, when a reopen is free
-        // of consequence.
+        // Over a running turn the pick is stored as the chat's intent and
+        // the process keeps its flags; until it reopens, the permission
+        // event says the window may answer in its place.
         |d| format!("{} — sem reabrir a thread: o turno em voo continua", describe(d)),
     )
 }

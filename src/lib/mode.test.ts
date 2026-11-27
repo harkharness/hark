@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatMode, windowMode } from "./mode";
+import { chatMode, windowAllows, windowMode } from "./mode";
 
 describe("windowMode: the mode a new chat will be born with", () => {
   it("is what was picked in this window", () => {
@@ -30,5 +30,30 @@ describe("chatMode: the mode the pill shows", () => {
   it("is manual for a live chat started without a mode, not the window's later pick", () => {
     expect(chatMode({}, "auto")).toBe("manual");
     expect(chatMode({ mode: null }, "auto")).toBe("manual");
+  });
+});
+
+describe("windowAllows: a permission the window answers without asking", () => {
+  const ask = (more: object = {}) => ({ tool_name: "Bash", ...more });
+
+  it("answers a tool the person said always to allow in this chat", () => {
+    expect(windowAllows(ask(), new Set(["Bash"]))).toBe(true);
+    expect(windowAllows(ask(), new Set(["Edit"]))).toBe(false);
+  });
+
+  it("answers anything when the chat's mode was relaxed over a running turn", () => {
+    // The backend says so on the ask itself: nothing here to lose on a
+    // rename or a reload.
+    expect(windowAllows(ask({ mode_relaxed: true }), undefined)).toBe(true);
+  });
+
+  it("asks when there is no rule and the mode is not relaxed", () => {
+    expect(windowAllows(ask(), undefined)).toBe(false);
+    expect(windowAllows(ask({ mode_relaxed: false }), new Set())).toBe(false);
+  });
+
+  it("never answers an ask that touches production, whatever the rules say", () => {
+    const risky = ask({ mode_relaxed: true, prod_risk: "kubectl apply on prod" });
+    expect(windowAllows(risky, new Set(["Bash"]))).toBe(false);
   });
 });
