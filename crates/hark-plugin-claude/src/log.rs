@@ -42,11 +42,9 @@ pub fn parse_line(line: &str) -> Option<SessionEvent> {
             if v.get("isSidechain").and_then(Value::as_bool) == Some(true) {
                 return None;
             }
-            let text = prompt_text(v.get("message")?.get("content")?)?;
-            // Injected skill/command payloads start with a tag; not human input.
-            if text.trim_start().starts_with('<') {
-                return None;
-            }
+            // What was typed: without the notes an app appended, and not
+            // an injected skill/command payload, which is no human input.
+            let text = hark_core::domain::transcript::typed_text(&prompt_text(v.get("message")?.get("content")?)?)?;
             Some(SessionEvent::UserPrompt {
                 ts: str_of("timestamp")?,
                 text,
@@ -187,6 +185,21 @@ mod tests {
     fn ignores_sidechain_user_lines() {
         let line = r#"{"type":"user","timestamp":"2026-08-14T10:02:00.000Z","isSidechain":true,"message":{"role":"user","content":"subagent internal prompt"}}"#;
         assert_eq!(parse_line(line), None);
+    }
+
+    #[test]
+    fn the_index_keeps_what_was_typed_without_the_note_an_app_appended() {
+        // A hint the Claude app adds to a message would otherwise be
+        // found by a search and printed in a chat's title.
+        let line = serde_json::json!({
+            "type": "user", "timestamp": "2026-08-14T10:03:00.000Z",
+            "message": { "role": "user", "content": "posta 1 linha só\n\n<widget_context_hint>Interactive widgets in this conversation: draft.</widget_context_hint>" }
+        })
+        .to_string();
+        match parse_line(&line) {
+            Some(SessionEvent::UserPrompt { text, .. }) => assert_eq!(text, "posta 1 linha só"),
+            other => panic!("expected a prompt, got {other:?}"),
+        }
     }
 
     #[test]

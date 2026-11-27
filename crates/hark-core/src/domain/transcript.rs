@@ -28,6 +28,33 @@ pub struct Entry {
     pub is_error: bool,
 }
 
+/// Notes the apps that drive a session append to a person's message, by
+/// tag: a hint about the widgets on screen, a reminder, what the editor
+/// has open or selected. Named one by one: any other markup in a message
+/// is the person's own.
+const APP_NOTES: [&str; 4] = ["widget_context_hint", "system-reminder", "ide_selection", "ide_opened_file"];
+
+/// What a person typed, out of a user message as the session file holds
+/// it: the text without the notes an app appended for the model. None
+/// when nothing typed is left, or when the whole message is an injected
+/// payload (a command echo, a skill body), which starts with a tag.
+///
+/// A session talked to in the Claude app and opened here showed its
+/// widget hint at the end of every message of the person's.
+pub fn typed_text(text: &str) -> Option<String> {
+    let mut out = text.to_string();
+    for tag in APP_NOTES {
+        let (open, close) = (format!("<{tag}>"), format!("</{tag}>"));
+        while let Some(start) = out.find(&open) {
+            // Never closed: a word in a sentence, not a note.
+            let Some(len) = out[start..].find(&close) else { break };
+            out.replace_range(start..start + len + close.len(), "");
+        }
+    }
+    let out = out.trim();
+    (!out.is_empty() && !out.starts_with('<')).then(|| out.to_string())
+}
+
 /// Parse one session-log line, skipping everything that is not conversation.
 ///
 /// Two dialects, told apart per line: claude's own session file, and
@@ -60,9 +87,7 @@ pub fn parse_entry(line: &str) -> Option<Entry> {
         }
         "user" => match content {
             // Human prompt, unless it is an injected command/skill payload.
-            Value::String(text) if !text.trim_start().starts_with('<') => {
-                entry(Role::User, text.clone(), None, false)
-            }
+            Value::String(text) => entry(Role::User, typed_text(text)?, None, false),
             Value::Array(blocks) => blocks.iter().find_map(|b| {
                 match b.get("type").and_then(Value::as_str)? {
                     "tool_result" => entry(
@@ -76,9 +101,7 @@ pub fn parse_entry(line: &str) -> Option<Entry> {
                         b.get("is_error").and_then(Value::as_bool).unwrap_or(false),
                     ),
                     "text" => {
-                        let text = b.get("text")?.as_str()?;
-                        (!text.trim_start().starts_with('<'))
-                            .then(|| entry(Role::User, text.to_string(), None, false))?
+                        entry(Role::User, typed_text(b.get("text")?.as_str()?)?, None, false)
                     }
                     _ => None,
                 }
@@ -274,6 +297,80 @@ mod tests {
         ] {
             assert_eq!(parse_entry(line), None, "should skip: {line}");
         }
+    }
+
+    // The apps that drive a session append notes of their own to what the
+    // person typed, in the same message: a hint about widgets, a reminder,
+    // what the editor has selected. They are for the model, not for the page.
+    const HINT: &str = "<widget_context_hint>Interactive widgets in this conversation: draft. To read a widget's current state, call read_widget_context.</widget_context_hint>";
+
+    #[test]
+    fn a_note_the_app_appended_to_a_message_is_not_what_the_person_typed() {
+        let text = format!("posta 1 linha só\n\n{HINT}");
+        assert_eq!(typed_text(&text).as_deref(), Some("posta 1 linha só"));
+    }
+
+    #[test]
+    fn every_kind_of_app_note_is_taken_out_wherever_it_sits() {
+        let text = "<system-reminder>be brief</system-reminder>\nolha isso\n<ide_selection>fn main() {}</ide_selection>\ne aquilo\n<ide_opened_file>src/main.rs</ide_opened_file>";
+        assert_eq!(typed_text(text).as_deref(), Some("olha isso\n\ne aquilo"));
+    }
+
+    #[test]
+    fn a_message_that_was_only_app_notes_is_no_message() {
+        assert_eq!(typed_text(HINT), None);
+        assert_eq!(typed_text(&format!("  {HINT}\n<system-reminder>x</system-reminder> ")), None);
+    }
+
+    #[test]
+    fn a_message_left_as_typed_when_the_app_added_nothing() {
+        assert_eq!(typed_text("git status").as_deref(), Some("git status"));
+        // A blank line the person typed between two paragraphs stays.
+        assert_eq!(typed_text("um\n\ndois").as_deref(), Some("um\n\ndois"));
+    }
+
+    #[test]
+    fn markup_the_person_typed_is_theirs() {
+        // Only the apps' own notes go: a tag in the middle of a question
+        // about html is the question.
+        let text = "por que o <widget> não fecha? veja <b>isso</b>";
+        assert_eq!(typed_text(text).as_deref(), Some(text));
+    }
+
+    #[test]
+    fn a_note_never_closed_takes_nothing_with_it() {
+        let text = "falei de <system-reminder> ontem";
+        assert_eq!(typed_text(text).as_deref(), Some(text));
+    }
+
+    #[test]
+    fn an_injected_payload_is_still_no_message() {
+        // A command echo or a skill body: a tag first, nothing typed.
+        assert_eq!(typed_text("<command-name>/model</command-name>"), None);
+        assert_eq!(typed_text("  <local-command-stdout>ok</local-command-stdout>"), None);
+    }
+
+    #[test]
+    fn the_page_shows_a_message_without_the_note_appended_to_it() {
+        let line = serde_json::json!({
+            "type": "user", "timestamp": "t",
+            "message": { "role": "user", "content": format!("era o relatório da 1h?\n\n{HINT}") }
+        })
+        .to_string();
+        assert_eq!(parse_entry(&line).unwrap().text, "era o relatório da 1h?");
+    }
+
+    #[test]
+    fn a_note_in_a_block_of_its_own_is_skipped_and_the_typed_block_read() {
+        let line = serde_json::json!({
+            "type": "user", "timestamp": "t",
+            "message": { "role": "user", "content": [
+                { "type": "text", "text": HINT },
+                { "type": "text", "text": format!("ótimo, assim não fica poluído\n\n{HINT}") }
+            ] }
+        })
+        .to_string();
+        assert_eq!(parse_entry(&line).unwrap().text, "ótimo, assim não fica poluído");
     }
 
     #[test]
