@@ -41,8 +41,9 @@ pub struct FolderHit {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Completion {
     pub hits: Vec<FolderHit>,
-    /// What was typed is itself a folder: Enter can take it as it is.
-    pub exact: bool,
+    /// What was typed is itself a folder: Enter takes this, whatever the
+    /// spelling in the field ("name/" is wherever the name was found).
+    pub folder: Option<FolderHit>,
 }
 
 /// The folders to offer for `typed`. `roots` are where a bare name is
@@ -57,27 +58,74 @@ pub fn complete(typed: &str, home: &Path, roots: &[PathBuf], limit: usize) -> Co
         git: c.git,
         known: false,
     };
+    // Every folder a search by name can reach, across the roots and home.
+    let reachable = || {
+        let mut found = Vec::new();
+        let mut budget = VISIT_BUDGET;
+        for root in roots.iter().map(PathBuf::as_path).chain([home]) {
+            walk(root, home, &mut found, &mut budget);
+        }
+        found
+    };
     match folder_complete::parse(typed) {
         Query::Path { dir, prefix } => {
             let dir = expand(&dir, home);
-            let names = subdirs(&dir);
-            let hits = folder_complete::rank_names(&names, &prefix, limit)
+            let hits = folder_complete::rank_names(&subdirs(&dir), &prefix, limit)
                 .into_iter()
                 .map(|name| hit(candidate(&dir, name, 1, home)))
                 .collect();
-            let whole = typed.trim();
-            Completion { hits, exact: !whole.is_empty() && expand(whole, home).is_dir() }
+            let folder = itself(&dir, &prefix, home).map(hit);
+            Completion { hits, folder }
+        }
+        Query::Under { head, rest, prefix } => {
+            // Under home when it is there, as a path typed without the
+            // tilde; else wherever a folder of that name was found.
+            let at_home = home.join(&head);
+            let bases: Vec<PathBuf> = if at_home.is_dir() {
+                vec![at_home]
+            } else {
+                folder_complete::heads(reachable(), &head)
+                    .into_iter()
+                    .map(|c| PathBuf::from(c.path))
+                    .collect()
+            };
+            let mut hits = Vec::new();
+            let mut folder = None;
+            for base in &bases {
+                let dir = base.join(&rest);
+                if folder.is_none() {
+                    folder = itself(&dir, &prefix, home).map(hit);
+                }
+                let room = limit.saturating_sub(hits.len());
+                hits.extend(
+                    folder_complete::rank_names(&subdirs(&dir), &prefix, room)
+                        .into_iter()
+                        .map(|name| hit(candidate(&dir, name, 1, home))),
+                );
+            }
+            Completion { hits, folder }
         }
         Query::Name(text) => {
-            let mut found = Vec::new();
-            let mut budget = VISIT_BUDGET;
-            for root in roots.iter().map(PathBuf::as_path).chain([home]) {
-                walk(root, home, &mut found, &mut budget);
-            }
-            let hits = folder_complete::rank_found(found, &text, limit).into_iter().map(hit).collect();
-            Completion { hits, exact: false }
+            let hits = folder_complete::rank_found(reachable(), &text, limit).into_iter().map(hit).collect();
+            Completion { hits, folder: None }
         }
     }
+}
+
+/// What was typed, as a folder of its own, when it is one: what Enter
+/// takes when the text in the field already names a folder.
+fn itself(dir: &Path, prefix: &str, home: &Path) -> Option<Candidate> {
+    // A dot is the start of a hidden name, or a way up: a fragment.
+    if prefix == "." || prefix == ".." {
+        return None;
+    }
+    // Rebuilt from its parts: a trailing separator is not part of a name.
+    let path: PathBuf = dir.join(prefix).components().collect();
+    if !path.is_dir() {
+        return None;
+    }
+    let name = path.file_name()?.to_string_lossy().to_string();
+    Some(candidate(path.parent()?, name, 1, home))
 }
 
 /// `~` at the start is the home given, not the process's: the caller says
@@ -171,7 +219,7 @@ mod tests {
         let tmp = tree();
         let got = complete("~/work/al", tmp.path(), &[], 10);
         assert_eq!(shown(&got), vec!["~/work/alpha", "~/work/alpha-old"]);
-        assert!(!got.exact);
+        assert!(got.folder.is_none());
         let alpha = &got.hits[0];
         assert_eq!(alpha.name, "alpha");
         assert_eq!(alpha.path, tmp.path().join("work/alpha").display().to_string());
@@ -189,14 +237,16 @@ mod tests {
             shown(&got),
             vec!["~/work/alpha", "~/work/alpha-old", "~/work/beta", "~/work/node_modules"]
         );
-        assert!(got.exact, "~/work/ is a folder, Enter may take it");
+        let itself = got.folder.as_ref().expect("~/work/ is a folder, Enter may take it");
+        assert_eq!(itself.shown, "~/work");
+        assert_eq!(itself.path, tmp.path().join("work").display().to_string());
     }
 
     #[test]
-    fn a_whole_folder_typed_without_the_separator_is_exact_too() {
+    fn a_whole_folder_typed_without_the_separator_is_a_folder_too() {
         let tmp = tree();
         let got = complete("~/work/alpha", tmp.path(), &[], 10);
-        assert!(got.exact);
+        assert_eq!(got.folder.as_ref().map(|f| f.shown.as_str()), Some("~/work/alpha"));
         assert_eq!(shown(&got), vec!["~/work/alpha", "~/work/alpha-old"]);
     }
 
@@ -216,7 +266,7 @@ mod tests {
         let tmp = tree();
         let got = complete("~/nowhere/x", tmp.path(), &[], 10);
         assert!(got.hits.is_empty());
-        assert!(!got.exact);
+        assert!(got.folder.is_none());
     }
 
     #[test]
@@ -232,7 +282,7 @@ mod tests {
             shown(&got),
             vec!["~/work/alpha", "~/work/alpha-old", "~/work/beta/inner/deep-alpha"]
         );
-        assert!(!got.exact);
+        assert!(got.folder.is_none());
     }
 
     #[test]
@@ -241,6 +291,54 @@ mod tests {
         let roots = vec![tmp.path().join("work")];
         let got = complete("inner", tmp.path(), &roots, 10);
         assert_eq!(shown(&got), vec!["~/work/beta/inner"]);
+    }
+
+    #[test]
+    fn a_separator_after_a_name_lists_the_folder_that_name_was_found_as() {
+        let tmp = tree();
+        let roots = vec![tmp.path().join("work")];
+        // "beta" is ~/work/beta, not ~/beta: the name picked from the
+        // list keeps meaning the same folder once "/" is typed after it.
+        let got = complete("beta/", tmp.path(), &roots, 10);
+        assert_eq!(shown(&got), vec!["~/work/beta/inner"]);
+        let itself = got.folder.as_ref().expect("beta/ is a folder, Enter may take it");
+        assert_eq!(itself.shown, "~/work/beta");
+        assert_eq!(itself.path, tmp.path().join("work/beta").display().to_string());
+        assert!(itself.git);
+    }
+
+    #[test]
+    fn a_lone_dot_is_the_start_of_a_hidden_name_not_the_folder_itself() {
+        let tmp = tree();
+        let roots = vec![tmp.path().join("work")];
+        let got = complete("~/work/.", tmp.path(), &roots, 10);
+        assert_eq!(shown(&got), vec!["~/work/.hidden-alpha"]);
+        assert!(got.folder.is_none());
+        assert!(complete("beta/.", tmp.path(), &roots, 10).folder.is_none());
+    }
+
+    #[test]
+    fn a_relative_path_goes_on_below_the_folder_found() {
+        let tmp = tree();
+        let roots = vec![tmp.path().join("work")];
+        let got = complete("beta/inner/de", tmp.path(), &roots, 10);
+        assert_eq!(shown(&got), vec!["~/work/beta/inner/deep-alpha"]);
+        assert!(got.folder.is_none());
+    }
+
+    #[test]
+    fn a_relative_path_that_exists_under_home_is_taken_from_home() {
+        let tmp = tree();
+        let got = complete("work/al", tmp.path(), &[], 10);
+        assert_eq!(shown(&got), vec!["~/work/alpha", "~/work/alpha-old"]);
+    }
+
+    #[test]
+    fn a_relative_path_under_a_name_nobody_has_offers_nothing() {
+        let tmp = tree();
+        let got = complete("nowhere/", tmp.path(), &[], 10);
+        assert!(got.hits.is_empty());
+        assert!(got.folder.is_none());
     }
 
     #[test]

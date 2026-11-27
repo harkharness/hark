@@ -2445,7 +2445,7 @@ button.scope-chip.pick > svg:last-child { color: var(--dim); }
 /* One line per folder, every row the same height: name, then its path. */
 .folder-row {
   display: flex; align-items: center; gap: 8px; height: 28px; box-sizing: border-box;
-  padding: 0 4px 0 8px; border-radius: 4px; cursor: pointer;
+  padding: 0 8px; border-radius: 4px; cursor: pointer;
   color: var(--text); font-size: var(--fs-ui); white-space: nowrap;
 }
 .folder-row.sel { background: rgba(122,162,247,.15); }
@@ -2456,13 +2456,6 @@ button.scope-chip.pick > svg:last-child { color: var(--dim); }
 }
 .folder-icon { flex: 0 0 auto; display: inline-flex; color: var(--dim); }
 .folder-icon.git { color: var(--accent); }
-.folder-into {
-  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
-  width: 22px; height: 22px; padding: 0; border: none; border-radius: 4px; background: none;
-  color: var(--dim); cursor: pointer; visibility: hidden;
-}
-.folder-row.sel .folder-into { visibility: visible; }
-.folder-into:hover { color: var(--text-strong); background: rgba(255,255,255,.08); }
 .folder-note { color: var(--dim); font-size: var(--fs-meta); line-height: 1.4; padding: 5px 8px 3px; }
 .folder-note.keys { color: color-mix(in srgb, var(--dim) 75%, transparent); border-top: 1px solid var(--border); margin-top: 4px; }
 

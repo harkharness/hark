@@ -18,14 +18,16 @@ const hit = (shown: string, more: Partial<FolderHit> = {}): FolderHit => ({
 
 /** A tiny disk: what each typed text is answered with. */
 const DISK: Record<string, Completion> = {
-  "": { hits: [hit("~/work/beta", { git: true })], exact: false },
-  al: { hits: [hit("~/work/alpha", { git: true }), hit("~/work/alpha-old")], exact: false },
-  "~/work/alpha": { hits: [hit("~/work/alpha"), hit("~/work/alpha-old")], exact: true },
-  "~/work/alpha/": { hits: [hit("~/work/alpha/src")], exact: true },
-  lab: { hits: [hit("~/work/lab", { known: true })], exact: false },
+  "": { hits: [hit("~/work/beta", { git: true })], folder: null },
+  al: { hits: [hit("~/work/alpha", { git: true }), hit("~/work/alpha-old")], folder: null },
+  "~/work/alpha": { hits: [hit("~/work/alpha"), hit("~/work/alpha-old")], folder: hit("~/work/alpha") },
+  "~/work/alpha/": { hits: [hit("~/work/alpha/src")], folder: hit("~/work/alpha") },
+  "~/work/alpha-old/": { hits: [], folder: hit("~/work/alpha-old") },
+  "dotfiles/": { hits: [hit("~/work/dotfiles/bin")], folder: hit("~/work/dotfiles") },
+  lab: { hits: [hit("~/work/lab", { known: true })], folder: null },
 };
 
-const disk = vi.fn(async (typed: string) => DISK[typed] ?? { hits: [], exact: false });
+const disk = vi.fn(async (typed: string) => DISK[typed] ?? { hits: [], folder: null });
 
 function mount(over: Partial<React.ComponentProps<typeof FolderInput>> = {}) {
   const onPick = vi.fn();
@@ -61,12 +63,27 @@ describe("the add-a-project field offers folders while a path is typed", () => {
     expect(onPick).toHaveBeenCalledWith("/home/u/work/alpha-old");
   });
 
-  it("a whole folder typed is taken as written, not swapped for a suggestion", async () => {
+  it("a whole folder typed is the one taken, not swapped for a suggestion", async () => {
     const { type, input, findByText, onPick } = mount();
     type("~/work/alpha");
     await findByText("alpha-old");
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(onPick).toHaveBeenCalledWith("~/work/alpha");
+    expect(onPick).toHaveBeenCalledWith("/home/u/work/alpha");
+  });
+
+  it("a name with a separator after it is the folder that name was found as", async () => {
+    const { type, input, findByText, onPick } = mount();
+    type("dotfiles/");
+    // What it holds is listed, and Enter takes the folder itself.
+    await findByText("bin");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onPick).toHaveBeenCalledWith("/home/u/work/dotfiles");
+  });
+
+  it("says which folder Enter adds once the text is one", async () => {
+    const { type, findByText } = mount();
+    type("dotfiles/");
+    expect(await findByText(t("folder_keys_add", { path: "~/work/dotfiles" }))).toBeTruthy();
   });
 
   it("Tab goes into the folder: the field takes its path and lists what it holds", async () => {
@@ -79,20 +96,24 @@ describe("the add-a-project field offers folders while a path is typed", () => {
     expect(onPick).not.toHaveBeenCalled();
   });
 
-  it("a click on a folder takes it", async () => {
-    const { type, findByText, onPick } = mount();
+  it("a click fills the field with the folder and lists what it holds; only Enter adds", async () => {
+    const { type, input, findByText, onPick, onClose } = mount();
     type("al");
-    fireEvent.click(await findByText("alpha-old"));
-    expect(onPick).toHaveBeenCalledWith("/home/u/work/alpha-old");
+    fireEvent.click(await findByText("alpha"));
+    expect(input.value).toBe("~/work/alpha/");
+    expect(await findByText("src")).toBeTruthy();
+    expect(onPick).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onPick).toHaveBeenCalledWith("/home/u/work/alpha");
   });
 
-  it("the arrow at the end of a row goes into the folder instead of taking it", async () => {
-    const { type, input, findByText, getAllByTitle, onPick } = mount();
+  it("a folder with nothing inside still says what Enter adds, not that nothing matched", async () => {
+    const { type, findByText, queryByText } = mount();
     type("al");
-    await findByText("alpha-old");
-    fireEvent.click(getAllByTitle(t("folder_into"))[1]);
-    expect(input.value).toBe("~/work/alpha-old/");
-    expect(onPick).not.toHaveBeenCalled();
+    fireEvent.click(await findByText("alpha-old"));
+    expect(await findByText(t("folder_add_only", { path: "~/work/alpha-old" }))).toBeTruthy();
+    expect(queryByText(t("folder_none"))).toBeNull();
   });
 
   it("an empty field offers folders but Enter adds nothing", async () => {
@@ -128,7 +149,7 @@ describe("the add-a-project field offers folders while a path is typed", () => {
   it("a slow answer to older text never replaces the answer to the newer", async () => {
     let release: (c: Completion) => void = () => {};
     const slow = vi.fn((typed: string) =>
-      typed === "al" ? new Promise<Completion>((r) => (release = r)) : Promise.resolve(DISK[typed] ?? { hits: [], exact: false }),
+      typed === "al" ? new Promise<Completion>((r) => (release = r)) : Promise.resolve(DISK[typed] ?? { hits: [], folder: null }),
     );
     const { type, findByText, queryByText } = mount({ complete: slow });
     type("al");
@@ -155,7 +176,7 @@ describe("the add-a-project field offers folders while a path is typed", () => {
   it("the folders of the text before stay up while the next ones load: no blink per key", async () => {
     let release: (c: Completion) => void = () => {};
     const slow = vi.fn((typed: string) =>
-      typed === "alp" ? new Promise<Completion>((r) => (release = r)) : Promise.resolve(DISK[typed] ?? { hits: [], exact: false }),
+      typed === "alp" ? new Promise<Completion>((r) => (release = r)) : Promise.resolve(DISK[typed] ?? { hits: [], folder: null }),
     );
     const { type, findByText, queryByText } = mount({ complete: slow });
     type("al");
@@ -163,14 +184,14 @@ describe("the add-a-project field offers folders while a path is typed", () => {
     type("alp");
     await waitFor(() => expect(slow).toHaveBeenCalledWith("alp"));
     expect(queryByText("alpha-old")).not.toBeNull();
-    release({ hits: [hit("~/work/alpha")], exact: false });
+    release({ hits: [hit("~/work/alpha")], folder: null });
     await waitFor(() => expect(queryByText("alpha-old")).toBeNull());
   });
 
   it("Enter before the folders arrive waits for them instead of taking the list before", async () => {
     let release: (c: Completion) => void = () => {};
     const slow = vi.fn((typed: string) =>
-      typed === "lab" ? new Promise<Completion>((r) => (release = r)) : Promise.resolve(DISK[typed] ?? { hits: [], exact: false }),
+      typed === "lab" ? new Promise<Completion>((r) => (release = r)) : Promise.resolve(DISK[typed] ?? { hits: [], folder: null }),
     );
     const { type, input, findByText, onPick, onClose } = mount({ complete: slow });
     type("al");

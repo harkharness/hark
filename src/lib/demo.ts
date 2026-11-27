@@ -708,7 +708,11 @@ const C: Record<string, (a: Args) => unknown> = {
       { name: "scratch", path: "/Users/ana/code/scratch", shown: "~/code/scratch", git: false, known: false },
       { name: "notas", path: "/Users/ana/notas", shown: "~/notas", git: false, known: false },
     ];
-    return { hits: all.filter((h) => h.name.includes(word)), exact: false };
+    // "name/" or a whole path: that folder itself, with nothing inside.
+    const whole = typed.replace(/\/$/, "");
+    const itself = typed.includes("/") ? all.find((h) => h.name === whole || h.shown === whole) : undefined;
+    if (itself) return { hits: [], folder: itself };
+    return { hits: all.filter((h) => h.name.includes(word)), folder: null };
   },
   project_add: (a) => ({ name: String(a?.path).split("/").pop() ?? "project", path: String(a?.path) }),
   project_remove: () => undefined,

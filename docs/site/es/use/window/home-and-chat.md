@@ -5,10 +5,10 @@ sidebar:
   order: 1
 banner:
   content: "<b>Hark está en desarrollo.</b> La mayor parte de las pruebas hasta ahora se hizo con el CLI de Claude Code en macOS. ¿Usas otro agente u otro sistema? <a href=\"/docs/es/build/testing-other-agents-and-oss/\">Ayúdanos a probarlo.</a>"
-source_hash: fbeeeb19bc31
+source_hash: e9fa7550022c
 ---
 
-Una ventana reúne todos los proyectos, detrás de dos puertas en la parte superior de la barra lateral, como en la app de Claude Code. **Início** es el chat propio de Hark, una sola conversación sobre todos los proyectos (*Hoje*), con la lista del día al lado. **Code** es donde vive el trabajo: **Criar** abre un chat nuevo (primero el proyecto; una carpeta aún no registrada se convierte en proyecto: escribe su nombre o su ruta y el campo lista las carpetas que coinciden, Enter la agrega, Tab entra en ella), luego **Procurar**, los artefactos, el acceso directo al tablero y los proyectos con sus chats, los más recientes primero, desde el índice local. Cada proyecto tiene un color; recorre su grupo en la barra lateral, la parte superior del chat y el chip de alcance del compositor, que dice dónde cae el próximo mensaje.
+Una ventana reúne todos los proyectos, detrás de dos puertas en la parte superior de la barra lateral, como en la app de Claude Code. **Início** es el chat propio de Hark, una sola conversación sobre todos los proyectos (*Hoje*), con la lista del día al lado. **Code** es donde vive el trabajo: **Criar** abre un chat nuevo (primero el proyecto; una carpeta aún no registrada se convierte en proyecto: escribe su nombre o su ruta y el campo lista las carpetas que coinciden; Tab o un clic rellena el campo con una y lista lo que contiene, y solo Enter agrega el proyecto), luego **Procurar**, los artefactos, el acceso directo al tablero y los proyectos con sus chats, los más recientes primero, desde el índice local. Cada proyecto tiene un color; recorre su grupo en la barra lateral, la parte superior del chat y el chip de alcance del compositor, que dice dónde cae el próximo mensaje.
 
 ## Hoje es Hark mismo
 

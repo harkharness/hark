@@ -9,7 +9,11 @@ const hit = (shown: string): FolderHit => ({
   known: false,
 });
 
-const list = (exact: boolean, ...shown: string[]): Completion => ({ hits: shown.map(hit), exact });
+/** `itself`: the folder the typed text already is, or false for a fragment. */
+const list = (itself: string | false, ...shown: string[]): Completion => ({
+  hits: shown.map(hit),
+  folder: itself ? hit(itself) : null,
+});
 
 describe("startIndex", () => {
   it("rests on the first folder while the text is still a fragment", () => {
@@ -17,7 +21,7 @@ describe("startIndex", () => {
   });
 
   it("rests on nothing when the text is already a folder: Enter takes the text", () => {
-    expect(startIndex(list(true, "~/work/alpha", "~/work/alpha-old"), "~/work/alpha")).toBe(-1);
+    expect(startIndex(list("~/work/alpha", "~/work/alpha", "~/work/alpha-old"), "~/work/alpha")).toBe(-1);
   });
 
   it("rests on nothing when there is nothing to offer", () => {
@@ -55,8 +59,13 @@ describe("enterTarget", () => {
     expect(enterTarget("~/work/al", list(false, "~/work/alpha", "~/work/alpha-old"), 1)).toBe("/home/u/work/alpha-old");
   });
 
-  it("is the text itself when nothing is highlighted", () => {
-    expect(enterTarget(" ~/work/alpha ", list(true, "~/work/alpha"), -1)).toBe("~/work/alpha");
+  it("is the folder the text already is, by its real path, when nothing is highlighted", () => {
+    // "dotfiles/" in the field is ~/work/dotfiles on disk.
+    expect(enterTarget("dotfiles/", list("~/work/dotfiles", "~/work/dotfiles/bin"), -1)).toBe("/home/u/work/dotfiles");
+  });
+
+  it("is the text as typed when it is no folder anyone found", () => {
+    expect(enterTarget(" /srv/new ", list(false), -1)).toBe("/srv/new");
   });
 
   it("is nothing when the field is empty and nothing is highlighted", () => {
@@ -74,7 +83,7 @@ describe("descendText", () => {
   });
 
   it("takes the first folder when nothing is highlighted", () => {
-    expect(descendText(list(true, "~/work/alpha"), -1)).toBe("~/work/alpha/");
+    expect(descendText(list("~/work", "~/work/alpha"), -1)).toBe("~/work/alpha/");
   });
 
   it("is nothing when there is no folder to go into", () => {

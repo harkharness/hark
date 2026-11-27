@@ -12,6 +12,10 @@ pub enum Query {
     /// `dir` is listed (it ends with a separator, `~` still unexpanded)
     /// and its folders are matched against `prefix`.
     Path { dir: String, prefix: String },
+    /// A relative path: `head` is a folder found by name (under home
+    /// first, then under the known roots), `rest` the directories typed
+    /// after it, and what is listed is matched against `prefix`.
+    Under { head: String, rest: String, prefix: String },
     /// A bare name, looked for under the known roots.
     Name(String),
 }
@@ -30,8 +34,10 @@ fn is_sep(c: char) -> bool {
     c == '/' || c == '\\'
 }
 
-/// A path as soon as it has a separator or starts at home; relative ones
-/// start at home, the only place a relative path could sensibly mean.
+/// A path as soon as it has a separator. One that starts at the root or
+/// at home is listed as written; a relative one starts at a folder found
+/// by its name, which is how a name picked from the list keeps working
+/// once a separator is typed after it.
 pub fn parse(typed: &str) -> Query {
     let typed = typed.trim();
     if typed == "~" {
@@ -42,8 +48,32 @@ pub fn parse(typed: &str) -> Query {
     };
     let (dir, prefix) = typed.split_at(cut + 1);
     let rooted = dir.starts_with('~') || dir.starts_with(is_sep) || dir.chars().nth(1) == Some(':');
-    let dir = if rooted { dir.to_string() } else { format!("~/{dir}") };
-    Query::Path { dir, prefix: prefix.to_string() }
+    if rooted {
+        return Query::Path { dir: dir.to_string(), prefix: prefix.to_string() };
+    }
+    // `dir` has a separator and does not start with one: there is a head.
+    let first = dir.find(is_sep).unwrap_or(dir.len());
+    Query::Under {
+        head: dir[..first].to_string(),
+        rest: dir[first + 1..].to_string(),
+        prefix: prefix.to_string(),
+    }
+}
+
+/// The folders a relative path's first segment stands for: the ones with
+/// that very name, a repository before a plain folder, the shallower first.
+pub fn heads(found: Vec<Candidate>, head: &str) -> Vec<Candidate> {
+    let head = head.to_lowercase();
+    let mut same: Vec<Candidate> = found.into_iter().filter(|c| c.name.to_lowercase() == head).collect();
+    same.sort_by(|a, b| {
+        b.git
+            .cmp(&a.git)
+            .then_with(|| a.depth.cmp(&b.depth))
+            .then_with(|| a.path.to_lowercase().cmp(&b.path.to_lowercase()))
+    });
+    let mut seen = std::collections::HashSet::new();
+    same.retain(|c| seen.insert(c.path.clone()));
+    same
 }
 
 /// How well a folder name answers what was typed: the same name, then a
@@ -152,11 +182,35 @@ mod tests {
     }
 
     #[test]
-    fn a_relative_path_starts_at_home() {
+    fn a_relative_path_is_a_folder_to_find_and_what_to_list_inside_it() {
+        // "dotfiles/" after picking dotfiles by name: the folder is not
+        // under home, it is wherever the name was found.
         assert_eq!(
-            parse("Projects/ha"),
-            Query::Path { dir: "~/Projects/".into(), prefix: "ha".into() }
+            parse("dotfiles/"),
+            Query::Under { head: "dotfiles".into(), rest: String::new(), prefix: String::new() }
         );
+        assert_eq!(
+            parse("site/apps/we"),
+            Query::Under { head: "site".into(), rest: "apps/".into(), prefix: "we".into() }
+        );
+    }
+
+    #[test]
+    fn only_folders_with_the_very_name_stand_for_the_head_of_a_relative_path() {
+        let got = heads(
+            vec![
+                cand("/w/archive/Site", 2, false),
+                cand("/w/site-next", 1, true),
+                cand("/w/apps/site", 2, true),
+                cand("/w/site", 1, true),
+                cand("/w/site", 2, true),
+            ],
+            "site",
+        );
+        let paths: Vec<&str> = got.iter().map(|c| c.path.as_str()).collect();
+        // Repositories first, the shallower first, each once; a name that
+        // merely starts with the text is another folder.
+        assert_eq!(paths, vec!["/w/site", "/w/apps/site", "/w/archive/Site"]);
     }
 
     #[test]

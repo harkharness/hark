@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, Folder, FolderGit2 } from "lucide-react";
+import { Folder, FolderGit2 } from "lucide-react";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
 import { descendText, EMPTY, enterTarget, moveIndex, startIndex, type Completion } from "../lib/folderPick";
@@ -12,7 +12,9 @@ const ASK_AFTER_MS = 60;
  * The field a folder becomes a project through. Nobody remembers a
  * project's whole directory, so it lists folders as the text grows: the
  * ones under a typed path, or the ones a bare name matches near the
- * projects already registered. Enter takes one, Tab goes into it.
+ * projects already registered. Tab or a click fills the field with a
+ * folder and lists what it holds, as the composer's `@` does; only Enter
+ * adds a project, so a folder inside the one first seen is still in reach.
  *
  * The list floats over the page, anchored to the field like the composer's
  * `@` menu: in the flow it pushed the field around at every key, as the
@@ -97,8 +99,9 @@ export default function FolderInput({
   }, [text, complete]);
 
   const fresh = answered === text;
-  const none = fresh && done.hits.length === 0 && text.trim() !== "";
-  const open = done.hits.length > 0 || none;
+  const itself = done.folder;
+  const none = fresh && done.hits.length === 0 && !itself && text.trim() !== "";
+  const open = done.hits.length > 0 || none || !!itself;
 
   // The list follows the field, which the rail's scroller or a resize
   // can move; the field itself is never moved by the list.
@@ -185,7 +188,7 @@ export default function FolderInput({
                 // Movement, not presence: a list that opens under a resting
                 // pointer must not move the highlight Enter is about to take.
                 onMouseMove={() => i !== index && setIndex(i)}
-                onClick={() => take(hit.path)}
+                onClick={() => into(i)}
               >
                 <span className={`folder-icon${hit.git ? " git" : ""}`}>
                   {hit.git ? <FolderGit2 size={14} /> : <Folder size={14} />}
@@ -193,23 +196,16 @@ export default function FolderInput({
                 <span className="folder-name">{hit.name}</span>
                 {hit.known && <span className="mm-tag">{t("folder_known")}</span>}
                 <span className="folder-path">{hit.shown}</span>
-                <button
-                  type="button"
-                  className="folder-into"
-                  title={t("folder_into")}
-                  aria-label={t("folder_into")}
-                  tabIndex={-1}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    into(i);
-                  }}
-                >
-                  <ChevronRight size={14} />
-                </button>
               </div>
             ))}
             {none && <div className="folder-note">{t("folder_none")}</div>}
-            {done.hits.length > 0 && <div className="folder-note keys">{t("folder_keys")}</div>}
+            {(itself || done.hits.length > 0) && (
+              <div className={`folder-note${done.hits.length > 0 ? " keys" : ""}`}>
+                {itself
+                  ? t(done.hits.length > 0 ? "folder_keys_add" : "folder_add_only", { path: itself.shown })
+                  : t("folder_keys")}
+              </div>
+            )}
           </div>,
           document.body,
         )}

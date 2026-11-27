@@ -5,10 +5,10 @@ sidebar:
   order: 1
 banner:
   content: "<b>O Hark está em desenvolvimento.</b> A maior parte dos testes até agora foi feita com o CLI do Claude Code no macOS. Usa outro agente ou sistema? <a href=\"/docs/pt-br/build/testing-other-agents-and-oss/\">Ajude a testar.</a>"
-source_hash: fbeeeb19bc31
+source_hash: e9fa7550022c
 ---
 
-Uma janela reúne todos os projetos, atrás de duas portas no topo da barra lateral, como no app do Claude Code. **Início** é o chat do próprio Hark, uma conversa sobre todos os projetos (*Hoje*), com a lista do dia ao lado. **Code** é onde o trabalho vive: **Criar** abre um chat novo (o projeto vem primeiro; uma pasta ainda não registrada vira um projeto: digite o nome ou o caminho e o campo lista as pastas que batem, Enter adiciona, Tab entra na pasta), depois **Procurar**, os artefatos, o atalho do quadro e os projetos com seus chats, do mais novo para o mais antigo, a partir do índice local. Cada projeto tem uma cor; ela desce pelo grupo da barra lateral, atravessa o topo do chat e chega ao chip de escopo do compositor, que diz onde a próxima mensagem vai cair.
+Uma janela reúne todos os projetos, atrás de duas portas no topo da barra lateral, como no app do Claude Code. **Início** é o chat do próprio Hark, uma conversa sobre todos os projetos (*Hoje*), com a lista do dia ao lado. **Code** é onde o trabalho vive: **Criar** abre um chat novo (o projeto vem primeiro; uma pasta ainda não registrada vira um projeto: digite o nome ou o caminho e o campo lista as pastas que batem; Tab ou um clique preenche o campo com uma delas e lista o que há dentro, e só o Enter adiciona o projeto), depois **Procurar**, os artefatos, o atalho do quadro e os projetos com seus chats, do mais novo para o mais antigo, a partir do índice local. Cada projeto tem uma cor; ela desce pelo grupo da barra lateral, atravessa o topo do chat e chega ao chip de escopo do compositor, que diz onde a próxima mensagem vai cair.
 
 ## Hoje é o próprio Hark
 
