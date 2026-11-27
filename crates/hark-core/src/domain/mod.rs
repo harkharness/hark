@@ -45,6 +45,7 @@ pub mod savings;
 pub mod scope;
 pub mod sheet;
 pub mod shell_path;
+pub mod shell_tape;
 pub mod task_nudge;
 pub mod precheck;
 pub mod snapshot;

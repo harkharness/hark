@@ -1,6 +1,7 @@
 //! Tauri driver: the desktop window over the same hark-core used by the CLI.
 
 mod platform;
+mod shell;
 mod terminal;
 mod voice;
 
@@ -6862,6 +6863,7 @@ pub fn run() {
             }
         })
         .manage(terminal::Terminals::default())
+        .manage(shell::ShellRuns::default())
         .manage(voice::ActiveContext::default())
         .manage(SlashRegistry::default())
         .manage(Pending(Mutex::new(HashMap::new())))
@@ -7039,6 +7041,8 @@ pub fn run() {
             terminal::term_write,
             terminal::term_resize,
             terminal::term_close,
+            shell::shell_run,
+            shell::shell_stop,
             session_candidates,
             project_sessions,
             chat_from_session,

@@ -16,6 +16,7 @@ pub mod recorder;
 pub mod registry_fetch;
 pub mod say_tts;
 pub mod shell_env;
+pub mod shell_run;
 pub mod spd_tts;
 pub mod sqlite_store;
 pub mod state_file;
