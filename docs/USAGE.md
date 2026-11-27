@@ -230,6 +230,18 @@ a personal one. A page is a markdown or an HTML file under
 `~/.hark/artifacts/<space>/`; the tree is an `index.json` beside them, and
 a file dropped there by hand is adopted at the root on the next read.
 
+**A project can keep its pages in its repository.** By default a space's
+pages are on this machine only. *Move to the repository*, on a project's
+space, takes its pages and their index to `docs/hark/` inside the
+project: versioned with the code, read by a colleague who clones it,
+shown by their Hark with nothing to configure, since the folder existing
+is the choice. Hark never writes that folder into a repository by
+itself; you ask, per project, and the commit is yours. What is the
+machine's stays on the machine: the edit history, a dashboard's cache,
+the comments. The personal space and what Hark's own chat writes stay in
+`~/.hark/artifacts`. A sheet, a board or a dashboard edited by two
+people is a JSON merge conflict like any other.
+
 - **The tree column** lists every space and page. Click a page to read it,
   drag one onto another to move it under it, the `+` on a row makes a
   child, the `⋯` renames or removes (removing deletes the file and its

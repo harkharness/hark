@@ -34,11 +34,29 @@ export function harkTarget(href: string): HarkTarget | null {
   return null;
 }
 
-/** A file the agent wrote under `~/.hark/artifacts/<space>/…` is a page
- *  of that space, not a file for the editor: the session bar's outputs
- *  open it in the artifacts view. `index.json` is the space's own index. */
-export function artifactFile(path: string): { space: string; file: string } | null {
-  const m = /^(?:~|\/Users\/[^/]+|\/home\/[^/]+)\/\.hark\/artifacts\/([^/]+)\/(.+)$/.exec(path.trim());
+/** A space whose pages live inside its project, at `dir`
+ *  (`<project>/docs/hark`; mirror of domain::pages_home::Home). */
+export type PagesHome = { space: string; dir: string };
+
+/** The same path whether it was written from the home down or as `~`. */
+const tilde = (p: string) => p.trim().replace(/^(?:\/Users|\/home)\/[^/]+(?=\/|$)/, "~");
+
+/** A file the agent wrote where pages live is a page of that space, not
+ *  a file for the editor: the session bar's outputs open it in the
+ *  artifacts view. Pages live in a project's own folder when it has one
+ *  (`homes`), else under `~/.hark/artifacts/<space>/…`. `index.json` is
+ *  the space's own index. */
+export function artifactFile(path: string, homes: PagesHome[] = []): { space: string; file: string } | null {
+  const at = tilde(path);
+  // The longest folder first: a project inside another keeps its own.
+  const inner = [...homes].sort((a, b) => b.dir.length - a.dir.length);
+  for (const home of inner) {
+    const dir = `${tilde(home.dir).replace(/\/+$/, "")}/`;
+    if (!at.startsWith(dir)) continue;
+    const file = at.slice(dir.length);
+    return !file || file === "index.json" || file.endsWith("/") ? null : { space: home.space, file };
+  }
+  const m = /^~\/\.hark\/artifacts\/([^/]+)\/(.+)$/.exec(at);
   if (!m) return null;
   const [, space, file] = m;
   if (file === "index.json" || file.endsWith("/")) return null;

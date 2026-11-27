@@ -69,7 +69,18 @@ export type ArtifactNode = {
   updated_at: string;
 };
 export type ArtifactTree = { nodes: ArtifactNode[]; order: Record<string, string[]> };
-export type ArtifactSpace = { name: string; project?: string | null; pages: number };
+export type ArtifactSpace = {
+  name: string;
+  project?: string | null;
+  pages: number;
+  /** Where its pages are on disk. */
+  folder: string;
+  /** The pages live in the project itself (`docs/hark`), versioned with
+   *  it; false = on this machine only (domain::pages_home). */
+  in_project: boolean;
+  /** Pages still on this machine while the space lives in its project. */
+  left_behind: number;
+};
 export type ArtifactPage = { node: ArtifactNode; text: string; abs: string; breadcrumb: string[] };
 /** One kept version of a page (domain::page_history). */
 export type PageVersion = { at: string; bytes: number };

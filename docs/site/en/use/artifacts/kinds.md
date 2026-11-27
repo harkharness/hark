@@ -9,6 +9,8 @@ banner:
 
 **Artifacts** is the documentation of this machine: pages you and the agents write, kept as a tree the way a wiki keeps them, one *space* per project plus a personal one. A page is a file under `~/.hark/artifacts/<space>/`; the tree is an `index.json` beside them, and a file dropped there by hand is adopted at the root on the next read. Nothing here costs tokens to browse.
 
+**A project can keep its pages in its repository.** By default a space's pages are on this machine only. *Move to the repository*, on a project's space in Artifacts, takes its pages and their index to `docs/hark/` inside the project: versioned with the code, read by a colleague who clones it, shown by their Hark with nothing to configure, since the folder existing is the choice. Hark never writes that folder into a repository by itself; you ask, per project, and the commit is yours. What is the machine's stays on the machine: the edit history, a dashboard's cache, the comments. The personal space and what Hark's own chat writes stay in `~/.hark/artifacts`. Pages that arrive with a repository are read under the same rules as any other, and a sheet, a board or a dashboard edited by two people is a JSON merge conflict like any other.
+
 ## The kinds
 
 | Kind | File | What it is |

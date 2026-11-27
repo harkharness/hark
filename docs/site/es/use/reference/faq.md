@@ -5,7 +5,7 @@ sidebar:
   order: 4
 banner:
   content: "<b>Hark está en desarrollo.</b> La mayor parte de las pruebas hasta ahora se hizo con el CLI de Claude Code en macOS. ¿Usas otro agente u otro sistema? <a href=\"/docs/es/build/testing-other-agents-and-oss/\">Ayúdanos a probarlo.</a>"
-source_hash: af945f638f6c
+source_hash: 35ba33dd1a73
 ---
 
 ## ¿Hark usa mi suscripción?
@@ -22,7 +22,7 @@ Sí y sí. Hark es MIT o Apache-2.0 a tu elección, está en [GitHub](https://gi
 
 ## ¿Adónde van las páginas que escribe el agente?
 
-A `~/.hark/artifacts/<space>/`, como archivos markdown, html o json que puedes abrir con cualquier cosa. Hark guarda un `index.json` a su lado y lo reconcilia con el disco en cada lectura.
+A `~/.hark/artifacts/<space>/`, como archivos markdown, html o json que puedes abrir con cualquier cosa. Hark guarda un `index.json` a su lado y lo reconcilia con el disco en cada lectura. Un proyecto cuyas páginas moviste a su repositorio las guarda en su propia `docs/hark/`.
 
 ## ¿Algo sale de mi máquina?
 

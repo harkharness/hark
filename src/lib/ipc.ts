@@ -673,6 +673,11 @@ export const agentForSession = (sessionId: string) =>
 
 // ---- artifacts: the documentation tree, local, zero tokens ----
 export const artifactsSpaces = () => invoke<import("../types").ArtifactSpace[]>("artifacts_spaces");
+/** The spaces whose pages live in their project (`docs/hark`), and where. */
+export const artifactHomes = () => invoke<import("./harkLink").PagesHome[]>("artifact_homes");
+/** "Move to the repository": the space's pages and index go to its
+ *  project's `docs/hark`. Resolves to how many pages moved. */
+export const artifactsMoveToProject = (space: string) => invoke<number>("artifacts_move_to_project", { space });
 export const artifactsTree = (space: string) => invoke<import("../types").ArtifactTree>("artifacts_tree", { space });
 export const artifactRead = (space: string, id: string) =>
   invoke<import("../types").ArtifactPage>("artifact_read", { space, id });

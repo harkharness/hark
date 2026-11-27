@@ -55,6 +55,13 @@ describe("withPages: an output under the artifacts folder carries its page", () 
     expect(withPages([{ path: "~/.hark/artifacts/tulipa/q.dash.json", kind: "written", touches: 1 }], {})[0].page?.kind).toBe("data");
     expect(withPages([{ path: "~/.hark/artifacts/tulipa/q.md", kind: "written", touches: 1 }], {})[0].page?.kind).toBe("doc");
   });
+  it("a page written into the project's own folder is a page too", () => {
+    const homes = [{ space: "tulipa", dir: "/p/tulipa/docs/hark" }];
+    const [o] = withPages([{ path: "/p/tulipa/docs/hark/home.html", kind: "written", touches: 1 }], trees, homes);
+    expect(o.page).toEqual({ space: "tulipa", id: "test-documento", title: "Workspace (Home)", kind: "slides" });
+    // The project's other documents stay files.
+    expect(withPages([{ path: "/p/tulipa/docs/guia.md", kind: "edited", touches: 1 }], trees, homes)[0].page).toBeUndefined();
+  });
   it("a file of the workspace carries none", () => {
     expect(withPages([{ path: "/p/README.md", kind: "edited", touches: 1 }], trees)[0].page).toBeUndefined();
   });

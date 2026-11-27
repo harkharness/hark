@@ -5,10 +5,12 @@ sidebar:
   order: 1
 banner:
   content: "<b>O Hark está em desenvolvimento.</b> A maior parte dos testes até agora foi feita com o CLI do Claude Code no macOS. Usa outro agente ou sistema? <a href=\"/docs/pt-br/build/testing-other-agents-and-oss/\">Ajude a testar.</a>"
-source_hash: db4344994c63
+source_hash: ea9dcb1ac6f6
 ---
 
 **Artefatos** é a documentação desta máquina: páginas que você e os agentes escrevem, guardadas em uma árvore como uma wiki guarda as suas, um *espaço* por projeto mais um pessoal. Uma página é um arquivo em `~/.hark/artifacts/<space>/`; a árvore é um `index.json` ao lado, e um arquivo largado ali à mão é adotado na raiz na próxima leitura. Nada aqui custa tokens para navegar.
+
+**Um projeto pode guardar as páginas no próprio repositório.** Por padrão as páginas de um espaço ficam só nesta máquina. *Mover para o repositório*, no espaço de um projeto em Artefatos, leva as páginas e o índice delas para `docs/hark/` dentro do projeto: versionadas com o código, lidas por um colega que clonar, mostradas pelo Hark dele sem nada para configurar, porque a pasta existir é a escolha. O Hark nunca escreve essa pasta em um repositório por conta própria; você pede, por projeto, e o commit é seu. O que é da máquina fica na máquina: o histórico de edição, o cache de um painel, os comentários. O espaço pessoal e o que o chat do próprio Hark escreve continuam em `~/.hark/artifacts`. Páginas que chegam com um repositório são lidas pelas mesmas regras de qualquer outra, e uma planilha, um quadro ou um painel editado por duas pessoas é um conflito de merge de JSON como qualquer outro.
 
 ## Os tipos
 

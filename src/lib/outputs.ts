@@ -2,7 +2,7 @@
 // delivered. Pure: reads the messages already on screen, no ipc. The
 // "Saídas" section of the session panel is this list.
 import type { ArtifactKind, ArtifactTree, Msg } from "../types";
-import { artifactFile, pageId } from "./harkLink";
+import { artifactFile, pageId, type PagesHome } from "./harkLink";
 
 export type OutputKind = "written" | "edited" | "delivered";
 /** The page an output is, when it lives under the artifacts folder. */
@@ -20,9 +20,9 @@ export function kindOfFile(file: string): ArtifactKind {
 
 /** The outputs with their page attached, from the spaces' indexes: the
  *  title and the kind the bar shows instead of a file name. Pure. */
-export function withPages(outputs: Output[], trees: Record<string, ArtifactTree | undefined>): Output[] {
+export function withPages(outputs: Output[], trees: Record<string, ArtifactTree | undefined>, homes: PagesHome[] = []): Output[] {
   return outputs.map((o) => {
-    const art = artifactFile(o.path);
+    const art = artifactFile(o.path, homes);
     if (!art) return o;
     const nodes = trees[art.space]?.nodes ?? [];
     const id = pageId(art.file, nodes);

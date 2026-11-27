@@ -13,6 +13,7 @@ import Markdown from "./Markdown";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { pageHtml } from "../lib/export";
+import SpaceFolder from "./SpaceFolder";
 import { ARTIFACT_KINDS, type ArtifactKind, type ArtifactNode, type ArtifactPage, type ArtifactSpace, type ArtifactTree, type CommentAnchor, type PageComment } from "../types";
 import { destinations, type Destination, type RecentChat } from "../lib/takeTo";
 import Comments from "./Comments";
@@ -434,6 +435,11 @@ export default function Artifacts({
             colour={spaceColour(sel.space)}
             onOpen={(id) => onSel({ space: sel.space, id })}
             onNew={(kind) => setNaming({ parent: null, kind })}
+            onMove={async (name) => {
+              const moved = await ipc.artifactsMoveToProject(name);
+              await load();
+              return moved;
+            }}
           />
         ) : page ? (
           <Page
@@ -519,18 +525,21 @@ function Home({
   colour,
   onOpen,
   onNew,
+  onMove,
 }: {
   space?: ArtifactSpace;
   tree: ArtifactTree;
   colour?: string;
   onOpen: (id: string) => void;
   onNew: (kind: ArtifactKind) => void;
+  /** Move the space's pages into its project's repository. */
+  onMove?: (space: string) => Promise<number>;
 }) {
   const [filter, setFilter] = useState<ArtifactKind | null>(null);
   const counts = useMemo(() => kindCounts(tree), [tree]);
   const recent = useMemo(() => (filter ? recents(tree, 200, filter) : recents(tree, 12)), [tree, filter]);
   const name = space?.project ? space.name : t("art_space_personal");
-  const path = `~/.hark/artifacts/${space?.name ?? ""}`;
+  const path = space?.folder ?? "";
   const kindsLabel = (k: ArtifactKind) => t(`art_kinds_${k}`);
   return (
     <div className="art-home">
@@ -540,6 +549,7 @@ function Home({
           <div className="art-sub dim" title={path}>
             {space?.project ? <span className="art-dot" style={colour ? { background: colour } : undefined} /> : <User size={11} />} {name} · {t("art_pages_n", { n: tree.nodes.length })}
           </div>
+          {space && onMove && <SpaceFolder space={space} onMove={onMove} />}
         </div>
       </div>
       <div className="art-tabs">

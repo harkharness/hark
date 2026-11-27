@@ -304,11 +304,11 @@ fn emit_event(app: &AppHandle, payload: serde_json::Value) {
 fn attach_pending_pages(
     app: &AppHandle,
     task_id: &str,
-    root: &std::path::Path,
+    config: &Config,
     pending: &mut Vec<(hark_core::domain::artifact_links::Written, hark_core::domain::artifacts::Origin)>,
     last_chance: bool,
 ) {
-    let store = FsArtifacts::new(root.to_path_buf());
+    let store = store_for(config);
     pending.retain(|(page, origin)| {
         match hark_core::app::artifacts::attach_origin(&store, &page.space, &page.path, origin.clone(), &now_iso()) {
             Ok(node) => {
@@ -1494,8 +1494,10 @@ fn start_worker_titled(
                     }
                     // A page written inside the artifacts root learns the
                     // chat and task that wrote it once the tool has run.
+                    // Inside a project that keeps its pages in itself, or
+                    // in a space of the machine's root.
                     let root = artifacts_root(&config);
-                    if let Some(page) = hark_core::domain::artifact_links::written_page(&name, &input, &root.to_string_lossy()) {
+                    if let Some(page) = hark_core::domain::artifact_links::written_page(&name, &input, &root.to_string_lossy(), &store_for(&config).homes()) {
                         let origin = hark_core::domain::artifacts::Origin {
                             session_id: Some(current_session.clone()).filter(|s| !s.is_empty()),
                             task: Some(board_title.clone()),
@@ -1537,7 +1539,7 @@ fn start_worker_titled(
                         rec.entry(Entry { ts: record_ts(), role: Role::ToolResult, text: content.clone(), tool: None, is_error });
                     }
                     if !pending_pages.is_empty() {
-                        attach_pending_pages(&app2, &task2, &artifacts_root(&config), &mut pending_pages, false);
+                        attach_pending_pages(&app2, &task2, &config, &mut pending_pages, false);
                     }
                     emit_event(
                         &app2,
@@ -1599,7 +1601,7 @@ fn start_worker_titled(
                     // first phase even if it matches this turn's last.
                     last_phase = None;
                     if !pending_pages.is_empty() {
-                        attach_pending_pages(&app2, &task2, &artifacts_root(&config), &mut pending_pages, true);
+                        attach_pending_pages(&app2, &task2, &config, &mut pending_pages, true);
                     }
                     if let Some(rec) = &recorder {
                         // The record's token history, one line per model;
@@ -2257,7 +2259,7 @@ fn fresh_spawn(
         // The project's own ceiling when configured — the cap follows the
         // workspace the worker actually runs in (FASE 8.6).
         limits: config.spawn_limits_for(&cwd),
-        envs: worker_envs(config),
+        envs: with_project_pages(config, &cwd, worker_envs(config)),
         // Pages are written without a prompt, and the skill under the root
         // loads; nothing else of ~/.hark is granted.
         extra_dirs: vec![artifacts_root(config)],
@@ -2272,7 +2274,7 @@ fn fresh_spawn(
 /// The lines a brief carries about a task's pages, across every space:
 /// title and place only (the body rides only when the page is the scope).
 fn task_pages_block(config: &Config, task: &str) -> String {
-    let store = FsArtifacts::new(artifacts_root(config));
+    let store = store_for(config);
     let Ok(spaces) = store.spaces() else {
         return String::new();
     };
@@ -2285,7 +2287,8 @@ fn task_pages_block(config: &Config, task: &str) -> String {
             .into_iter()
             .map(|n| (n, tree.breadcrumb(&n.id)))
             .collect();
-        out.push_str(&hark_core::domain::artifact_links::pages_block(&pages, &space));
+        let dir = store.folder(&space).map(|d| d.to_string_lossy().to_string()).unwrap_or_default();
+        out.push_str(&hark_core::domain::artifact_links::pages_block(&pages, &space, &dir));
     }
     out
 }
@@ -2332,8 +2335,31 @@ fn artifacts_root(config: &Config) -> std::path::PathBuf {
     config.data_dir().join("artifacts")
 }
 
+/// Every space, each where it lives: a project that has a `docs/hark`
+/// of its own keeps its pages there, the rest in the machine's root
+/// (`domain::pages_home`). Read from the disk each time: the folder
+/// appearing in a pull, or by "move to the repository", is all it takes.
+fn store_for(config: &Config) -> FsArtifacts {
+    let projects: Vec<(String, std::path::PathBuf)> = load_projects(config)
+        .into_iter()
+        .map(|p| (p.name, std::path::PathBuf::from(hark_core::config::expand_home(&p.path))))
+        .collect();
+    FsArtifacts::with_projects(artifacts_root(config), &projects)
+}
+
 fn artifact_store() -> FsArtifacts {
-    FsArtifacts::new(artifacts_root(&Config::load()))
+    store_for(&Config::load())
+}
+
+/// The worker's environment, plus where the pages of the project it runs
+/// in go when that project keeps them in itself: the skill reads
+/// `HARK_PROJECT_PAGES_DIR` and writes there instead of the root.
+fn with_project_pages(config: &Config, cwd: &std::path::Path, mut envs: Vec<(String, String)>) -> Vec<(String, String)> {
+    let homes = store_for(config).homes();
+    if let Some(home) = hark_core::domain::pages_home::home_of(&cwd.to_string_lossy(), &homes) {
+        envs.push(("HARK_PROJECT_PAGES_DIR".into(), home.dir.clone()));
+    }
+    envs
 }
 
 /// The list of the day (domain::demands): the board, the titles whose
@@ -2538,6 +2564,15 @@ struct ArtifactSpace {
     /// The registered project this space is named after, if any.
     project: Option<String>,
     pages: usize,
+    /// Where its pages are on disk.
+    folder: String,
+    /// The pages live in the project itself (`docs/hark`), versioned
+    /// with it; false = in the machine's root.
+    in_project: bool,
+    /// Pages of this space still in the machine's root while the space
+    /// lives in its project (the folder came with a pull): invisible
+    /// until moved over.
+    left_behind: usize,
 }
 
 /// The spaces to show: every folder on disk, plus a space per registered
@@ -2548,6 +2583,8 @@ fn artifacts_spaces() -> Result<Vec<ArtifactSpace>, String> {
     let config = Config::load();
     let store = artifact_store();
     let on_disk = store.spaces().map_err(|e| e.to_string())?;
+    let homes = store.homes();
+    let machine = FsArtifacts::new(artifacts_root(&config));
     let projects = load_projects(&config);
     let mut names: Vec<String> = projects.iter().map(|p| p.name.clone()).collect();
     names.push("pessoal".into());
@@ -2561,9 +2598,34 @@ fn artifacts_spaces() -> Result<Vec<ArtifactSpace>, String> {
         .map(|name| {
             let pages = store.list_pages(&name).map(|p| p.len()).unwrap_or(0);
             let project = projects.iter().find(|p| p.name == name).map(|p| p.path.clone());
-            ArtifactSpace { name, project, pages }
+            let folder = store.folder(&name).map(|d| d.to_string_lossy().to_string()).unwrap_or_default();
+            let in_project = homes.iter().any(|h| h.space == name);
+            let left_behind = if in_project { machine.list_pages(&name).map(|p| p.len()).unwrap_or(0) } else { 0 };
+            ArtifactSpace { name, project, pages, folder, in_project, left_behind }
         })
         .collect())
+}
+
+/// The spaces whose pages live in their project, and where: the window
+/// tells a page from a file by it (`lib/harkLink`).
+#[tauri::command]
+fn artifact_homes() -> Vec<hark_core::domain::pages_home::Home> {
+    artifact_store().homes()
+}
+
+/// "Move to the repository": the space's pages and index go to its
+/// project's `docs/hark`, which from then on is where they live. The
+/// person asks for it, per project; nothing else writes that folder into
+/// a repository. Returns how many pages moved.
+#[tauri::command]
+fn artifacts_move_to_project(space: String) -> Result<usize, String> {
+    let config = Config::load();
+    let project = load_projects(&config)
+        .into_iter()
+        .find(|p| p.name == space)
+        .ok_or_else(|| ui("Este espaço não é de um projeto.", "This space is not a project's."))?;
+    let dir = std::path::PathBuf::from(hark_core::config::expand_home(&project.path));
+    hark_core::adapters::artifacts_fs::move_to_project(&artifacts_root(&config), &space, &dir).map_err(|e| e.to_string())
 }
 
 /// The tree of a space, reconciled with its files.
@@ -2610,7 +2672,7 @@ const CITED_PAGE_CHARS: usize = 4_000;
 fn artifact_cites(text: String) -> Result<Option<ArtifactCitesOut>, String> {
     use hark_core::domain::{artifact_links, scope};
     let config = Config::load();
-    let store = FsArtifacts::new(artifacts_root(&config));
+    let store = store_for(&config);
     let mut titles = vec![];
     let mut blocks = vec![];
     for space in store.spaces().map_err(|e| e.to_string())? {
@@ -7052,6 +7114,8 @@ pub fn run() {
             open_task,
             artifacts_spaces,
             artifacts_tree,
+            artifact_homes,
+            artifacts_move_to_project,
             artifact_read,
             artifact_cites,
             artifact_from_brief,

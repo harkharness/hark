@@ -39,6 +39,14 @@ model starts from two facts:
 
 Also by design:
 
+- Pages that come with a repository are repository content. A
+  project can keep its pages in `docs/hark/`, and a clone brings whatever
+  is there. They are read like any page: no path that climbs, nothing
+  through a symlink (`docs` or `docs/hark` being a link is refused, not
+  followed), html in a frame that cannot reach the app. A dashboard's
+  command runs only when you press refresh, and one that came with a
+  repository is somebody else's command: read it first. Hark writes that
+  folder into a repository only when you ask it to, per project.
 - Every privileged tool call is a permission card. Commands that touch
   production are never auto-approved.
 - `!` in the composer runs what you typed, in the chat's folder, with

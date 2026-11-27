@@ -3547,6 +3547,20 @@ html.demo .side-drag::before {
 .art-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .art-h1 { margin: 0; font-size: var(--fs-display); font-weight: 500; letter-spacing: -.01em; color: var(--text-strong); line-height: 1.1; }
 .art-sub { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: var(--fs-meta); }
+/* Where a space keeps its pages (lib: domain::pages_home), and the one
+   door to its project's repository. */
+.space-folder { margin-top: 8px; display: grid; gap: 6px; font-size: var(--fs-meta); color: var(--dim); max-width: 720px; }
+.space-folder-row { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.space-folder-row > svg { flex: 0 0 auto; }
+.space-folder-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+.space-folder .mm-tag.on { color: var(--ok); }
+.space-folder-ask {
+  display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--panel); color: var(--text); line-height: 1.45;
+}
+.space-folder-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.space-folder-note { color: var(--ok); }
+.space-folder-note.err { color: var(--err); }
 .art-tabs { display: flex; gap: 2px; flex-wrap: wrap; }
 .art-tab { background: none; border: 0; border-radius: 8px; padding: 6px 12px; font: inherit; font-size: var(--fs-ui); color: var(--dim); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .art-tab:hover { color: var(--text); background: var(--panel); }

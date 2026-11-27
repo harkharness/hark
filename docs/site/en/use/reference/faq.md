@@ -21,7 +21,7 @@ Yes and yes. Hark is MIT or Apache-2.0 at your option, on [GitHub](https://githu
 
 ## Where do the pages the agent writes go?
 
-Into `~/.hark/artifacts/<space>/`, as markdown, html or json files you can open with anything. Hark keeps an `index.json` beside them and reconciles it with the disk on every read.
+Into `~/.hark/artifacts/<space>/`, as markdown, html or json files you can open with anything. Hark keeps an `index.json` beside them and reconciles it with the disk on every read. A project whose pages you moved to its repository keeps them in its own `docs/hark/` instead.
 
 ## Does anything leave my machine?
 

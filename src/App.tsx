@@ -48,7 +48,7 @@ import InicioGlance from "./components/InicioGlance";
 import { Bell } from "lucide-react";
 import { condense } from "./lib/mirror";
 import { recoverSession as replacementFor, sessionVanished } from "./lib/recovery";
-import { artifactFile, harkTarget, pageId } from "./lib/harkLink";
+import { artifactFile, type PagesHome, harkTarget, pageId } from "./lib/harkLink";
 import { chatFolder, draftThread, harkOwnedSession, inicioThread, newConversationId, rekeyMessages, rekeyRecord } from "./lib/threads";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
@@ -1780,11 +1780,12 @@ export default function App({
       }
       path = `${base}/${path.replace(/^\.\//, "")}`;
     }
-    // A file under ~/.hark/artifacts is a page: it opens in the artifacts
+    // A file where pages live (the project's own docs/hark, or under
+    // ~/.hark/artifacts) is a page: it opens in the artifacts
     // view, not in the editor nor in the OS browser (an .html page is
     // still a page). The index is asked for the id, since a page renamed
     // on disk keeps the id it was born with.
-    const art = artifactFile(path);
+    const art = artifactFile(path, pagesHomes);
     if (art) {
       void ipc
         .artifactsTree(art.space)
@@ -3695,16 +3696,24 @@ export default function App({
   // a page by its title and kind, the pane's head too. Re-read when an
   // agent writes a page (artTick). Zero tokens.
   const [artTrees, setArtTrees] = useState<Record<string, ArtifactTree>>({});
+  // Where each project keeps its pages, for telling a page from a file:
+  // a project with a `docs/hark` of its own keeps them there. Re-read
+  // when a page is written and when the project list changes.
+  const [pagesHomes, setPagesHomes] = useState<PagesHome[]>([]);
+  const projectsKey = allProjects.map((p) => p.path).join("\n");
+  useEffect(() => {
+    ipc.artifactHomes().then(setPagesHomes).catch(() => setPagesHomes([]));
+  }, [artTick, projectsKey]);
   const pane = pageByThread[threadKey];
   const wantedSpaces = useMemo(() => {
     const set = new Set<string>();
     for (const o of rawOutputs) {
-      const art = artifactFile(o.path);
+      const art = artifactFile(o.path, pagesHomes);
       if (art) set.add(art.space);
     }
     if (pane) set.add(pane.space);
     return [...set].sort();
-  }, [rawOutputs, pane]);
+  }, [rawOutputs, pane, pagesHomes]);
   const wantedKey = wantedSpaces.join("\n");
   useEffect(() => {
     if (!wantedSpaces.length) return;
@@ -3722,7 +3731,7 @@ export default function App({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantedKey, artTick]);
-  const threadOutputs = useMemo(() => withPages(rawOutputs, artTrees), [rawOutputs, artTrees]);
+  const threadOutputs = useMemo(() => withPages(rawOutputs, artTrees, pagesHomes), [rawOutputs, artTrees, pagesHomes]);
   /** The pane's page as the index knows it: its title and kind for the head. */
   const paneNode = pane ? artTrees[pane.space]?.nodes.find((n) => n.id === pane.id) : undefined;
   const visibleMessages = useMemo(

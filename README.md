@@ -296,7 +296,9 @@ written by Hark, so their chats are searchable and resumable inside Hark too.
 **Is it free?** Yes. Hark is open source under MIT or Apache-2.0 and costs
 nothing beyond the agent subscriptions you already have.
 
-**Where do the pages the agent writes go?** Into `~/.hark/artifacts/<space>/`,
+**Where do the pages the agent writes go?** Into the project's own
+`docs/hark/` when you moved its pages to the repository, to be versioned
+with it; otherwise into `~/.hark/artifacts/<space>/`,
 as markdown, html or json files (`.sheet.json`, `.board.json`, `.dash.json`)
 you can open with anything. Hark keeps an
 `index.json` beside them for the tree order and the origin chat, and

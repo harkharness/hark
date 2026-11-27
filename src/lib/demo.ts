@@ -162,11 +162,13 @@ const JOURNAL: JournalTurn[] = [
   { ts: ago(12), question: "plan the offline mode for the app", fala: "Three steps: a local queue, a sync on reconnect, and a banner while offline.", body: "", conv: "c-offline" },
 ];
 
+// One project keeps its pages in its repository, the others on the machine.
+const onMachine = (name: string) => ({ folder: `/Users/ana/.hark/artifacts/${name}`, in_project: false, left_behind: 0 });
 const SPACES: ArtifactSpace[] = [
-  { name: "webhook-api", project: P["webhook-api"].path, pages: 6 },
-  { name: "infra", project: P.infra.path, pages: 2 },
-  { name: "mobile-app", project: P["mobile-app"].path, pages: 0 },
-  { name: "pessoal", project: null, pages: 1 },
+  { name: "webhook-api", project: P["webhook-api"].path, pages: 6, ...onMachine("webhook-api") },
+  { name: "infra", project: P.infra.path, pages: 2, folder: `${P.infra.path}/docs/hark`, in_project: true, left_behind: 0 },
+  { name: "mobile-app", project: P["mobile-app"].path, pages: 0, ...onMachine("mobile-app") },
+  { name: "pessoal", project: null, pages: 1, ...onMachine("pessoal") },
 ];
 const node = (id: string, title: string, path: string, kind: ArtifactNode["kind"], parent: string | null, mins: number, origin?: ArtifactNode["origin"]): ArtifactNode => ({
   id, title, path, kind, parent, updated_at: ago(mins), origin: origin ?? null,
@@ -504,6 +506,15 @@ const C: Record<string, (a: Args) => unknown> = {
   },
   file_save: () => undefined,
   artifacts_spaces: () => SPACES,
+  artifact_homes: () => SPACES.filter((s) => s.in_project).map((s) => ({ space: s.name, dir: s.folder })),
+  artifacts_move_to_project: async (a) => {
+    const space = SPACES.find((s) => s.name === String(a?.space));
+    if (!space?.project) throw new Error("This space is not a project's.");
+    await new Promise((r) => setTimeout(r, 600));
+    space.folder = `${space.project}/docs/hark`;
+    space.in_project = true;
+    return space.pages;
+  },
   artifacts_tree: (a) => TREES[String(a?.space)] ?? { nodes: [], order: {} },
   artifact_read: (a): ArtifactPage => {
     const space = String(a?.space);
