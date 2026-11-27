@@ -94,6 +94,17 @@ pub fn default_shell() -> String {
     }
 }
 
+/// Where a terminal pane starts: the folder asked for when it is one,
+/// else home. Never the app's own working directory: launched from the
+/// desktop that is the root of the disk.
+pub fn shell_dir(asked: Option<&str>, home: &Path) -> std::path::PathBuf {
+    asked
+        .filter(|dir| !dir.is_empty())
+        .map(std::path::PathBuf::from)
+        .filter(|dir| dir.is_dir())
+        .unwrap_or_else(|| home.to_path_buf())
+}
+
 fn run(cmd: &Cmd) -> Result<(), String> {
     let status = std::process::Command::new(&cmd.program)
         .args(&cmd.args)
@@ -162,6 +173,20 @@ mod tests {
             "xdg-open"
         };
         assert_eq!(cmd.program, expected);
+    }
+
+    #[test]
+    fn a_terminal_starts_in_the_folder_asked_for() {
+        let dir = std::env::temp_dir();
+        assert_eq!(shell_dir(Some(&dir.to_string_lossy()), Path::new("/home/u")), dir);
+    }
+
+    #[test]
+    fn a_terminal_with_no_folder_or_a_missing_one_starts_at_home_never_at_the_root() {
+        let home = Path::new("/home/u");
+        assert_eq!(shell_dir(None, home), home);
+        assert_eq!(shell_dir(Some(""), home), home);
+        assert_eq!(shell_dir(Some("/no/such/folder/anywhere"), home), home);
     }
 
     #[test]

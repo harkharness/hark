@@ -47,7 +47,7 @@ import { Bell } from "lucide-react";
 import { condense } from "./lib/mirror";
 import { recoverSession as replacementFor, sessionVanished } from "./lib/recovery";
 import { artifactFile, harkTarget, pageId } from "./lib/harkLink";
-import { draftThread, harkOwnedSession, inicioThread, newConversationId, rekeyMessages, rekeyRecord } from "./lib/threads";
+import { chatFolder, draftThread, harkOwnedSession, inicioThread, newConversationId, rekeyMessages, rekeyRecord } from "./lib/threads";
 import TerminalPane, { TerminalResume, TerminalTabs } from "./components/TerminalPane";
 import Transcript from "./components/Transcript";
 import EmptyProject from "./components/EmptyProject";
@@ -211,6 +211,8 @@ export default function App({
     title: string;
     sessionId: string;
     note?: string;
+    /** The folder the chat was opened in, when the opener knew it. */
+    workspace?: string;
   } | null>(null);
   // The session bar's connectors and background tasks, per worker.
   const [connectors, setConnectors] = useState<Record<string, McpServer[]>>({});
@@ -1405,20 +1407,24 @@ export default function App({
   });
 
   /** Project a board task lives in (by workspace prefix). */
-  const projectOf = useCallback(
-    (task?: BoardTask): Project | undefined => {
-      const ws = task?.workspace;
-      if (!ws) return undefined;
-      return projects.find((p) => ws === p.path || ws.startsWith(`${p.path}/`));
-    },
+  /** The project a folder belongs to: itself, or one it sits inside. */
+  const projectAt = useCallback(
+    (ws?: string | null): Project | undefined =>
+      ws ? projects.find((p) => ws === p.path || ws.startsWith(`${p.path}/`)) : undefined,
     [projects],
   );
+  const projectOf = useCallback((task?: BoardTask) => projectAt(task?.workspace), [projectAt]);
+
+  /** The folder the chat on screen works in: terminal, files, repository. */
+  const focusedFolder = chatFolder(focusedTask, {
+    worker: focused ? overview?.workers.find((w) => w.task_id === focused) : undefined,
+    board,
+    sessions: chats,
+  });
+  const focusedProject = projectAt(focusedFolder);
 
   /** Project scoping @mentions / file commands right now. */
-  const activeProject =
-    forcedProject ??
-    draftChat ??
-    (focusedTask ? projectOf(board.find((t) => t.title === focusedTask.title)) : undefined);
+  const activeProject = forcedProject ?? draftChat ?? focusedProject;
 
   /** Where a message lands, as ONE value: the chip on the composer and the
    *  breadcrumb over the chat print it. It is derived from the three
@@ -1427,7 +1433,7 @@ export default function App({
     forcedProject,
     draftChat,
     focusedTask,
-    taskProject: focusedTask ? projectOf(board.find((t) => t.title === focusedTask.title)) : undefined,
+    taskProject: focusedProject,
   });
   /** Colour by REGISTRY order, not by this window's filtered list, so a
    *  project is the same colour in every window and in the mother. */
@@ -1437,8 +1443,7 @@ export default function App({
   // Git state for the work on screen: the focused task's repository (its
   // workspace is often a subdirectory — the Rust side resolves the root)
   // plus this window's project as the fallback.
-  const focusedWorkspace =
-    board.find((t) => t.title === focusedTask?.title)?.workspace || activeProject?.path || "";
+  const focusedWorkspace = focusedFolder || activeProject?.path || "";
   // One repository, one readout. Tasks in a project overwhelmingly share
   // the SAME working tree, so a per-row chip repeated the identical number
   // down the whole sidebar — noise, not news. The ruler says it once.
@@ -1483,12 +1488,12 @@ export default function App({
   }
 
   /** Register a started worker in the UI and focus its thread. */
-  function adoptWorker(taskId: string, label: string, directives: Directives, sessionId: string) {
+  function adoptWorker(taskId: string, label: string, directives: Directives, sessionId: string, workspace?: string) {
     // The dispatch's clock was started before this task had a name.
     rekeyTurn(currentThread() ?? GENERAL, label);
     setLiveWorkers((old) => ({ ...old, [taskId]: { label, status: "running", directives } }));
     setFocused(taskId);
-    setFocusedTask((old) => (old?.title === label ? old : { title: label, sessionId }));
+    setFocusedTask((old) => (old?.title === label ? old : { title: label, sessionId, workspace }));
     loadedTasks.current.add(label);
     // Nothing is announced here. The focus moving is real, but the
     // composer's placeholder already names the task every message will
@@ -1581,7 +1586,9 @@ export default function App({
         const label = instruction.split(/\s+/).slice(0, 5).join(" ");
         // The draft's page becomes the chat's: its message goes along.
         setMessages((old) => rekeyMessages(old, from, label));
-        adoptWorker(out.task_id, label, out.directives, "");
+        // The project goes with the chat: its card on the board has a
+        // written title by now, and a lookup by this label would miss it.
+        adoptWorker(out.task_id, label, out.directives, "", project.path);
         draftChatRef.current = null;
         setDraftChat(null);
         live = true;
@@ -3764,7 +3771,7 @@ export default function App({
       <TerminalPane
         shells={threadShells}
         active={termTab}
-        cwd={activeProject?.path ?? forcedProject?.path}
+        cwd={focusedFolder ?? activeProject?.path}
         onAddShell={addShell}
         onCloseShell={closeShell}
         onActivate={setTermTab}

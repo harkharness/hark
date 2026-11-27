@@ -61,3 +61,31 @@ export function harkOwnedSession(
   const cwd = hit.cwd ?? "";
   return !!root && (cwd === root || cwd.startsWith(`${root}/`));
 }
+
+/** What `chatFolder` reads: only the fields it needs of each source. */
+type FolderSources = {
+  /** The live worker behind the chat, from the registry. */
+  worker?: { workspace?: string | null };
+  board: { title: string; workspace?: string | null; session_ids: string[] }[];
+  sessions: { session_id: string; cwd?: string | null }[];
+};
+
+/**
+ * The folder the chat on screen works in: where its terminal opens, whose
+ * files and repository the panels beside it show. Asked of whoever knows,
+ * surest first: the folder the chat was opened in, the live worker's, the
+ * board card (by title, then by session: a chat just born is on screen
+ * under the first words of its message while its card already carries a
+ * written title), and at last the folder the session itself ran in.
+ */
+export function chatFolder(
+  chat: { title: string; sessionId: string; workspace?: string } | null,
+  from: FolderSources,
+): string | undefined {
+  if (!chat) return undefined;
+  const card =
+    from.board.find((t) => t.title === chat.title && t.workspace) ??
+    (chat.sessionId ? from.board.find((t) => t.session_ids.includes(chat.sessionId) && t.workspace) : undefined);
+  const session = chat.sessionId ? from.sessions.find((s) => s.session_id === chat.sessionId) : undefined;
+  return chat.workspace || from.worker?.workspace || card?.workspace || session?.cwd || undefined;
+}

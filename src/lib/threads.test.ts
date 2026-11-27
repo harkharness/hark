@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { draftThread, harkOwnedSession, inicioThread, isDraftThread, rekeyMessages, rekeyRecord } from "./threads";
+import { chatFolder, draftThread, harkOwnedSession, inicioThread, isDraftThread, rekeyMessages, rekeyRecord } from "./threads";
 import type { Msg } from "../types";
 
 const msgs: Msg[] = [
@@ -60,5 +60,48 @@ describe("a conversation of Início has a thread of its own", () => {
     expect(inicioThread("c-a")).not.toBe("");
     expect(inicioThread("c-a")).not.toBe(inicioThread("c-b"));
     expect(isDraftThread(inicioThread("c-a"))).toBe(false);
+  });
+});
+
+describe("chatFolder: the folder the chat on screen works in", () => {
+  const board = [
+    { title: "Update main from upstream", workspace: "/w/site", session_ids: ["s-1"] },
+    { title: "Fix login", workspace: "/w/app/web", session_ids: ["s-2"] },
+  ];
+  const sessions = [{ session_id: "s-9", title: "old talk", cwd: "/w/notes" }];
+  const none = { board: [], sessions: [] };
+
+  it("is the folder the chat was opened in, before anything else knows the chat", () => {
+    // A chat born from "+": its name on screen is still the first words
+    // of the message, the board already holds another title for it.
+    const chat = { title: "In this project go back", sessionId: "", workspace: "/w/site" };
+    expect(chatFolder(chat, { board, sessions })).toBe("/w/site");
+  });
+
+  it("is the live worker's folder when the chat was not opened with one", () => {
+    const chat = { title: "In this project go back", sessionId: "" };
+    expect(chatFolder(chat, { ...none, worker: { workspace: "/w/site" } })).toBe("/w/site");
+  });
+
+  it("is the board card's folder, found by the chat's title", () => {
+    expect(chatFolder({ title: "Fix login", sessionId: "" }, { board, sessions })).toBe("/w/app/web");
+  });
+
+  it("is the board card's folder, found by the session when the title differs", () => {
+    expect(chatFolder({ title: "renamed since", sessionId: "s-1" }, { board, sessions })).toBe("/w/site");
+  });
+
+  it("is the folder the session ran in, for a chat that is on no card", () => {
+    expect(chatFolder({ title: "old talk", sessionId: "s-9" }, { board, sessions })).toBe("/w/notes");
+  });
+
+  it("is nothing when nobody knows, and for no chat at all", () => {
+    expect(chatFolder({ title: "stray", sessionId: "s-0" }, { board, sessions })).toBeUndefined();
+    expect(chatFolder(null, { board, sessions })).toBeUndefined();
+  });
+
+  it("skips an empty folder instead of stopping at it", () => {
+    const chat = { title: "Fix login", sessionId: "s-2", workspace: "" };
+    expect(chatFolder(chat, { board, sessions, worker: { workspace: "" } })).toBe("/w/app/web");
   });
 });

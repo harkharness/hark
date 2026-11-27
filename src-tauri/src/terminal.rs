@@ -55,9 +55,10 @@ pub fn term_open(
     let mut cmd = CommandBuilder::new(&shell);
     // Login shell: the user's real prompt, PATH and aliases, like iTerm.
     cmd.arg("-l");
-    if let Some(dir) = cwd.filter(|d| std::path::Path::new(d).is_dir()) {
-        cmd.cwd(dir);
-    }
+    // Always a folder of its own: without one the shell inherited the
+    // app's working directory, which is "/" when launched from the desktop.
+    let home = dirs::home_dir().unwrap_or_default();
+    cmd.cwd(crate::platform::shell_dir(cwd.as_deref(), &home));
     let child = pty.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     let mut reader = pty.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pty.master.take_writer().map_err(|e| e.to_string())?;
