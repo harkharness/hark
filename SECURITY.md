@@ -41,6 +41,12 @@ Also by design:
 
 - Every privileged tool call is a permission card. Commands that touch
   production are never auto-approved.
+- `!` in the composer runs what you typed, in the chat's folder, with
+  your permissions and no permission card: it is your command, as in a
+  terminal. Only the keyboard takes that path. Text placed in the field
+  from a page or a link is made prose first, nothing an agent prints or
+  the microphone hears is run, and a command's output is shown as plain
+  text.
 - Updates are signed; installed apps refuse an update the release key did not
   sign. The key lives in a private pipeline and never meets a job that runs
   project code or dependencies: the build runs without it, and a separate job

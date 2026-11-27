@@ -108,6 +108,15 @@ message lands: *all projects* in Início, `project › chat` when a chat is
 open. Each project owns a colour; it runs down the sidebar group, across
 the top of the chat and through the chip.
 
+**`!` runs a shell command.** A message that starts with `!` is a
+command, as in Claude Code: `!git status` runs in the chat's folder and
+its output lands on the page. Hark runs it, not the agent, so it takes no
+turn and asks no permission; the output rides with your next message in
+that chat, so the agent knows what you saw. A command gets two minutes
+and can be stopped from its card; what stays up, a dev server or a
+watcher, belongs in the terminal panel. Only what you type runs: text
+sent to the field from a page is never a command.
+
 **Each chat keeps its own side panels, stacked.** The session bar, the
 terminal, the files window and the browser open on the rail together,
 one over the other; each folds to its bar, and any one can take the

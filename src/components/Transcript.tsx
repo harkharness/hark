@@ -14,6 +14,7 @@ import { Check, ChevronDown, ChevronRight, Copy, Gauge, Lock, RefreshCw, Square,
 import Markdown from "./Markdown";
 import ToolCall, { ToolOutput, toolHint, toolLabel } from "./ToolCall";
 import UsageCard from "./UsageCard";
+import ShellCard from "./ShellCard";
 import { directiveLabels, shortModel } from "../lib/format";
 import { costFooter, type Catalog } from "../lib/support";
 import type { Directives, Msg } from "../types";
@@ -229,6 +230,10 @@ type RowProps = {
   onRestartLight?: (taskId: string) => void;
   /** A sys line that points at a chat: open it. */
   onGoto?: (title: string, sessionId?: string) => void;
+  /** End a "!command" still running. */
+  onStopShell?: (id: string) => void;
+  /** The thread has an agent a command's output will be told to. */
+  shellToAgent?: boolean;
 };
 
 /**
@@ -250,6 +255,8 @@ const Row = memo(function Row({
   onLiftCap,
   onRestartLight,
   onGoto,
+  onStopShell,
+  shellToAgent,
 }: RowProps) {
   return (
     <div className={`msg ${m.who}`}>
@@ -304,6 +311,8 @@ const Row = memo(function Row({
         <ToolCall name={m.name} input={m.input} onOpenPath={onOpenPath} />
       ) : m.who === "output" ? (
         <ToolOutput content={m.content} isError={m.error} />
+      ) : m.who === "shell" ? (
+        <ShellCard m={m} onStop={onStopShell} toAgent={shellToAgent} />
       ) : m.who === "permission" ? (
         m.decision ? (
           // Decided: the card COLLAPSES to one quiet line — the decision
@@ -517,6 +526,8 @@ export default function Transcript({
   onLiftCap,
   onRestartLight,
   onGoto,
+  onStopShell,
+  shellToAgent,
 }: {
   messages: Msg[];
   directivesFor: (taskLabel?: string) => Directives | undefined;
@@ -539,6 +550,11 @@ export default function Transcript({
   onRestartLight?: (taskId: string) => void;
   /** A sys line that points at a chat: open it. */
   onGoto?: (title: string, sessionId?: string) => void;
+  /** End a "!command" still running. */
+  onStopShell?: (id: string) => void;
+  /** The thread has an agent: a command's output rides with the next
+   *  message to it, and the card says so. */
+  shellToAgent?: boolean;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -560,8 +576,9 @@ export default function Transcript({
     lastRef.current = last;
     // Reading back through a long thread is work: an arriving reply must
     // not yank the page out from under it. Your OWN message is different
-    // — you just sent it, you want to watch it land.
-    if (!atBottomRef.current && last?.who !== "user") return;
+    // — you just sent it, you want to watch it land — and so is a
+    // command you ran: its output is what you are waiting for.
+    if (!atBottomRef.current && last?.who !== "user" && last?.who !== "shell") return;
     toEnd();
   }, [messages]);
 
@@ -575,6 +592,7 @@ export default function Transcript({
   const queueDrop = useLatest(onQueuedDrop);
   const liftCap = useLatest(onLiftCap);
   const restartLight = useLatest(onRestartLight);
+  const stopShell = useLatest(onStopShell);
 
   // A tool and its output are ONE unit: the output fuses into the tool's
   // fold (✓/✗ on the line, "resultado · N linhas" inside). Orphan outputs
@@ -666,6 +684,8 @@ export default function Transcript({
         onLiftCap={liftCap}
         onRestartLight={restartLight}
         onGoto={onGoto}
+        onStopShell={stopShell}
+        shellToAgent={shellToAgent}
       />
     );
 

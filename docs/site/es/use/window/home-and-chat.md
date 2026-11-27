@@ -5,7 +5,7 @@ sidebar:
   order: 1
 banner:
   content: "<b>Hark está en desarrollo.</b> La mayor parte de las pruebas hasta ahora se hizo con el CLI de Claude Code en macOS. ¿Usas otro agente u otro sistema? <a href=\"/docs/es/build/testing-other-agents-and-oss/\">Ayúdanos a probarlo.</a>"
-source_hash: e9fa7550022c
+source_hash: 21e2f1deb9c2
 ---
 
 Una ventana reúne todos los proyectos, detrás de dos puertas en la parte superior de la barra lateral, como en la app de Claude Code. **Início** es el chat propio de Hark, una sola conversación sobre todos los proyectos (*Hoje*), con la lista del día al lado. **Code** es donde vive el trabajo: **Criar** abre un chat nuevo (primero el proyecto; una carpeta aún no registrada se convierte en proyecto: escribe su nombre o su ruta y el campo lista las carpetas que coinciden; Tab o un clic rellena el campo con una y lista lo que contiene, y solo Enter agrega el proyecto), luego **Procurar**, los artefactos, el acceso directo al tablero y los proyectos con sus chats, los más recientes primero, desde el índice local. Cada proyecto tiene un color; recorre su grupo en la barra lateral, la parte superior del chat y el chip de alcance del compositor, que dice dónde cae el próximo mensaje.
@@ -17,6 +17,8 @@ Início › Hoje no es una sesión de agente: un solo chat sobre todos los proye
 Sin ningún chat todavía, Início te recibe con una línea de conteos, cuatro entradas (retomar el último, dictar un trabajo, buscar un chat, abrir el tablero) y el compositor. Cuando el día ya tiene un chat, Hoje es ese chat.
 
 **Nova conversa**, en la parte superior de Início, empieza una conversación propia: una página limpia y una memoria solo suya, porque lo que una respuesta recuerda es lo que se dijo en esa conversación. Las conversaciones de hoy se listan debajo de Hoje por su primera pregunta. El chip del composer dice dónde cae el mensaje y, donde no hay nada abierto, lo elige: todos los proyectos (Hark responde) o uno de ellos (el mensaje abre un chat allí). Una pregunta lleva fragmentos de lo que se dijo de verdad sobre ella en tus sesiones, lo más nuevo primero, así que "qué está pendiente" se lee de lo que se concluyó, no de lo que se pidió.
+
+Un mensaje que empieza con `!` es un comando de shell, como en Claude Code: `!git status` se ejecuta en la carpeta del chat y su salida cae en la página. Lo ejecuta Hark, no el agente, así que no gasta un turno ni pide permiso; la salida viaja con tu próximo mensaje en ese chat, para que el agente sepa lo que viste. Un comando tiene dos minutos y se puede detener desde su tarjeta; lo que se queda en marcha, un servidor de desarrollo o un watcher, va en el panel de la terminal. Solo se ejecuta lo que escribes: el texto enviado al campo desde una página nunca es un comando.
 
 ## Demandas: la lista del día
 

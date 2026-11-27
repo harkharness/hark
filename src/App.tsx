@@ -9,6 +9,7 @@ import {
 import { Compass, Copy, Download, ExternalLink, FileText, FolderTree, PanelLeft, PanelRight, Share2, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
 import { colourIndex, projColour, projectsInView, scopeOf } from "./lib/scope";
 import { ANY_TOOL, chatMode, windowAllows } from "./lib/mode";
+import { bangCommand, markTold, shellBlock, untold } from "./lib/bang";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { lang, setLang, setSpeechLang, st, t } from "./lib/i18n";
 import { conversationsOfToday, dayOf, days as journalDays, notificationLine } from "./lib/inicio";
@@ -1584,7 +1585,9 @@ export default function App({
     try {
       const out = await ipc.chatStart(
         project.path,
-        instruction,
+        // Commands run on the draft's page ride with the message that
+        // opens the chat; its name is still made of the typed words.
+        withShell(instruction, from),
         modeDefault ?? undefined,
         modelDefault || undefined,
         effortDefault || undefined,
@@ -1833,8 +1836,53 @@ export default function App({
     push({ who: "sys", text: t("sys_slash_needs_chat") });
   }
 
+  /**
+   * "!comando": the person's own shell command, run in the chat's folder
+   * with the output on the page, as Claude Code does. Hark runs it, not
+   * the agent: no turn, no tokens, no permission card. Reached only from
+   * `submit`, which only the composer calls with typed text.
+   */
+  async function runShell(command: string) {
+    const id = crypto.randomUUID();
+    const cwd = focusedFolder ?? activeProject?.path;
+    const settle = (end: Partial<Extract<Msg, { who: "shell" }>>) =>
+      setMessages((old) => old.map((m) => (m.who === "shell" && m.id === id ? { ...m, ...end, running: false } : m)));
+    push({ who: "shell", id, command, cwd, running: true });
+    try {
+      const out = await ipc.shellRun(id, command, cwd);
+      settle({ output: out.output, omitted: out.omitted, code: out.code, timedOut: out.timed_out, cwd: out.cwd });
+    } catch (err) {
+      settle({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  function stopShell(id: string) {
+    // Marked before the process answers: its end reads as a stop, not
+    // as a command that died.
+    setMessages((old) => old.map((m) => (m.who === "shell" && m.id === id ? { ...m, stopped: true } : m)));
+    ipc.shellStop(id).catch(() => {});
+  }
+
+  /** The message with the commands run in this chat since the agent last
+   *  heard from it: in a terminal it would have seen them go by. */
+  function withShell(text: string, thread?: string): string {
+    const runs = untold(messages, thread);
+    if (runs.length === 0) return text;
+    const ids = runs.map((m) => m.id);
+    setMessages((old) => markTold(old, ids));
+    return `${text}\n\n${shellBlock(runs)}`;
+  }
+
   async function submit(text: string, images: Attachment[]) {
-    if (!text.trim() || busy) return;
+    if (!text.trim()) return;
+    // Before everything: a command is not a message, so it waits for no
+    // turn, answers no permission and goes through no router.
+    const command = bangCommand(text);
+    if (command) {
+      void runShell(command);
+      return;
+    }
+    if (busy) return;
 
     // A permission waiting + a clean typed verdict = the answer. ONE
     // grammar decides (domain::verdict) — "sempre pode" records the
@@ -3275,7 +3323,7 @@ export default function App({
       ipc.crossrefContext(text).catch(() => null),
       ipc.artifactCites(text).catch(() => null),
     ]);
-    let out = text;
+    let out = withShell(text, thread);
     if (ref) {
       push({
         who: "sys",
@@ -4554,6 +4602,8 @@ export default function App({
                     void openTaskByTitle(title, sessionId);
                   }}
                   onRunCommand={runInTerminal}
+                  onStopShell={stopShell}
+                  shellToAgent={!!(focused || focusedTask || draftChat)}
                   onLoadOlder={
                     focusedTask &&
                     history.current.has(focusedTask.title) &&
@@ -4656,6 +4706,7 @@ export default function App({
                   pendingPermission?.who === "permission" ? pendingPermission.requestId : undefined
                 }
                 onSubmit={submit}
+                shellDir={focusedFolder ?? activeProject?.path}
                 onMic={onMic}
                 running={!!turns[focusedTask?.title ?? GENERAL]}
                 onStop={focused ? () => interruptWorker(focused) : undefined}

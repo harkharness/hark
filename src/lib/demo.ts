@@ -697,6 +697,27 @@ const C: Record<string, (a: Args) => unknown> = {
   board_archive_stale: () => 0,
   board_create: (a) => ({ title: String(a?.title ?? "task"), status: "doing", workspace: a?.workspace ?? null, session_ids: a?.sessionId ? [String(a.sessionId)] : [], updated_at: new Date().toISOString(), pinned: false, subtasks: [] }),
   approve: () => undefined,
+  // The demo's shell: nothing runs, a few commands have something to say.
+  shell_run: async (a) => {
+    const command = String(a?.command ?? "");
+    const cwd = String(a?.cwd ?? "/Users/ana");
+    await new Promise((r) => setTimeout(r, command.startsWith("sleep") ? 60_000 : 500));
+    if (command === "git status") {
+      return {
+        output: "On branch main\nYour branch is up to date with 'origin/main'.\n\nnothing to commit, working tree clean\n",
+        omitted: 0,
+        code: 0,
+        timed_out: false,
+        cwd,
+      };
+    }
+    if (command.startsWith("npm test")) {
+      return { output: " FAIL  src/parcelas.test.ts\n  × arredonda a última parcela\n\nTests  1 failed | 41 passed\n", omitted: 0, code: 1, timed_out: false, cwd };
+    }
+    if (command === "true") return { output: "", omitted: 0, code: 0, timed_out: false, cwd };
+    return { output: `demo: ${command}\n`, omitted: 0, code: 0, timed_out: false, cwd };
+  },
+  shell_stop: () => undefined,
   // The demo's disk: a few folders that answer whatever is typed.
   folder_complete: (a) => {
     const typed = String(a?.typed ?? "").trim().toLowerCase();

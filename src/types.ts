@@ -380,6 +380,30 @@ export type Msg =
     }
   | { who: "tool"; name: string; input: string; task?: string }
   | { who: "output"; content: string; error: boolean; task?: string }
+  /** A command the person ran from the composer with "!": theirs, not
+   *  the agent's, so it is neither a tool row nor a permission. */
+  | {
+      who: "shell";
+      id: string;
+      command: string;
+      /** The folder it ran in. */
+      cwd?: string;
+      running: boolean;
+      output?: string;
+      /** Bytes left out of the middle of the output. */
+      omitted?: number;
+      /** Null when a signal ended it. */
+      code?: number | null;
+      /** Ran past its time and was ended. */
+      timedOut?: boolean;
+      /** The person ended it. */
+      stopped?: boolean;
+      /** It never started (no shell, no folder). */
+      error?: string;
+      /** Already rode in a message to the agent: not sent twice. */
+      told?: boolean;
+      task?: string;
+    }
   | {
       who: "permission";
       requestId: string;

@@ -392,6 +392,23 @@ export const folderComplete = (typed: string) =>
   invoke<import("./folderPick").Completion>("folder_complete", { typed });
 export const projectRemove = (key: string) => invoke("project_remove", { key });
 
+/** How a "!command" ended (mirror of the backend's `shell::ShellOut`). */
+export type ShellOut = {
+  output: string;
+  /** Bytes left out of the middle of the output. */
+  omitted: number;
+  /** Null when a signal ended it. */
+  code: number | null;
+  timed_out: boolean;
+  /** The folder it ran in. */
+  cwd: string;
+};
+/** Run what was typed after "!" in the composer, in the chat's folder,
+ *  and wait for it. `id` is what `shellStop` ends it by. */
+export const shellRun = (id: string, command: string, cwd?: string) =>
+  invoke<ShellOut>("shell_run", { id, command, cwd });
+export const shellStop = (id: string) => invoke("shell_stop", { id });
+
 /** Open (or focus) a project's own window — the VSCode model. */
 /** Put a task (or a project) on screen: the main window, unless the
  *  project has a detached window open. Never opens a window by itself. */

@@ -16,6 +16,7 @@ import {
   paint,
   wantsExit,
 } from "../lib/composerText";
+import { asProse, isBang } from "../lib/bang";
 
 
 type Mention = {
@@ -71,7 +72,9 @@ const NATIVE_SLASH: SlashHit[] = [
  * The input bar: a real text editor for a voice-first app. Enter sends,
  * Shift+Enter breaks the line, Cmd+V pastes screenshots (thumbnails above
  * the text, "[image N]" written into it — no more "no primeiro print"),
- * and "@" opens a fuzzy file autocomplete (local, free).
+ * and "@" opens a fuzzy file autocomplete (local, free). A message that
+ * starts with "!" is a shell command: the field says so and steps out of
+ * the way, with no file list, no palette and no markdown painted over it.
  */
 export default function Composer({
   disabled,
@@ -95,6 +98,7 @@ export default function Composer({
   voice,
   autoFocus,
   prefill,
+  shellDir,
 }: {
   disabled: boolean;
   recording: boolean;
@@ -134,6 +138,8 @@ export default function Composer({
   /** Text put in the field from outside ("conversar sobre esta página"):
    *  a new nonce applies it again even when the text is the same. */
   prefill?: { text: string; nonce: number };
+  /** The folder a "!command" runs in: the chat's. Absent, it is home. */
+  shellDir?: string;
 }) {
   const [text, setText] = useState("");
   /** Caret offset — the mirror reveals markers on the caret's line. */
@@ -144,8 +150,10 @@ export default function Composer({
   const areaRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (!prefill) return;
-    setText(prefill.text);
-    setCaret(prefill.text.length);
+    // Not typed here: whatever it starts with, it is prose (lib/bang).
+    const given = asProse(prefill.text);
+    setText(given);
+    setCaret(given.length);
     window.setTimeout(() => areaRef.current?.focus(), 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefill?.nonce]);
@@ -209,8 +217,12 @@ export default function Composer({
   /** "@quer" right before the caret means the autocomplete is active. */
   function detectMention(value: string, caret: number) {
     const before = value.slice(0, caret);
-    const match = before.match(/@([\w./~-]*)$/);
+    // In a command an "@" is the shell's ("git log @{u}"), and a list
+    // opening under it would take the Enter that runs the command.
+    const match = isBang(value) ? null : before.match(/@([\w./~-]*)$/);
     if (!match) {
+      // A search already on its way would open the list after all.
+      window.clearTimeout(debounceRef.current);
       setMention(null);
       return;
     }
@@ -496,7 +508,7 @@ export default function Composer({
     // is deliberately not a trigger any more: enter means send, in the
     // block and out of it, and a key that sometimes sends and sometimes
     // opens a box is the kind of thing nobody can predict.
-    if (e.key === " ") {
+    if (e.key === " " && !bang) {
       const el = areaRef.current;
       const pos = el?.selectionStart ?? 0;
       const before = text.slice(0, pos);
@@ -522,11 +534,14 @@ export default function Composer({
 
   useEffect(() => autoGrow(), [text]);
 
+  /** The text is a shell command: backticks and stars are the shell's,
+   *  so nothing of it is painted as markdown. */
+  const bang = isBang(text);
   const blockCount = useMemo(
-    () => fenceSegments(text).filter((s) => s.fenced).length,
-    [text],
+    () => (bang ? 0 : fenceSegments(text).filter((s) => s.fenced).length),
+    [text, bang],
   );
-  const rich = useMemo(() => hasRich(text), [text]);
+  const rich = useMemo(() => !bang && hasRich(text), [text, bang]);
   useLayoutEffect(measureBlocks, [text, blockCount]);
 
   // First paint happens before the panels settle their widths, so the
@@ -552,9 +567,14 @@ export default function Composer({
   // a slim row underneath. Starts input-sized; grows as you type.
   return (
     <div className="inputbar">
-      <div className={`composer ${images.length > 0 ? "with-thumbs" : ""}`}>
+      <div className={`composer ${images.length > 0 ? "with-thumbs" : ""}${bang ? " bang" : ""}`}>
         {voice && <div className="voice-strip">{voice}</div>}
         {banner}
+        {bang && (
+          <div className="shell-hint">
+            {shellDir ? t("shell_hint", { dir: shellDir }) : t("shell_hint_home")}
+          </div>
+        )}
         {slash && (
           <div className="mention-pop slash-pop">
             {slash.hits.map((hit, i) => (

@@ -835,7 +835,49 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
 .msg.hark { align-self: stretch; }
 .msg.hark .bubble { background: none; border: none; border-radius: 0; padding: 0; }
 .msg.sys { align-self: center; color: var(--dim); font-size: var(--fs-ui); opacity: .85; }
-.msg.tool, .msg.output, .msg.permission, .msg.ceiling { align-self: stretch; max-width: 100%; }
+.msg.tool, .msg.output, .msg.permission, .msg.ceiling, .msg.shell { align-self: stretch; max-width: 100%; }
+/* A command the person ran with "!": theirs, so it reads as a terminal
+   line, not as a tool row of the agent. */
+.shell-card {
+  border: 1px solid var(--border); border-left: 2px solid var(--warn);
+  border-radius: 8px; background: var(--code-bg); padding: 8px 12px;
+  font-size: var(--fs-ui);
+}
+.shell-card.ok { border-left-color: var(--ok); }
+.shell-card.failed { border-left-color: var(--err); }
+.shell-card.stopped, .shell-card.timeout { border-left-color: var(--dim); }
+.shell-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.shell-bang { color: var(--warn); font-family: var(--font-mono); font-weight: 700; flex: 0 0 auto; }
+.shell-cmd {
+  font-family: var(--font-mono); color: var(--text-strong); background: none; padding: 0;
+  white-space: pre-wrap; word-break: break-word; min-width: 0; flex: 1 1 auto;
+}
+.shell-dir {
+  color: var(--dim); font-size: var(--fs-meta); font-family: var(--font-mono);
+  flex: 0 1 auto; min-width: 0; max-width: 45%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.shell-stop {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px; font-size: var(--fs-meta); color: var(--err);
+  background: none; border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+}
+.shell-stop:hover { border-color: var(--err); }
+.shell-out {
+  margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: var(--fs-meta); line-height: 1.5; color: var(--text);
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 340px; overflow: auto;
+}
+.shell-note { color: var(--dim); font-size: var(--fs-meta); margin-top: 6px; }
+.shell-card.failed .shell-note.end { color: var(--err); }
+/* The composer as a shell: the text is a command, set as one. */
+.composer.bang, .composer.bang:focus-within { border-color: var(--warn); }
+.composer.bang textarea { font-family: var(--font-mono); }
+.shell-hint {
+  padding: 8px 14px 0; color: var(--warn); font-size: var(--fs-meta);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .tasktag {
   color: var(--accent); font-size: var(--fs-caps); margin-left: 8px; opacity: .8;
 }
