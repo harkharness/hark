@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { conversationsOfToday, days } from "./inicio";
+import { notificationLine, conversationsOfToday, days } from "./inicio";
+import { inicioThread } from "./threads";
 
 const turn = (ts: string, question: string) => ({ ts, question, fala: "ok", body: "" });
 
@@ -68,5 +69,40 @@ describe("the conversations of today in the Início sidebar", () => {
       now,
     );
     expect(out).toEqual([]);
+  });
+});
+
+describe("notificationLine: what a bell row leaves in Início's conversation", () => {
+  const asked = {
+    id: "n1",
+    kind: "permission_asked" as const,
+    target: { kind: "chat" as const, title: "Update main", session_id: "s-1" },
+    project: "site",
+    text: "pediu permissão: Bash",
+    at: "2026-11-27T10:00:00Z",
+  };
+
+  it("is filed in Início's own thread, never in whatever chat is on screen", () => {
+    // Untagged, it used to land in the open chat: the chat that asked got
+    // a line about itself, with a way to "go to" where the person was.
+    expect(notificationLine(asked, { conversation: null })?.task).toBe("");
+    expect(notificationLine(asked, { conversation: "c7" })?.task).toBe(inicioThread("c7"));
+  });
+
+  it("names the chat and carries the way to it", () => {
+    const line = notificationLine(asked, { conversation: null });
+    expect(line?.text).toBe("Update main · pediu permissão: Bash");
+    expect(line?.goto).toEqual({ title: "Update main", sessionId: "s-1" });
+  });
+
+  it("says nothing about the chat in focus on Início: it already spoke for itself", () => {
+    expect(notificationLine(asked, { conversation: null, focusTitle: "Update main" })).toBeNull();
+  });
+
+  it("has no way to go for a row that is not about a chat", () => {
+    const page = { ...asked, kind: "artifact_ready" as const, target: { kind: "page" as const, space: "docs", id: "plan" }, text: "pronto" };
+    const line = notificationLine(page, { conversation: null });
+    expect(line?.text).toBe("plan · pronto");
+    expect(line?.goto).toBeUndefined();
   });
 });

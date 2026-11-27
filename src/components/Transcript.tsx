@@ -256,7 +256,8 @@ const Row = memo(function Row({
       {m.who === "sys" ? (
         <span>
           {m.text}
-          {m.goto && onGoto && (
+          {/* Not for a line about the chat it sits in: there is nowhere to go. */}
+          {m.goto && m.goto.title !== m.task && onGoto && (
             <button className="goto-chat" onClick={() => onGoto(m.goto!.title, m.goto!.sessionId)}>
               {t("goto_chat")} <ChevronRight size={11} />
             </button>

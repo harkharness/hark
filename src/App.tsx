@@ -11,7 +11,7 @@ import { colourIndex, projColour, projectsInView, scopeOf } from "./lib/scope";
 import { chatMode } from "./lib/mode";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { lang, setLang, setSpeechLang, st, t } from "./lib/i18n";
-import { conversationsOfToday, dayOf, days as journalDays } from "./lib/inicio";
+import { conversationsOfToday, dayOf, days as journalDays, notificationLine } from "./lib/inicio";
 import Artifacts, { ArtifactLinks, ArtifactPane, type ArtSel } from "./components/Artifacts";
 import type { Destination } from "./lib/takeTo";
 import { KIND_ICON } from "./components/kindIcon";
@@ -1238,13 +1238,11 @@ export default function App({
     onNotification: useCallback((n: import("./types").Notification) => {
       reloadNotifs();
       if (!isMain) return;
-      const title = n.target.kind === "chat" ? n.target.title : n.target.kind === "page" ? n.target.id : "";
-      if (inicioFocusRef.current?.title === title) return;
-      push({
-        who: "sys",
-        text: title ? `${title} · ${n.text}` : n.text,
-        goto: n.target.kind === "chat" ? { title: n.target.title, sessionId: n.target.session_id ?? undefined } : undefined,
+      const line = notificationLine(n, {
+        conversation: inicioConvRef.current,
+        focusTitle: inicioFocusRef.current?.title,
       });
+      if (line) push({ who: "sys", ...line });
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
     onOpenPage: useCallback((space: string, id: string) => {

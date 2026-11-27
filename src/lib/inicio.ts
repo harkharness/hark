@@ -1,4 +1,5 @@
 import type { JournalTurn } from "../types";
+import { inicioThread } from "./threads";
 
 /** One past day of Hark's chat, as the Início sidebar lists it. */
 export type Day = {
@@ -107,4 +108,24 @@ export function conversationsOfToday(turns: JournalTurn[], now: Date): Conversat
     }
   }
   return [...by.values()].sort((a, b) => b.at - a.at).map(({ first: _first, ...c }) => c);
+}
+
+/**
+ * The line a notification leaves in Início's conversation, with the way
+ * to the chat it is about. It names its thread: a line without one lands
+ * in whatever chat is on screen, and the chat that asked for a permission
+ * got a line about itself offering to go where the person already was.
+ * Null for the chat in focus on Início's composer: it speaks for itself.
+ */
+export function notificationLine(
+  n: import("../types").Notification,
+  at: { conversation: string | null; focusTitle?: string },
+): { text: string; task: string; goto?: { title: string; sessionId?: string } } | null {
+  const title = n.target.kind === "chat" ? n.target.title : n.target.kind === "page" ? n.target.id : "";
+  if (title && at.focusTitle === title) return null;
+  return {
+    text: title ? `${title} · ${n.text}` : n.text,
+    task: at.conversation ? inicioThread(at.conversation) : "",
+    goto: n.target.kind === "chat" ? { title: n.target.title, sessionId: n.target.session_id ?? undefined } : undefined,
+  };
 }

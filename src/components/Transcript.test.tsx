@@ -197,3 +197,33 @@ describe("a turn cut at the per-turn ceiling", () => {
     expect(queryByText(t("ceiling_lift"))).toBeNull();
   });
 });
+
+describe("a line that points at a chat", () => {
+  const mount = (messages: Msg[], onGoto = vi.fn()) => ({
+    onGoto,
+    ...render(
+      <Transcript
+        messages={messages}
+        directivesFor={() => undefined}
+        onAnswerPermission={() => {}}
+        onOpenPath={() => {}}
+        onGoto={onGoto}
+      />,
+    ),
+  });
+
+  it("offers the way to another chat", () => {
+    const { getByText, onGoto } = mount([
+      { who: "sys", text: "Fix login · terminou", task: "", goto: { title: "Fix login", sessionId: "s-2" } },
+    ]);
+    getByText(t("goto_chat")).click();
+    expect(onGoto).toHaveBeenCalledWith("Fix login", "s-2");
+  });
+
+  it("offers nothing when the chat it points at is the one it is in", () => {
+    const { queryByText } = mount([
+      { who: "sys", text: "Fix login · pediu permissão", task: "Fix login", goto: { title: "Fix login" } },
+    ]);
+    expect(queryByText(t("goto_chat"))).toBeNull();
+  });
+});
