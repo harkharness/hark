@@ -1,5 +1,6 @@
 //! Tauri driver: the desktop window over the same hark-core used by the CLI.
 
+mod held;
 mod platform;
 mod shell;
 mod terminal;
@@ -7,7 +8,7 @@ mod voice;
 
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::{mpsc, Mutex, OnceLock};
+use std::sync::{mpsc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use hark_core::adapters::git_collect::GitCli;
 use hark_plugin_claude::live::ClaudeAgentsCli;
@@ -196,7 +197,22 @@ struct WorkerPermissions(Mutex<HashMap<String, String>>);
 /// the first call happens on a machine with no model yet, and a
 /// OnceLock<Result<..>> then answered "missing" for the rest of the
 /// process — including the mic step right after the download finished.
-static STT: OnceLock<WhisperStt> = OnceLock::new();
+///
+/// Kept in a `Held`, not a plain static: it has to be let go on the way
+/// out (`release_speech`), or quitting ends in a crash (see `held`).
+static STT: held::Held<WhisperStt> = held::Held::new();
+
+/// How long quitting waits for a transcription still running to end
+/// before leaving anyway. One utterance on Metal is well under this.
+const SPEECH_EXIT_PATIENCE: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// Let the speech model go before the process ends: the Metal backend's
+/// own teardown aborts when the model's buffers are still registered.
+fn release_speech() {
+    if !STT.release(SPEECH_EXIT_PATIENCE) {
+        eprintln!("hark: o modelo de voz ainda estava em uso ao sair");
+    }
+}
 /// A load is in flight (or finished). Not a mutex on purpose: the UI path
 /// must never WAIT behind a 466MB read. It waited, once — on an Intel Mac
 /// the boot warmup was still going when the user pressed the mic, and
@@ -233,7 +249,7 @@ fn speech_bias(config: &Config) -> String {
 
 /// What the microphone can count on right now.
 enum Speech {
-    Ready(&'static WhisperStt),
+    Ready(std::sync::Arc<WhisperStt>),
     /// Being read into memory; the caller should say so, not block.
     Loading,
     /// No model on disk yet.
@@ -243,7 +259,7 @@ enum Speech {
 /// Start reading the model, at most once at a time. Returns immediately.
 fn ensure_speech_loading() {
     use std::sync::atomic::Ordering::SeqCst;
-    if STT.get().is_some() || STT_LOADING.swap(true, SeqCst) {
+    if STT.is_set() || STT_LOADING.swap(true, SeqCst) {
         return;
     }
     STT_ABSENT.store(false, SeqCst);
@@ -256,7 +272,7 @@ fn ensure_speech_loading() {
         ) {
             Ok(loaded) => {
                 loaded.warmup();
-                let _ = STT.set(loaded);
+                STT.set(loaded);
             }
             Err(err) => {
                 eprintln!("hark: modelo de voz nao carregou: {err}");
@@ -7214,6 +7230,11 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running hark");
+        .build(tauri::generate_context!())
+        .expect("error while running hark")
+        .run(|_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                release_speech();
+            }
+        });
 }
