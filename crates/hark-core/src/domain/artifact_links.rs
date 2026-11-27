@@ -2,7 +2,8 @@
 //! that mention it. Pure; the shell brings the artifacts root and the
 //! tree, and gets back ids and paths.
 
-use super::artifacts::{validate_path, Node, Tree};
+use super::artifacts::{Node, Tree};
+use super::pages_home::{page_at, Home};
 
 /// A page an agent just wrote: which space, which file inside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,23 +14,18 @@ pub struct Written {
 
 const WRITING_TOOLS: [&str; 3] = ["Write", "Edit", "MultiEdit"];
 
-/// The page a writing tool call touched, when its path sits inside a
-/// space of the artifacts root: `<root>/<space>/<page>`. Anything else
-/// (a read, a file elsewhere, a non-page, a path that climbs) is None.
-pub fn written_page(tool: &str, input: &str, root: &str) -> Option<Written> {
+/// The page a writing tool call touched, when its path is a page's:
+/// inside a project's own folder, or in a space of the machine's root
+/// (`pages_home::page_at`). Anything else (a read, a file elsewhere, a
+/// non-page, a path that climbs) is None.
+pub fn written_page(tool: &str, input: &str, root: &str, homes: &[Home]) -> Option<Written> {
     if !WRITING_TOOLS.contains(&tool) {
         return None;
     }
     let parsed: serde_json::Value = serde_json::from_str(input).ok()?;
     let file = parsed.get("file_path")?.as_str()?;
-    let root = root.trim_end_matches('/');
-    let rel = file.strip_prefix(root)?.strip_prefix('/')?;
-    let (space, path) = rel.split_once('/')?;
-    if space.is_empty() || space == "." || space == ".." {
-        return None;
-    }
-    validate_path(path).ok()?;
-    Some(Written { space: space.to_string(), path: path.to_string() })
+    let (space, path) = page_at(file, root, homes)?;
+    Some(Written { space, path })
 }
 
 fn words(text: &str) -> Vec<String> {
@@ -65,11 +61,14 @@ pub fn linked_to_task<'a>(tree: &'a Tree, task: &str) -> Vec<&'a Node> {
 /// The lines a brief carries about a task's pages: title, place, path.
 /// Titles and breadcrumbs only — the body rides only when the page is the
 /// scope (`scope::page_brief`). Empty when there is nothing to say.
-pub fn pages_block(pages: &[(&Node, Vec<&str>)], space: &str) -> String {
+/// `dir` is where the space's pages are on disk: the project's own
+/// folder or the space's in the machine's root, so the paths that follow
+/// can be opened as they read.
+pub fn pages_block(pages: &[(&Node, Vec<&str>)], space: &str, dir: &str) -> String {
     if pages.is_empty() {
         return String::new();
     }
-    let mut out = format!("Páginas desta task no espaço «{space}» (HARK_ARTIFACTS_DIR/{space}):\n");
+    let mut out = format!("Páginas desta task no espaço «{space}» ({dir}):\n");
     for (node, crumbs) in pages {
         out.push_str(&format!("- «{}» ({}) — {}\n", node.title, crumbs.join(" › "), node.path));
     }
@@ -102,35 +101,48 @@ mod tests {
     fn a_write_inside_the_artifacts_root_names_its_space_and_page() {
         let input = r##"{"file_path":"/Users/x/.hark/artifacts/hark/decisoes/adr-004.md","content":"# ADR"}"##;
         assert_eq!(
-            written_page("Write", input, ROOT),
+            written_page("Write", input, ROOT, &[]),
             Some(Written { space: "hark".into(), path: "decisoes/adr-004.md".into() })
         );
         let edit = r#"{"file_path":"/Users/x/.hark/artifacts/pessoal/notas.md","old_string":"a","new_string":"b"}"#;
-        assert_eq!(written_page("Edit", edit, ROOT).map(|w| w.space), Some("pessoal".into()));
-        assert_eq!(written_page("MultiEdit", edit, ROOT).map(|w| w.path), Some("notas.md".into()));
+        assert_eq!(written_page("Edit", edit, ROOT, &[]).map(|w| w.space), Some("pessoal".into()));
+        assert_eq!(written_page("MultiEdit", edit, ROOT, &[]).map(|w| w.path), Some("notas.md".into()));
+    }
+
+    #[test]
+    fn a_write_inside_a_projects_own_folder_names_the_projects_space() {
+        let homes = [Home { space: "tulipafin".into(), dir: "/Users/x/code/tulipafin/docs/hark".into() }];
+        let input = r##"{"file_path":"/Users/x/code/tulipafin/docs/hark/decisoes/adr-004.md","content":"# ADR"}"##;
+        assert_eq!(
+            written_page("Write", input, ROOT, &homes),
+            Some(Written { space: "tulipafin".into(), path: "decisoes/adr-004.md".into() })
+        );
+        // The project's other documents are still just files it wrote.
+        let beside = r#"{"file_path":"/Users/x/code/tulipafin/docs/guia.md","content":""}"#;
+        assert_eq!(written_page("Write", beside, ROOT, &homes), None);
     }
 
     #[test]
     fn anything_else_is_not_a_page() {
         let elsewhere = r#"{"file_path":"/Users/x/Projects/hark/src/main.rs","content":""}"#;
-        assert_eq!(written_page("Write", elsewhere, ROOT), None);
+        assert_eq!(written_page("Write", elsewhere, ROOT, &[]), None);
         let read = r#"{"file_path":"/Users/x/.hark/artifacts/hark/decisoes/adr-004.md"}"#;
-        assert_eq!(written_page("Read", read, ROOT), None);
+        assert_eq!(written_page("Read", read, ROOT, &[]), None);
         let not_a_page = r#"{"file_path":"/Users/x/.hark/artifacts/hark/img/a.png","content":""}"#;
-        assert_eq!(written_page("Write", not_a_page, ROOT), None);
+        assert_eq!(written_page("Write", not_a_page, ROOT, &[]), None);
         let at_root = r#"{"file_path":"/Users/x/.hark/artifacts/solto.md","content":""}"#;
-        assert_eq!(written_page("Write", at_root, ROOT), None, "a page lives in a space");
+        assert_eq!(written_page("Write", at_root, ROOT, &[]), None, "a page lives in a space");
         let climbing = r#"{"file_path":"/Users/x/.hark/artifacts/hark/../../../etc/x.md","content":""}"#;
-        assert_eq!(written_page("Write", climbing, ROOT), None);
-        assert_eq!(written_page("Write", "{not json", ROOT), None);
+        assert_eq!(written_page("Write", climbing, ROOT, &[]), None);
+        assert_eq!(written_page("Write", "{not json", ROOT, &[]), None);
         let sibling = r#"{"file_path":"/Users/x/.hark/artifacts-old/hark/a.md","content":""}"#;
-        assert_eq!(written_page("Write", sibling, ROOT), None, "a sibling with the same prefix is outside");
+        assert_eq!(written_page("Write", sibling, ROOT, &[]), None, "a sibling with the same prefix is outside");
     }
 
     #[test]
     fn a_root_with_a_trailing_slash_or_a_tilde_is_the_same_root() {
         let input = r#"{"file_path":"/Users/x/.hark/artifacts/hark/a.md","content":""}"#;
-        assert!(written_page("Write", input, "/Users/x/.hark/artifacts/").is_some());
+        assert!(written_page("Write", input, "/Users/x/.hark/artifacts/", &[]).is_some());
     }
 
     fn tree() -> Tree {
@@ -177,10 +189,10 @@ mod tests {
     fn a_pages_block_names_each_page_with_its_place_and_path() {
         let t = tree();
         let adr = t.get("adr-004").unwrap();
-        let block = pages_block(&[(adr, vec!["hark", "Decisões", "ADR 004: janela única"])], "hark");
-        assert!(block.starts_with("Páginas desta task no espaço «hark»"), "{block}");
+        let block = pages_block(&[(adr, vec!["hark", "Decisões", "ADR 004: janela única"])], "hark", "/p/hark/docs/hark");
+        assert!(block.starts_with("Páginas desta task no espaço «hark» (/p/hark/docs/hark):"), "the folder is the real one: {block}");
         assert!(block.contains("- «ADR 004: janela única» (hark › Decisões › ADR 004: janela única) — adr-004.md"), "{block}");
-        assert_eq!(pages_block(&[], "hark"), "");
+        assert_eq!(pages_block(&[], "hark", "/r/hark"), "");
     }
 
     #[test]

@@ -31,6 +31,12 @@ essa pasta e mostra tudo em árvore.
 ## Como criar uma página
 
 1. Escolha o espaço: o nome do projeto em que você está, ou `pessoal`.
+   Se a variável `HARK_PROJECT_PAGES_DIR` existe, o projeto em que você
+   está guarda as páginas dentro dele (a pasta `docs/hark` do
+   repositório, versionada com o código): as páginas DESTE projeto vão
+   direto nela, `$HARK_PROJECT_PAGES_DIR/<slug>.md`, sem pasta de espaço,
+   e tudo que este texto diz sobre `{root}/<espaço>/` vale para ela.
+   Páginas de outro projeto ou pessoais continuam em `{root}`.
 2. Escreva o arquivo com a ferramenta Write em
    `{root}/<espaço>/<slug>.md` (markdown), `.html` (apresentação ou
    design, um arquivo só, sem scripts externos), `.sheet.json`
@@ -248,6 +254,15 @@ mod tests {
         assert!(md.contains("\"=SOMA(B3:C3)\""), "a formula is a string starting with =: {md}");
         assert!(md.contains("\"certified\": true") && md.contains("só SELECT"), "a dashboard's rules: {md}");
         assert!(md.contains("Não escreva\ncoordenadas") && md.contains("\"timeline\""), "a board's rules: {md}");
+    }
+
+    #[test]
+    fn the_skill_sends_a_projects_pages_to_the_projects_own_folder_when_it_has_one() {
+        let md = skill_md("/Users/x/.hark/artifacts");
+        assert!(md.contains("HARK_PROJECT_PAGES_DIR"), "{md}");
+        // The variable is the folder itself: no space name under it.
+        assert!(md.contains("$HARK_PROJECT_PAGES_DIR/<slug>.md"), "{md}");
+        assert!(md.contains("docs/hark"), "the folder is named, so a path in a reply makes sense: {md}");
     }
 
     #[test]

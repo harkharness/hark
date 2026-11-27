@@ -642,6 +642,32 @@ mod tests {
     }
 
     #[test]
+    fn a_project_that_keeps_its_pages_in_itself_works_end_to_end_in_its_own_folder() {
+        // What a colleague's clone looks like: the folder is there, with a
+        // page nobody indexed on this machine (domain::pages_home).
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("code").join("tulipafin");
+        let home = project.join("docs").join("hark");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join("guia.md"), "# Guia do time\n").unwrap();
+        let root = dir.path().join("artifacts");
+        let s = FsArtifacts::with_projects(&root, &[("tulipafin".into(), project.clone())]);
+
+        let tree = load(&s, "tulipafin", NOW).unwrap();
+        let adopted = tree.nodes.iter().find(|n| n.path == "guia.md").expect("the page that came with the clone is adopted");
+        assert_eq!(adopted.title, "Guia do time");
+        assert!(home.join("index.json").is_file(), "the index is written beside the pages, to travel with them");
+
+        let made = create(&s, "tulipafin", None, "ADR 004", Kind::Doc, None, NOW).unwrap();
+        assert!(home.join(&made.path).is_file(), "a new page is born in the repository");
+        write(&s, "tulipafin", &made.id, "# ADR 004\n\nmudou\n", NOW).unwrap();
+        assert!(std::fs::read_to_string(home.join(&made.path)).unwrap().contains("mudou"));
+        // The versions kept while editing are the machine's.
+        assert!(!home.join(".history").exists());
+        assert!(!root.join("tulipafin").join("guia.md").exists());
+    }
+
+    #[test]
     fn creating_a_page_writes_a_seed_file_under_its_parent_and_records_its_origin() {
         let (_d, s) = store();
         let parent = create(&s, "hark", None, "Decisões", Kind::Doc, None, NOW).unwrap();
