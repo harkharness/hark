@@ -56,7 +56,7 @@ export default function FilesWindow({
   // the tabs of other chats live in it, with their unsaved drafts.
   const main = (
     <>
-      {(files.length === 0 || active < 0) && <FilesEmpty treeOpen={treeOpen} />}
+      {(files.length === 0 || active < 0) && <FilesEmpty treeOpen={treeOpen} noChat={projects.length === 0} />}
       <div className="fileseditor-keep" style={{ display: files.length > 0 && active >= 0 ? "contents" : "none" }}>
         <FilesEditor files={files} active={active} onDirty={onDirty} />
       </div>
@@ -101,12 +101,14 @@ export function TreeToggle({ open, onToggle }: { open: boolean; onToggle: () => 
   );
 }
 
-function FilesEmpty({ treeOpen }: { treeOpen: boolean }) {
+function FilesEmpty({ treeOpen, noChat }: { treeOpen: boolean; noChat?: boolean }) {
   return (
     <div className="files-empty">
       <FolderOpen size={22} strokeWidth={1.6} />
       <div className="files-empty-title">{t("files_empty_title")}</div>
-      <div className="files-empty-hint">{t(treeOpen ? "files_empty_tree" : "files_empty_closed")}</div>
+      <div className="files-empty-hint">
+        {t(noChat ? "files_empty_no_chat" : treeOpen ? "files_empty_tree" : "files_empty_closed")}
+      </div>
     </div>
   );
 }

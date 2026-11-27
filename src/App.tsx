@@ -1102,14 +1102,18 @@ export default function App({
       if (tab === "custos") openSettings("custos");
       if (tab === "settings") openSettings();
     }, []),
-    // The general chat speaks its ACTUAL reply (first sentence); another
-    // chat finishing gets the butler's offer, through the same TTS queue.
+    // The general chat speaks its ACTUAL reply (first sentence), at once.
+    // Another chat says what it did, named, once it has gone quiet: a
+    // fixed "I am done there, want something?" per turn said nothing, and
+    // said it once for every agent that came back.
     turnSpeech: useCallback((taskId: string, text: string, isError: boolean, label: string) => {
       if (!isMain || isError) return undefined;
-      if (taskId === HARK_CHAT) return firstSentence(text) || undefined;
-      return st("sp_fu_offer", { t: label });
+      const said = firstSentence(text);
+      if (taskId === HARK_CHAT) return said || undefined;
+      return said ? st("sp_fu_summary", { t: label, s: said }) : undefined;
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
+    speaksAtOnce: useCallback((taskId: string) => taskId === HARK_CHAT, []),
     // Spoken turns handled by the HUD land in the general thread too.
     onChatEcho: useCallback(
       (
@@ -1429,6 +1433,16 @@ export default function App({
     focusedTask,
     taskProject: focusedProject,
   });
+  // The files panel belongs to a chat. Landing where no chat is open, it
+  // steps out unless this place has tabs of its own; opened by hand
+  // there, it stays, empty.
+  const filesHere = threadFiles.length;
+  useEffect(() => {
+    if (scope.kind === "all" && filesHere === 0) dropRailItem("arquivos");
+    // Only on arriving: a panel opened by hand afterwards is left alone.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadKey, scope.kind]);
+
   /** Colour by REGISTRY order, not by this window's filtered list, so a
    *  project is the same colour in every window and in the mother. */
   const colourOf = useCallback((path?: string) => projColour(colourIndex(path, allProjects)), [allProjects]);

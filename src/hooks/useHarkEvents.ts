@@ -2,7 +2,8 @@
 // events ("hark") and permission requests ("hark-permission"); this hook
 // translates them into transcript messages and worker-chip state.
 
-import { useEffect } from "react";
+import { useRef, useEffect } from "react";
+import { createTurnSpeech } from "../lib/turnSpeech";
 import { listen } from "../lib/events";
 import * as ipc from "../lib/ipc";
 import { st, t } from "../lib/i18n";
@@ -114,6 +115,10 @@ type Handlers = {
     isError: boolean,
     label: string,
   ) => string | null | undefined;
+  /** Chats whose turn is spoken the moment it ends: a conversation with
+   *  Hark itself. Every other chat's news waits for the chat to go quiet
+   *  (`lib/turnSpeech`), so parallel agents landing are one sentence. */
+  speaksAtOnce?: (taskId: string) => boolean;
   /**
    * Standing "sempre permitir" rules: return true to auto-approve this
    * ask without interrupting anyone (the card lands already decided).
@@ -127,9 +132,18 @@ const ts = () => new Date().toTimeString().slice(0, 8);
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
 export function useHarkEvents(h: Handlers) {
+  // One per window, across re-subscriptions: what is held must survive
+  // the effect below running again.
+  const speech = useRef<ReturnType<typeof createTurnSpeech> | null>(null);
+  if (!speech.current) speech.current = createTurnSpeech((text) => void ipc.speak(text).catch(() => {}));
+  const held = speech.current;
   useEffect(() => {
     const un1 = listen<HarkEvent>("hark", (e) => {
       const ev = e.payload;
+      // The chat is at work again: whatever it was about to say is old.
+      if (ev.kind === "assistant_text" || ev.kind === "worker" || ev.kind === "tool_result" || ev.kind === "phase") {
+        held.activity(ev.task_id);
+      }
       if (ev.kind === "assistant_text") {
         h.onTurnActivity?.(h.labelFor(ev.task_id), "writing", undefined, ev.text.length);
         h.push({ who: "hark", text: ev.text, task: h.labelFor(ev.task_id) });
@@ -259,12 +273,11 @@ export function useHarkEvents(h: Handlers) {
         if (h.announce && h.speakRef.current && (h.maySpeak?.(ev.label ?? label) ?? true)) {
           const spoken = ev.label ?? label;
           const custom = h.turnSpeech?.(ev.task_id, ev.text, ev.is_error, spoken);
-          ipc.speak(
+          const words =
             custom ??
-              (ev.is_error
-                ? st("sp_turn_failed", { t: spoken })
-                : st("sp_turn_done", { t: spoken })),
-          ).catch(() => {});
+            (ev.is_error ? st("sp_turn_failed", { t: spoken }) : st("sp_turn_done", { t: spoken }));
+          if (h.speaksAtOnce?.(ev.task_id)) ipc.speak(words).catch(() => {});
+          else held.turnDone(ev.task_id, words);
         }
         h.refresh();
       } else if (ev.kind === "worker_spend") {
@@ -293,8 +306,10 @@ export function useHarkEvents(h: Handlers) {
         h.onSessionStarted(ev.task_id, ev.session_id, ev.mcp_servers ?? []);
         h.refresh();
       } else if (ev.kind === "background_started") {
+        held.backgroundStarted(ev.task_id);
         h.onBackgroundStarted?.(ev.task_id, ev.description, ev.command);
       } else if (ev.kind === "background_done") {
+        held.backgroundDone(ev.task_id);
         h.onBackgroundDone?.(ev.task_id, ev.status, ev.summary);
       } else if (ev.kind === "chat_renamed") {
         h.onChatRenamed?.(ev.session_id, ev.title);

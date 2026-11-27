@@ -98,6 +98,16 @@ export default function FilesPanel({
     if (focusKey) inputRef.current?.focus();
   }, [focusKey]);
 
+  // No chat on screen: no project is "the" one, so there is nothing to
+  // filter or to browse.
+  if (projects.length === 0) {
+    return (
+      <div className="filespanel">
+        <div className="side-empty">{t("files_no_chat")}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="filespanel">
       <div className="filespanel-search">

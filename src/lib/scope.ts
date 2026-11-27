@@ -82,9 +82,10 @@ export function projColour(slot: number | undefined): string | undefined {
 
 /** The projects a panel beside the chat lists. Files, terminal and
  *  session belong to the chat on screen, not to the whole window: inside a
- *  chat or a draft it is that one project. Everything is listed only where
- *  nobody is in command, or for a chat whose folder is no project. */
-export function projectsInView(projects: Project[], scope: Scope): Project[] {
+ *  chat or a draft it is that one project. With no chat open there is
+ *  nothing to list: the tree of some project nobody picked is not "the
+ *  files", and every project at once is a haystack. */
+export function projectsInView(_projects: Project[], scope: Scope): Project[] {
   const one = scope.kind === "chat" || scope.kind === "project" ? scope.project : undefined;
-  return one ? [one] : projects;
+  return one ? [one] : [];
 }

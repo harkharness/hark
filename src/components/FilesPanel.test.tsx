@@ -67,6 +67,12 @@ describe("the tree follows the chat on screen", () => {
     expect(getByPlaceholderText(t("filespanel_ph_one", { name: "lab" }))).toBeTruthy();
   });
 
+  it("with no chat open it is empty and says so: no filter, no tree of some other project", () => {
+    const { getByText, queryByRole } = render(<FilesPanel projects={[]} onOpen={() => {}} />);
+    expect(getByText(t("files_no_chat"))).toBeTruthy();
+    expect(queryByRole("textbox")).toBeNull();
+  });
+
   it("says every project when it is given them all", () => {
     const { getByPlaceholderText } = render(<FilesPanel projects={[vox, lab]} onOpen={() => {}} />);
     expect(getByPlaceholderText(t("filespanel_ph"))).toBeTruthy();

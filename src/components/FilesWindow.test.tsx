@@ -60,3 +60,13 @@ describe("the tree and the tabs are one window", () => {
     expect(row.className).toContain("on");
   });
 });
+
+describe("the files window with no chat open", () => {
+  it("points at opening a chat, not at a tree that is not there", () => {
+    const { getByText, queryByText } = render(
+      <FilesWindow projects={[]} files={[]} active={-1} treeOpen onOpen={noop} onDirty={noop} />,
+    );
+    expect(getByText(t("files_empty_no_chat"))).toBeTruthy();
+    expect(queryByText(t("files_empty_tree"))).toBeNull();
+  });
+});

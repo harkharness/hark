@@ -93,12 +93,12 @@ describe("projectsInView: whose files, terminal and session the panels show", ()
     expect(projectsInView(all, scopeOf({ draftChat: hark }))).toEqual([hark]);
   });
 
-  it("is every project where nobody is in command", () => {
-    expect(projectsInView(all, scopeOf({}))).toEqual(all);
+  it("is nothing where no chat is open: there is no chat whose files these would be", () => {
+    expect(projectsInView(all, scopeOf({}))).toEqual([]);
   });
 
-  it("is every project for a chat whose folder is no project: better all than none", () => {
+  it("is nothing for a chat whose folder is no project", () => {
     const scope = scopeOf({ focusedTask: { title: "stray", sessionId: "s2" } });
-    expect(projectsInView(all, scope)).toEqual(all);
+    expect(projectsInView(all, scope)).toEqual([]);
   });
 });
