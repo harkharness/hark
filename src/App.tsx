@@ -7,7 +7,8 @@ import {
   type ImperativePanelHandle,
 } from "react-resizable-panels";
 import { Compass, Copy, Download, ExternalLink, FileText, FolderTree, PanelLeft, PanelRight, Share2, SquareKanban, SquareTerminal, Volume2, VolumeX, Wallet } from "lucide-react";
-import { colourIndex, projColour, scopeOf } from "./lib/scope";
+import { colourIndex, projColour, projectsInView, scopeOf } from "./lib/scope";
+import { chatMode } from "./lib/mode";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { lang, setLang, setSpeechLang, st, t } from "./lib/i18n";
 import { conversationsOfToday, dayOf, days as journalDays } from "./lib/inicio";
@@ -2450,9 +2451,9 @@ export default function App({
     defaults.setEffortDefault(effort);
   }
 
-  /** Mode the pill shows: the focused live task's, else the window/config default. */
-  const currentMode =
-    (focused ? liveWorkers[focused]?.directives.mode : undefined) ?? defaults.modeInForce;
+  /** Mode the pill shows: the focused live task's own (manual when it was
+   *  started without one), else the window/config default. */
+  const currentMode = chatMode(focused ? liveWorkers[focused]?.directives : undefined, defaults.modeInForce);
 
   /** Modes that mean "stop asking me": relaxing one mid-turn is answered
    *  by the window itself, since the process keeps its flags until it
@@ -3950,7 +3951,7 @@ export default function App({
       }}
     >
       <FilesWindow
-        projects={projects}
+        projects={projectsInView(projects, scope)}
         files={openFiles}
         active={threadFiles.some((x) => x.i === activeFile) ? activeFile : -1}
         initialProject={filesInitialProject}

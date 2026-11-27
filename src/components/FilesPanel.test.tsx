@@ -24,7 +24,7 @@ describe("the filter in the tree column", () => {
     const { getByPlaceholderText, findByText, getByText } = render(
       <FilesPanel projects={[vox]} onOpen={() => {}} />,
     );
-    fireEvent.change(getByPlaceholderText(t("filespanel_ph")), { target: { value: "in" } });
+    fireEvent.change(getByPlaceholderText(t("filespanel_ph_one", { name: "vox" })), { target: { value: "in" } });
     expect(await findByText("initialize.json")).toBeTruthy();
     expect(getByText("vox/")).toBeTruthy();
     expect(getByText("vox/crates/hark-plugin-acp/fixtures/")).toBeTruthy();
@@ -33,7 +33,7 @@ describe("the filter in the tree column", () => {
   it("arrows move the selection and Enter opens it, like the palette", async () => {
     const onOpen = vi.fn();
     const { getByPlaceholderText, findByText } = render(<FilesPanel projects={[vox]} onOpen={onOpen} />);
-    const input = getByPlaceholderText(t("filespanel_ph"));
+    const input = getByPlaceholderText(t("filespanel_ph_one", { name: "vox" }));
     fireEvent.change(input, { target: { value: "in" } });
     await findByText("initialize.json");
     fireEvent.keyDown(input, { key: "ArrowDown" });
@@ -49,12 +49,35 @@ describe("the filter in the tree column", () => {
     const { getByPlaceholderText, findByText, getByTitle, queryByText } = render(
       <FilesPanel projects={[vox]} onOpen={() => {}} />,
     );
-    const input = getByPlaceholderText(t("filespanel_ph")) as HTMLInputElement;
+    const input = getByPlaceholderText(t("filespanel_ph_one", { name: "vox" })) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "in" } });
     await findByText("install.sh");
     fireEvent.click(getByTitle(t("filespanel_clear")));
     expect(input.value).toBe("");
     expect(queryByText("install.sh")).toBeNull();
+    expect(await findByText("README.md")).toBeTruthy();
+  });
+});
+
+describe("the tree follows the chat on screen", () => {
+  const lab: Project = { name: "lab", path: "/p/lab" };
+
+  it("names the one project its filter looks in", () => {
+    const { getByPlaceholderText } = render(<FilesPanel projects={[lab]} onOpen={() => {}} />);
+    expect(getByPlaceholderText(t("filespanel_ph_one", { name: "lab" }))).toBeTruthy();
+  });
+
+  it("says every project when it is given them all", () => {
+    const { getByPlaceholderText } = render(<FilesPanel projects={[vox, lab]} onOpen={() => {}} />);
+    expect(getByPlaceholderText(t("filespanel_ph"))).toBeTruthy();
+  });
+
+  it("opens the tree of the one project it is given when the chat changes", async () => {
+    const { findByText, rerender, queryByText } = render(<FilesPanel projects={[vox]} onOpen={() => {}} />);
+    expect(await findByText("README.md")).toBeTruthy();
+    rerender(<FilesPanel projects={[lab]} onOpen={() => {}} />);
+    expect(queryByText("vox")).toBeNull();
+    // Not a closed folder to click: the chat's project, already open.
     expect(await findByText("README.md")).toBeTruthy();
   });
 });

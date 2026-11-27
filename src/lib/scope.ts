@@ -79,3 +79,12 @@ export const PROJ_SLOTS = 5;
 export function projColour(slot: number | undefined): string | undefined {
   return slot === undefined ? undefined : `var(--proj-${slot % PROJ_SLOTS})`;
 }
+
+/** The projects a panel beside the chat lists. Files, terminal and
+ *  session belong to the chat on screen, not to the whole window: inside a
+ *  chat or a draft it is that one project. Everything is listed only where
+ *  nobody is in command, or for a chat whose folder is no project. */
+export function projectsInView(projects: Project[], scope: Scope): Project[] {
+  const one = scope.kind === "chat" || scope.kind === "project" ? scope.project : undefined;
+  return one ? [one] : projects;
+}

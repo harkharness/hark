@@ -14,8 +14,9 @@ export function splitHit(rel: string): [string, string] {
 }
 
 /**
- * The tree column of the files window: fuzzy filter across every project on
- * top, collapsible per-project trees below. All local, zero tokens; a pick
+ * The tree column of the files window: fuzzy filter across the projects it
+ * is given on top (the chat's own, beside a chat), collapsible per-project
+ * trees below. All local, zero tokens; a pick
  * opens a tab beside it. The tab in front pulls its project open so the
  * tree can reveal and mark it.
  */
@@ -53,6 +54,12 @@ export default function FilesPanel({
   useEffect(() => {
     if (activeProject) reveal(activeProject.path);
   }, [activeProject]);
+  // Beside a chat the panel is given that chat's project alone: its tree
+  // is the content, never a closed folder waiting for a click.
+  const only = projects.length === 1 ? projects[0].path : undefined;
+  useEffect(() => {
+    if (only) reveal(only);
+  }, [only]);
   // A folder clicked in the sidebar while the panel is already up.
   useEffect(() => {
     if (initialProject) reveal(initialProject);
@@ -98,7 +105,7 @@ export default function FilesPanel({
         <div className="filespanel-field">
           <input
             ref={inputRef}
-            placeholder={t("filespanel_ph")}
+            placeholder={projects.length === 1 ? t("filespanel_ph_one", { name: projects[0].name }) : t("filespanel_ph")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {

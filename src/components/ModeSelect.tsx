@@ -1,5 +1,6 @@
 import PillMenu, { type PillItem } from "./PillMenu";
 import { t } from "../lib/i18n";
+import { NO_MODE } from "../lib/mode";
 
 // The Claude Code app's order: the default first, the strictest second.
 const MODES = [
@@ -37,7 +38,10 @@ export default function ModeSelect({
    *  does not cross ACP. The row stays, disabled, with this hover. */
   bypassOff?: string;
 }) {
-  const current = MODES.find((m) => m.flag === value) ?? MODES[0];
+  // A value that is no mode (an empty config) is manual: what an agent
+  // started without one gets. Falling back to the first row made the pill
+  // read "auto" over a chat that then asked before every command.
+  const current = MODES.find((m) => m.flag === value) ?? MODES.find((m) => m.flag === NO_MODE)!;
   const items: PillItem[] = MODES.map((m) => ({
     value: m.flag,
     name: t(m.name),

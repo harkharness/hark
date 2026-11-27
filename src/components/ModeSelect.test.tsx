@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import ModeSelect from "./ModeSelect";
+import { t } from "../lib/i18n";
 
 afterEach(cleanup);
 
@@ -34,5 +35,13 @@ describe("the bypass row in a chat on an ACP agent", () => {
     fireEvent.click(getByRole("button"));
     const rows = getAllByRole("button").filter((b) => b.className.includes("mm-row"));
     expect(rows.every((r) => !(r as HTMLButtonElement).disabled)).toBe(true);
+  });
+});
+
+describe("the mode pill never claims a mode it was not given", () => {
+  it("reads manual, not its first row, when the value is no mode at all", () => {
+    const { getByRole } = render(<ModeSelect value="" onSelect={() => {}} />);
+    expect(getByRole("button").textContent).toContain(t("mode_manual"));
+    expect(getByRole("button").textContent).not.toContain(t("mode_auto"));
   });
 });

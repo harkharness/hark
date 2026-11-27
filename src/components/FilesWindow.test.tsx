@@ -26,7 +26,7 @@ describe("the files window with nothing open", () => {
     );
     expect(getByText(t("files_empty_title"))).toBeTruthy();
     expect(getByText(t("files_empty_tree"))).toBeTruthy();
-    expect(getByPlaceholderText(t("filespanel_ph"))).toBeTruthy();
+    expect(getByPlaceholderText(t("filespanel_ph_one", { name: "vox" }))).toBeTruthy();
   });
 
   it("with the tree collapsed, hides it and tells how to get it back", () => {
@@ -34,7 +34,7 @@ describe("the files window with nothing open", () => {
       <FilesWindow projects={[vox]} files={[]} active={0} treeOpen={false} onOpen={noop} onDirty={noop} />,
     );
     expect(getByText(t("files_empty_closed"))).toBeTruthy();
-    expect(queryByPlaceholderText(t("filespanel_ph"))).toBeNull();
+    expect(queryByPlaceholderText(t("filespanel_ph_one", { name: "vox" }))).toBeNull();
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { breadcrumb, colourIndex, projColour, scopeChoices, scopeOf } from "./scope";
+import { breadcrumb, colourIndex, projColour, projectsInView, scopeChoices, scopeOf } from "./scope";
 import type { Project } from "../types";
 
 const hark: Project = { name: "hark", path: "/Users/x/Projects/hark" };
@@ -78,5 +78,27 @@ describe("scopeChoices: what the chip offers when it is a picker", () => {
   it("offers nothing inside a chat or a page: the target was chosen by opening it", () => {
     expect(scopeChoices([hark], { kind: "chat", title: "t", project: hark })).toBeNull();
     expect(scopeChoices([hark], { kind: "page", title: "t", path: "p", space: "s" })).toBeNull();
+  });
+});
+
+describe("projectsInView: whose files, terminal and session the panels show", () => {
+  const all = [hark, landing];
+
+  it("is the chat's project alone: a panel beside a chat is about that chat", () => {
+    const scope = scopeOf({ focusedTask: { title: "fix login", sessionId: "s1" }, taskProject: landing });
+    expect(projectsInView(all, scope)).toEqual([landing]);
+  });
+
+  it("is the project alone while a new chat is being started in it", () => {
+    expect(projectsInView(all, scopeOf({ draftChat: hark }))).toEqual([hark]);
+  });
+
+  it("is every project where nobody is in command", () => {
+    expect(projectsInView(all, scopeOf({}))).toEqual(all);
+  });
+
+  it("is every project for a chat whose folder is no project: better all than none", () => {
+    const scope = scopeOf({ focusedTask: { title: "stray", sessionId: "s2" } });
+    expect(projectsInView(all, scope)).toEqual(all);
   });
 });

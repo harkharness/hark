@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as ipc from "../lib/ipc";
+import { windowMode } from "../lib/mode";
 import type { Overview } from "../types";
 import { DEFAULT_TIERS, type ModelTiers } from "../components/ModelSelect";
 
@@ -61,7 +62,7 @@ export function useWorkerDefaults(overview: Overview | null) {
      *  sending a resolved "manual" instead would quietly override it. */
     mode,
     /** What the pill DISPLAYS: the pick, else config, else manual. */
-    modeInForce: mode ?? overview?.default_mode ?? "manual",
+    modeInForce: windowMode(mode, overview?.default_mode),
     model,
     effort,
     tiers,
