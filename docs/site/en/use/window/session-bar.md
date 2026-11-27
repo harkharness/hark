@@ -7,7 +7,7 @@ banner:
   content: "<b>Hark is in development.</b> Most testing so far was done with the Claude Code CLI on macOS. Running another agent or system? <a href=\"/docs/en/build/testing-other-agents-and-oss/\">Help us test it.</a>"
 ---
 
-The session bar reads like the one in the Claude Code app: sections that fold and remember it, each with its summary while folded.
+The session bar reads like the one in the Claude Code app: the chat's own column, between the conversation and the chat's panels, with sections that fold and remember it, each with its summary while folded. It is not one of the chat's panels, so the terminal and the files never share their height with it. When the chat's column gets too narrow for the conversation and the bar, because the window is small or a panel was dragged wide, the bar hides by itself; its button at the top of the chat shows it over the page for a look, and a click elsewhere or Esc puts it away. With room, the same button puts the bar away or brings it back, and that is remembered. Where no chat is open there is no bar.
 
 | Section | What it shows |
 |---|---|

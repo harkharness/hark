@@ -7,7 +7,7 @@ banner:
   content: "<b>Hark is in development.</b> Most testing so far was done with the Claude Code CLI on macOS. Running another agent or system? <a href=\"/docs/en/build/testing-other-agents-and-oss/\">Help us test it.</a>"
 ---
 
-Each chat keeps its own side panels, stacked on the rail: the session bar, the terminal, the files window, the browser and the artifact pane open one over the other; each folds to its bar, and any one can take the whole rail. They belong to the chat they were opened in: come back to a chat and its shell, its open file or its page is still there, and another chat has its own.
+Each chat keeps its own side panels, stacked on the rail: the terminal, the files window, the browser and the artifact pane open one over the other, to the right of the chat and its session bar; each folds to its bar, and any one can take the whole rail. They belong to the chat they were opened in: come back to a chat and its shell, its open file or its page is still there, and another chat has its own.
 
 ## The chat
 

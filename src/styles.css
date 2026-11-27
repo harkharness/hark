@@ -1512,7 +1512,10 @@ button svg, .perm-head svg, .side-pin svg, .scope svg, .worker-chip svg {
   color: var(--text-strong); font-size: var(--fs-body); font-weight: 600;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.chat-turns { color: var(--dim); font-size: var(--fs-meta); flex: 0 0 auto; }
+/* In a narrow chat the count and the project's name give way before the
+   window's own buttons do: a button pushed off the edge cannot be
+   clicked, and the session bar's is how a hidden bar comes back. */
+.chat-turns { color: var(--dim); font-size: var(--fs-meta); flex: 0 100 auto; min-width: 0; overflow: hidden; white-space: nowrap; }
 /* The cost IS the button that opens the breakdown — one control, not a
    pill up here and a wallet icon down on the composer row. */
 /* Cost and context in ONE control: two readings of the same question,
@@ -1578,7 +1581,7 @@ button.scope-chip.pick > svg:last-child { color: var(--dim); }
 .scope-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; display: inline-block; }
 .scope-chip svg { color: var(--accent); flex: 0 0 auto; }
 .chat-title-head .proj-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--proj); flex: 0 0 auto; }
-.chat-title-head .crumb { color: var(--dim); font-size: var(--fs-body); flex: 0 0 auto; }
+.chat-title-head .crumb { color: var(--dim); font-size: var(--fs-body); flex: 0 10 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inputbar-chips {
   flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px;
   align-items: center;
@@ -2215,21 +2218,42 @@ button.scope-chip.pick > svg:last-child { color: var(--dim); }
   height: 100%; min-height: 0; padding-right: 0;
 }
 .rail-slot { display: flex; min-height: 0; flex: 1 1 0; }
-/* The session panel: sections stacked, the same blocks the old popover
-   drew, now with the whole rail's height. */
-.session-panel { display: flex; flex-direction: column; gap: 12px; padding: 10px 12px; overflow-y: auto; min-height: 0; flex: 1; font-size: var(--fs-body); }
-.session-panel > .scope-block:first-of-type { padding-top: 0; border-top: none; }
-.session-panel .hint { color: var(--dim); font-size: var(--fs-meta); margin: 0; }
+/* The session bar: the chat's own column, between the conversation and
+   the chat's panels, as in the Claude Code app (lib/sessionBar). It used
+   to be a framed panel of the rail, in the body size, with a rule
+   between sections: it read as a second page and fought the terminal
+   for height. Now it is a margin of the chat: the interface size, rows
+   of one height, space instead of rules. */
+.chatrow { flex: 1; min-height: 0; min-width: 0; display: flex; position: relative; }
+.chatrow > .maincol { flex: 1 1 0; min-width: 0; }
+.session-bar {
+  flex: 0 0 auto; min-height: 0; display: flex; flex-direction: column;
+  border-left: 1px solid var(--border); background: var(--bg);
+}
+/* Shown by hand in a window with no room for it: over the page, so
+   nothing is squeezed, and plainly on top. */
+.session-bar.over {
+  position: absolute; top: 0; right: 0; bottom: 0; z-index: 30;
+  background: var(--panel); box-shadow: -18px 0 44px rgba(0,0,0,.5);
+}
+.session-panel {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px 8px 16px;
+  overflow-y: auto; min-height: 0; flex: 1; font-size: var(--fs-ui); line-height: 1.35;
+}
+.session-panel > .scope-block { padding-top: 0; border-top: none; gap: 0; }
+.session-panel .hint { color: var(--dim); font-size: var(--fs-meta); margin: 0; padding: 3px 6px; line-height: 1.45; }
 .session-panel .hint.warn { color: var(--warn); }
 .session-panel .dim { color: var(--dim); }
 .session-panel .mono { font-family: var(--font-mono); font-size: 11px; }
-.sp-row { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text); }
+.sp-row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 26px; padding: 0 6px; color: var(--text); }
 .sp-row > svg, .sp-ico { flex: 0 0 13px; width: 13px; color: var(--dim); }
 .sp-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Where the project lives: second to its name, and the first to give way. */
+.sp-row > .sp-where { flex: 0 10 auto; font-size: var(--fs-meta); }
 .sp-out {
   display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%;
-  background: none; border: none; border-radius: 8px; padding: 5px 6px; margin: 0 -6px;
-  color: var(--text); font: inherit; font-size: var(--fs-body); cursor: pointer; text-align: left;
+  background: none; border: none; border-radius: 6px; padding: 0 6px; margin: 0; min-height: 26px;
+  color: var(--text); font: inherit; cursor: pointer; text-align: left;
 }
 .sp-out:hover { background: var(--panel-2); }
 .sp-out > svg { flex: 0 0 auto; color: var(--dim); }
@@ -2238,7 +2262,7 @@ button.scope-chip.pick > svg:last-child { color: var(--dim); }
 .pill-kind { flex: 0 0 auto; font-size: var(--fs-caps); padding: 1px 7px; border-radius: 999px; background: var(--panel-2); color: var(--dim); }
 .pill-kind.delivered { color: var(--ok); }
 .pill-kind.written { color: var(--accent); }
-.sp-link { align-self: flex-start; background: none; border: none; color: var(--accent); font: inherit; font-size: var(--fs-ui); cursor: pointer; padding: 0; }
+.sp-link { justify-self: start; align-self: flex-start; background: none; border: none; color: var(--accent); font: inherit; font-size: var(--fs-meta); cursor: pointer; padding: 3px 6px; }
 /* Drag between two expanded rail panels to trade height. */
 /* The gap between two stacked panels was paid twice: each frame's own
    8px margin (16px between them) PLUS this handle's height and margins,
@@ -3598,11 +3622,35 @@ html.demo .side-drag::before {
 .art-frame-marks .mark-layer.drawing { pointer-events: all; }
 
 /* ---- the session bar (round "barra de sessão"): sections that fold, the diff inside ---- */
-.sp-sec-head { width: 100%; background: none; border: 0; padding: 0; font: inherit; color: var(--dim); cursor: pointer; text-align: left; }
+.sp-sec-head {
+  width: 100%; min-height: 26px; background: none; border: 0; border-radius: 6px; padding: 0 6px;
+  font: inherit; font-size: var(--fs-meta); align-items: center;
+  color: var(--dim); cursor: pointer; text-align: left;
+}
+.sp-sec-head:hover { background: var(--panel-2); }
 .sp-sec-head:hover .sp-sec-title { color: var(--text-strong); }
-.sp-sec-title { display: inline-flex; align-items: center; gap: 5px; }
-.sp-sec-sum { display: inline-flex; align-items: center; gap: 4px; }
-.sp-sec-body { display: grid; gap: 8px; }
+.sp-sec-title { display: inline-flex; align-items: center; gap: 5px; min-width: 0; white-space: nowrap; }
+/* The summary of a folded section is a reading, not a headline. */
+.session-panel .sp-sec-head .sp-sec-sum {
+  display: inline-flex; align-items: center; gap: 4px; min-width: 0;
+  font-size: var(--fs-meta); font-weight: 400; color: var(--dim);
+  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sp-sec-body { display: grid; gap: 0; }
+.sp-sec-body > .meter, .sp-sec-body > .meter-track, .sp-sec-body > .meter-legend, .sp-sec-body > .meter-row, .sp-sec-body > .gauge { margin-left: 6px; margin-right: 6px; }
+.session-panel .scope-pair { min-height: 24px; align-items: center; padding: 0 6px; }
+.session-panel .scope-pair b { font-weight: 500; }
+.session-panel .sp-commit { justify-self: start; margin: 2px 6px 6px; }
+/* The changed files as rows of the bar. The diff's own head (branch,
+   totals, refresh) would say again what the section's head and the
+   environment already say, in a box of its own. */
+.session-panel .sp-changes { border: none; border-radius: 0; max-height: 420px; }
+.session-panel .sp-changes .diff-head { display: none; }
+.session-panel .diff-panel { font-size: var(--fs-ui); }
+.session-panel .diff-row { min-height: 26px; padding: 0 6px; border-radius: 6px; }
+.session-panel .diff-name { color: var(--text); }
+.session-panel .diff-empty { padding: 3px 6px; font-size: var(--fs-meta); }
+.session-panel .diff-body { margin-top: 4px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .sp-sec.closed { gap: 0; }
 .sp-sum-diff .add { color: var(--ok); } .sp-sum-diff .del { color: var(--err); }
 .sp-commit { align-self: flex-start; }

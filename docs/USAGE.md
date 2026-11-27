@@ -117,17 +117,25 @@ and can be stopped from its card; what stays up, a dev server or a
 watcher, belongs in the terminal panel. Only what you type runs: text
 sent to the field from a page is never a command.
 
-**Each chat keeps its own side panels, stacked.** The session bar, the
-terminal, the files window and the browser open on the rail together,
-one over the other; each folds to its bar, and any one can take the
-whole rail. They belong to the chat they were opened in: come back to a
+**Each chat keeps its own side panels, stacked.** The terminal, the
+files window and the browser open on the rail together, one over the
+other, to the right of the chat and its session bar; each folds to its
+bar, and any one can take the whole rail. They belong to the chat they were opened in: come back to a
 chat and its shell, its open file or its page is still there, and
 another chat has its own. The board and the artifacts are views of
 their own, with no chat panels; the artifacts view has the page's links
 instead.
 
-**The session bar** reads like the one in the Claude Code app: sections
-that fold and remember it, each with its summary while folded.
+**The session bar** reads like the one in the Claude Code app: the
+chat's own column, between the conversation and the chat's panels, with
+sections that fold and remember it, each with its summary while folded.
+It is not one of the chat's panels, so the terminal and the files never
+share their height with it. When the chat's column gets too narrow for
+the conversation and the bar, because the window is small or a panel
+was dragged wide, the bar hides by itself; its button at the top of the chat shows it
+over the page for a look, and a click elsewhere or Esc puts it away.
+With room, the same button puts the bar away or brings it back, and that
+is remembered. Where no chat is open there is no bar.
 *Environment* (this machine, the project and its folder, the branch,
 the agent and its knobs); *context* (the window's share, what fills it);
 *connectors* (the MCP servers the session opened, with their state;

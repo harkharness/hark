@@ -10,6 +10,7 @@ import { Compass, Copy, Download, ExternalLink, FileText, FolderTree, PanelLeft,
 import { colourIndex, projColour, projectsInView, scopeOf } from "./lib/scope";
 import { ANY_TOOL, chatMode, windowAllows } from "./lib/mode";
 import { bangCommand, markTold, shellBlock, untold } from "./lib/bang";
+import { BAR_WIDTH, barFits, barMode, readPinned, settleBar, toggleBar, writePinned, type BarState } from "./lib/sessionBar";
 import VoiceOrb, { type OrbMode } from "./components/VoiceOrb";
 import { lang, setLang, setSpeechLang, st, t } from "./lib/i18n";
 import { conversationsOfToday, dayOf, days as journalDays, notificationLine } from "./lib/inicio";
@@ -91,7 +92,7 @@ import type {
   BgTask,
 } from "./types";
 
-type RailItem = "sessao" | "terminal" | "arquivos" | "board" | "artefatos" | "browser" | "pagina";
+type RailItem = "terminal" | "arquivos" | "board" | "artefatos" | "browser" | "pagina";
 
 export default function App({
   forcedProject,
@@ -400,7 +401,7 @@ export default function App({
   // ONE panel at a time (phase 10.2): the rail shows the panel named
   // here or nothing at all, and the choice survives a restart.
   const RAIL_KEY = "hark.rail.v2";
-  const RAIL_ITEMS: RailItem[] = ["sessao", "terminal", "arquivos", "board", "artefatos", "browser", "pagina"];
+  const RAIL_ITEMS: RailItem[] = ["terminal", "arquivos", "board", "artefatos", "browser", "pagina"];
   // Each chat keeps the panel it had open (phase 10.8), the way Claude
   // Code's app does: come back to a chat and its terminal is there, its
   // file is open. Persisted per thread; a terminal is a process, not a
@@ -1434,6 +1435,51 @@ export default function App({
     focusedTask,
     taskProject: focusedProject,
   });
+  // The session bar is the chat's: a column between the conversation and
+  // the chat's panels, never one of them (lib/sessionBar). Where no chat
+  // is open it has no place, and where the chat's column runs short it
+  // hides by itself; its button then shows it over the page.
+  const [chatRoom, setChatRoom] = useState(0);
+  const chatRowWatch = useRef<ResizeObserver | null>(null);
+  const chatRowRef = useCallback((el: HTMLDivElement | null) => {
+    chatRowWatch.current?.disconnect();
+    chatRowWatch.current = null;
+    if (!el) return;
+    setChatRoom(el.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
+    chatRowWatch.current = new ResizeObserver(() => setChatRoom(el.clientWidth));
+    chatRowWatch.current.observe(el);
+  }, []);
+  const [bar, setBar] = useState<BarState>(() => ({ pinned: readPinned(), peek: false }));
+  const barRoom = scope.kind !== "all" && barFits(chatRoom);
+  useEffect(() => setBar((b) => settleBar(b, barRoom)), [barRoom, threadKey]);
+  const barShown = view === "chat" && !expanded ? barMode(bar, barRoom) : "hidden";
+  const toggleSessionBar = () =>
+    setBar((b) => {
+      const next = toggleBar(b, barRoom);
+      if (next.pinned !== b.pinned) writePinned(next.pinned);
+      return next;
+    });
+  // Over the page it is a look, not a place: a press anywhere else, or
+  // Esc, puts it away. Its own button is left to do its own toggling.
+  useEffect(() => {
+    if (barShown !== "over") return;
+    const away = () => setBar((b) => settleBar(b, false));
+    const onPress = (e: MouseEvent) => {
+      const at = e.target as Element | null;
+      if (!at?.closest?.(".session-bar, [data-session-toggle]")) away();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") away();
+    };
+    document.addEventListener("mousedown", onPress);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPress);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [barShown]);
+
   // The files panel belongs to a chat. Landing where no chat is open, it
   // steps out unless this place has tabs of its own; opened by hand
   // there, it stays, empty.
@@ -3764,14 +3810,7 @@ export default function App({
   /** Drag-to-reorder wiring for a rail panel's header. */
   /** The session panel: environment, context, outputs, costs of the
    *  thread on screen (or of the window, in the "all projects" scope). */
-  const frameSessao = () => (
-    <PanelFrame
-      title={t("frame_session")}
-      expanded={expanded === "sessao"}
-      onToggleExpand={() => setExpanded((e) => (e === "sessao" ? null : "sessao"))}
-      {...collapseProps("sessao")}
-      onClose={() => removeRail("sessao")}
-    >
+  const sessionBar = () => (
       <SessionPanel
         scope={scope}
         projectsCount={allProjects.length}
@@ -3802,7 +3841,6 @@ export default function App({
             .catch(() => {});
         }}
       />
-    </PanelFrame>
   );
   const frameTerminal = () => (
     <PanelFrame
@@ -3974,9 +4012,7 @@ export default function App({
   );
   /** One frame per rail item. */
   const frameFor = (id: RailItem) =>
-    id === "sessao"
-      ? frameSessao()
-      : id === "terminal"
+    id === "terminal"
         ? frameTerminal()
         : id === "board"
           ? frameBoard()
@@ -4120,9 +4156,7 @@ export default function App({
 
       {expanded ? (
         <div className="workarea expanded-area">
-          {expanded === "sessao"
-            ? frameSessao()
-            : expanded === "terminal"
+          {expanded === "terminal"
               ? frameTerminal()
               : expanded === "board"
                 ? frameBoard()
@@ -4261,6 +4295,7 @@ export default function App({
           </Panel>
           <PanelResizeHandle className="rhandle" />
           <Panel minSize={30} className="pane">
+            <div className="chatrow" ref={chatRowRef}>
             <div className="maincol" style={scopeColour ? ({ "--proj": scopeColour } as React.CSSProperties) : undefined}>
               {/* The main window's global views take the column whole:
                   the board of every project, the ledger, the settings. */}
@@ -4494,9 +4529,11 @@ export default function App({
                       the usage popover, so the panel gets a door of its
                       own, like Claude Code's right sidebar. */}
                   <button
-                    className={`chat-head-btn ${railHas("sessao") ? "on" : ""}`}
-                    title={t("session_btn")}
-                    onClick={() => toggleRail("sessao")}
+                    className={`chat-head-btn ${barShown !== "hidden" ? "on" : ""}`}
+                    title={barShown !== "hidden" ? t("session_hide") : t("session_btn")}
+                    aria-pressed={barShown !== "hidden"}
+                    data-session-toggle
+                    onClick={toggleSessionBar}
                   >
                     <PanelRight size={13} />
                   </button>
@@ -4798,6 +4835,12 @@ export default function App({
               )}
               </>
               )}
+            </div>
+            {barShown !== "hidden" && (
+              <aside className={`session-bar ${barShown}`} style={{ width: BAR_WIDTH }} aria-label={t("frame_session")}>
+                {sessionBar()}
+              </aside>
+            )}
             </div>
           </Panel>
           {railItems.length > 0 && (

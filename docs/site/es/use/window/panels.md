@@ -5,10 +5,10 @@ sidebar:
   order: 2
 banner:
   content: "<b>Hark está en desarrollo.</b> La mayor parte de las pruebas hasta ahora se hizo con el CLI de Claude Code en macOS. ¿Usas otro agente u otro sistema? <a href=\"/docs/es/build/testing-other-agents-and-oss/\">Ayúdanos a probarlo.</a>"
-source_hash: f5ac098d7de0
+source_hash: 31d303e45429
 ---
 
-Cada chat guarda sus propios paneles laterales, apilados en el riel: la barra de sesión, la terminal, la ventana de archivos, el navegador y el panel de artefactos se abren uno sobre otro; cada uno se pliega a su barra, y cualquiera puede ocupar todo el riel. Pertenecen al chat donde se abrieron: vuelve a un chat y su shell, su archivo abierto o su página siguen allí, y otro chat tiene los suyos.
+Cada chat guarda sus propios paneles laterales, apilados en el riel: la terminal, la ventana de archivos, el navegador y el panel de artefactos se abren uno sobre otro, a la derecha del chat y de su barra de sesión; cada uno se pliega a su barra, y cualquiera puede ocupar todo el riel. Pertenecen al chat donde se abrieron: vuelve a un chat y su shell, su archivo abierto o su página siguen allí, y otro chat tiene los suyos.
 
 ## El chat
 

@@ -5,10 +5,10 @@ sidebar:
   order: 3
 banner:
   content: "<b>Hark está en desarrollo.</b> La mayor parte de las pruebas hasta ahora se hizo con el CLI de Claude Code en macOS. ¿Usas otro agente u otro sistema? <a href=\"/docs/es/build/testing-other-agents-and-oss/\">Ayúdanos a probarlo.</a>"
-source_hash: f98207961b40
+source_hash: 0a8baeeaf648
 ---
 
-La barra de sesión se lee como la de la app de Claude Code: secciones que se pliegan y lo recuerdan, cada una con su resumen mientras está plegada.
+La barra de sesión se lee como la de la app de Claude Code: la columna del propio chat, entre la conversación y los paneles del chat, con secciones que se pliegan y lo recuerdan, cada una con su resumen mientras está plegada. No es uno de los paneles del chat, así que la terminal y los archivos nunca comparten su altura con ella. Cuando la columna del chat queda demasiado estrecha para la conversación y la barra, porque la ventana es pequeña o un panel se arrastró para ensancharlo, la barra se oculta sola; su botón en la parte superior del chat la muestra sobre la página para un vistazo, y un clic fuera o Esc la guarda. Con espacio, el mismo botón guarda la barra o la trae de vuelta, y eso se recuerda. Donde no hay chat abierto no hay barra.
 
 | Sección | Qué muestra |
 |---|---|

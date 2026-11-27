@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CheckCircle2, ChevronDown, ChevronRight, File, FileText, FolderGit2, GitCommitHorizontal, Laptop, Package, Plug, SquareTerminal } from "lucide-react";
+import { Bot, CheckCircle2, ChevronDown, ChevronRight, File, FileText, Folder, GitBranch, GitCommitHorizontal, Laptop, Package, Plug, SquareTerminal } from "lucide-react";
 import { KIND_ICON } from "./kindIcon";
 import DiffPanel from "./DiffPanel";
 import { Gauge, Legend, MeterRow, StackedBar, fmtTok, fmtUsd, type Segment } from "./Meter";
 import type { Output } from "../lib/outputs";
 import * as ipc from "../lib/ipc";
 import { t } from "../lib/i18n";
+import { elapsed } from "../lib/sessionBar";
 import type { BgTask, ContextWeight, McpServer, RepoState, Scope, SpendAgg, StatusLine } from "../types";
 
 function resetIn(raw?: string | null): string | undefined {
@@ -28,7 +29,7 @@ const limitName = (key: string) =>
 
 const SECTIONS_KEY = "hark.session.sections";
 type SectionId = "env" | "ctx" | "connectors" | "outputs" | "changes" | "bg" | "costs" | "limits";
-const OPEN_BY_DEFAULT: SectionId[] = ["env", "outputs", "changes", "bg"];
+const OPEN_BY_DEFAULT: SectionId[] = ["env", "bg", "changes", "outputs"];
 
 function readOpen(): Record<string, boolean> {
   try {
@@ -58,7 +59,8 @@ const basename = (p: string) => p.split("/").filter(Boolean).at(-1) ?? p;
 const dirname = (p: string) => p.replace(/\/[^/]*$/, "").replace(/^\/Users\/[^/]+/, "~");
 
 /**
- * The session panel of the rail: what the thread on screen is running on
+ * The session bar, the column at the right edge of the window (see
+ * `lib/sessionBar`): what the thread on screen is running on
  * (environment), what it is carrying (context), what it produced
  * (outputs) and what it cost. Everything local, zero tokens. In the
  * "all projects" scope it describes the window instead of a session.
@@ -161,6 +163,15 @@ export default function SessionPanel({
     ipc.subscriptionLimits().then(setLimits).catch(() => setLimits(null));
   }, [workspace]);
 
+  // A running task's clock moves while the bar is open.
+  const running = background?.some((b) => !b.doneAt) ?? false;
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setTick((n) => n + 1), 5000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+
   const threadCost = costs[taskTitle ?? ""] ?? 0;
   const windowTotal = Object.values(costs).reduce((a, b) => a + b, 0);
   const contextSegments: Segment[] = weight
@@ -189,21 +200,24 @@ export default function SessionPanel({
           <Laptop size={13} />
           <span>{t("env_machine")}</span>
         </div>
-        <div className="sp-row">
-          <FolderGit2 size={13} />
+        {/* The name, and where it lives: the whole path ran across the
+            bar and pushed everything else off it. */}
+        <div className="sp-row" title={projectPath}>
+          <Folder size={13} />
           {projectName ? (
-            <span>
-              {projectName} <span className="mono dim">{projectPath}</span>
-            </span>
+            <>
+              <span>{projectName}</span>
+              {projectPath && <span className="dim sp-where">{dirname(projectPath)}</span>}
+            </>
           ) : (
             <span>{t("env_projects", { n: projectsCount })}</span>
           )}
         </div>
         {repo && (
           <div className="sp-row">
-            <span className="sp-ico" />
+            <GitBranch size={13} />
             <span>
-              {repo.branch || t("repo_detached")}
+              <span>{repo.branch || t("repo_detached")}</span>
               {repo.ahead || repo.behind ? (
                 <span className="dim"> · {repo.ahead > 0 ? `↑${repo.ahead}` : ""}{repo.behind > 0 ? ` ↓${repo.behind}` : ""}</span>
               ) : null}
@@ -213,9 +227,9 @@ export default function SessionPanel({
         )}
         {agentName && (
           <div className="sp-row">
-            <span className="sp-ico" />
+            <Bot size={13} />
             <span>
-              {agentName}
+              <span>{agentName}</span>
               {knobs && <span className="dim"> · {knobs}</span>}
             </span>
           </div>
@@ -279,30 +293,35 @@ export default function SessionPanel({
         )}
       </Section>
 
-      <Section id="outputs" title={t("sec_outputs")} summary={outputs.length > 0 ? outputs.length : undefined} open={isOpen("outputs")} onToggle={() => toggle("outputs")}>
-        {outputs.length === 0 ? (
-          <p className="hint">{t("out_none")}</p>
+      {/* Before the changes and the outputs: of everything in the bar,
+          what is still running is what gets looked at most. */}
+      <Section
+        id="bg"
+        title={t("sec_bg")}
+        summary={background && background.some((b) => !b.doneAt) ? background.filter((b) => !b.doneAt).length : undefined}
+        open={isOpen("bg")}
+        onToggle={() => toggle("bg")}
+      >
+        {!background || background.length === 0 ? (
+          <p className="hint">{t("sp_bg_none")}</p>
         ) : (
-          outputs.map((o) => {
-            // A page is named by its title with the icon of its kind; a
-            // markdown of the workspace is a doc; anything else, a file.
-            const PageIcon = o.page ? KIND_ICON[o.page.kind] : null;
-            return (
-              <button key={o.path} className="sp-out" onClick={() => onOpenPath(o.path)} title={`${o.path} · ${t(`out_${o.kind}`)}`}>
-                {PageIcon && o.page ? (
-                  <PageIcon size={13} className={`art-kind ${o.page.kind}`} />
-                ) : o.kind === "delivered" ? (
-                  <Package size={13} />
-                ) : /\.(md|markdown)$/i.test(o.path) ? (
-                  <FileText size={13} className="sp-out-doc" />
-                ) : (
-                  <File size={13} />
-                )}
-                <span className="sp-out-name">{o.page ? o.page.title : basename(o.path)}</span>
-                <span className="dim sp-out-dir">{o.page ? t("out_page_in", { space: o.page.space }) : dirname(o.path)}</span>
-              </button>
-            );
-          })
+          <>
+            {background
+              .filter((b) => !b.doneAt)
+              .map((b) => (
+                <div key={b.id} className="sp-row" title={b.command}>
+                  <SquareTerminal size={13} />
+                  <span>{b.description || b.command}</span>
+                  <span className="dim sp-bg-when">{elapsed(Date.now() - b.startedAt)} ●</span>
+                </div>
+              ))}
+            {background.some((b) => b.doneAt) && (
+              <div className="sp-row" title={background.filter((b) => b.doneAt).map((b) => b.summary ?? b.description).join("\n")}>
+                <CheckCircle2 size={13} />
+                <span>{t("sp_bg_done_n", { n: background.filter((b) => b.doneAt).length })}</span>
+              </div>
+            )}
+          </>
         )}
       </Section>
 
@@ -335,33 +354,30 @@ export default function SessionPanel({
         )}
       </Section>
 
-      <Section
-        id="bg"
-        title={t("sec_bg")}
-        summary={background && background.some((b) => !b.doneAt) ? background.filter((b) => !b.doneAt).length : undefined}
-        open={isOpen("bg")}
-        onToggle={() => toggle("bg")}
-      >
-        {!background || background.length === 0 ? (
-          <p className="hint">{t("sp_bg_none")}</p>
+      <Section id="outputs" title={t("sec_outputs")} summary={outputs.length > 0 ? outputs.length : undefined} open={isOpen("outputs")} onToggle={() => toggle("outputs")}>
+        {outputs.length === 0 ? (
+          <p className="hint">{t("out_none")}</p>
         ) : (
-          <>
-            {background
-              .filter((b) => !b.doneAt)
-              .map((b) => (
-                <div key={b.id} className="sp-row" title={b.command}>
-                  <SquareTerminal size={13} />
-                  <span>{b.description || b.command}</span>
-                  <span className="dim sp-bg-when">{Math.max(1, Math.round((Date.now() - b.startedAt) / 1000))} s ●</span>
-                </div>
-              ))}
-            {background.some((b) => b.doneAt) && (
-              <div className="sp-row" title={background.filter((b) => b.doneAt).map((b) => b.summary ?? b.description).join("\n")}>
-                <CheckCircle2 size={13} />
-                <span>{t("sp_bg_done_n", { n: background.filter((b) => b.doneAt).length })}</span>
-              </div>
-            )}
-          </>
+          outputs.map((o) => {
+            // A page is named by its title with the icon of its kind; a
+            // markdown of the workspace is a doc; anything else, a file.
+            const PageIcon = o.page ? KIND_ICON[o.page.kind] : null;
+            return (
+              <button key={o.path} className="sp-out" onClick={() => onOpenPath(o.path)} title={`${o.path} · ${t(`out_${o.kind}`)}`}>
+                {PageIcon && o.page ? (
+                  <PageIcon size={13} className={`art-kind ${o.page.kind}`} />
+                ) : o.kind === "delivered" ? (
+                  <Package size={13} />
+                ) : /\.(md|markdown)$/i.test(o.path) ? (
+                  <FileText size={13} className="sp-out-doc" />
+                ) : (
+                  <File size={13} />
+                )}
+                <span className="sp-out-name">{o.page ? o.page.title : basename(o.path)}</span>
+                <span className="dim sp-out-dir">{o.page ? t("out_page_in", { space: o.page.space }) : dirname(o.path)}</span>
+              </button>
+            );
+          })
         )}
       </Section>
 
